@@ -1,0 +1,771 @@
+package io.github.jamal_wia.kmptoolkit.files.testing
+
+import io.github.jamal_wia.kmptoolkit.files.CancellationCheck
+import io.github.jamal_wia.kmptoolkit.files.ExistingFile
+import io.github.jamal_wia.kmptoolkit.files.FileAccess
+import io.github.jamal_wia.kmptoolkit.files.FileError
+import io.github.jamal_wia.kmptoolkit.files.FileKind
+import io.github.jamal_wia.kmptoolkit.files.FileMetadata
+import io.github.jamal_wia.kmptoolkit.files.FileResult
+import io.github.jamal_wia.kmptoolkit.files.FileNames
+import io.github.jamal_wia.kmptoolkit.files.MoveOptions
+import io.github.jamal_wia.kmptoolkit.files.WriteOptions
+import io.github.jamal_wia.kmptoolkit.files.exists
+import io.github.jamal_wia.kmptoolkit.files.getOrNull
+import io.github.jamal_wia.kmptoolkit.files.isSuccess
+import io.github.jamal_wia.kmptoolkit.files.withIo
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+
+/**
+ * What [FileAccessContract] needs to check one [FileAccess]: the instance, an empty directory to work in, and how to
+ * make a symbolic link where the file system has them.
+ *
+ * @property files the implementation under test.
+ * @property root an existing, empty directory, absolute in [files]' path syntax. Every check works inside it.
+ * @property separator the character that joins a directory and a name in [files]' syntax.
+ * @property createSymbolicLink creates a symbolic link at `path` pointing at `target` (an absolute path in the same
+ *   syntax), or `null` where the checks that need a link are to be skipped.
+ * @property cleanup runs after the check, even when it failed: remove what the fixture created.
+ * @since 5.0.0
+ */
+public class FileAccessFixture(
+    public val files: FileAccess,
+    public val root: String,
+    // path-hygiene-ignore: PH5 the default separator of a fixture is the POSIX one of the fake; real fixtures pass their own
+    public val separator: Char = '/',
+    public val createSymbolicLink: ((path: String, target: String) -> Unit)? = null,
+    public val cleanup: () -> Unit = {},
+)
+
+/**
+ * A contract of [FileAccess] that an implementation does not keep. The message starts with the name of the check.
+ *
+ * @since 5.0.0
+ */
+public class FileAccessContractViolation(message: String) : AssertionError(message)
+
+/**
+ * Every observable [FileAccess] contract as a plain check, for the implementations that must keep it: a decorator
+ * that adds logging, retries or a quota, a custom [FileAccess], or a new platform. Each check builds its own fixture
+ * with [createFixture], works only inside the fixture's root, runs the fixture's cleanup and throws
+ * [FileAccessContractViolation] naming the rule when the implementation breaks it. Crash and power-loss behaviour is
+ * not observable through the interface and is covered by `FakeFileAccess` and its own tests.
+ *
+ * ```kotlin
+ * @Test
+ * fun `my decorator keeps the FileAccess contract`() {
+ *     FileAccessContract { FileAccessFixture(MyDecorator(createFileAccess()), root = newEmptyDirectory()) }.verifyAll()
+ * }
+ * ```
+ *
+ * The checks never assert a modification time or the exact free space: a real clock and a real volume cannot be
+ * pinned from outside. They use plain Kotlin only (no test framework), so the module has no test-library dependency.
+ *
+ * @param createFixture builds a fresh fixture; called once per check.
+ * @since 5.0.0
+ */
+public class FileAccessContract(private val createFixture: () -> FileAccessFixture) {
+
+    /** Runs every check below, each with its own fixture; stops at the first violation. */
+    public fun verifyAll() {
+        metadataReportsKinds()
+        metadataDoesNotFollowLinksByDefault()
+        metadataFollowLinksReportsTheTarget()
+        metadataOfADanglingLinkIsNullWhenFollowing()
+        listIsSortedWithoutDotEntries()
+        listOfAnAbsentDirectoryIsEmpty()
+        listOfAFileIsNotADirectory()
+        createDirectoriesCreatesParentsAndIsIdempotent()
+        createDirectoriesOverAFileIsNotADirectory()
+        createDirectoriesByConcurrentCreatorsAllSucceed()
+        readBytesOfAnAbsentFileIsNotFound()
+        readBytesOfADirectoryIsADirectory()
+        readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead()
+        readBytesRejectsAnInvalidMax()
+        writeAtomicallyReplacesTheWholeContent()
+        writeAtomicallyAcceptsEmptyContent()
+        writeAtomicallyWithAMissingParentIsNotFound()
+        writeAtomicallyCreatesParentDirectoriesWhenAsked()
+        writeAtomicallyOverADirectoryIsADirectory()
+        writeAtomicallyWithFailRefusesAnExistingTarget()
+        writeAtomicallyLeavesNoTemporaryFile()
+        writeAtomicallyReplacesASymbolicLinkNotItsTarget()
+        writeAtomicallyHonoursTheTempDirectoryAndLeavesItClean()
+        writeAtomicallyWithACustomTempPrefixLeavesNothing()
+        writeAtomicallyRejectsRelativeEmptyAndNulPaths()
+        concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload()
+        moveReplacesTheTargetWithTheSourceContent()
+        moveWithFailNeverReplaces()
+        moveOfAMissingSourceIsNotFound()
+        moveOverADirectoryIsADirectory()
+        moveCreatesParentDirectoriesWhenAsked()
+        moveWithAMissingParentIsNotFound()
+        moveMovesASymbolicLinkAsALink()
+        moveMovesADirectoryWithinOneVolume()
+        deleteRemovesAFileALinkAndAnEmptyDirectory()
+        deleteOfASymbolicLinkLeavesItsTarget()
+        deleteOfAnAbsentPathIsSuccess()
+        deleteOfANonEmptyDirectoryIsDirectoryNotEmpty()
+        deleteRecursivelyRemovesAFullTree()
+        deleteRecursivelyOfAnAbsentPathIsSuccess()
+        deleteRecursivelyDoesNotFollowSymbolicLinks()
+        deleteRecursivelyByConcurrentDeletersAllSucceed()
+        deleteRecursivelyStopsWhenCancelled()
+        treeSizeSumsTheRegularFiles()
+        treeSizeOfAnAbsentPathIsZero()
+        treeSizeCountsALinkAsZero()
+        treeSizeStopsWhenCancelled()
+        sweepKeepsEntriesNewerThanTheAge()
+        sweepNeverDeletesWhatDoesNotMatchOrADirectory()
+        sweepOfAnAbsentDirectoryIsZero()
+        sweepRejectsANegativeAge()
+        sweepPropagatesExceptionsOfTheMatcher()
+        freeSpaceOfAMissingPathFollowsItsAncestor()
+        existsFollowsSymbolicLinks()
+        withIoCancelledThrowsCancellationException()
+        withIoReturnsTheResultOfTheBlock()
+    }
+
+    // ---- metadata ---------------------------------------------------------------------------------
+
+    /** `metadata` reports a file with its size, a directory, and `null` for an absent path. */
+    public fun metadataReportsKinds(): Unit = scenario("metadataReportsKinds") {
+        write("f", "hello")
+        mkdir("d")
+        val file: FileMetadata = files.metadata(p("f")) ?: violation("a file has metadata")
+        expect(file.kind == FileKind.RegularFile, "a file reports RegularFile, was ${file.kind}")
+        expect(file.sizeBytes == 5L, "a file reports its length, was ${file.sizeBytes}")
+        val directory: FileMetadata = files.metadata(p("d")) ?: violation("a directory has metadata")
+        expect(directory.kind == FileKind.Directory, "a directory reports Directory, was ${directory.kind}")
+        expect(directory.sizeBytes == 0L, "a directory reports size 0, was ${directory.sizeBytes}")
+        expect(files.metadata(p("absent")) == null, "an absent path has no metadata")
+    }
+
+    /** A symbolic link reports [FileKind.SymbolicLink] by default and is never followed. */
+    public fun metadataDoesNotFollowLinksByDefault(): Unit = scenario("metadataDoesNotFollowLinksByDefault") {
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        write("target", "t")
+        link(p("link"), p("target"))
+        expect(files.metadata(p("link"))?.kind == FileKind.SymbolicLink, "the default does not follow a link")
+        expect(files.metadata(p("link"), followLinks = false)?.kind == FileKind.SymbolicLink, "followLinks = false does not follow")
+    }
+
+    /** With `followLinks = true` a link reports its target. */
+    public fun metadataFollowLinksReportsTheTarget(): Unit = scenario("metadataFollowLinksReportsTheTarget") {
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        write("target", "four")
+        mkdir("dir")
+        link(p("l1"), p("target"))
+        link(p("l2"), p("dir"))
+        val toFile: FileMetadata = files.metadata(p("l1"), followLinks = true) ?: violation("a followed link has metadata")
+        expect(toFile.kind == FileKind.RegularFile && toFile.sizeBytes == 4L, "a followed link reports its file target, was $toFile")
+        expect(files.metadata(p("l2"), followLinks = true)?.kind == FileKind.Directory, "a followed link reports its directory target")
+    }
+
+    /** A dangling link is `null` when followed and still a link otherwise. */
+    public fun metadataOfADanglingLinkIsNullWhenFollowing(): Unit = scenario("metadataOfADanglingLinkIsNullWhenFollowing") {
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        link(p("dangling"), p("nothing-here"))
+        expect(files.metadata(p("dangling"), followLinks = true) == null, "a dangling link followed has no metadata")
+        expect(files.metadata(p("dangling"))?.kind == FileKind.SymbolicLink, "a dangling link itself is a SymbolicLink")
+        expect(!files.exists(p("dangling")), "exists follows links, so a dangling link does not exist")
+    }
+
+    // ---- list and createDirectories ---------------------------------------------------------------
+
+    /** `list` returns the names sorted by `String.compareTo`, without `.` and `..`. */
+    public fun listIsSortedWithoutDotEntries(): Unit = scenario("listIsSortedWithoutDotEntries") {
+        for (name: String in listOf("b", "a", "C", "ab", "D")) write(name, name)
+        mkdir("sub")
+        val names: List<String> = ok(files.list(root), "list")
+        expect(names == names.sorted(), "names must be sorted by String.compareTo, were $names")
+        expect(names.toSet() == setOf("a", "ab", "b", "C", "D", "sub"), "every entry and no more, was $names")
+        expect("." !in names && ".." !in names, "no dot entries")
+    }
+
+    /** An absent directory lists as empty. */
+    public fun listOfAnAbsentDirectoryIsEmpty(): Unit = scenario("listOfAnAbsentDirectoryIsEmpty") {
+        expect(ok(files.list(p("absent")), "list of an absent directory").isEmpty(), "an absent directory lists as empty")
+    }
+
+    /** Listing a file is [FileError.NotADirectory]. */
+    public fun listOfAFileIsNotADirectory(): Unit = scenario("listOfAFileIsNotADirectory") {
+        write("f", "x")
+        failure<FileError.NotADirectory>(files.list(p("f")), "list of a file")
+    }
+
+    /** `createDirectories` creates every missing parent, is idempotent, and leaves a directory. */
+    public fun createDirectoriesCreatesParentsAndIsIdempotent(): Unit = scenario("createDirectoriesCreatesParentsAndIsIdempotent") {
+        val deep: String = p("a", "b", "c")
+        ok(files.createDirectories(deep), "createDirectories")
+        ok(files.createDirectories(deep), "createDirectories again")
+        ok(files.createDirectories(p("a")), "createDirectories of an existing parent")
+        expect(files.metadata(deep)?.kind == FileKind.Directory, "the deepest level is a directory")
+        expect(files.metadata(p("a"))?.kind == FileKind.Directory, "the first level is a directory")
+    }
+
+    /** A file at the path or in the way is [FileError.NotADirectory]. */
+    public fun createDirectoriesOverAFileIsNotADirectory(): Unit = scenario("createDirectoriesOverAFileIsNotADirectory") {
+        write("f", "x")
+        failure<FileError.NotADirectory>(files.createDirectories(p("f")), "createDirectories over a file")
+        failure<FileError.NotADirectory>(files.createDirectories(p("f", "x")), "createDirectories below a file")
+        expect(text("f") == "x", "the file is untouched")
+    }
+
+    /** Concurrent creators of one directory all succeed. */
+    public fun createDirectoriesByConcurrentCreatorsAllSucceed(): Unit = scenario("createDirectoriesByConcurrentCreatorsAllSucceed") {
+        val deep: String = p("x", "y", "z")
+        val problems: Array<String?> = arrayOfNulls(WORKERS)
+        runConcurrently(WORKERS) { index ->
+            val result: FileResult<Unit> = files.createDirectories(deep)
+            if (!result.isSuccess) problems[index] = "worker $index got $result"
+        }
+        expect(problems.all { it == null }, "every concurrent creator must succeed: ${problems.filterNotNull()}")
+        expect(files.metadata(deep)?.kind == FileKind.Directory, "the directory exists afterwards")
+    }
+
+    // ---- readBytes --------------------------------------------------------------------------------
+
+    /** An absent file is [FileError.NotFound], naming the path. */
+    public fun readBytesOfAnAbsentFileIsNotFound(): Unit = scenario("readBytesOfAnAbsentFileIsNotFound") {
+        val error: FileError.NotFound = failure(files.readBytes(p("absent"), 10), "readBytes of an absent file")
+        expect(error.path == p("absent"), "the error names the path, was ${error.path}")
+    }
+
+    /** A directory is [FileError.IsADirectory]. */
+    public fun readBytesOfADirectoryIsADirectory(): Unit = scenario("readBytesOfADirectoryIsADirectory") {
+        mkdir("d")
+        failure<FileError.IsADirectory>(files.readBytes(p("d"), 10), "readBytes of a directory")
+    }
+
+    /** A file larger than `maxBytes` is [FileError.TooLarge] and is not returned in part; exactly `maxBytes` is read. */
+    public fun readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead(): Unit = scenario("readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead") {
+        write("f", "0123456789")
+        val tooLarge: FileError.TooLarge = failure(files.readBytes(p("f"), 9), "readBytes with max = size - 1")
+        expect(tooLarge.maxBytes == 9L && tooLarge.sizeBytes >= 10L, "TooLarge carries the limit and the size, was $tooLarge")
+        expect(ok(files.readBytes(p("f"), 10), "readBytes with max = size").decodeToString() == "0123456789", "exact max reads everything")
+        expect(ok(files.readBytes(p("f"), 1000), "readBytes with a large max").size == 10, "a large max reads everything")
+        write("empty", "")
+        expect(ok(files.readBytes(p("empty"), 0), "readBytes of an empty file with max 0").isEmpty(), "an empty file with max 0 reads empty")
+    }
+
+    /** A negative `maxBytes` or one above `MAX_READ_BYTES` throws [IllegalArgumentException]. */
+    public fun readBytesRejectsAnInvalidMax(): Unit = scenario("readBytesRejectsAnInvalidMax") {
+        write("f", "x")
+        expectIllegalArgument("a negative maxBytes") { files.readBytes(p("f"), -1) }
+        expectIllegalArgument("a maxBytes above MAX_READ_BYTES") { files.readBytes(p("f"), FileAccess.MAX_READ_BYTES + 1) }
+        expect(files.readBytes(p("f"), FileAccess.MAX_READ_BYTES).isSuccess, "MAX_READ_BYTES itself is accepted")
+    }
+
+    // ---- writeAtomically --------------------------------------------------------------------------
+
+    /** The new content replaces the old one whole. */
+    public fun writeAtomicallyReplacesTheWholeContent(): Unit = scenario("writeAtomicallyReplacesTheWholeContent") {
+        write("f", "a long previous content")
+        ok(files.writeAtomically(p("f"), "new".encodeToByteArray()), "writeAtomically")
+        expect(text("f") == "new", "the file holds exactly the new bytes, was '${text("f")}'")
+        expect(names(root) == listOf("f"), "nothing else is left in the directory, was ${names(root)}")
+    }
+
+    /** An empty array is valid and creates an empty file. */
+    public fun writeAtomicallyAcceptsEmptyContent(): Unit = scenario("writeAtomicallyAcceptsEmptyContent") {
+        ok(files.writeAtomically(p("f"), ByteArray(0)), "writeAtomically of nothing")
+        expect(files.metadata(p("f"))?.sizeBytes == 0L, "an empty file exists")
+        write("g", "content")
+        ok(files.writeAtomically(p("g"), ByteArray(0)), "writeAtomically of nothing over content")
+        expect(text("g") == "", "the old content is gone")
+    }
+
+    /** A missing parent is [FileError.NotFound] unless parents are created. */
+    public fun writeAtomicallyWithAMissingParentIsNotFound(): Unit = scenario("writeAtomicallyWithAMissingParentIsNotFound") {
+        failure<FileError.NotFound>(files.writeAtomically(p("nope", "f"), ByteArray(1)), "writeAtomically with a missing parent")
+        expect(files.metadata(p("nope")) == null, "nothing was created")
+        expect(names(root).isEmpty(), "no temporary file is left, was ${names(root)}")
+    }
+
+    /** `createParentDirectories` creates the parent first. */
+    public fun writeAtomicallyCreatesParentDirectoriesWhenAsked(): Unit = scenario("writeAtomicallyCreatesParentDirectoriesWhenAsked") {
+        ok(files.writeAtomically(p("a", "b", "f"), "v".encodeToByteArray(), WriteOptions(createParentDirectories = true)), "writeAtomically")
+        expect(text("a", "b", "f") == "v", "the file is there")
+        expect(names(p("a", "b")) == listOf("f"), "and nothing else beside it")
+    }
+
+    /** A directory at the path is [FileError.IsADirectory] and stays. */
+    public fun writeAtomicallyOverADirectoryIsADirectory(): Unit = scenario("writeAtomicallyOverADirectoryIsADirectory") {
+        mkdir("d")
+        write("d/inner", "x")
+        failure<FileError.IsADirectory>(files.writeAtomically(p("d"), ByteArray(1)), "writeAtomically over a directory")
+        expect(files.metadata(p("d"))?.kind == FileKind.Directory, "the directory is untouched")
+        expect(names(root) == listOf("d"), "no temporary file is left, was ${names(root)}")
+    }
+
+    /** [ExistingFile.Fail] refuses an existing target and leaves it and the directory unchanged; on an absent one it writes. */
+    public fun writeAtomicallyWithFailRefusesAnExistingTarget(): Unit = scenario("writeAtomicallyWithFailRefusesAnExistingTarget") {
+        write("f", "old")
+        failure<FileError.AlreadyExists>(
+            files.writeAtomically(p("f"), "new".encodeToByteArray(), WriteOptions(existing = ExistingFile.Fail)),
+            "writeAtomically with Fail over an existing file",
+        )
+        expect(text("f") == "old", "the target keeps its bytes")
+        expect(names(root) == listOf("f"), "no temporary file is left, was ${names(root)}")
+        ok(files.writeAtomically(p("g"), "fresh".encodeToByteArray(), WriteOptions(existing = ExistingFile.Fail)), "writeAtomically with Fail on an absent target")
+        expect(text("g") == "fresh", "the new file holds the bytes")
+        expect(names(root) == listOf("f", "g"), "still no temporary file, was ${names(root)}")
+    }
+
+    /** After success no temporary file remains, and temporary names are recognised by [FileNames.isTempName] if any is seen. */
+    public fun writeAtomicallyLeavesNoTemporaryFile(): Unit = scenario("writeAtomicallyLeavesNoTemporaryFile") {
+        repeat(25) { ok(files.writeAtomically(p("f"), "v$it".encodeToByteArray()), "writeAtomically $it") }
+        expect(names(root) == listOf("f"), "only the target is left after 25 writes, was ${names(root)}")
+        expect(names(root).none { FileNames.isTempName(it) }, "no temporary name is left")
+    }
+
+    /** A symbolic link at the path is replaced by a regular file; its target is untouched. */
+    public fun writeAtomicallyReplacesASymbolicLinkNotItsTarget(): Unit = scenario("writeAtomicallyReplacesASymbolicLinkNotItsTarget") {
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        write("target", "old")
+        link(p("link"), p("target"))
+        ok(files.writeAtomically(p("link"), "new".encodeToByteArray()), "writeAtomically over a link")
+        expect(files.metadata(p("link"))?.kind == FileKind.RegularFile, "the link is now a regular file")
+        expect(text("link") == "new", "the path holds the new bytes")
+        expect(text("target") == "old", "the link's target is untouched")
+    }
+
+    /** The temporary file goes to `tempDirectory`, which is left clean. */
+    public fun writeAtomicallyHonoursTheTempDirectoryAndLeavesItClean(): Unit = scenario("writeAtomicallyHonoursTheTempDirectoryAndLeavesItClean") {
+        mkdir("tmp")
+        ok(
+            files.writeAtomically(p("out", "f"), "v".encodeToByteArray(), WriteOptions(createParentDirectories = true, tempDirectory = p("tmp"))),
+            "writeAtomically through a temp directory",
+        )
+        expect(text("out", "f") == "v", "the target holds the bytes")
+        expect(names(p("tmp")).isEmpty(), "the temp directory is clean, was ${names(p("tmp"))}")
+        expect(names(p("out")) == listOf("f"), "the target directory holds only the target, was ${names(p("out"))}")
+        ok(files.writeAtomically(p("g"), "w".encodeToByteArray(), WriteOptions(tempDirectory = p("tmp-created"), createParentDirectories = true)), "writeAtomically creating its temp directory")
+        expect(names(p("tmp-created")).isEmpty(), "a created temp directory is clean too")
+    }
+
+    /** A custom temp prefix works and leaves nothing behind. */
+    public fun writeAtomicallyWithACustomTempPrefixLeavesNothing(): Unit = scenario("writeAtomicallyWithACustomTempPrefixLeavesNothing") {
+        ok(files.writeAtomically(p("f"), "v".encodeToByteArray(), WriteOptions(tempPrefix = "my-prefix-")), "writeAtomically with a prefix")
+        expect(names(root) == listOf("f"), "nothing but the target is left, was ${names(root)}")
+    }
+
+    /** A relative, empty or NUL-containing path is [FileError.InvalidPath]; queries answer null or false. */
+    public fun writeAtomicallyRejectsRelativeEmptyAndNulPaths(): Unit = scenario("writeAtomicallyRejectsRelativeEmptyAndNulPaths") {
+        for (path: String in listOf("", "relative", "dir${separator}relative", "a\u0000b")) {
+            val error: FileError.InvalidPath = failure(files.writeAtomically(path, ByteArray(1)), "writeAtomically of '$path'")
+            expect(error.path == path, "the error names the path '$path', was '${error.path}'")
+            failure<FileError.InvalidPath>(files.readBytes(path, 1), "readBytes of '$path'")
+            expect(files.metadata(path) == null, "metadata of '$path' is null")
+            expect(!files.exists(path), "exists of '$path' is false")
+        }
+    }
+
+    /** Concurrent writers of one path never share a temporary file: all succeed and one whole payload is left. */
+    public fun concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload(): Unit =
+        scenario("concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload") {
+            val payloads: List<ByteArray> = List(WORKERS) { index -> ByteArray(4096) { (index + 1).toByte() } }
+            val problems: Array<String?> = arrayOfNulls(WORKERS)
+            runConcurrently(WORKERS) { index ->
+                repeat(25) {
+                    val result: FileResult<Unit> = files.writeAtomically(p("f"), payloads[index])
+                    if (!result.isSuccess) problems[index] = "worker $index got $result"
+                }
+            }
+            expect(problems.all { it == null }, "every concurrent writer must succeed: ${problems.filterNotNull()}")
+            val content: ByteArray = ok(files.readBytes(p("f"), 1 shl 20), "readBytes")
+            expect(payloads.any { it.contentEquals(content) }, "the file holds one whole payload, not a mix (size ${content.size})")
+            expect(names(root) == listOf("f"), "no temporary file is left, was ${names(root)}")
+        }
+
+    // ---- move -------------------------------------------------------------------------------------
+
+    /** `Replace` moves the content over an existing file and removes the source. */
+    public fun moveReplacesTheTargetWithTheSourceContent(): Unit = scenario("moveReplacesTheTargetWithTheSourceContent") {
+        write("a", "A")
+        write("b", "B")
+        ok(files.move(p("a"), p("b")), "move")
+        expect(text("b") == "A", "the target holds the source content")
+        expect(files.metadata(p("a")) == null, "the source is gone")
+        write("c", "C")
+        ok(files.move(p("c"), p("fresh")), "move to an absent target")
+        expect(text("fresh") == "C" && files.metadata(p("c")) == null, "a move to a new name works too")
+        expect(names(root) == listOf("b", "fresh"), "nothing else is left, was ${names(root)}")
+    }
+
+    /** [ExistingFile.Fail] never replaces: [FileError.AlreadyExists], both files unchanged; an absent target works. */
+    public fun moveWithFailNeverReplaces(): Unit = scenario("moveWithFailNeverReplaces") {
+        write("a", "A")
+        write("b", "B")
+        failure<FileError.AlreadyExists>(files.move(p("a"), p("b"), MoveOptions(existing = ExistingFile.Fail)), "move with Fail over a file")
+        expect(text("a") == "A" && text("b") == "B", "both files keep their bytes")
+        ok(files.move(p("a"), p("c"), MoveOptions(existing = ExistingFile.Fail)), "move with Fail to an absent target")
+        expect(text("c") == "A" && files.metadata(p("a")) == null, "the source moved")
+        expect(names(root) == listOf("b", "c"), "no temporary file is left, was ${names(root)}")
+    }
+
+    /** An absent source is [FileError.NotFound]. */
+    public fun moveOfAMissingSourceIsNotFound(): Unit = scenario("moveOfAMissingSourceIsNotFound") {
+        failure<FileError.NotFound>(files.move(p("absent"), p("target")), "move of an absent source")
+        expect(files.metadata(p("target")) == null, "nothing was created")
+    }
+
+    /** A directory at the target is [FileError.IsADirectory] and is never replaced. */
+    public fun moveOverADirectoryIsADirectory(): Unit = scenario("moveOverADirectoryIsADirectory") {
+        write("a", "A")
+        mkdir("d")
+        failure<FileError.IsADirectory>(files.move(p("a"), p("d")), "move over a directory")
+        expect(text("a") == "A" && files.metadata(p("d"))?.kind == FileKind.Directory, "both are untouched")
+    }
+
+    /** `createParentDirectories` creates the parent of the target. */
+    public fun moveCreatesParentDirectoriesWhenAsked(): Unit = scenario("moveCreatesParentDirectoriesWhenAsked") {
+        write("a", "A")
+        ok(files.move(p("a"), p("x", "y", "f"), MoveOptions(createParentDirectories = true)), "move creating parents")
+        expect(text("x", "y", "f") == "A" && files.metadata(p("a")) == null, "the file moved into the new directories")
+    }
+
+    /** Without it a missing parent is [FileError.NotFound] and the source stays. */
+    public fun moveWithAMissingParentIsNotFound(): Unit = scenario("moveWithAMissingParentIsNotFound") {
+        write("a", "A")
+        failure<FileError.NotFound>(files.move(p("a"), p("nope", "f")), "move into a missing directory")
+        expect(text("a") == "A", "the source is untouched")
+        expect(files.metadata(p("nope")) == null, "no directory was created")
+    }
+
+    /** Links are moved as links: the link moves and its target stays. */
+    public fun moveMovesASymbolicLinkAsALink(): Unit = scenario("moveMovesASymbolicLinkAsALink") {
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        write("target", "t")
+        link(p("link"), p("target"))
+        ok(files.move(p("link"), p("moved")), "move of a link")
+        expect(files.metadata(p("moved"))?.kind == FileKind.SymbolicLink, "the moved entry is still a link")
+        expect(files.metadata(p("link")) == null, "the old name is gone")
+        expect(text("target") == "t", "the target is untouched")
+    }
+
+    /** A directory moves within a volume with its content. */
+    public fun moveMovesADirectoryWithinOneVolume(): Unit = scenario("moveMovesADirectoryWithinOneVolume") {
+        mkdir("d")
+        write("d${separator}inner", "x")
+        ok(files.move(p("d"), p("e")), "move of a directory")
+        expect(text("e", "inner") == "x", "the content moved with it")
+        expect(files.metadata(p("d")) == null, "the old name is gone")
+    }
+
+    // ---- delete -----------------------------------------------------------------------------------
+
+    /** `delete` removes a file, a link and an empty directory. */
+    public fun deleteRemovesAFileALinkAndAnEmptyDirectory(): Unit = scenario("deleteRemovesAFileALinkAndAnEmptyDirectory") {
+        write("f", "x")
+        mkdir("d")
+        ok(files.delete(p("f")), "delete of a file")
+        ok(files.delete(p("d")), "delete of an empty directory")
+        expect(names(root).isEmpty(), "both are gone, was ${names(root)}")
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        write("t", "x")
+        link(p("l"), p("t"))
+        ok(files.delete(p("l")), "delete of a link")
+        expect(files.metadata(p("l")) == null, "the link is gone")
+    }
+
+    /** `delete` of a link never touches its target. */
+    public fun deleteOfASymbolicLinkLeavesItsTarget(): Unit = scenario("deleteOfASymbolicLinkLeavesItsTarget") {
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        write("t", "keep")
+        link(p("l"), p("t"))
+        ok(files.delete(p("l")), "delete of a link")
+        expect(text("t") == "keep", "the target survives")
+    }
+
+    /** An absent path is Success. */
+    public fun deleteOfAnAbsentPathIsSuccess(): Unit = scenario("deleteOfAnAbsentPathIsSuccess") {
+        ok(files.delete(p("absent")), "delete of an absent path")
+    }
+
+    /** A non-empty directory is [FileError.DirectoryNotEmpty] and keeps its content. */
+    public fun deleteOfANonEmptyDirectoryIsDirectoryNotEmpty(): Unit = scenario("deleteOfANonEmptyDirectoryIsDirectoryNotEmpty") {
+        mkdir("d")
+        write("d${separator}inner", "x")
+        failure<FileError.DirectoryNotEmpty>(files.delete(p("d")), "delete of a non-empty directory")
+        expect(text("d", "inner") == "x", "the content is untouched")
+    }
+
+    // ---- deleteRecursively and treeSize -----------------------------------------------------------
+
+    private fun Scope.buildTree(base: String, fileCount: Int = 12) {
+        mkdir(base)
+        for (level: Int in 1..3) mkdir(listOf(base, *Array(level) { "l$it" }).joinToString(separator.toString()))
+        for (index: Int in 0 until fileCount) {
+            val dir: String = listOf(base, *Array(index % 4) { "l$it" }).joinToString(separator.toString())
+            write("$dir${separator}f$index", "x".repeat(index + 1))
+        }
+    }
+
+    /** `deleteRecursively` removes the path and everything under it. */
+    public fun deleteRecursivelyRemovesAFullTree(): Unit = scenario("deleteRecursivelyRemovesAFullTree") {
+        buildTree("tree")
+        ok(files.deleteRecursively(p("tree")), "deleteRecursively")
+        expect(files.metadata(p("tree")) == null, "nothing is left at the path")
+        expect(names(root).isEmpty(), "and nothing else was touched or left, was ${names(root)}")
+    }
+
+    /** An absent path is Success. */
+    public fun deleteRecursivelyOfAnAbsentPathIsSuccess(): Unit = scenario("deleteRecursivelyOfAnAbsentPathIsSuccess") {
+        ok(files.deleteRecursively(p("absent")), "deleteRecursively of an absent path")
+    }
+
+    /** Symbolic links inside the tree are removed, never followed: what they point at stays. */
+    public fun deleteRecursivelyDoesNotFollowSymbolicLinks(): Unit = scenario("deleteRecursivelyDoesNotFollowSymbolicLinks") {
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        mkdir("outside")
+        write("outside${separator}keep", "precious")
+        mkdir("tree")
+        write("tree${separator}own", "x")
+        link(p("tree", "to-dir"), p("outside"))
+        link(p("tree", "to-file"), p("outside", "keep"))
+        ok(files.deleteRecursively(p("tree")), "deleteRecursively")
+        expect(files.metadata(p("tree")) == null, "the tree is gone")
+        expect(text("outside", "keep") == "precious", "what the links pointed at is untouched")
+    }
+
+    /** Concurrent deletes of one tree all succeed. */
+    public fun deleteRecursivelyByConcurrentDeletersAllSucceed(): Unit = scenario("deleteRecursivelyByConcurrentDeletersAllSucceed") {
+        buildTree("tree", fileCount = 40)
+        val problems: Array<String?> = arrayOfNulls(WORKERS)
+        runConcurrently(WORKERS) { index ->
+            val result: FileResult<Unit> = files.deleteRecursively(p("tree"))
+            if (!result.isSuccess) problems[index] = "worker $index got $result"
+        }
+        expect(problems.all { it == null }, "every concurrent deleter must succeed: ${problems.filterNotNull()}")
+        expect(files.metadata(p("tree")) == null, "the tree is gone")
+    }
+
+    /** A cancelled check stops the walk with [FileError.Cancelled] before it removes anything. */
+    public fun deleteRecursivelyStopsWhenCancelled(): Unit = scenario("deleteRecursivelyStopsWhenCancelled") {
+        buildTree("tree")
+        failure<FileError.Cancelled>(files.deleteRecursively(p("tree"), CancellationCheck { true }), "deleteRecursively when cancelled")
+        expect(files.metadata(p("tree")) != null, "the tree is still there")
+        ok(files.deleteRecursively(p("tree")), "deleteRecursively again")
+        expect(files.metadata(p("tree")) == null, "and now it goes")
+    }
+
+    /** `treeSize` sums the regular files at or under the path. */
+    public fun treeSizeSumsTheRegularFiles(): Unit = scenario("treeSizeSumsTheRegularFiles") {
+        mkdir("tree")
+        mkdir("tree${separator}sub")
+        write("tree${separator}a", "123")
+        write("tree${separator}sub${separator}b", "12345")
+        expect(ok(files.treeSize(p("tree")), "treeSize") == 8L, "3 + 5 bytes")
+        expect(ok(files.treeSize(p("tree", "a")), "treeSize of a file") == 3L, "a file's own size")
+    }
+
+    /** An absent path is `Success(0)`. */
+    public fun treeSizeOfAnAbsentPathIsZero(): Unit = scenario("treeSizeOfAnAbsentPathIsZero") {
+        expect(ok(files.treeSize(p("absent")), "treeSize of an absent path") == 0L, "an absent path is 0")
+    }
+
+    /** A link counts 0 and is not followed. */
+    public fun treeSizeCountsALinkAsZero(): Unit = scenario("treeSizeCountsALinkAsZero") {
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        mkdir("outside")
+        write("outside${separator}big", "x".repeat(100))
+        mkdir("tree")
+        write("tree${separator}a", "123")
+        link(p("tree", "to-dir"), p("outside"))
+        link(p("tree", "to-file"), p("outside", "big"))
+        expect(ok(files.treeSize(p("tree")), "treeSize with links") == 3L, "only the real file counts")
+    }
+
+    /** A cancelled check ends the walk with [FileError.Cancelled]. */
+    public fun treeSizeStopsWhenCancelled(): Unit = scenario("treeSizeStopsWhenCancelled") {
+        buildTree("tree")
+        failure<FileError.Cancelled>(files.treeSize(p("tree"), CancellationCheck { true }), "treeSize when cancelled")
+    }
+
+    // ---- sweep ------------------------------------------------------------------------------------
+
+    /** Entries newer than the age are kept. */
+    public fun sweepKeepsEntriesNewerThanTheAge(): Unit = scenario("sweepKeepsEntriesNewerThanTheAge") {
+        write("f", "x")
+        write("g", "y")
+        expect(ok(files.sweep(root, 3_600_000L) { true }, "sweep") == 0, "nothing an hour old yet")
+        expect(names(root) == listOf("f", "g"), "both are still there, was ${names(root)}")
+    }
+
+    /** Entries the matcher refuses are never deleted, and a directory never is, whatever its age; the sweep does not recurse. */
+    public fun sweepNeverDeletesWhatDoesNotMatchOrADirectory(): Unit = scenario("sweepNeverDeletesWhatDoesNotMatchOrADirectory") {
+        write("keep", "x")
+        mkdir("sub")
+        write("sub${separator}inner", "y")
+        expect(ok(files.sweep(root, 0L) { false }, "sweep with a matcher that refuses") == 0, "nothing matched")
+        expect(names(root) == listOf("keep", "sub"), "nothing was deleted, was ${names(root)}")
+        ok(files.sweep(root, 0L) { true }, "sweep matching everything")
+        expect(files.metadata(p("sub"))?.kind == FileKind.Directory, "a directory is never deleted")
+        expect(text("sub", "inner") == "y", "the sweep does not recurse")
+    }
+
+    /** An absent directory is `Success(0)`. */
+    public fun sweepOfAnAbsentDirectoryIsZero(): Unit = scenario("sweepOfAnAbsentDirectoryIsZero") {
+        expect(ok(files.sweep(p("absent"), 0L) { true }, "sweep of an absent directory") == 0, "an absent directory sweeps 0")
+    }
+
+    /** A negative age throws [IllegalArgumentException]. */
+    public fun sweepRejectsANegativeAge(): Unit = scenario("sweepRejectsANegativeAge") {
+        expectIllegalArgument("a negative olderThanMillis") { files.sweep(root, -1L) { true } }
+    }
+
+    /** An exception thrown by the matcher propagates unchanged. */
+    public fun sweepPropagatesExceptionsOfTheMatcher(): Unit = scenario("sweepPropagatesExceptionsOfTheMatcher") {
+        write("f", "x")
+        val marker: IllegalStateException = IllegalStateException("from the matcher")
+        val thrown: Throwable? = try {
+            files.sweep(root, 0L) { throw marker }
+            null
+        } catch (t: Throwable) {
+            t
+        }
+        expect(thrown === marker, "the matcher's exception must propagate unchanged, was $thrown")
+    }
+
+    // ---- free space, exists, withIo ---------------------------------------------------------------
+
+    /** The free space of a missing nested path is measured at its nearest existing ancestor. */
+    public fun freeSpaceOfAMissingPathFollowsItsAncestor(): Unit = scenario("freeSpaceOfAMissingPathFollowsItsAncestor") {
+        val ancestor: Long? = files.freeSpaceBytes(root)
+        val nested: Long? = files.freeSpaceBytes(p("missing", "deeper", "still"))
+        expect((ancestor == null) == (nested == null), "a missing path answers like its ancestor: $nested vs $ancestor")
+        expect(ancestor == null || ancestor >= 0L, "free space is never negative, was $ancestor")
+        expect(nested == null || nested >= 0L, "free space is never negative, was $nested")
+        expect(files.metadata(p("missing")) == null, "asking created nothing")
+    }
+
+    /** `exists` follows symbolic links. */
+    public fun existsFollowsSymbolicLinks(): Unit = scenario("existsFollowsSymbolicLinks") {
+        write("f", "x")
+        expect(files.exists(p("f")), "a file exists")
+        expect(!files.exists(p("absent")), "an absent path does not")
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        link(p("good"), p("f"))
+        link(p("dangling"), p("nothing"))
+        expect(files.exists(p("good")), "a link to a file exists")
+        expect(!files.exists(p("dangling")), "a dangling link does not")
+    }
+
+    /** A caller cancelled during `withIo` gets a [CancellationException], never the block's own failure. */
+    public fun withIoCancelledThrowsCancellationException(): Unit = scenario("withIoCancelledThrowsCancellationException") {
+        val outcome: Throwable? = runBlockingForContract {
+            val started: CompletableDeferred<Unit> = CompletableDeferred()
+            val result: CompletableDeferred<Throwable?> = CompletableDeferred()
+            val job: Job = launch(Dispatchers.Default) {
+                try {
+                    files.withIo(Dispatchers.Default) { cancellation ->
+                        started.complete(Unit)
+                        val mark: TimeMark = TimeSource.Monotonic.markNow()
+                        // A real block would be doing I/O; this one waits for its cancellation, with a bound.
+                        while (!cancellation.isCancelled() && mark.elapsedNow() < 20.seconds) {
+                            // spin
+                        }
+                        files.deleteRecursively(p("absent"), cancellation)
+                    }
+                    result.complete(null)
+                } catch (e: CancellationException) {
+                    result.complete(e)
+                    throw e
+                }
+            }
+            withTimeout(20.seconds) { started.await() }
+            job.cancel()
+            withTimeout(20.seconds) { job.join() }
+            withTimeout(20.seconds) { result.await() }
+        }
+        expect(outcome is CancellationException, "a cancelled caller must get CancellationException, was $outcome")
+    }
+
+    /** `withIo` hands the block this instance and returns its result. */
+    public fun withIoReturnsTheResultOfTheBlock(): Unit = scenario("withIoReturnsTheResultOfTheBlock") {
+        val written: FileResult<Unit> = runBlockingForContract {
+            files.withIo(Dispatchers.Default) { writeAtomically(p("f"), "io".encodeToByteArray()) }
+        }
+        ok(written, "writeAtomically through withIo")
+        expect(text("f") == "io", "the block ran against the file system")
+        val cancelledBefore: Boolean = runBlockingForContract { files.withIo(Dispatchers.Default) { it.isCancelled() } }
+        expect(!cancelledBefore, "a live caller is not cancelled")
+    }
+
+    // ---- plumbing ---------------------------------------------------------------------------------
+
+    private inline fun scenario(rule: String, body: Scope.() -> Unit) {
+        val fixture: FileAccessFixture = createFixture()
+        try {
+            Scope(rule, fixture).body()
+        } finally {
+            fixture.cleanup()
+        }
+    }
+
+    private class Scope(private val rule: String, private val fixture: FileAccessFixture) {
+        val files: FileAccess get() = fixture.files
+        val root: String get() = fixture.root
+        val separator: Char get() = fixture.separator
+
+        fun violation(message: String): Nothing = throw FileAccessContractViolation("$rule: $message")
+
+        fun expect(condition: Boolean, message: String) {
+            if (!condition) violation(message)
+        }
+
+        fun linkMaker(): ((String, String) -> Unit)? = fixture.createSymbolicLink
+
+        /** `root` + each name, joined with the separator. */
+        fun p(vararg names: String): String = names.fold(root) { acc: String, name: String -> acc + separator + name }
+
+        fun mkdir(relative: String) {
+            ok(files.createDirectories(p(*relative.split(separator).toTypedArray())), "createDirectories('$relative')")
+        }
+
+        /** Writes [content] to [relative] (names joined by `/` or the separator) through the implementation under test. */
+        fun write(relative: String, content: String) {
+            val segments: Array<String> = relative.replace('/', separator).split(separator).toTypedArray()
+            ok(files.writeAtomically(p(*segments), content.encodeToByteArray()), "writeAtomically('$relative')")
+        }
+
+        fun text(vararg names: String): String? = files.readBytes(p(*names), 1L shl 20).getOrNull()?.decodeToString()
+
+        fun names(directory: String): List<String> = ok(files.list(directory), "list('$directory')")
+
+        fun <T> ok(result: FileResult<T>, what: String): T = when (result) {
+            is FileResult.Success -> result.value
+            is FileResult.Failure -> violation("$what must succeed but failed with ${result.error}")
+        }
+
+        inline fun <reified E : FileError> failure(result: FileResult<*>, what: String): E = when (result) {
+            is FileResult.Success -> violation("$what must fail with ${E::class.simpleName} but succeeded")
+            is FileResult.Failure -> result.error as? E
+                ?: violation("$what must fail with ${E::class.simpleName} but failed with ${result.error}")
+        }
+
+        fun expectIllegalArgument(what: String, call: () -> Unit) {
+            val thrown: Throwable? = try {
+                call()
+                null
+            } catch (t: Throwable) {
+                t
+            }
+            if (thrown !is IllegalArgumentException) violation("$what must throw IllegalArgumentException, was $thrown")
+        }
+    }
+
+    private companion object {
+        const val WORKERS: Int = 8
+    }
+}

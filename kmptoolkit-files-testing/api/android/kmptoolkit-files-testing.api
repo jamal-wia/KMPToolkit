@@ -1,0 +1,188 @@
+public final class io/github/jamal_wia/kmptoolkit/files/testing/CrashKind : java/lang/Enum {
+	public static final field PowerLoss Lio/github/jamal_wia/kmptoolkit/files/testing/CrashKind;
+	public static final field ProcessDeath Lio/github/jamal_wia/kmptoolkit/files/testing/CrashKind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/testing/CrashKind;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/files/testing/CrashKind;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/files/testing/FakeEntry {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/testing/FakeEntry$Directory : io/github/jamal_wia/kmptoolkit/files/testing/FakeEntry {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/files/testing/FakeEntry$Directory;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/testing/FakeEntry$File : io/github/jamal_wia/kmptoolkit/files/testing/FakeEntry {
+	public fun <init> ([B)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBytes ()[B
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/testing/FakeEntry$SymbolicLink : io/github/jamal_wia/kmptoolkit/files/testing/FakeEntry {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/testing/FakeEntry$SymbolicLink;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeEntry$SymbolicLink;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/testing/FakeEntry$SymbolicLink;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getTarget ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/testing/FakeFileAccess : io/github/jamal_wia/kmptoolkit/files/FileAccess {
+	public fun <init> (ZLio/github/jamal_wia/kmptoolkit/files/FileAccessConfig;)V
+	public synthetic fun <init> (ZLio/github/jamal_wia/kmptoolkit/files/FileAccessConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun crashAfter (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;I)V
+	public static synthetic fun crashAfter$default (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeFileAccess;Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;IILjava/lang/Object;)V
+	public fun createDirectories (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public final fun createDirectory (Ljava/lang/String;)V
+	public final fun createFile (Ljava/lang/String;[B)V
+	public static synthetic fun createFile$default (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeFileAccess;Ljava/lang/String;[BILjava/lang/Object;)V
+	public final fun createSymbolicLink (Ljava/lang/String;Ljava/lang/String;)V
+	public fun delete (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public fun deleteRecursively (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public final fun entries ()Ljava/util/Map;
+	public final fun failNext (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;Lio/github/jamal_wia/kmptoolkit/files/FileError;ILkotlin/jvm/functions/Function1;)V
+	public static synthetic fun failNext$default (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeFileAccess;Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;Lio/github/jamal_wia/kmptoolkit/files/FileError;ILkotlin/jvm/functions/Function1;ILjava/lang/Object;)V
+	public fun freeSpaceBytes (Ljava/lang/String;)Ljava/lang/Long;
+	public final fun getBeforeOperation ()Lkotlin/jvm/functions/Function2;
+	public final fun getFreeSpaceBytes ()Ljava/lang/Long;
+	public final fun getHardLinksSupported ()Z
+	public final fun getNowMillis ()J
+	public final fun getOperations ()Ljava/util/List;
+	public fun list (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public final fun markAllDurable ()V
+	public fun metadata (Ljava/lang/String;Z)Lio/github/jamal_wia/kmptoolkit/files/FileMetadata;
+	public fun move (Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/MoveOptions;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public fun readBytes (Ljava/lang/String;J)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public final fun restartAfterCrash (Lio/github/jamal_wia/kmptoolkit/files/testing/CrashKind;Z)Lio/github/jamal_wia/kmptoolkit/files/testing/FakeFileAccess;
+	public static synthetic fun restartAfterCrash$default (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeFileAccess;Lio/github/jamal_wia/kmptoolkit/files/testing/CrashKind;ZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/testing/FakeFileAccess;
+	public final fun setBeforeOperation (Lkotlin/jvm/functions/Function2;)V
+	public final fun setFreeSpaceBytes (Ljava/lang/Long;)V
+	public final fun setHardLinksSupported (Z)V
+	public final fun setLastModified (Ljava/lang/String;J)V
+	public final fun setNowMillis (J)V
+	public fun sweep (Ljava/lang/String;JLio/github/jamal_wia/kmptoolkit/files/CancellationCheck;Lkotlin/jvm/functions/Function1;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public fun treeSize (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public fun writeAtomically (Ljava/lang/String;[BLio/github/jamal_wia/kmptoolkit/files/WriteOptions;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/testing/FakeOperation : java/lang/Enum {
+	public static final field Close Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static final field CreateDirectory Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static final field CreateNew Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static final field Link Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static final field List Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static final field Metadata Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static final field OpenForRead Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static final field Remove Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static final field Rename Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static final field Sync Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static final field SyncDirectory Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static final field UsableSpace Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static final field Write Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/testing/FakeOperationRecord {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;Ljava/lang/String;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperationRecord;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperationRecord;Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperationRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOperation ()Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;
+	public final fun getPath ()Ljava/lang/String;
+	public final fun getSecondPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/testing/FileAccessContract {
+	public fun <init> (Lkotlin/jvm/functions/Function0;)V
+	public final fun concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload ()V
+	public final fun createDirectoriesByConcurrentCreatorsAllSucceed ()V
+	public final fun createDirectoriesCreatesParentsAndIsIdempotent ()V
+	public final fun createDirectoriesOverAFileIsNotADirectory ()V
+	public final fun deleteOfANonEmptyDirectoryIsDirectoryNotEmpty ()V
+	public final fun deleteOfASymbolicLinkLeavesItsTarget ()V
+	public final fun deleteOfAnAbsentPathIsSuccess ()V
+	public final fun deleteRecursivelyByConcurrentDeletersAllSucceed ()V
+	public final fun deleteRecursivelyDoesNotFollowSymbolicLinks ()V
+	public final fun deleteRecursivelyOfAnAbsentPathIsSuccess ()V
+	public final fun deleteRecursivelyRemovesAFullTree ()V
+	public final fun deleteRecursivelyStopsWhenCancelled ()V
+	public final fun deleteRemovesAFileALinkAndAnEmptyDirectory ()V
+	public final fun existsFollowsSymbolicLinks ()V
+	public final fun freeSpaceOfAMissingPathFollowsItsAncestor ()V
+	public final fun listIsSortedWithoutDotEntries ()V
+	public final fun listOfAFileIsNotADirectory ()V
+	public final fun listOfAnAbsentDirectoryIsEmpty ()V
+	public final fun metadataDoesNotFollowLinksByDefault ()V
+	public final fun metadataFollowLinksReportsTheTarget ()V
+	public final fun metadataOfADanglingLinkIsNullWhenFollowing ()V
+	public final fun metadataReportsKinds ()V
+	public final fun moveCreatesParentDirectoriesWhenAsked ()V
+	public final fun moveMovesADirectoryWithinOneVolume ()V
+	public final fun moveMovesASymbolicLinkAsALink ()V
+	public final fun moveOfAMissingSourceIsNotFound ()V
+	public final fun moveOverADirectoryIsADirectory ()V
+	public final fun moveReplacesTheTargetWithTheSourceContent ()V
+	public final fun moveWithAMissingParentIsNotFound ()V
+	public final fun moveWithFailNeverReplaces ()V
+	public final fun readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead ()V
+	public final fun readBytesOfADirectoryIsADirectory ()V
+	public final fun readBytesOfAnAbsentFileIsNotFound ()V
+	public final fun readBytesRejectsAnInvalidMax ()V
+	public final fun sweepKeepsEntriesNewerThanTheAge ()V
+	public final fun sweepNeverDeletesWhatDoesNotMatchOrADirectory ()V
+	public final fun sweepOfAnAbsentDirectoryIsZero ()V
+	public final fun sweepPropagatesExceptionsOfTheMatcher ()V
+	public final fun sweepRejectsANegativeAge ()V
+	public final fun treeSizeCountsALinkAsZero ()V
+	public final fun treeSizeOfAnAbsentPathIsZero ()V
+	public final fun treeSizeStopsWhenCancelled ()V
+	public final fun treeSizeSumsTheRegularFiles ()V
+	public final fun verifyAll ()V
+	public final fun withIoCancelledThrowsCancellationException ()V
+	public final fun withIoReturnsTheResultOfTheBlock ()V
+	public final fun writeAtomicallyAcceptsEmptyContent ()V
+	public final fun writeAtomicallyCreatesParentDirectoriesWhenAsked ()V
+	public final fun writeAtomicallyHonoursTheTempDirectoryAndLeavesItClean ()V
+	public final fun writeAtomicallyLeavesNoTemporaryFile ()V
+	public final fun writeAtomicallyOverADirectoryIsADirectory ()V
+	public final fun writeAtomicallyRejectsRelativeEmptyAndNulPaths ()V
+	public final fun writeAtomicallyReplacesASymbolicLinkNotItsTarget ()V
+	public final fun writeAtomicallyReplacesTheWholeContent ()V
+	public final fun writeAtomicallyWithACustomTempPrefixLeavesNothing ()V
+	public final fun writeAtomicallyWithAMissingParentIsNotFound ()V
+	public final fun writeAtomicallyWithFailRefusesAnExistingTarget ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/testing/FileAccessContractViolation : java/lang/AssertionError {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/testing/FileAccessFixture {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;CLkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;CLkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getCleanup ()Lkotlin/jvm/functions/Function0;
+	public final fun getCreateSymbolicLink ()Lkotlin/jvm/functions/Function2;
+	public final fun getFiles ()Lio/github/jamal_wia/kmptoolkit/files/FileAccess;
+	public final fun getRoot ()Ljava/lang/String;
+	public final fun getSeparator ()C
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/testing/SimulatedCrash : java/lang/Error {
+	public fun <init> ()V
+}
+
