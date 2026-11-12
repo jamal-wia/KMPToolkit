@@ -15,13 +15,30 @@ import platform.AVFAudio.AVAudioSessionRecordPermissionDenied
 import platform.AVFAudio.AVAudioSessionRecordPermissionGranted
 import platform.AVFoundation.AVAuthorizationStatusAuthorized
 import platform.AVFoundation.AVAuthorizationStatusDenied
+import platform.AVFoundation.AVAuthorizationStatusRestricted
 
 /** The real iOS controller, through its port, as a [FidelityWorld]. */
 class IosWorld(private val scope: TestScope) : FidelityWorld {
 
     val port: FakeIosAuthorizationPort = FakeIosAuthorizationPort()
+    private var hasKey: Boolean = true
     override val controller: PermissionController =
-        IosPermissionController(NoopLogger, IosPermissionOptions(), { true }, port)
+        IosPermissionController(NoopLogger, IosPermissionOptions(), { hasKey }, port)
+
+    // iOS has no refusal that may be explained for the camera: a refusal is final.
+    override val supported: Set<PreState> = PreState.entries.toSet() - PreState.DeniedWithRationale
+
+    override val dialogsShown: Int get() = port.count("requestCameraAccess") + port.count("requestRecordPermission")
+
+    override suspend fun setUp(permission: Permission, state: PreState) {
+        when (state) {
+            PreState.Granted -> port.camera = AVAuthorizationStatusAuthorized
+            PreState.PermanentlyDenied -> port.camera = AVAuthorizationStatusDenied
+            PreState.Restricted -> port.camera = AVAuthorizationStatusRestricted
+            PreState.Unavailable -> hasKey = false
+            PreState.DeniedWithRationale -> error("not on iOS")
+        }
+    }
 
     private val names: Map<Permission, String> = mapOf(
         CommonPermission.Camera to "requestCameraAccess",
@@ -100,6 +117,17 @@ class FakeFidelityIosRound10Test {
         for ((name, lines) in fake) {
             if (name == "cancelThenAnswered") continue
             assertEquals(lines, real[name], "scenario $name: fake on the left, iOS on the right")
+        }
+    }
+
+    @Test
+    fun `a request from a state that shows no system UI reads the same on the iOS controller and on the fake`() = runTest {
+        val scope: TestScope = this
+        for (state in PreState.entries - PreState.DeniedWithRationale) {
+            val fake: List<String> = noUiRequest(FakeWorld { scope.testScheduler.runCurrent() }, state)
+            val real: List<String> = noUiRequest(IosWorld(scope), state)
+            assertEquals(fake.filterNot { it.startsWith("dialogsShown") }, real.filterNot { it.startsWith("dialogsShown") }, "$state")
+            assertEquals("dialogsShown:0", real.last { it.startsWith("dialogsShown") }, "$state: a prompt for a state that shows none")
         }
     }
 

@@ -32,10 +32,45 @@ class AndroidWorld(private val app: Application) : FidelityWorld {
         }
     }
 
+    private var rationale: Boolean = false
+    private var revoked: Boolean = false
+    private var declared: Set<String>? = null
+
     override val controller: PermissionController = testController(
         app, InMemoryKeyValueStorage(), host, resumeListeners = resumes,
         launchScreen = { request -> screens += request; canOpen },
+        shouldShowRationale = { rationale },
+        isRevokedByPolicy = { revoked },
+        declaredPermissions = { declared },
     )
+
+    override val supported: Set<PreState> = PreState.entries.toSet()
+
+    override val dialogsShown: Int get() = host.launchCount
+
+    override suspend fun setUp(permission: Permission, state: PreState) {
+        when (state) {
+            PreState.Granted -> grantInSettings(permission)
+            PreState.Restricted -> revoked = true
+            PreState.Unavailable -> declared = emptySet()
+            PreState.DeniedWithRationale -> {
+                val keep: Boolean? = answers[string(permission)]
+                answers[string(permission)] = false
+                rationale = true
+                controller.request(permission)
+                answers[string(permission)] = keep ?: false
+            }
+            PreState.PermanentlyDenied -> {
+                val keep: Boolean? = answers[string(permission)]
+                answers[string(permission)] = false
+                rationale = true
+                controller.request(permission)
+                rationale = false
+                controller.request(permission)
+                answers[string(permission)] = keep ?: false
+            }
+        }
+    }
 
     private fun string(p: Permission): String = when (p) {
         CommonPermission.Camera -> Manifest.permission.CAMERA
@@ -114,6 +149,28 @@ class FakeFidelityAndroidRound10Test {
             // The one scenario the fake does not follow is kept in suspects/r10-S1.kt, not asserted here.
             if (name == "cancelThenAnswered") continue
             assertEquals(lines, real[name], "scenario $name: fake on the left, real on the right")
+        }
+    }
+
+    @Test
+    fun `a request from a state that shows no system UI reads the same on the real Android controller and on the fake`() {
+        runBlocking {
+            withTimeout(30_000) {
+                for (state in PreState.entries) {
+                    shadowOf(app).denyPermissions(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
+                    val fake: List<String> = noUiRequest(FakeWorld { repeat(20) { yield() } }, state)
+                    shadowOf(app).denyPermissions(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
+                    val real: List<String> = noUiRequest(AndroidWorld(app), state)
+                    if (state == PreState.DeniedWithRationale) {
+                        // A refusal that may be explained shows the dialog again: the answer the user scripted.
+                        assertEquals(listOf("before:Denied", "request:Granted", "batch:Granted"), real.take(3), "$state real")
+                        assertEquals(real.take(3), fake.take(3), "$state fake")
+                    } else {
+                        assertEquals(fake.filterNot { it.startsWith("dialogsShown") }, real.filterNot { it.startsWith("dialogsShown") }, "$state")
+                        assertEquals("dialogsShown:0", real.last { it.startsWith("dialogsShown") }, "$state: a dialog for a state that shows none")
+                    }
+                }
+            }
         }
     }
 

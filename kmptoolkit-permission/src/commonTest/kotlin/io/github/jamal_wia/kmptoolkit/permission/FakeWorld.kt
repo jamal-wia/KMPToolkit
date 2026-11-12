@@ -32,4 +32,21 @@ class FakeWorld(private val settleWith: suspend () -> Unit) : FidelityWorld {
     override fun returnToApp() = Unit
 
     override suspend fun settle() = settleWith()
+
+    override val supported: Set<PreState> = PreState.entries.toSet()
+
+    override suspend fun setUp(permission: Permission, state: PreState) {
+        fake.setStatus(
+            permission,
+            when (state) {
+                PreState.Granted -> PermissionStatus.Granted
+                PreState.PermanentlyDenied -> PermissionStatus.PermanentlyDenied
+                PreState.Restricted -> PermissionStatus.Restricted
+                PreState.Unavailable -> PermissionStatus.Unavailable
+                PreState.DeniedWithRationale -> PermissionStatus.Denied(explainFirst = true)
+            },
+        )
+    }
+
+    override val dialogsShown: Int = -1
 }

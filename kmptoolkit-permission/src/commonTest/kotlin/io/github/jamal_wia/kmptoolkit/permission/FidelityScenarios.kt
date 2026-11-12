@@ -40,7 +40,19 @@ interface FidelityWorld {
 
     /** Lets every launched coroutine run to its next suspension. */
     suspend fun settle()
+
+    /** The states this world can put a permission into. */
+    val supported: Set<PreState>
+
+    /** Puts [permission] into [state] the way a user history would. */
+    suspend fun setUp(permission: Permission, state: PreState)
+
+    /** System dialogs shown so far, or -1 when the world cannot tell. */
+    val dialogsShown: Int
 }
+
+/** Where a permission can stand before a request. */
+enum class PreState { Granted, PermanentlyDenied, Restricted, Unavailable, DeniedWithRationale }
 
 fun PermissionStatus.tag(): String = if (isGranted) "granted" else "notGranted"
 
@@ -181,6 +193,23 @@ object FidelityScenarios {
         t += "afterSettings:${w.controller.check(cam).tag()}"
         return t
     }
+}
+
+/** A request from a state that shows no system UI returns that state at once and shows nothing. */
+suspend fun noUiRequest(w: FidelityWorld, state: PreState): List<String> {
+    w.willAnswer(CommonPermission.Camera, true)
+    w.setUp(CommonPermission.Camera, state)
+    val shownBefore: Int = w.dialogsShown
+    val before: PermissionStatus = w.controller.check(CommonPermission.Camera)
+    val got: PermissionStatus = w.controller.request(CommonPermission.Camera)
+    val batch: Map<Permission, PermissionStatus> = w.controller.request(listOf(CommonPermission.Camera))
+    val t: MutableList<String> = mutableListOf("before:${before::class.simpleName}", "request:${got::class.simpleName}")
+    t += "batch:${batch.getValue(CommonPermission.Camera)::class.simpleName}"
+    if (state != PreState.DeniedWithRationale) {
+        t += "sameAsCheck:${before == got}"
+        if (w.dialogsShown >= 0) t += "dialogsShown:${w.dialogsShown - shownBefore}"
+    }
+    return t
 }
 
 fun assertTranscripts(expected: Map<String, List<String>>, actual: Map<String, List<String>>, who: String) {
