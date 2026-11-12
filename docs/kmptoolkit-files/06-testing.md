@@ -191,10 +191,11 @@ class MyDecoratorContractTest {
 check. Each check is also a public function (`writeAtomicallyReplacesTheWholeContent()`,
 `deleteRecursivelyDoesNotFollowSymbolicLinks()`, …) so a runner can report them one by one. The
 checks cover metadata kinds and links, `list`, `createDirectories` (including concurrent creators, and `durable = true` giving the same results),
-`readBytes` limits, `InvalidPath` for a relative, empty or NUL-containing path on every function (so a decorator
+`readBytes` limits (and `readBytes` through links: a file, a directory, a dangling link), `InvalidPath` for a relative, empty or NUL-containing path on every function (so a decorator
 that resolves relative paths against a base fails), every `writeAtomically` outcome (replace, empty content, missing parent, directory
-target, `Fail`, links, temp directory, no leftover, concurrent writers), `move`, `delete`,
-`deleteRecursively` (including concurrent deleters and cancellation), `treeSize`, `sweep` (age, cancellation, old symbolic links),
+target, `Fail` (including over a dangling link), links, temp directory, no leftover, concurrent writers), `move` (including
+`Fail` of a directory or a link, and which path an error names), `delete`,
+`deleteRecursively` (including concurrent deleters, cancellation and a link to a directory as the root), `treeSize`, `sweep` (age, cancellation, old symbolic links),
 `freeSpaceBytes`, `exists` and `withIo`. The two `withIo` checks verify the extension, which no implementation can
 override, not the implementation under test.
 
