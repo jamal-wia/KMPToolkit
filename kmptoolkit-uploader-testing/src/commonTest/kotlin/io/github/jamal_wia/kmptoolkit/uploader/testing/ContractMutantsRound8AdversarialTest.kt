@@ -58,6 +58,15 @@ class ContractMutantsRound8AdversarialTest {
                         }
                     }
                 },
+                "insertKeep replaces a parked row but reports nothing superseded" to {
+                    object : Mutant(InMemoryUploaderStore()) {
+                        override suspend fun insertKeep(record: UploaderItem): KeepResult =
+                            when (val result: KeepResult = inner.insertKeep(record)) {
+                                is KeepResult.Inserted -> KeepResult.Inserted(null)
+                                KeepResult.Kept -> result
+                            }
+                    }
+                },
                 "unique key compared case-insensitively" to {
                     object : Mutant(InMemoryUploaderStore()) {
                         override suspend fun insertKeep(record: UploaderItem): KeepResult {
