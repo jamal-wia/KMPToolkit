@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.permission.testing
 import io.github.jamal_wia.kmptoolkit.permission.Permission
 import io.github.jamal_wia.kmptoolkit.permission.PermissionController
 import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -33,6 +34,12 @@ import kotlinx.coroutines.sync.withLock
  * - **Requests are serialized**, as the real controllers' are: a request made while another is in
  *   flight waits for it. Set [holdRequests] to keep a request suspended — to test what your code does
  *   while the system UI is up, or when it is cancelled then — and clear it to let them finish.
+ * - **A cancelled request keeps the user's answer**, as both real controllers do: cancelling the
+ *   caller of a request whose dialog is "up" ([holdRequests]) abandons the result, not the dialog, so
+ *   the scripted outcome is still stored when the hold is cleared and the next [check] sees it. A
+ *   request cancelled while it was only queued behind another one never reached the dialog and stores
+ *   nothing. Unlike the real Android controller, a request made while a cancelled one's dialog is
+ *   still "up" is not made to wait for it.
  * - **[observe] follows every change.** A flow from [observe] emits the current status and then every
  *   different status [setStatus], [request] or a changed [defaultStatus] produces — the double's
  *   stand-in for the user changing a permission in settings while the app was away.
@@ -72,6 +79,9 @@ public class FakePermissionController(
     private val held: MutableStateFlow<Boolean> = MutableStateFlow(false)
     private val requestMutex: Mutex = Mutex()
 
+    /** Answers of requests cancelled while their dialog was up, applied when the hold clears. */
+    private val abandoned: MutableList<() -> Unit> = mutableListOf()
+
     private val statuses: MutableMap<Permission, PermissionStatus> = mutableMapOf()
     private val requestOutcomes: MutableMap<Permission, PermissionStatus> = mutableMapOf()
     private val recordedChecks: MutableList<Permission> = mutableListOf()
@@ -103,10 +113,19 @@ public class FakePermissionController(
     /**
      * While `true`, every request suspends — as if the system UI were on screen — after being recorded
      * and before its outcome is applied. Setting it back to `false` lets held requests finish, in order.
+     *
+     * A request cancelled while held still has its outcome stored when this is set back to `false`
+     * (before any held request resumes): the user's answer is not lost with the caller, as on a real
+     * device.
      */
     public var holdRequests: Boolean
         get() = held.value
         set(value) {
+            if (!value) {
+                val pending: List<() -> Unit> = abandoned.toList()
+                abandoned.clear()
+                pending.forEach { settle -> settle() }
+            }
             held.value = value
         }
 
@@ -149,8 +168,21 @@ public class FakePermissionController(
 
     override suspend fun request(permissions: Collection<Permission>): Map<Permission, PermissionStatus> {
         recordedBatches += permissions.toList()
+        val distinct: List<Permission> = permissions.distinct()
         return requestMutex.withLock {
-            permissions.distinct().associateWith { permission -> answer(permission) }
+            val answers: MutableMap<Permission, PermissionStatus> = LinkedHashMap()
+            for ((index: Int, permission: Permission) in distinct.withIndex()) {
+                try {
+                    answers[permission] = answer(permission)
+                } catch (cancelled: CancellationException) {
+                    // One shared dialog: the rest of the batch is answered by it too.
+                    for (rest: Permission in distinct.drop(index + 1)) {
+                        keepAnswer { settle(rest) }
+                    }
+                    throw cancelled
+                }
+            }
+            answers
         }
     }
 
@@ -165,14 +197,33 @@ public class FakePermissionController(
 
     private suspend fun answer(permission: Permission): PermissionStatus {
         val current: PermissionStatus = statusOf(permission)
-        val showsUi: Boolean = current is PermissionStatus.NotDetermined || current is PermissionStatus.Denied ||
+        if (!showsUi(permission, current)) return current
+        try {
+            held.first { holding -> !holding }
+        } catch (cancelled: CancellationException) {
+            keepAnswer { settle(permission) }
+            throw cancelled
+        }
+        return settle(permission)
+    }
+
+    private fun showsUi(permission: Permission, current: PermissionStatus): Boolean =
+        current is PermissionStatus.NotDetermined || current is PermissionStatus.Denied ||
             (current is PermissionStatus.Limited && permission in requestOutcomes)
-        if (!showsUi) return current
-        held.first { holding -> !holding }
+
+    /** Stores the scripted outcome when the status still asks for the system UI; otherwise returns it untouched. */
+    private fun settle(permission: Permission): PermissionStatus {
+        val current: PermissionStatus = statusOf(permission)
+        if (!showsUi(permission, current)) return current
         val outcome: PermissionStatus = requestOutcomes[permission] ?: PermissionStatus.Granted
         statuses[permission] = outcome
         changed()
         return outcome
+    }
+
+    /** A caller was cancelled with its dialog up: the answer still lands, when the hold clears. */
+    private fun keepAnswer(settle: () -> Unit) {
+        if (held.value) abandoned += settle else settle()
     }
 
     private fun statusOf(permission: Permission): PermissionStatus = statuses[permission] ?: defaultStatus
