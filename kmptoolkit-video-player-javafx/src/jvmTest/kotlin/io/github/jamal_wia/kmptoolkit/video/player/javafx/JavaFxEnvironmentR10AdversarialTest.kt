@@ -135,7 +135,7 @@ internal object JavaFxEnvironmentR10Child {
 class JavaFxEnvironmentR10AdversarialTest {
 
     private fun runChild(mode: String, tmpdir: File, scratch: File, ulimit: Int? = null, timeoutS: Long = 120L): Triple<Int, String, String> {
-        val java: List<String> = listOf(File(File(System.getProperty("java.home"), "bin"), "java").path, "-Djava.io.tmpdir=${tmpdir.path}") +
+        val java: List<String> = listOf(File(File(System.getProperty("java.home"), "bin"), "java").path, "-Djava.io.tmpdir=${tmpdir.path}") + childJvmCrashGuardArgs() +
             listOf("-cp", System.getProperty("java.class.path"), JavaFxEnvironmentR10Child::class.java.name, mode, scratch.path)
         val command: List<String> = if (ulimit != null) {
             listOf("/bin/sh", "-c", "ulimit -n $ulimit && exec " + java.joinToString(" ") { "'" + it.replace("'", "'\\''") + "'" })
