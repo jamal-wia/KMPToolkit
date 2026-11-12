@@ -332,6 +332,22 @@ abstract class RealFileAccessTests {
     }
 
     @Test
+    fun `a 200 character CJK name is accepted on Windows and NameTooLong where names count UTF-8 bytes`() {
+        val name: String = "\u4e2d".repeat(200) // 200 UTF-16 units, 600 UTF-8 bytes
+        val result: FileResult<Unit> = fs.writeAtomically(p(name), bytesOf("cjk"))
+        if (windowsHost) {
+            assertOk(result)
+            assertEquals("cjk", text(p(name)))
+        } else if (result.isSuccess) {
+            // APFS (macOS, iOS) counts 255 characters, not bytes, so it accepts this name; ext4 and F2FS do not.
+            assertEquals("cjk", text(p(name)))
+        } else {
+            assertEquals(p(name), failure<FileError.NameTooLong>(result).path)
+            assertEquals(emptyList(), names(root))
+        }
+    }
+
+    @Test
     fun `a write into an unwritable directory is AccessDenied and leaves nothing behind`() {
         fs.createDirectories(p("locked"))
         val restore: AutoCloseable = TestEnv.makeUnwritable(p("locked")) ?: TestEnv.skip("the host does not enforce directory permissions here")
