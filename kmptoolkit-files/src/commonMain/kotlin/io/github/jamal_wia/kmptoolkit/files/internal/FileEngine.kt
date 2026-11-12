@@ -39,6 +39,13 @@ internal class FileEngine(
     private fun isValid(path: String): Boolean {
         if (path.isEmpty() || path.indexOf('\u0000') >= 0 || !rules.isAbsolute(path)) return false
         if (ops.windowsPaths) {
+            // The extended-length (\\?\) and device (\\.\) namespaces bypass the name rules below: never accepted,
+            // whatever the JDK's own parser does with them.
+            if (path.length >= 4 && rules.isSeparator(path[0]) && rules.isSeparator(path[1]) &&
+                (path[2] == '?' || path[2] == '.') && rules.isSeparator(path[3])
+            ) {
+                return false
+            }
             for (segment: String in rules.parse(path).segments) {
                 if (segment == "." || segment == "..") continue
                 if (segment.endsWith('.') || segment.endsWith(' ') || FileNames.isWindowsReserved(segment)) return false

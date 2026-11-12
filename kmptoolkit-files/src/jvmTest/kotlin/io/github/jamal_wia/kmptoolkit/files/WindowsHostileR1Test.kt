@@ -52,18 +52,40 @@ class WindowsHostileR1Test {
     }
 
     @Test
-    fun `a path far over 260 characters works plain and with the extended length prefix`() {
+    fun `a path far over 260 characters works and the extended length prefix is InvalidPath`() {
         if (!windows) return
         val deep: String = (0 until 40).joinToString("\\") { "directory$it" }
         val dir: String = p(deep)
         assertTrue(dir.length > 400)
         assertTrue(fs.createDirectories(dir).isSuccess)
         assertTrue(fs.writeAtomically("$dir\\f", "x".encodeToByteArray()).isSuccess)
-        assertEquals("x", fs.readBytes("\\\\?\\$dir\\f", 10).getOrNull()?.decodeToString())
-        assertEquals(listOf("f"), fs.list("\\\\?\\$dir").getOrNull())
+        assertTrue(fs.readBytes("\\\\?\\$dir\\f", 10).errorOrNull() is FileError.InvalidPath)
+        assertTrue(fs.list("\\\\?\\$dir").errorOrNull() is FileError.InvalidPath)
+        assertEquals("x", fs.readBytes("$dir\\f", 10).getOrNull()?.decodeToString())
         assertEquals(1L, fs.treeSize(p("directory0")).getOrNull())
         assertTrue(fs.deleteRecursively(p("directory0")).isSuccess)
         assertNull(fs.metadata(p("directory0")))
+    }
+
+    @Test
+    fun `extended length and device namespace spellings are InvalidPath for every function and create nothing`() {
+        if (!windows) return
+        val spellings: List<String> = listOf(
+            "\\\\?\\C:\\d\\f",
+            "//?/c:/D/F",
+            "\\\\?\\UNC\\srv\\sh\\f",
+            "\\\\.\\C:\\x",
+            "\\\\.\\pipe\\x",
+        )
+        for (path: String in spellings) {
+            assertTrue(fs.writeAtomically(path, ByteArray(1)).errorOrNull() is FileError.InvalidPath, "write $path")
+            assertTrue(fs.readBytes(path, 10).errorOrNull() is FileError.InvalidPath, "read $path")
+            assertTrue(fs.list(path).errorOrNull() is FileError.InvalidPath, "list $path")
+            assertTrue(fs.delete(path).errorOrNull() is FileError.InvalidPath, "delete $path")
+            assertTrue(fs.move(path, p("moved")).errorOrNull() is FileError.InvalidPath, "move from $path")
+            assertTrue(fs.move(p("nothing"), path).errorOrNull() is FileError.InvalidPath, "move to $path")
+        }
+        assertEquals(emptyList(), fs.list(root).getOrNull(), "nothing was created")
     }
 
     @Test

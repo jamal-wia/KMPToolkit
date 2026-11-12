@@ -47,7 +47,10 @@ public sealed interface FileError {
     /** The file system or platform cannot do this (no hard links; backup exclusion on Android). */
     public data class Unsupported(override val path: String) : FileError
 
-    /** Relative, empty, NUL-containing, or (Windows) a reserved device name or a segment ending in '.' or ' '. */
+    /**
+     * Relative, empty, NUL-containing, or (Windows) a reserved device name, a segment ending in '.' or ' ', or a path in
+     * the extended-length or device namespace (`\\?\...`, `\\.\...`).
+     */
     public data class InvalidPath(override val path: String) : FileError
 
     /** The operation was cancelled through its [CancellationCheck]. */

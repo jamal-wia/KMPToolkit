@@ -231,7 +231,7 @@ Every function returns `FileResult.Success` or `FileResult.Failure(error)`:
 | `CrossDevice` | rename across volumes without `acrossVolumes`, temp directory on another volume | enable the copy, or fix the layout |
 | `TooLarge` | file bigger than `maxBytes` | raise the limit or treat as corrupt |
 | `Unsupported` | no hard links, a device file, backup exclusion on Android `Files` | choose another path |
-| `InvalidPath` | relative, empty, NUL, or a Windows reserved name | a bug in the caller |
+| `InvalidPath` | relative, empty, NUL, a Windows reserved name, or a Windows `\\?\` or `\\.\` path | a bug in the caller |
 | `Cancelled` | the `CancellationCheck` turned true | stop; state is documented per function |
 | `Io(path, platformCode, cause)` | anything else | report with `cause` |
 

@@ -42,7 +42,10 @@ differently:
   in-process gate: a read holds a shared permit on its path until the file is closed, and a replace
   holds an exclusive permit on both of its paths (taken in a fixed order, so two renames in opposite
   directions cannot deadlock) for the whole retry loop. Writers and readers that go through
-  `FileAccess` in one process therefore never make each other fail. The gate is fair — a waiting
+  `FileAccess` in one process therefore never make each other fail. "One path" means the spellings that
+  `PathKey.of(path, CaseFolding.Always)` equates (case, separators, `.`/`..`). Other names of the same file —
+  an 8.3 short name, an administrative share such as `\\localhost\C$\...`, a junction, symbolic link or `subst`
+  drive — are coordinated like another process: the bounded retry, then `AccessDenied`. The gate is fair — a waiting
   replace blocks later readers, so readers that never pause cannot starve it — and the wait is
   interruptible: an interrupted thread gets `AccessDenied` with its interrupt flag set again.
 - **Holders outside the process (or outside `FileAccess`) get a bounded retry.** An indexer, an
@@ -62,8 +65,9 @@ removes the name at once.
 ## Windows names and paths
 
 - Paths accept both `\` and `/` and are written with `\`; roots are `X:\` and `\\server\share\`.
-  `\x` (drive-relative) and `X:x` are relative, hence `InvalidPath`. The JDK adds `\\?\` itself for
-  long paths.
+  `\x` (drive-relative) and `X:x` are relative, hence `InvalidPath`. Plain paths of any length work: the JDK
+  adds `\\?\` itself for long paths. A path in the extended-length or device namespace (`\\?\...`,
+  `\\.\...`, either separator) is `InvalidPath`.
 - `FileAccess` rejects, as `InvalidPath`, any segment that is a reserved device name (`CON`, `NUL`,
   `COM1`…, also with a trailing space before the dot: `CON .txt`) or ends in `.` or a space — this
   also stops a write from opening a console device. `FileNames.isPlainName` applies the same rules
