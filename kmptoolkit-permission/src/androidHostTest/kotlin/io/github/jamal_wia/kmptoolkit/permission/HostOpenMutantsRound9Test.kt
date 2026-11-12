@@ -202,4 +202,26 @@ class HostOpenMutantsRound9Test {
 
         assertTrue(results.isEmpty(), "a stranger of another task interrupted the screen request: $results")
     }
+
+    // --- A3 (a batch-two mutant: the resumed activity may be the origin itself) ------------------------
+
+    @Test
+    fun `an origin that finished itself and resumes once more keeps the request pending until it is destroyed`() {
+        shadowOf(application).denyPermissions(camera)
+        application.declareInManifest(camera)
+        val access: ActivityAccess = newAccess()
+        val host = ActivityResultPermissionRequestHost(access)
+        val origin: ActivityController<TaskedActivity> = tasked(1).setup()
+        val answers: MutableList<Map<String, Boolean>> = mutableListOf()
+        assertTrue(host.launch(listOf(camera)) { answers += it })
+
+        origin.get().finish()
+        origin.pause().resume()
+
+        assertTrue(origin.get().isFinishing)
+        assertTrue(answers.isEmpty(), "the origin's own resume is not another activity resuming: $answers")
+
+        origin.pause().stop().destroy()
+        assertEquals(listOf(emptyMap<String, Boolean>()), answers, "its destroy ends the request")
+    }
 }
