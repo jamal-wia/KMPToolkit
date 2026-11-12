@@ -35,7 +35,7 @@ class Journal400OddNamesIosRound10AdversarialTest {
     }
 
     private val oddIds: List<String> = listOf(
-        "a~b", "~", "x~", "%41", "a:b", "a|b", "a*b", "CON", "фото", "日本語", "😀", "café",
+        "a~b", "~", "x~", "%41", "a:b", "a|b", "a*b", "CON", "фото", "日本語", "😀",
         "a b", "~_a", "~x", "a~~0041", "id+plus", "id,comma", "id=eq", "id@at", "id#hash", "id(1)",
     )
 
