@@ -358,7 +358,7 @@ abstract class RealFileAccessTests {
         val size: Int = 4096
         val writtenOnce: AtomicInt = AtomicInt(0)
         val writersLeft: AtomicInt = AtomicInt(8)
-        val writers: List<Deferred<Int>> = List(8) { writer ->
+        val writers: List<Deferred<Unit>> = List(8) { writer ->
             async {
                 val payload: ByteArray = ByteArray(size) { (writer + 1).toByte() }
                 try {
