@@ -34,7 +34,7 @@ class ProgressCoalescerRoundSixteenRegressionHuntAdversarialTest {
     }
 
     @Test
-    fun `the same refusal right after a short run keeps the baseline (control for the long run test)`() {
+    fun `the same refusal right after a short run keeps the baseline`() {
         val coalescer: ProgressCoalescer = coalescer()
         assertTrue(coalescer.post("a", 30))
         time += 5.seconds

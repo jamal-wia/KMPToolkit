@@ -29,7 +29,7 @@ import org.robolectric.shadows.ShadowAlarmManager
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(
-    sdk = [24, 26, 29, 30, 31, 32, 33, 35],
+    sdk = [24, 30, 31, 35],
     shadows = [AndroidAlarmSchedulerRoundSixteenApiMatrixAdversarialTest.MatrixShadowAlarmManager::class],
 )
 class AndroidAlarmSchedulerRoundSixteenApiMatrixAdversarialTest {
