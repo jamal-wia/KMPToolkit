@@ -152,4 +152,47 @@ class PathAccessGateTest {
         assertEquals(1, second.get())
         assertEquals(0, gate.activeKeyCount)
     }
+
+    @Test
+    fun `an interrupted wait for an exclusive permit throws and leaves nothing held`() {
+        val reader: PathAccessGate.Permit = gate.shared("/d/y")
+        val thrown: java.util.concurrent.atomic.AtomicReference<Throwable?> = java.util.concurrent.atomic.AtomicReference(null)
+        val writer: Thread = thread {
+            try {
+                gate.exclusive("/d/x", "/d/y").release()
+            } catch (t: Throwable) {
+                thrown.set(t)
+            }
+        }
+        waitUntilBlocked(writer)
+        writer.interrupt()
+        writer.join(20_000)
+        assertTrue(thrown.get() is InterruptedException, "the interrupt must end the wait: ${thrown.get()}")
+        // /d/x is taken first (ascending order) and /d/y awaited: the first must have been given back.
+        assertEquals(1, gate.activeKeyCount, "only the reader's path is registered")
+        gate.exclusive("/d/x").release()
+        reader.release()
+        assertEquals(0, gate.activeKeyCount)
+        gate.exclusive("/d/y").release()
+    }
+
+    @Test
+    fun `an interrupted wait for a shared permit behind an exclusive holder throws and leaves nothing held`() {
+        val writer: PathAccessGate.Permit = gate.exclusive("/d/x")
+        val thrown: java.util.concurrent.atomic.AtomicReference<Throwable?> = java.util.concurrent.atomic.AtomicReference(null)
+        val reader: Thread = thread {
+            try {
+                gate.shared("/d/x").release()
+            } catch (t: Throwable) {
+                thrown.set(t)
+            }
+        }
+        waitUntilBlocked(reader)
+        reader.interrupt()
+        reader.join(20_000)
+        assertTrue(thrown.get() is InterruptedException)
+        writer.release()
+        assertEquals(0, gate.activeKeyCount)
+        gate.shared("/d/x").release()
+    }
 }

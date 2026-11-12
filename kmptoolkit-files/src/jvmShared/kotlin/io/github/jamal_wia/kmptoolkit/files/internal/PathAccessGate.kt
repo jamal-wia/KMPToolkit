@@ -14,7 +14,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * case-insensitive). Locks are fair: a waiting exclusive holder blocks later shared requests, so continuous readers
  * cannot starve a replace. A permit may be released by any thread: it is made of semaphore permits, which no thread
  * owns, so a close on another thread than the open can never leak it. The engine never holds a shared permit (an open
- * ReadableFile) while it asks for an exclusive one, which keeps the gate free of deadlock.
+ * ReadableFile) while it asks for an exclusive one, which keeps the gate free of deadlock. The waits are unbounded
+ * (a holder inside the process is expected to finish) but interruptible: an interrupted wait leaves nothing held and
+ * throws [InterruptedException] with the interrupt flag cleared, for the caller to turn into a failure.
  */
 internal class PathAccessGate {
 
@@ -52,7 +54,10 @@ internal class PathAccessGate {
         }
     }
 
-    /** Waits until no exclusive permit is held or awaited on [path], then holds a shared one. */
+    /**
+     * Waits until no exclusive permit is held or awaited on [path], then holds a shared one.
+     * @throws InterruptedException when the waiting thread is interrupted; nothing is held then.
+     */
     fun shared(path: String): Permit {
         val key: String = PathKey.of(path, CaseFolding.Always)
         val entry: Entry = join(key)
@@ -68,7 +73,10 @@ internal class PathAccessGate {
         }
     }
 
-    /** Waits for every holder of every one of [paths] (distinct keys, taken in ascending key order), then holds all. */
+    /**
+     * Waits for every holder of every one of [paths] (distinct keys, taken in ascending key order), then holds all.
+     * @throws InterruptedException when the waiting thread is interrupted; nothing is held then.
+     */
     fun exclusive(vararg paths: String): Permit {
         val keys: List<String> = paths.map { PathKey.of(it, CaseFolding.Always) }.distinct().sorted()
         val taken: MutableList<Pair<String, Entry>> = mutableListOf()

@@ -108,7 +108,16 @@ internal class NioFileSystemOps : FileSystemOps {
     override fun openForRead(path: String): ReadableFile {
         val p: Path = pathOf(path)
         // A reader of this library never blocks a replace of the same path inside the process (Windows only).
-        val permit: PathAccessGate.Permit? = if (windowsPaths) gate.shared(path) else null
+        val permit: PathAccessGate.Permit? = if (windowsPaths) {
+            try {
+                gate.shared(path)
+            } catch (interrupted: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw FileOpException(FileError.AccessDenied(path))
+            }
+        } else {
+            null
+        }
         val channel: FileChannel = try {
             nio(path) { FileChannel.open(p, StandardOpenOption.READ) }
         } catch (t: Throwable) {
@@ -121,7 +130,17 @@ internal class NioFileSystemOps : FileSystemOps {
     override fun rename(from: String, to: String) {
         val source: Path = pathOf(from)
         val target: Path = pathOf(to)
-        val permit: PathAccessGate.Permit? = if (windowsPaths) gate.exclusive(from, to) else null
+        val permit: PathAccessGate.Permit? = if (windowsPaths) {
+            try {
+                gate.exclusive(from, to)
+            } catch (interrupted: InterruptedException) {
+                // Same as an interrupted retry sleep below.
+                Thread.currentThread().interrupt()
+                throw FileOpException(FileError.AccessDenied(to))
+            }
+        } else {
+            null
+        }
         try {
             moveWithRetries(source, target, from, to)
         } finally {
