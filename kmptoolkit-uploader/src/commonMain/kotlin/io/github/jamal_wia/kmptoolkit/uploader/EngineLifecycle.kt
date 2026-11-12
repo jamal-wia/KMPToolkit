@@ -28,8 +28,9 @@ import kotlinx.coroutines.launch
 
 /**
  * The life of one engine: the owner of rule P6 (a rule of [DefaultUploaderEngine]) and the one place that knows whether
- * the engine is alive, which rule P4 reads; it owns the engine's own scope and job, the single-flight drain loop with its wake-up channel,
- * the one-shot alarm, the stop job of a manual drain, the registry entry and the release wake of a closed engine (D-31).
+ * the engine is alive, which rule P4 reads; it owns the engine's own scope and job, the single-flight drain loop with
+ * its wake-up channel, the one-shot alarm, the stop job of a manual drain, the registry entry and the release wake of a
+ * closed engine (D-31).
  *
  * It decides nothing about an item: the loop and the manual drain run the `drainPass` the engine hands them, and the
  * only thing it asks of the rows is the ledger's release announcement ([RowLedger.onClaimReleased]).
@@ -42,10 +43,6 @@ import kotlinx.coroutines.launch
  * - **P6, Bounds.** [close] never waits, and a manual [drain] is stopped by the end of the engine as by its caller.
  * - **The state behind P4.** [isClosed] is the one answer to "is this engine permanently inert", read by the registry,
  *   the drain and the hand-off's claim; the rule itself (no launch of a closed engine) is [AttemptRunner]'s.
- *
- * Moved out of the engine class unchanged (split step 2). Lines touched only for the move: the class header and
- * constructor, `owner` where the registry was given `this`, the engine's pass as a parameter of [start] and [drain], and
- * `internal` on the members the engine calls.
  */
 internal class EngineLifecycle(
     private val owner: UploaderEngine,

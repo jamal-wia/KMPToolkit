@@ -26,11 +26,6 @@ import kotlinx.coroutines.withContext
  *   rule at a second call site, in [SettleDesk].)
  * - **P2 is the ledger's.** [recordOutcome] only decides which answers are facts to hand over (recorded under
  *   `NonCancellable`) and which die with a cancelled attempt; the writes themselves are [RowLedger]'s.
- *
- * Moved out of the engine class unchanged (split step 2). Lines touched only for the move: the class header and
- * constructor, `internal` on the two members the engine and the settle desk call, `ledger.park` and `ledger.confirm`
- * where the engine kept one-line forwarders (`parkAsRead`, `deleteAfterEffect`), `isClosed()` as a function, and the
- * companion.
  */
 internal class AttemptRunner(
     private val ledger: RowLedger,

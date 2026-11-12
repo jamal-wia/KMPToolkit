@@ -30,10 +30,7 @@ import kotlinx.coroutines.withContext
  *   charges nothing and applies no Drop or Park (the drain-side call site is [AttemptRunner]).
  *
  * Holds no store and no transport: a row is read, parked, confirmed and charged through the [RowLedger] and
- * [AttemptRunner.recordRetry]. Moved out of the engine class unchanged (split step 2). Lines touched only for the move:
- * the class header and constructor, `recordRetry` qualified by the runner that owns it, `ledger.park` and
- * `ledger.confirm` where the engine kept one-line forwarders (`parkAsRead`, `deleteAfterEffect`), and [settle], which
- * the engine's override forwards to.
+ * [AttemptRunner.recordRetry].
  */
 internal class SettleDesk(
     private val ledger: RowLedger,
