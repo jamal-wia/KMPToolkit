@@ -254,7 +254,7 @@ class EngineKdocPromisesRound9AdversarialTest {
     // ---- ordering channels are per type and key --------------------------------------------------------------
 
     @Test
-    fun `an ordering key is a channel per handler type, so equal keys of two types do not block each other`() = runTest {
+    fun `an ordering key is a channel per handler type so equal keys of two types do not block each other`() = runTest {
         val store = InMemoryUploaderStore(
             listOf(
                 row("a1", type = "ta", orderingKey = "k"),

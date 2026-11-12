@@ -103,7 +103,7 @@ internal class StoreParityRound9Checks {
             assertTrue(store.insertKeep(item("again", uniqueKey = "k", type = "t")).not(), "a live holder wins a KEEP")
             store.park("first2", "stop", UploaderItemState.PENDING, 0L)
             assertTrue(store.insertKeep(item("revived", uniqueKey = "k")), "a parked holder is revived by a KEEP")
-            assertEquals(listOf("second", "third", "revived"), store.getAllActive().map { it.id })
+            assertEquals(listOf("third", "revived"), store.getAllActive().map { it.id }, "parked rows are not active")
             assertNull(store.getById("first2"))
             assertNull(store.insertReplace(item("fresh", uniqueKey = "unused")))
             assertEquals("fresh", store.getAllActive().last().id)

@@ -84,7 +84,7 @@ class EngineSurvivorsRound9AdversarialTest {
     }
 
     @Test
-    fun `every enqueue arms the wake, also one that a KEEP conflict turned away`() = runTest {
+    fun `every enqueue arms the wake also one that a KEEP conflict turned away`() = runTest {
         val wake = RecordingWakeScheduler()
         val handler = Failing()
         val engine = createUploaderEngine(InMemoryUploaderStore(), listOf(handler), backgroundScope, wakeScheduler = wake)
