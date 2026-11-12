@@ -151,7 +151,7 @@ public data class FileAccessConfig(val tempPrefix: String = DEFAULT_TEMP_PREFIX)
 ```
 
 `tempPrefix` starts the name of every temporary file this instance creates (`<prefix><digits>.tmp`).
-1..64 UTF-8 bytes, and `"<prefix>0.tmp"` must be a `FileNames.isPlainName` on the host, else
+1..232 UTF-8 bytes (so every temporary name fits 255 bytes), and `"<prefix>0.tmp"` must be a `FileNames.isPlainName` on the host, else
 `IllegalArgumentException`. A parameter, not a constant, per the suite's "no hardcoded consumer
 identifier" rule.
 

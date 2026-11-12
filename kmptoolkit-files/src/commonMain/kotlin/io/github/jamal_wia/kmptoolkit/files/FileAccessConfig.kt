@@ -4,7 +4,7 @@ package io.github.jamal_wia.kmptoolkit.files
  * Settings of one [FileAccess] instance.
  *
  * @param tempPrefix starts the name of every temporary file this instance creates (`<prefix><digits>.tmp`).
- *   1..64 UTF-8 bytes, and `"$tempPrefix0.tmp"` must be a [FileNames.isPlainName] on the host, else
+ *   1..232 UTF-8 bytes, so every temporary name fits 255 bytes, and `"$tempPrefix0.tmp"` must be a [FileNames.isPlainName] on the host, else
  *   [IllegalArgumentException]. A parameter, not a constant, per the no-hardcoded-identifier invariant.
  * @since 5.0.0
  */
@@ -19,7 +19,8 @@ public data class FileAccessConfig(public val tempPrefix: String = DEFAULT_TEMP_
     }
 }
 
-private const val MAX_PREFIX_BYTES: Int = 64
+// A temporary name is <prefix><1..19 digits>.tmp: with this cap the longest one still fits FileNames.MAX_NAME_BYTES (255).
+private const val MAX_PREFIX_BYTES: Int = FileNames.MAX_NAME_BYTES - 19 - TEMP_SUFFIX.length
 
 /** Validates a temporary-file prefix (see [FileAccessConfig.tempPrefix]). */
 internal fun requireTempPrefix(prefix: String, parameterName: String) {

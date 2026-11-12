@@ -9,7 +9,7 @@ package io.github.jamal_wia.kmptoolkit.files
  * @property createParentDirectories Creates the parent of the path (and [tempDirectory]) first.
  * @property tempDirectory Where the temporary file goes; must be on the same volume as the path. `null` = the
  *   path's own directory.
- * @property tempPrefix Prefix of the temporary file's name; `null` = [FileAccessConfig.tempPrefix]. Same rules as that.
+ * @property tempPrefix Prefix of the temporary file's name; `null` = [FileAccessConfig.tempPrefix]. Same rules as that (1..232 UTF-8 bytes, so every temporary name fits 255 bytes).
  * @throws IllegalArgumentException when [tempPrefix] breaks the rules of [FileAccessConfig.tempPrefix].
  * @since 5.0.0
  */

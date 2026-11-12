@@ -112,20 +112,21 @@ class FileNamesTest {
     }
 
     @Test
-    fun `FileAccessConfig accepts a prefix of 1 to 64 plain bytes`() {
+    fun `FileAccessConfig accepts a prefix of 1 to 232 plain bytes`() {
         assertEquals(".kmptoolkit-", FileAccessConfig().tempPrefix)
         FileAccessConfig("a")
-        FileAccessConfig("a".repeat(64))
+        FileAccessConfig("a".repeat(232))
+        FileAccessConfig("\u00e9".repeat(116))
         FileAccessConfig("my-app.")
     }
 
     @Test
     fun `FileAccessConfig rejects an empty a too long and a non-plain prefix`() {
         assertFailsWith<IllegalArgumentException> { FileAccessConfig("") }
-        assertFailsWith<IllegalArgumentException> { FileAccessConfig("a".repeat(65)) }
+        assertFailsWith<IllegalArgumentException> { FileAccessConfig("a".repeat(233)) }
         assertFailsWith<IllegalArgumentException> { FileAccessConfig("a/") }
         assertFailsWith<IllegalArgumentException> { FileAccessConfig("a\u0000") }
-        assertFailsWith<IllegalArgumentException> { FileAccessConfig("\u00e9".repeat(33)) }
+        assertFailsWith<IllegalArgumentException> { FileAccessConfig("\u00e9".repeat(117)) }
         assertFailsWith<IllegalArgumentException> { FileAccessConfig("a\uD83D") }
     }
 
@@ -133,8 +134,9 @@ class FileNamesTest {
     fun `WriteOptions validates its temp prefix like the config`() {
         WriteOptions(tempPrefix = "x.")
         WriteOptions(tempPrefix = null)
+        WriteOptions(tempPrefix = "a".repeat(232))
         assertFailsWith<IllegalArgumentException> { WriteOptions(tempPrefix = "") }
-        assertFailsWith<IllegalArgumentException> { WriteOptions(tempPrefix = "a".repeat(65)) }
+        assertFailsWith<IllegalArgumentException> { WriteOptions(tempPrefix = "a".repeat(233)) }
         assertFailsWith<IllegalArgumentException> { WriteOptions(tempPrefix = "a/b") }
         assertFailsWith<IllegalArgumentException> { WriteOptions().copy(tempPrefix = "") }
     }
