@@ -291,7 +291,7 @@ class PlayerDocsAsTestR7Test {
         player.seekForward(Long.MIN_VALUE)
         assertEquals(0L, engine.positionMs)
         player.seekBackward(Long.MIN_VALUE)
-        assertEquals(0L, engine.positionMs)
+        assertEquals(10_000L, engine.positionMs, "backwards by Long.MIN_VALUE is forwards by 2^63: the end")
         assertEquals(10_000L, DEFAULT_SEEK_AMOUNT_MS)
     }
 
