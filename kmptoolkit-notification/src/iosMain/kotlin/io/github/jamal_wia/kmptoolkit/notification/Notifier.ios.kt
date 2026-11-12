@@ -46,6 +46,53 @@ public fun createNotifier(
 )
 
 /**
+ * The slice of `UNUserNotificationCenter` that [IosNotifier] uses, as a seam: a test binary cannot
+ * call `currentNotificationCenter()` (it is not an app bundle), so tests drive a fake instead.
+ * Every method is non-suspending on purpose: [IosNotifier] issues [add] under its post lock and
+ * awaits the completion outside it.
+ */
+internal interface NotificationCenterPort {
+
+    /** `addNotificationRequest`; [completion] receives the system's error, or `null` on success. */
+    fun add(request: UNNotificationRequest, completion: (NSError?) -> Unit)
+
+    /** `removeDeliveredNotificationsWithIdentifiers`. */
+    fun removeDelivered(ids: List<String>)
+
+    /** `removePendingNotificationRequestsWithIdentifiers`. */
+    fun removePending(ids: List<String>)
+
+    /** `removeAllDeliveredNotifications`. */
+    fun removeAllDelivered()
+}
+
+/**
+ * The real center. It fetches `currentNotificationCenter()` on every call and never caches it, so
+ * building a notifier before the app is up (or in a test binary) does not touch the center.
+ */
+internal object SystemNotificationCenter : NotificationCenterPort {
+
+    private val center: UNUserNotificationCenter
+        get() = UNUserNotificationCenter.currentNotificationCenter()
+
+    override fun add(request: UNNotificationRequest, completion: (NSError?) -> Unit) {
+        center.addNotificationRequest(request, completion)
+    }
+
+    override fun removeDelivered(ids: List<String>) {
+        center.removeDeliveredNotificationsWithIdentifiers(ids)
+    }
+
+    override fun removePending(ids: List<String>) {
+        center.removePendingNotificationRequestsWithIdentifiers(ids)
+    }
+
+    override fun removeAllDelivered() {
+        center.removeAllDeliveredNotifications()
+    }
+}
+
+/**
  * `UNUserNotificationCenter` implementation.
  *
  * The caller's id is the request identifier verbatim, so re-posting one id replaces its request
@@ -61,17 +108,15 @@ public fun createNotifier(
 internal class IosNotifier(
     private val permissions: PermissionController,
     private val coalescer: ProgressCoalescer,
-) : Notifier {
-
-    private val center: UNUserNotificationCenter
-        get() = UNUserNotificationCenter.currentNotificationCenter()
-
+    private val center: NotificationCenterPort = SystemNotificationCenter,
     /**
      * Orders a post's "still wanted? then add" step against [cancel] and [cancelAll]. Separate from
      * the coalescer's own lock and always taken first, so the two never invert. An `NSLock` is not
-     * reentrant: nothing under it calls back into this class.
+     * reentrant: nothing under it calls back into this class. A parameter only so a test can hook
+     * the moment between a post's liveness check and its hand-over.
      */
-    private val postLock: NotifierLock = notifierLock()
+    private val postLock: NotifierLock = notifierLock(),
+) : Notifier {
 
     override suspend fun post(id: String, notification: LocalNotification): NotificationResult {
         // Validation, not a catch: `requestWithIdentifier` rejects an empty identifier by raising an
@@ -142,7 +187,7 @@ internal class IosNotifier(
                 // completion is awaited outside the lock.
                 val issued: Boolean = postLock.withLock {
                     if (!coalescer.isLive(ticket)) return@withLock false
-                    center.addNotificationRequest(request) { error: NSError? ->
+                    center.add(request) { error: NSError? ->
                         continuation.resume(error)
                     }
                     handedOver = true
@@ -187,11 +232,10 @@ internal class IosNotifier(
         // One critical section with the decide-and-add of an in-flight post (see post).
         postLock.withLock {
             coalescer.forget(id)
-            val notificationCenter: UNUserNotificationCenter = center
             // Pending too: a post handed over a moment ago may not be presented yet. This also
             // removes a scheduler alarm armed under the same id (documented in 05-platform-notes).
-            notificationCenter.removeDeliveredNotificationsWithIdentifiers(listOf(id))
-            notificationCenter.removePendingNotificationRequestsWithIdentifiers(listOf(id))
+            center.removeDelivered(listOf(id))
+            center.removePending(listOf(id))
         }
     }
 
@@ -200,7 +244,7 @@ internal class IosNotifier(
             coalescer.clear()
             // Delivered only, mirroring Android's cancelAll(): a pending request is something the OS
             // has been asked to show later, which is nobody's idea of "clear the tray".
-            center.removeAllDeliveredNotifications()
+            center.removeAllDelivered()
         }
     }
 
