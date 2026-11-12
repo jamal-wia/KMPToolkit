@@ -42,7 +42,9 @@ From the [OpenJFX 27 media documentation](https://openjfx.io/javadoc/27/javafx.m
 
 Protocols: `file:`, `http:`, `https:`, `jar:` (which is how a classpath `Asset` inside a jar plays). A class loader that does not percent-encode its
 URLs (`File.toURL()`, plugin loaders) is repaired for `file:` and `jar:file:` alike: the jar's own URI is
-encoded and the entry is encoded as a path.
+encoded and the entry is encoded as a path. A name with a character outside the Basic Multilingual Plane (an emoji)
+is repaired the same way: the JDK's class loader encodes it one UTF-16 surrogate at a time, which is not valid UTF-8 and
+which JavaFX rejects, so the pairs are joined and the URI is encoded again as UTF-8.
 
 Per OS, decoding is done by the platform:
 

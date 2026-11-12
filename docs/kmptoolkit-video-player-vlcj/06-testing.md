@@ -100,7 +100,7 @@ tested against `FakeVlcRuntime`, which keeps VLC's threading shape (events on an
   `VlcUnavailableException` without calling the listener; source errors are reported before VLC is
   looked for; transport, settings and getters before a load are no-ops; `release` is idempotent.
 - `VlcMediaResolverTest`: files, classpath assets (in a directory and inside a jar, including the
-  temporary copy and its deletion), remote URLs, the header mapping and every rejection — missing
+  temporary copy, its deletion and its extension, names outside the Basic Multilingual Plane), remote URLs, the header mapping and every rejection — missing
   file, blank path, directory, missing asset, blank URL, unsupported header, header with a line
   break.
 - `DisplaySizeTest`: sample aspect ratio (DVD 16:9, HDV) and quarter-turn orientation.

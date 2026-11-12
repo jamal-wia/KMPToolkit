@@ -30,7 +30,7 @@ promise that every source decodes: formats are OS-dependent (see
 
 | Source | Resolved as | Missing / malformed |
 |---|---|---|
-| `VideoSource.Asset(path)` | a **classpath resource** (`src/jvmMain/resources/…`), leading `/` optional; works from a directory and from inside a jar | `FileNotFoundException` |
+| `VideoSource.Asset(path)` | a **classpath resource** (`src/jvmMain/resources/…`), leading `/` optional; works from a directory and from inside a jar; any name the file system accepts, an emoji included | `FileNotFoundException` |
 | `VideoSource.File(path)` | the file at that absolute path | `FileNotFoundException` (also for a directory, and for a file that cannot be read) |
 | `VideoSource.Remote(url)` | `http://`, `https://`, or an HLS playlist — passed to JavaFX as is | `MediaException` from JavaFX |
 | `VideoSource.Remote(url, headers)` with any header | — | `JavaFxVideoPlayerException.HeadersNotSupported` |

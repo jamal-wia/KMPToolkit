@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.video.player.vlcj
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 import java.io.File
 import java.io.FileNotFoundException
+import java.io.FilterInputStream
 import java.io.InputStream
 import java.net.URISyntaxException
 import java.net.URL
@@ -10,6 +11,8 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
+import java.util.jar.JarEntry
+import java.util.jar.JarFile
 
 /**
  * What VLC is asked to open for one [VideoSource].
@@ -105,6 +108,9 @@ internal object VlcMediaResolver {
         is VideoSource.Remote -> resolveRemote(source.url, source.headers)
     }
 
+    /** An extension a temporary copy may carry: short and plain. */
+    private val SAFE_EXTENSION: Regex = Regex("[A-Za-z0-9_-]{1,16}")
+
     /** The libvlc option for each header, in [headers]' order. */
     fun headerOptions(headers: Map<String, String>): List<String> {
         val unsupported: List<String> = headers.keys.filter { it.lowercase() !in SUPPORTED_HEADERS }
@@ -140,7 +146,12 @@ internal object VlcMediaResolver {
             // A loader that does not percent-encode (File.toURL(), plugin loaders) hands back a URL that
             // is not a valid URI; its path is then the file path as written. An authority URL
             // (file://host/...) keeps going through the URI.
-            val file: File = try {
+            val decoded: DecodedUrlPath? = if (url.authority.isNullOrEmpty()) decodeUrlPath(url.path) else null
+            val file: File = if (decoded != null && decoded.repaired) {
+                // A name outside the Basic Multilingual Plane: the JDK encoded each surrogate on its own, which a
+                // strict URI decoder turns into U+FFFD.
+                File(decoded.text)
+            } else try {
                 Paths.get(url.toURI()).toFile()
             } catch (_: URISyntaxException) {
                 File(url.path)
@@ -148,16 +159,56 @@ internal object VlcMediaResolver {
             return ResolvedMedia(file.absolutePath, emptyList(), isLocal = true, temporaryFile = null)
         }
         val extension: String = resourcePath.substringAfterLast('/').substringAfterLast('.', "")
-        val suffix: String = if (extension.isEmpty()) ".tmp" else ".$extension"
+        // The copy keeps the extension so libvlc can sniff the container, but only a plain one: a long or odd one
+        // (which a file system may refuse as a name) falls back to ".tmp".
+        val suffix: String = if (SAFE_EXTENSION.matches(extension)) ".$extension" else ".tmp"
         val target: File = AssetCopies.create(suffix)
         try {
-            val input: InputStream = url.openStream()
+            val input: InputStream = openEntry(url)
             input.use { Files.copy(it, target.toPath(), StandardCopyOption.REPLACE_EXISTING) }
         } catch (error: Throwable) {
             AssetCopies.release(target)
             throw error
         }
         return ResolvedMedia(target.absolutePath, emptyList(), isLocal = true, temporaryFile = target)
+    }
+
+    /**
+     * The bytes of the resource at [url]. A jar entry whose name has a character outside the Basic Multilingual Plane
+     * is read from the jar by its decoded name: the JDK's own jar handler cannot open the per-surrogate URL its class
+     * loader produced.
+     */
+    private fun openEntry(url: URL): InputStream {
+        if (url.protocol == "jar") {
+            val written: String = url.toExternalForm()
+            val separator: Int = written.indexOf("!/")
+            if (separator >= 0 && written.startsWith("jar:file:")) {
+                val jar: DecodedUrlPath? = decodeUrlPath(written.substring("jar:file:".length, separator))
+                val entry: DecodedUrlPath? = decodeUrlPath(written.substring(separator + 2))
+                if (jar != null && entry != null && (jar.repaired || entry.repaired)) {
+                    val jarFile = JarFile(File(jar.text))
+                    try {
+                        val jarEntry: JarEntry = jarFile.getJarEntry(entry.text)
+                            ?: throw FileNotFoundException("No jar entry: ${entry.text}")
+                        val stream: InputStream = jarFile.getInputStream(jarEntry)
+                        // The jar stays open exactly as long as the stream.
+                        return object : FilterInputStream(stream) {
+                            override fun close() {
+                                try {
+                                    super.close()
+                                } finally {
+                                    jarFile.close()
+                                }
+                            }
+                        }
+                    } catch (error: Throwable) {
+                        jarFile.close()
+                        throw error
+                    }
+                }
+            }
+        }
+        return url.openStream()
     }
 
     private fun resolveRemote(url: String, headers: Map<String, String>): ResolvedMedia {
