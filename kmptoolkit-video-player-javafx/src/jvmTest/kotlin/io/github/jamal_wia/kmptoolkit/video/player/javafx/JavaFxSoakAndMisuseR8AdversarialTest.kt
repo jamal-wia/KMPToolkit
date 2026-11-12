@@ -99,21 +99,17 @@ class JavaFxSoakAndMisuseR8AdversarialTest {
         val namesBefore: Map<String, Int> = threadNames()
         val deadline: Long = System.nanoTime() + soakSeconds() * 1_000_000_000L
         var cycles = 0
-        val growing: MutableList<String> = mutableListOf()
-        var timers: Int = namedThreads("Timer-")
         while (System.nanoTime() < deadline) {
             val trace = StringBuilder()
             cycle(random, weak, trace)
             cycles++
-            Thread.sleep(150L)
-            val now: Int = namedThreads("Timer-")
-            if (now > timers && growing.size < 4) growing += "cycle $cycles +${now - timers}: ops $trace"
-            timers = now
         }
         val end: Long = System.nanoTime() + 20_000_000_000L
-        while (liveThreads() - threadsBefore > 8 && System.nanoTime() < end) Thread.sleep(100L)
+        // JavaFX Media starts a daemon java.util.Timer thread per MediaPlayer that played (a raw MediaPlayer does too);
+        // the JDK reaps it when the Timer is collected, so the leak check lets the collector run first.
+        while (liveThreads() - threadsBefore > 8 && System.nanoTime() < end) { System.gc(); Thread.sleep(100L) }
         val grown: Map<String, Int> = threadNames().mapValues { (name, n) -> n - (namesBefore[name] ?: 0) }.filterValues { it > 0 }
-        assertTrue(liveThreads() - threadsBefore <= 8, "threads grew ${liveThreads() - threadsBefore} over $cycles cycles: $grown; first growing cycles: $growing")
+        assertTrue(liveThreads() - threadsBefore <= 8, "threads grew ${liveThreads() - threadsBefore} over $cycles cycles: $grown")
         val created: List<String> = (tempNames() - filesBefore).sorted()
         assertEquals(emptyList(), created, "files left behind by $cycles cycles")
         var alive: Int = weak.size
