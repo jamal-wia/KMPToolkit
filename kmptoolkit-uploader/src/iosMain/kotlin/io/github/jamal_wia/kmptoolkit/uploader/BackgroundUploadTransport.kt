@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.files.FileNames
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.e
@@ -82,7 +83,13 @@ import platform.posix.memcpy
  * @param resourceTimeout the session's `timeoutIntervalForResource`: how long the whole transfer, retries
  *   after an idle timeout included, may take before iOS fails it. The default, 7 days, is the system's
  *   own. It therefore bounds how long an upload may be re-sent; keep [lease] below it. Must be positive and finite.
- * @since 1.5.0 ([requestTimeout] and [resourceTimeout] since 4.0.0)
+ * @param journalDirectoryName the name of the directory in Application Support that holds the outcome journal
+ *   (`<journalDirectoryName>/outcomes`). The default, `kmptoolkit-uploader`, is the name earlier versions used, so
+ *   existing journals are found; give each independent uploader in one app its own name, or their item ids share one
+ *   journal. Must be a plain file name ([FileNames.isPlainName]).
+ * @throws IllegalArgumentException if a duration or [sessionIdentifierPrefix] is out of range or
+ *   [journalDirectoryName] is not a plain file name.
+ * @since 1.5.0 ([requestTimeout] and [resourceTimeout] since 4.0.0, [journalDirectoryName] since 5.0.0)
  */
 public class BackgroundUploadConfig(
     public val sessionIdentifierPrefix: String? = null,
@@ -90,7 +97,30 @@ public class BackgroundUploadConfig(
     public val rehandFlushWindow: Duration = 3.seconds,
     public val requestTimeout: Duration = DEFAULT_REQUEST_TIMEOUT,
     public val resourceTimeout: Duration = DEFAULT_RESOURCE_TIMEOUT,
+    public val journalDirectoryName: String = DEFAULT_JOURNAL_DIRECTORY_NAME,
 ) {
+    /**
+     * The constructor before [journalDirectoryName] existed (4.x): same five parameters, journal in the default
+     * directory. Kept so that Swift and binary callers of the five-argument form keep working. A call that leaves
+     * a parameter out resolves to the primary constructor.
+     *
+     * @since 4.0.0
+     */
+    public constructor(
+        sessionIdentifierPrefix: String?,
+        lease: Duration,
+        rehandFlushWindow: Duration,
+        requestTimeout: Duration,
+        resourceTimeout: Duration,
+    ) : this(
+        sessionIdentifierPrefix,
+        lease,
+        rehandFlushWindow,
+        requestTimeout,
+        resourceTimeout,
+        DEFAULT_JOURNAL_DIRECTORY_NAME,
+    )
+
     /**
      * The constructor before [requestTimeout] and [resourceTimeout] existed; kept so that Swift code calling
      * `BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` still compiles. It has no
@@ -115,7 +145,14 @@ public class BackgroundUploadConfig(
         sessionIdentifierPrefix: String?,
         lease: Duration,
         rehandFlushWindow: Duration,
-    ) : this(sessionIdentifierPrefix, lease, rehandFlushWindow, DEFAULT_REQUEST_TIMEOUT, DEFAULT_RESOURCE_TIMEOUT)
+    ) : this(
+        sessionIdentifierPrefix,
+        lease,
+        rehandFlushWindow,
+        DEFAULT_REQUEST_TIMEOUT,
+        DEFAULT_RESOURCE_TIMEOUT,
+        DEFAULT_JOURNAL_DIRECTORY_NAME,
+    )
 
     init {
         require(sessionIdentifierPrefix == null || sessionIdentifierPrefix.isNotBlank()) {
@@ -129,6 +166,7 @@ public class BackgroundUploadConfig(
         require(resourceTimeout.isPositive() && resourceTimeout.isFinite()) {
             "resourceTimeout must be positive and finite, was $resourceTimeout."
         }
+        FileNames.requirePlainName(journalDirectoryName, "journalDirectoryName")
     }
 
     override fun equals(other: Any?): Boolean =
@@ -137,7 +175,8 @@ public class BackgroundUploadConfig(
             lease == other.lease &&
             rehandFlushWindow == other.rehandFlushWindow &&
             requestTimeout == other.requestTimeout &&
-            resourceTimeout == other.resourceTimeout
+            resourceTimeout == other.resourceTimeout &&
+            journalDirectoryName == other.journalDirectoryName
 
     override fun hashCode(): Int {
         var result: Int = sessionIdentifierPrefix.hashCode()
@@ -145,22 +184,29 @@ public class BackgroundUploadConfig(
         result = 31 * result + rehandFlushWindow.hashCode()
         result = 31 * result + requestTimeout.hashCode()
         result = 31 * result + resourceTimeout.hashCode()
+        result = 31 * result + journalDirectoryName.hashCode()
         return result
     }
 
     override fun toString(): String =
         "BackgroundUploadConfig(sessionIdentifierPrefix=$sessionIdentifierPrefix, lease=$lease, " +
             "rehandFlushWindow=$rehandFlushWindow, requestTimeout=$requestTimeout, " +
-            "resourceTimeout=$resourceTimeout)"
+            "resourceTimeout=$resourceTimeout, journalDirectoryName=$journalDirectoryName)"
 
-    internal companion object {
+    public companion object {
+        /**
+         * The default [journalDirectoryName]: the directory name the outcome journal has always used.
+         * @since 5.0.0
+         */
+        public const val DEFAULT_JOURNAL_DIRECTORY_NAME: String = "kmptoolkit-uploader"
+
         /** The system's `timeoutIntervalForRequest` default. */
-        val DEFAULT_REQUEST_TIMEOUT: Duration = 60.seconds
+        internal val DEFAULT_REQUEST_TIMEOUT: Duration = 60.seconds
 
         /** The system's `timeoutIntervalForResource` default. */
-        val DEFAULT_RESOURCE_TIMEOUT: Duration = 7.days
+        internal val DEFAULT_RESOURCE_TIMEOUT: Duration = 7.days
 
-        const val DEFAULT_PREFIX_SUFFIX: String = ".uploader.upload."
+        internal const val DEFAULT_PREFIX_SUFFIX: String = ".uploader.upload."
     }
 }
 
@@ -290,7 +336,7 @@ internal class BackgroundSessionUploadTransport(
     private val identifierPrefix: String,
     private val config: BackgroundUploadConfig,
     logger: Logger,
-    private val journal: OutcomeJournal = iosOutcomeJournal(logger),
+    private val journal: OutcomeJournal = iosOutcomeJournal(logger, config.journalDirectoryName),
     private val sessionFactory: UploadSessionFactory = NsUrlUploadSessionFactory(config),
     /** How long a hand-off waits for the previous session of the same identifier to report itself invalid. */
     private val invalidationWait: Duration = DEFAULT_INVALIDATION_WAIT,

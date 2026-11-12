@@ -62,6 +62,7 @@ class UploaderEngineSoakRound8AdversarialTest {
 
     private fun dbThreads(): Int = Thread.getAllStackTraces().keys.count { it.name == "kmptoolkit-uploader-db" && it.isAlive }
 
+    // path-hygiene-ignore: PH2 descriptor count where /dev/fd exists; the assertion is skipped elsewhere
     private fun openFds(): Int = File("/dev/fd").list()?.size ?: -1
 
     /** What the handlers did, as the model of the world sees it. */
@@ -256,6 +257,7 @@ class UploaderEngineSoakRound8AdversarialTest {
                 delay(25)
             }
             val left: List<UploaderItem> = storage.store.getAllActive()
+            // path-hygiene-ignore: PH4 '/' separates fields of an assertion message, not a path
             assertTrue(left.isEmpty(), "seed=$seed the queue did not drain after 40 quiet days: ${left.take(5).map { "${it.id}/${it.state}/attempts=${it.attempts}/gate=${it.nextRunAtEpochMillis}/lease=${it.leaseUntilEpochMillis}" }}")
             // what remains in the table is exactly what was parked, with its reason, never a stuck PENDING or IN_FLIGHT row
             val remaining: List<String> = listOf("soak.plain", "soak.detached").flatMap { storage.store.observeByType(it).first() }.map { it.id }

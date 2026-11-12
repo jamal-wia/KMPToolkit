@@ -199,11 +199,20 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   the status, the headers, the body and a timestamp, so **a response body rests briefly on disk**. The body is
   held to the handler's `maxResponseBodyBytes` (never above 1 MiB); a handler that sets `0` has no body
   in the file. On Android the limit is read before the upload starts; on iOS the file is first written
-  as captured, because the callback cannot wait, and cut to the limit as soon as the engine is reachable. On Android it lives in `noBackupFilesDir/kmptoolkit-uploader/outcomes/<itemId>`
+  as captured, because the callback cannot wait, and cut to the limit as soon as the engine is reachable. On Android it lives in `noBackupFilesDir/<journalDirectoryName>/outcomes/<itemId>`
   — never in a cloud backup or a device transfer. On iOS it lives in
-  `Application Support/kmptoolkit-uploader/outcomes/<itemId>`, excluded from backup, with the
+  `Application Support/<journalDirectoryName>/outcomes/<itemId>`, excluded from backup, with the
   `NSFileProtectionCompleteUntilFirstUserAuthentication` class (a background session can finish while
-  the device is locked, so a stricter class would fail exactly when the file is needed). If the process
+  the device is locked, so a stricter class would fail exactly when the file is needed). The directory name is `kmptoolkit-uploader` unless you set `UploadTransportConfig.journalDirectoryName`
+  (Android, used by `createWorkManagerUploadHandlerTransport` only) or `BackgroundUploadConfig.journalDirectoryName` (iOS):
+  give each independent uploader in one app its own name, or their item ids share one journal. Pick the name once and keep it,
+  because a journal under another name is not found; a job enqueued by a 4.x build carries no name and uses the default.
+  Entries are written through `kmptoolkit-files` (`writeAtomically`, synced to disk before the rename), and the bytes of an
+  entry are the same as before. The temporary files of a write are in `outcomes-partial`, a sibling of `outcomes`, on both
+  platforms: Android names them `.kmptoolkit-<digits>.tmp` (4.x used `<itemId>.<uuid>`), and the iOS write used to be
+  Foundation's atomic write inside `outcomes` and is now the same synced write; leftovers of either naming are swept
+  after an hour (Android) or five minutes (iOS), and the Foundation temporary files of an earlier version in `outcomes` are
+  still swept. If the process
   dies between the answer and the settlement, the next run **replays the file instead of uploading
   again**: the Android worker checks it before preparing the attempt, the iOS transport in a re-hand
   (a first hand-off finds a stale file, deletes it and uploads; so does a re-hand that finds a file stamped with an

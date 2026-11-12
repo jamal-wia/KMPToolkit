@@ -18,7 +18,8 @@ kotlin {
 }
 ```
 
-With the BOM applied, no version is needed — see the root [`README`](../../README.md).
+With the BOM applied, no version is needed — see the root [`README`](../../README.md). The module depends on
+`kmptoolkit-logging` and `kmptoolkit-files` (the outcome journal's file writes); both arrive transitively.
 
 ## 2. Pick a store
 

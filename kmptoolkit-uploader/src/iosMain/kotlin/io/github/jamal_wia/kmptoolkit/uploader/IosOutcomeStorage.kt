@@ -1,14 +1,19 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.files.Durability
+import io.github.jamal_wia.kmptoolkit.files.FileAccess
+import io.github.jamal_wia.kmptoolkit.files.FileError
+import io.github.jamal_wia.kmptoolkit.files.FileProtection
+import io.github.jamal_wia.kmptoolkit.files.FileResult
+import io.github.jamal_wia.kmptoolkit.files.Paths
+import io.github.jamal_wia.kmptoolkit.files.WriteOptions
+import io.github.jamal_wia.kmptoolkit.files.createFileAccess
+import io.github.jamal_wia.kmptoolkit.files.isSuccess
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.addressOf
-import kotlinx.cinterop.convert
-import kotlinx.cinterop.usePinned
 import platform.Foundation.NSApplicationSupportDirectory
-import platform.Foundation.NSData
 import platform.Foundation.NSDate
 import platform.Foundation.NSDataWritingAtomic
 import platform.Foundation.NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication
@@ -16,8 +21,6 @@ import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileProtectionCompleteUntilFirstUserAuthentication
 import platform.Foundation.NSFileModificationDate
 import platform.Foundation.NSFileProtectionKey
-import platform.Foundation.NSFileSize
-import platform.Foundation.NSNumber
 import platform.Foundation.NSString
 import platform.Foundation.decomposedStringWithCanonicalMapping
 import platform.Foundation.precomposedStringWithCanonicalMapping
@@ -26,18 +29,15 @@ import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
 import platform.Foundation.NSUserDomainMask
 import platform.Foundation.timeIntervalSinceNow
-import platform.Foundation.create
-import platform.Foundation.dataWithContentsOfFile
-import platform.Foundation.writeToFile
-import platform.posix.memcpy
 
 /**
  * [OutcomeStorage] on files in Application Support, excluded from backup and protected until the first
  * unlock after boot — a background session's completion can be delivered while the device is locked, so a
  * stricter class would make the entry unwritable exactly when it is needed.
  *
- * Each write is `NSDataWritingAtomic`: Foundation writes a temporary file and renames it over [dir]'s
- * entry, so a reader sees the previous entry, the whole new one, or nothing.
+ * Each write goes through `kmptoolkit-files`: the bytes are written to a temporary file in [partialDir] (a sibling of
+ * [dir], so the rename stays on one volume), synced to disk and renamed over [dir]'s entry, so a reader sees the
+ * previous entry, the whole new one, or nothing, and an entry that was reported written survives a power loss.
  *
  * An entry is named by [journalFileName]: the id itself when that cannot be the same file as another id's name on a
  * case-insensitive volume (every default id), an escaped form of it otherwise, so ids that differ only by letter case
@@ -45,12 +45,18 @@ import platform.posix.memcpy
  * sweep and deleted, and is replaced by the escaped name when the id writes again (an entry whose spelling differs
  * from a kept name only by letter case is moved to its own escaped name before that kept name is written). The entry
  * of an id whose escaped name would be too long for the file system starts with the id ([idHeader]); the sweep reads it
- * from there. Foundation's own temporary files are never listed as ids, and a leftover of a dead process is purged.
+ * from there. Foundation's own temporary files (left by 4.x) are never listed as ids, and a leftover of a dead process, in [dir] or in
+ * [partialDir], is purged.
  */
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
-internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
+internal class IosOutcomeStorage(
+    private val dir: String,
+    /** Where an entry's temporary file is written before it is renamed into [dir]: a sibling, so the rename is atomic. */
+    private val partialDir: String = Paths.join(Paths.parentOf(dir) ?: dir, PARTIAL_DIRECTORY_NAME),
+    private val files: FileAccess = createFileAccess(),
+) : OutcomeStorage {
 
-    private val files: NSFileManager = NSFileManager.defaultManager
+    private val manager: NSFileManager = NSFileManager.defaultManager
 
     override fun write(itemId: String, bytes: ByteArray): Boolean {
         if (!ensureDirectory()) return false
@@ -66,7 +72,7 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
         if (keepsOwnFileName(itemId) && !clearCaseAliases(name)) return false
         val written: Boolean = writeFile("$dir/$name", content)
         // The entry an earlier version wrote under the id's own spelling is superseded by this one.
-        if (written) legacyPathOf(itemId)?.let { files.removeItemAtPath(it, error = null) }
+        if (written) legacyPathOf(itemId)?.let { manager.removeItemAtPath(it, error = null) }
         return written
     }
 
@@ -82,8 +88,8 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
         val name: String = journalFileName(itemId)
         // A kept name is removed only when the directory lists this exact spelling: on a case-insensitive volume the
         // path of one id is also the path of the 4.0.0 entry of an id that differs only by case.
-        if (!keepsOwnFileName(itemId) || name in directoryNames()) files.removeItemAtPath("$dir/$name", error = null)
-        legacyPathOf(itemId)?.let { files.removeItemAtPath(it, error = null) }
+        if (!keepsOwnFileName(itemId) || name in directoryNames()) manager.removeItemAtPath("$dir/$name", error = null)
+        legacyPathOf(itemId)?.let { manager.removeItemAtPath(it, error = null) }
     }
 
     override fun itemIds(): List<String> =
@@ -108,7 +114,7 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
     }
 
     private fun directoryNames(): List<String> =
-        files.contentsOfDirectoryAtPath(dir, error = null).orEmpty().filterIsInstance<String>()
+        manager.contentsOfDirectoryAtPath(dir, error = null).orEmpty().filterIsInstance<String>()
 
     /**
      * The path of the entry of [itemId]: its [journalFileName], or, when only an entry an earlier version wrote under
@@ -119,9 +125,9 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
         val name: String = journalFileName(itemId)
         val path = "$dir/$name"
         if (keepsOwnFileName(itemId)) return if (name in directoryNames()) path else null
-        if (files.fileExistsAtPath(path)) return path
+        if (manager.fileExistsAtPath(path)) return path
         // The legacy entry may have just been moved to its own name by a writer: look at that name once more.
-        return legacyPathOf(itemId) ?: path.takeIf { files.fileExistsAtPath(it) }
+        return legacyPathOf(itemId) ?: path.takeIf { manager.fileExistsAtPath(it) }
     }
 
     /**
@@ -166,63 +172,64 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
             val aliasId: String = itemIdOfJournalFileName(alias)
             if (aliasId != alias) continue
             val raw: ByteArray? = readFile("$dir/$alias")
-            if (raw != null && !files.fileExistsAtPath("$dir/${journalFileName(alias)}")) {
+            if (raw != null && !manager.fileExistsAtPath("$dir/${journalFileName(alias)}")) {
                 val moved: Boolean = write(alias, raw)
                 if (!moved) return false
             } else if (raw != null) {
-                files.removeItemAtPath("$dir/$alias", error = null)
+                manager.removeItemAtPath("$dir/$alias", error = null)
             }
             if (alias in directoryNames()) return false
         }
         return true
     }
 
+    /**
+     * The bytes go to a temporary file in [partialDir], are synced to disk and renamed over [path], with the
+     * first-unlock protection class (see [WRITE_OPTIONS]).
+     */
     private fun writeFile(path: String, bytes: ByteArray): Boolean {
-        val data: NSData = if (bytes.isEmpty()) {
-            NSData()
-        } else {
-            bytes.usePinned { pinned -> NSData.create(bytes = pinned.addressOf(0), length = bytes.size.convert()) }
-        }
-        return data.writeToFile(path, options = WRITE_OPTIONS, error = null)
+        val options = WriteOptions(
+            durability = Durability.Synced,
+            protection = FileProtection.CompleteUntilFirstUserAuthentication,
+            tempDirectory = partialDir,
+        )
+        return files.writeAtomically(path, bytes, options).isSuccess
     }
 
-    private fun readFile(path: String, extraBytes: Long = 0): ByteArray? {
-        // The size first: a file larger than any entry the journal writes is not read at all, where reading it
-        // would be an out-of-memory abort Kotlin/Native cannot catch.
-        val attributes: Map<Any?, *> = files.attributesOfItemAtPath(path, error = null) ?: return null
-        val declared: Long? = (attributes[NSFileSize] as? NSNumber)?.longLongValue
-        if (declared != null && declared > MAX_ENCODED_ENTRY_BYTES + extraBytes) return ByteArray(0)
-        val data: NSData = NSData.dataWithContentsOfFile(path) ?: return null
-        // A second guard for a file that grew between the two calls.
-        if (data.length.toLong() > MAX_ENCODED_ENTRY_BYTES + extraBytes) return ByteArray(0)
-        val size: Int = data.length.toInt()
-        if (size == 0) return ByteArray(0)
-        val out = ByteArray(size)
-        out.usePinned { pinned -> memcpy(pinned.addressOf(0), data.bytes, data.length) }
-        return out
-    }
+    private fun readFile(path: String, extraBytes: Long = 0): ByteArray? =
+        when (val result: FileResult<ByteArray> = files.readBytes(path, MAX_ENCODED_ENTRY_BYTES + extraBytes)) {
+            is FileResult.Success -> result.value
+            // Larger than any entry the journal writes: not read at all, where reading it would be an
+            // out-of-memory abort Kotlin/Native cannot catch.
+            is FileResult.Failure -> if (result.error is FileError.TooLarge) ByteArray(0) else null
+        }
 
     /**
      * Removes the files an atomic write left behind in a process that died, once they are older than
      * [LEFTOVER_MIN_AGE_SECONDS]: a younger one may be a write of this or another process that is still running.
+     * Foundation's own temporary files in [dir] (4.x entries were written with `NSDataWritingAtomic`) and the
+     * temporary files in [partialDir] are both swept.
      */
     override fun purgeLeftovers() {
+        files.sweep(partialDir, olderThanMillis = LEFTOVER_MIN_AGE_SECONDS.toLong() * MILLIS_PER_SECOND) { true }
         for (name in directoryNames()) {
             if (!isFoundationTempName(name)) continue
-            val attributes: Map<Any?, *> = files.attributesOfItemAtPath("$dir/$name", error = null) ?: continue
+            val attributes: Map<Any?, *> = manager.attributesOfItemAtPath("$dir/$name", error = null) ?: continue
             val modified: NSDate = attributes[NSFileModificationDate] as? NSDate ?: continue
-            if (-modified.timeIntervalSinceNow > LEFTOVER_MIN_AGE_SECONDS) files.removeItemAtPath("$dir/$name", error = null)
+            if (-modified.timeIntervalSinceNow > LEFTOVER_MIN_AGE_SECONDS) manager.removeItemAtPath("$dir/$name", error = null)
         }
     }
 
-    /** Creates [dir] with the protection class and the backup exclusion; idempotent. */
-    private fun ensureDirectory(): Boolean {
-        if (!files.fileExistsAtPath(dir)) {
-            if (!files.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = DIRECTORY_ATTRIBUTES, error = null)) {
+    /** Creates [dir] and [partialDir] with the protection class and the backup exclusion; idempotent. */
+    private fun ensureDirectory(): Boolean = ensureDirectory(dir) && ensureDirectory(partialDir)
+
+    private fun ensureDirectory(path: String): Boolean {
+        if (!manager.fileExistsAtPath(path)) {
+            if (!manager.createDirectoryAtPath(path, withIntermediateDirectories = true, attributes = DIRECTORY_ATTRIBUTES, error = null)) {
                 return false
             }
         }
-        NSURL.fileURLWithPath(dir).setResourceValue(true, forKey = NSURLIsExcludedFromBackupKey, error = null)
+        NSURL.fileURLWithPath(path).setResourceValue(true, forKey = NSURLIsExcludedFromBackupKey, error = null)
         return true
     }
 
@@ -230,26 +237,37 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
 
         private const val LEFTOVER_MIN_AGE_SECONDS: Double = 300.0
 
+        private const val MILLIS_PER_SECOND: Long = 1_000L
+
+        /** The directory next to the entries directory that holds the temporary files of writes in flight. */
+        const val PARTIAL_DIRECTORY_NAME: String = "outcomes-partial"
+
         private const val ASCII_LIMIT: Int = 0x80
 
-        /** The options every entry is written with: atomic, protected until the first unlock after boot. */
-        val WRITE_OPTIONS: ULong = NSDataWritingAtomic or NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication
+        /**
+         * Foundation reference value of 4.x (atomic, protected until the first unlock after boot). The write no
+         * longer uses it: it passes `FileProtection.CompleteUntilFirstUserAuthentication` to FileAccess. Kept only
+         * because a frozen test reads it; delete it together with that assertion.
+         */
+        internal val WRITE_OPTIONS: ULong = NSDataWritingAtomic or NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication
 
         /** The attributes the directory is created with: the same protection class. */
         val DIRECTORY_ATTRIBUTES: Map<Any?, *> = mapOf(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
 
-        /** `Application Support/kmptoolkit-uploader/outcomes`. */
-        fun default(): IosOutcomeStorage {
+        /** `Application Support/<directoryName>/outcomes`, temporary files in `<directoryName>/outcomes-partial`. */
+        fun default(directoryName: String = BackgroundUploadConfig.DEFAULT_JOURNAL_DIRECTORY_NAME): IosOutcomeStorage {
             val base: String = (NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, true)
                 .firstOrNull() as? String) ?: platform.Foundation.NSTemporaryDirectory()
-            return IosOutcomeStorage("$base/kmptoolkit-uploader/outcomes")
+            return IosOutcomeStorage("$base/$directoryName/outcomes")
         }
     }
 }
 
-/** The outcome journal in Application Support. */
-internal fun iosOutcomeJournal(logger: Logger = NoopLogger): OutcomeJournal =
-    OutcomeJournal(IosOutcomeStorage.default(), UploaderClock.System, logger)
+/** The outcome journal in Application Support, in the directory named [directoryName]. */
+internal fun iosOutcomeJournal(
+    logger: Logger = NoopLogger,
+    directoryName: String = BackgroundUploadConfig.DEFAULT_JOURNAL_DIRECTORY_NAME,
+): OutcomeJournal = OutcomeJournal(IosOutcomeStorage.default(directoryName), UploaderClock.System, logger)
 
 /** Largest [idHeader]: the marker, the length and 200 UTF-16 code units, with room for a longer id of a direct caller. */
 private const val MAX_HEADER_BYTES: Long = 4L + 2 + 2 * 1024

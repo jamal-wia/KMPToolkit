@@ -131,7 +131,15 @@ worker at the start of `doWork`, the iOS transport in a hand-off, in `handleEven
 creation (on iOS only a re-hand is owed a replay). The file holds the body only up to the handler's
 `maxResponseBodyBytes` (on iOS, after a brief window in which the whole captured body is on disk; see
 [`05-platform-notes.md`](05-platform-notes.md#the-servers-response)). It is deleted on `cancel` and after 7 days, and
-when the settlement is done:
+when the settlement is done. The directory that holds the files is named by `journalDirectoryName`
+(`UploadTransportConfig` on Android, `BackgroundUploadConfig` on iOS; default `kmptoolkit-uploader`, the name earlier
+versions used): give every independent uploader in one app its own name, or their item ids share one journal. On Android it
+is read from the work request's input data (`UploadHandlerWorker.JOURNAL_DIRECTORY_NAME_KEY`), and a job enqueued by a 4.x
+build, which has no such key, uses the default. The setting applies to `createWorkManagerUploadHandlerTransport` only; the
+classifier-based `createWorkManagerUploadTransport` keeps no journal. The name must be a plain file name:
+`IllegalArgumentException` otherwise.
+
+When the settlement is done:
 
 - **Android** entries carry the attempt they answer and are deleted only after the commit lands. A death or a stop
   anywhere before the commit is durable leaves the entry, and the next run settles it. A leftover from an attempt
@@ -326,6 +334,10 @@ or the lease — for that.
 `BackgroundUploadConfig(requestTimeout = 60.seconds, resourceTimeout = 7.days)` sets the session's
 `timeoutIntervalForRequest` and `timeoutIntervalForResource`. The defaults are the system's own values,
 so behaviour is unchanged unless you set them; both must be positive and finite.
+
+**The five-argument constructor.** 5.0.0 adds `journalDirectoryName` as a sixth parameter. The five-argument
+initializer of 4.x stays as a secondary constructor (not deprecated), so Swift callers, and Kotlin callers that pass all five arguments, keep working
+and use the default journal directory; other code compiled against 4.x must be recompiled (source compatible); Swift code that wants another name uses the six-argument initializer.
 
 **Swift and the three-parameter constructor.** Before 4.0.0 the configuration had three parameters.
 Swift has no default arguments, so Swift code that calls

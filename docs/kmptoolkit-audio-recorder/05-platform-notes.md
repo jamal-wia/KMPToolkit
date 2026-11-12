@@ -100,9 +100,9 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
   quotas. A directory that does not exist, or a path that throws, is reported as unknown, and an
   unknown skips the check rather than failing the recording — `usableSpace` answers `0` for a
   missing path, which would otherwise be indistinguishable from a genuinely full volume.
-- **Directory creation** uses `File.mkdirs()` and then checks `isDirectory && canWrite()`. A
-  `SecurityException` from a path outside the sandbox is exactly the "not writable" answer, so it is
-  reported as `DirectoryNotWritable`, not thrown.
+- **Directory creation** goes through `kmptoolkit-files` (`createDirectories`), then checks that the path is a
+  directory (links followed) and `canWrite()`. A `SecurityException` from a path outside the sandbox is exactly
+  the "not writable" answer, so it is reported as `DirectoryNotWritable`, not thrown.
 - **iOS directory and file checks.** A `directoryPath` that is a regular file, not a directory, is reported as
   `DirectoryNotWritable` too. A failed `prepareToRecord()` deletes nothing inside the engine: the recorder removes
   the file only when this attempt created it and still owns the path.

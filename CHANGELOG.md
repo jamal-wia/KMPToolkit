@@ -29,6 +29,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   ran 58), and a store that returns `Inserted(null)` after it replaced a parked row now fails the contract.
 - `kmptoolkit-uploader-sqldelight`: no API change. `insertKeep` returns the earliest `PARKED` holder. A holder in a
   state this build does not recognize is removed without being returned, so its upload is not cancelled.
+- `kmptoolkit-uploader` (Android): `UploadTransportConfig` has a new constructor parameter (`journalDirectoryName`,
+  last). Source compatible; code compiled against 4.x that calls its constructor or `copy` must be recompiled.
 
 ### Added
 
@@ -41,6 +43,13 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   app's private roots with backup exclusion; `withIo` for cancellable use from coroutines.
 - `kmptoolkit-files-testing`: `FakeFileAccess`, an in-memory file system that runs the real engine, with fault
   injection, crash and power-loss simulation; `FileAccessContract` to check any `FileAccess` decorator.
+- `kmptoolkit-uploader`: the outcome journal's directory name is configurable -
+  `UploadTransportConfig.journalDirectoryName` (Android, handler transport) and
+  `BackgroundUploadConfig.journalDirectoryName` (iOS); the default `kmptoolkit-uploader` is unchanged, so existing
+  journals are found. On Android the name travels in the work request's input data
+  (`UploadHandlerWorker.JOURNAL_DIRECTORY_NAME_KEY`); a job enqueued by 4.x has none and uses the default. The
+  five-argument `BackgroundUploadConfig` constructor of 4.x stays (Swift and Kotlin callers that pass all five
+  arguments keep working; other code compiled against 4.x must be recompiled).
 
 ### Changed
 
@@ -57,6 +66,13 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-uploader`: an `IN_FLIGHT` item whose type has no registered handler is parked once its lease has
   ended, not at once while an executor may still hold the lease. An item with a failure outside its handler pending
   and an unmet constraint now arms its alarm at the failure's backoff gate.
+- `kmptoolkit-uploader` now depends on `kmptoolkit-files` (the outcome journals' writes and reads). No entry format or entry
+  name changes; existing journals are found.
+- `kmptoolkit-uploader` (iOS): journal entries are written through a sibling `outcomes-partial` directory and synced
+  to disk before they replace the entry, instead of Foundation's atomic write. Entries and leftovers of earlier
+  versions are read and swept as before.
+- `kmptoolkit-uploader` (Android): temporary journal files in `outcomes-partial` are named
+  `.kmptoolkit-<digits>.tmp`; leftovers of either naming are swept after an hour, as before.
 - `kmptoolkit-audio-recorder` now depends on `kmptoolkit-files`. No file name or directory layout changes.
 - `kmptoolkit-core` no longer contains `isAbsoluteFilePath` (internal API without a compatibility promise); use
   `Paths.isAbsolute` from `kmptoolkit-files`.

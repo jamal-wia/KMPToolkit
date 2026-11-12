@@ -101,8 +101,8 @@ class JvmKeyValueStorageTemporaryNamesTest {
 
     @Test
     fun `clearing one long-named store keeps the in-flight temporary file of another that shares its first 215 bytes`() {
-        // A store file name ends in a fixed 30-byte suffix, so two names of at most 255 bytes can share at most 226 bytes (224 in
-        // fact), never the 232 of the prefix cap; this test shares 215, the start the derived prefix keeps.
+        // A store file name ends in a fixed 30-byte suffix, so two names of at most 255 bytes can share at most 226 bytes,
+        // never the 232 of the prefix cap; this test shares 215, the start the derived prefix keeps.
         val common: String = "c".repeat(215)
         val a: String = fileNameOf(common + "A")
         val b: String = fileNameOf(common + "B")

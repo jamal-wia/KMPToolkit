@@ -14,6 +14,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
+import org.junit.Assume.assumeTrue
 
 /**
  * Round 6 (resource accounting): file descriptors and threads after the multipart transfer succeeded, was answered with
@@ -34,6 +35,7 @@ class MultipartResourcesRound6AdversarialTest {
         dir.deleteRecursively()
     }
 
+    // path-hygiene-ignore: PH2 guarded by the assumption at the start of each test that counts descriptors
     private fun openFds(): Long = (ManagementFactory.getOperatingSystemMXBean() as UnixOperatingSystemMXBean).openFileDescriptorCount
 
     private fun url(): String = "http://127.0.0.1:${server.localPort}/upload"
@@ -117,6 +119,8 @@ class MultipartResourcesRound6AdversarialTest {
 
     @Test
     fun `descriptors and threads do not grow over many transfers of every outcome`() {
+        // path-hygiene-ignore: PH2 the assumption itself: skips the test on a JVM without a Unix descriptor count
+        assumeTrue(ManagementFactory.getOperatingSystemMXBean() is UnixOperatingSystemMXBean)
         serve()
         val modes: List<String> = listOf("ok", "error-body", "silent-close", "chunked", "cancel-mid-body", "source-vanished", "refused", "server-reset-after-headers")
         repeat(3) { modes.forEach(::run) } // warm-up: pools, class loading, the keep-alive timer
@@ -133,6 +137,8 @@ class MultipartResourcesRound6AdversarialTest {
 
     @Test
     fun `a transfer through the watchdog releases its descriptors and its watcher thread`() {
+        // path-hygiene-ignore: PH2 the assumption itself: skips the test on a JVM without a Unix descriptor count
+        assumeTrue(ManagementFactory.getOperatingSystemMXBean() is UnixOperatingSystemMXBean)
         serve()
         respond.set { it.send("HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n") }
         fun one() = kotlinx.coroutines.runBlocking {

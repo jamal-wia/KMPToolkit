@@ -12,8 +12,10 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import io.github.jamal_wia.kmptoolkit.files.FileNames
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.logging.createLoggerFactory
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
 import java.util.concurrent.TimeUnit
@@ -76,7 +78,7 @@ internal class WorkManagerUploadHandlerTransport(
     private val context: Context,
     private val config: UploadTransportConfig,
     logger: Logger,
-    private val journal: OutcomeJournal = androidOutcomeJournal(context, logger),
+    private val journal: OutcomeJournal = androidOutcomeJournal(context, logger, config.journalDirectoryName),
 ) : UploadTransport {
 
     /** A logger that throws is ignored: it never stops a hand-off or the sweep. */
@@ -104,14 +106,7 @@ internal class WorkManagerUploadHandlerTransport(
             .build()
         val work: OneTimeWorkRequest = OneTimeWorkRequestBuilder<UploadHandlerWorker>()
             .setConstraints(constraints)
-            .setInputData(
-                workDataOf(
-                    UploadHandlerWorker.ITEM_ID_KEY to itemId,
-                    UploadHandlerWorker.ENGINE_WAIT_MILLIS_KEY to config.engineWaitMillis,
-                    UploadHandlerWorker.CONNECT_TIMEOUT_MILLIS_KEY to config.connectTimeoutMillis,
-                    UploadHandlerWorker.READ_TIMEOUT_MILLIS_KEY to config.readTimeoutMillis,
-                ),
-            )
+            .setInputData(uploadHandlerInputData(itemId, config))
             // Paces WorkManager's own re-run of a killed or engine-less job; delivery retries are paced
             // by the handler's RetryPolicy in the engine.
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, config.workBackoff.inWholeMilliseconds, TimeUnit.MILLISECONDS)
@@ -167,7 +162,12 @@ public open class UploadHandlerWorker(
             UploadTransportConfig.DEFAULT_ENGINE_WAIT.inWholeMilliseconds,
         ).milliseconds
 
-        val journal: OutcomeJournal = androidOutcomeJournal(applicationContext)
+        // A job enqueued by an earlier version carries no journal directory name: the default is the name it used.
+        val journalDirectoryName: String = resolveJournalDirectoryName(
+            inputData.getString(JOURNAL_DIRECTORY_NAME_KEY),
+            createLoggerFactory().logger("UploadHandlerWorker"),
+        )
+        val journal: OutcomeJournal = androidOutcomeJournal(applicationContext, directoryName = journalDirectoryName)
         val ledger: UploadHandOffLedger = UploadHandOffLedger.shared
         // Counted before waiting for the item's lock: a job that waits will still read the row.
         ledger.jobStarted(itemId)
@@ -328,6 +328,14 @@ public open class UploadHandlerWorker(
 
         /** `Int` input-data key: the HTTP read timeout in milliseconds. */
         public const val READ_TIMEOUT_MILLIS_KEY: String = "kmptoolkit_uploader_read_timeout_millis"
+
+        /**
+         * `String` input-data key: the name of the outcome journal's directory
+         * ([UploadTransportConfig.journalDirectoryName]). Absent in jobs enqueued by versions before 5.0.0; the worker
+         * then uses [UploadTransportConfig.DEFAULT_JOURNAL_DIRECTORY_NAME].
+         * @since 5.0.0
+         */
+        public const val JOURNAL_DIRECTORY_NAME_KEY: String = "kmptoolkit_uploader_journal_directory_name"
     }
 }
 
@@ -345,3 +353,25 @@ private val PROGRESS_HOOKS: CoroutineDispatcher = Dispatchers.IO.limitedParallel
 
 /** How long the worker waits for [UploadHandler.onUploadProgress] to drain after the transfer ended. */
 private val PROGRESS_FLUSH_TIMEOUT: kotlin.time.Duration = 2.seconds
+
+/** The input data of the job that serves [itemId]: the item id and the settings the worker reads back. */
+internal fun uploadHandlerInputData(itemId: String, config: UploadTransportConfig): Data = workDataOf(
+    UploadHandlerWorker.ITEM_ID_KEY to itemId,
+    UploadHandlerWorker.ENGINE_WAIT_MILLIS_KEY to config.engineWaitMillis,
+    UploadHandlerWorker.CONNECT_TIMEOUT_MILLIS_KEY to config.connectTimeoutMillis,
+    UploadHandlerWorker.READ_TIMEOUT_MILLIS_KEY to config.readTimeoutMillis,
+    UploadHandlerWorker.JOURNAL_DIRECTORY_NAME_KEY to config.journalDirectoryName,
+)
+
+/**
+ * The journal directory a job's input data names: [raw] when it is a plain file name, the default when it is absent
+ * (a job enqueued by 4.x), and the default with a warning naming the rejected value when it is not a plain name. Never
+ * silent: a second directory would split the journal. The warning goes to the platform log: the worker has no
+ * consumer-supplied logger.
+ */
+internal fun resolveJournalDirectoryName(raw: String?, logger: Logger): String {
+    if (raw == null) return UploadTransportConfig.DEFAULT_JOURNAL_DIRECTORY_NAME
+    if (FileNames.isPlainName(raw)) return raw
+    logger.w { "The journal directory name '$raw' in the job's input data is not a plain file name; using the default '${UploadTransportConfig.DEFAULT_JOURNAL_DIRECTORY_NAME}'." }
+    return UploadTransportConfig.DEFAULT_JOURNAL_DIRECTORY_NAME
+}

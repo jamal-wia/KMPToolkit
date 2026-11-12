@@ -230,7 +230,7 @@ dependency; run it from whichever framework you use.
 - `FakeFileAccess()`, `FakeFileAccess(caseSensitive = false)` and a fake with a custom temp prefix
   (`commonTest`, every host);
 - the real implementation on the desktop JVM (`jvmTest`, also on the Windows PC), the real Android
-  factory under Robolectric on the default SDK and on API 26 (`androidHostTest`), and the real iOS
+  factory under Robolectric on the default SDK, on API 26 and on SDK 24 (`androidHostTest`; the SDK 24 run is "API 24 host runtime (NIO selected)"), and the real iOS
   implementation on the simulator (`iosTest`);
 
 and pins every crash, power-loss and fault-injection case above (`FakeCrashAndFaultTest`) plus the

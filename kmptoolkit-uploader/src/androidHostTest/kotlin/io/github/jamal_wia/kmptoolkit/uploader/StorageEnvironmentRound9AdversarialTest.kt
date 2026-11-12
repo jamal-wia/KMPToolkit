@@ -32,6 +32,7 @@ class StorageEnvironmentRound9AdversarialTest {
 
     @AfterTest
     fun cleanUp() {
+        // path-hygiene-ignore: PH2 restores flags a permission test cleared; harmless on Windows
         root.walkTopDown().forEach { it.setReadable(true); it.setWritable(true); it.setExecutable(true) }
         root.deleteRecursively()
     }
@@ -143,10 +144,12 @@ class StorageEnvironmentRound9AdversarialTest {
     fun `an entry nobody may read is unreadable and kept, and is read once the permission is back`() {
         assertTrue(journal.record("locked", response))
         val file = File(outcomes, "locked")
+        // path-hygiene-ignore: PH2 permission probe guarded by an assumption; skipped where the host ignores it
         assumeTrue(file.setReadable(false) && !file.canRead())
         assertEquals(JournalEntry.Unreadable, journal.inspect("locked"))
         assertTrue(file.exists(), "an unreadable entry was deleted: nothing is known about it")
         assertEquals(JournalEntry.Unreadable, journal.inspect("locked"))
+        // path-hygiene-ignore: PH2 restores flags a permission test cleared; harmless on Windows
         file.setReadable(true)
         assertIs<JournalEntry.Valid>(journal.inspect("locked"))
     }

@@ -79,16 +79,19 @@ class UploaderEngineHttpServerRound8AdversarialTest {
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.executor = pool
         server.createContext("/") { ex: HttpExchange ->
+            // path-hygiene-ignore: PH3 URL path of an HTTP request, '/' by definition
             val id: String = ex.requestURI.path.substringAfterLast('/')
             val path: String = ex.requestURI.path
             arrivals += Arrival(id, System.nanoTime())
             ex.requestBody.readBytes()
             when {
                 path.startsWith("/redirect/") -> {
+                    // path-hygiene-ignore: PH4 base is an http URL (line 75), not a file path
                     ex.responseHeaders.add("Location", "$base/final/$id")
                     ex.sendResponseHeaders(302, -1)
                 }
                 path.startsWith("/loop/") -> {
+                    // path-hygiene-ignore: PH4 base is an http URL (line 75), not a file path
                     ex.responseHeaders.add("Location", "$base/loop/$id")
                     ex.sendResponseHeaders(302, -1)
                 }
@@ -145,6 +148,7 @@ class UploaderEngineHttpServerRound8AdversarialTest {
         override fun orderingKey(payload: String): String? = if (ordered) "channel" else null
         override suspend fun execute(context: AttemptContext, payload: String): AttemptResult = withContext(Dispatchers.IO) {
             try {
+                // path-hygiene-ignore: PH4 base is an http URL (line 75), not a file path
                 val c = URL("$base/$pathPrefix/$payload").openConnection() as HttpURLConnection
                 c.connectTimeout = 1_000
                 c.readTimeout = 300
