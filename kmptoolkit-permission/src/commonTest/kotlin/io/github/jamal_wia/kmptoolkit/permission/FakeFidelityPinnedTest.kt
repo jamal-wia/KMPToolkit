@@ -28,10 +28,19 @@ class FakeFidelityPinnedTest {
             got.getValue("serialized"),
         )
         assertEquals(listOf("open:true", "opened:1", "cannotOpen:false"), got.getValue("settings"))
+        assertEquals(listOf("whileUp:false,false", "after:granted,granted"), got.getValue("decidedRequestWaitsBehindDialog"))
+        assertEquals(listOf("observed:notGranted", "observed:granted"), got.getValue("observeDeduplicates"))
         assertEquals(listOf("first:granted", "queuedCancelledNeverAsked:notGranted"), got.getValue("cancelQueued"))
         assertEquals(
             listOf("observed:notGranted", "observed:granted", "check:granted"),
             got.getValue("settingsTrip"),
         )
+    }
+
+    @Test
+    fun `an unscripted request that shows UI resolves to Granted as the testing docs say`() = runTest {
+        val fake = io.github.jamal_wia.kmptoolkit.permission.testing.FakePermissionController()
+        assertEquals(PermissionStatus.Granted, fake.request(CommonPermission.Camera))
+        assertEquals(PermissionStatus.Granted, fake.check(CommonPermission.Camera))
     }
 }

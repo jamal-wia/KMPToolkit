@@ -32,7 +32,7 @@ class IosWorld(private val scope: TestScope) : FidelityWorld {
 
     override suspend fun setUp(permission: Permission, state: PreState) {
         when (state) {
-            PreState.Granted -> port.camera = AVAuthorizationStatusAuthorized
+            PreState.Granted -> grantInSettings(permission)
             PreState.PermanentlyDenied -> port.camera = AVAuthorizationStatusDenied
             PreState.Restricted -> port.camera = AVAuthorizationStatusRestricted
             PreState.Unavailable -> hasKey = false

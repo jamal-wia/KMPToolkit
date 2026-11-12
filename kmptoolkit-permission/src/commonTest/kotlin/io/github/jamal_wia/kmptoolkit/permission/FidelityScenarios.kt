@@ -71,6 +71,8 @@ object FidelityScenarios {
         "settings" to settings(newWorld(), this),
         "settingsTrip" to settingsTrip(newWorld(), this),
         "refusedThenGrantedLater" to refusedThenGrantedLater(newWorld(), this),
+        "decidedRequestWaitsBehindDialog" to decidedRequestWaitsBehindDialog(newWorld(), this),
+        "observeDeduplicates" to observeDeduplicates(newWorld(), this),
     )
 
     private fun CoroutineScope.watch(world: FidelityWorld, p: Permission, into: MutableList<String>): Job =
@@ -182,6 +184,40 @@ object FidelityScenarios {
         return t
     }
 
+    /** A request that would show nothing still waits for the one in flight: "two prompts never overlap". */
+    suspend fun decidedRequestWaitsBehindDialog(w: FidelityWorld, scope: CoroutineScope): List<String> {
+        val t: MutableList<String> = mutableListOf()
+        w.setUp(mic, PreState.Granted)
+        w.willAnswer(cam, true)
+        w.hold(true)
+        val r1: Deferred<PermissionStatus> = scope.async { w.controller.request(cam) }
+        w.settle()
+        val r2: Deferred<PermissionStatus> = scope.async { w.controller.request(mic) }
+        w.settle()
+        t += "whileUp:${r1.isCompleted},${r2.isCompleted}"
+        w.answerHeld()
+        w.settle()
+        t += "after:${r1.await().tag()},${r2.await().tag()}"
+        return t
+    }
+
+    /** "emits the current status on collection, then each *different* status". */
+    suspend fun observeDeduplicates(w: FidelityWorld, scope: CoroutineScope): List<String> {
+        val seen: MutableList<String> = mutableListOf()
+        val job: Job = scope.watch(w, cam, seen)
+        w.settle()
+        w.returnToApp()
+        w.settle()
+        w.grantInSettings(cam)
+        w.returnToApp()
+        w.settle()
+        w.grantInSettings(cam)
+        w.returnToApp()
+        w.settle()
+        job.cancel()
+        return seen
+    }
+
     suspend fun refusedThenGrantedLater(w: FidelityWorld, scope: CoroutineScope): List<String> {
         val t: MutableList<String> = mutableListOf()
         w.willAnswer(cam, false)
@@ -197,7 +233,8 @@ object FidelityScenarios {
 
 /** A request from a state that shows no system UI returns that state at once and shows nothing. */
 suspend fun noUiRequest(w: FidelityWorld, state: PreState): List<String> {
-    w.willAnswer(CommonPermission.Camera, true)
+    // A state that shows nothing ignores the script: the user would say no, and the answer must still be the state.
+    w.willAnswer(CommonPermission.Camera, state == PreState.DeniedWithRationale)
     w.setUp(CommonPermission.Camera, state)
     val shownBefore: Int = w.dialogsShown
     val before: PermissionStatus = w.controller.check(CommonPermission.Camera)
