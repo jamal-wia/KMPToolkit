@@ -40,7 +40,7 @@ public final class io/github/jamal_wia/kmptoolkit/files/testing/FakeFileAccess :
 	public synthetic fun <init> (ZLio/github/jamal_wia/kmptoolkit/files/FileAccessConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun crashAfter (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;I)V
 	public static synthetic fun crashAfter$default (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeFileAccess;Lio/github/jamal_wia/kmptoolkit/files/testing/FakeOperation;IILjava/lang/Object;)V
-	public fun createDirectories (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public fun createDirectories (Ljava/lang/String;Z)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
 	public final fun createDirectory (Ljava/lang/String;)V
 	public final fun createFile (Ljava/lang/String;[B)V
 	public static synthetic fun createFile$default (Lio/github/jamal_wia/kmptoolkit/files/testing/FakeFileAccess;Ljava/lang/String;[BILjava/lang/Object;)V
@@ -112,6 +112,7 @@ public final class io/github/jamal_wia/kmptoolkit/files/testing/FileAccessContra
 	public final fun concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload ()V
 	public final fun createDirectoriesByConcurrentCreatorsAllSucceed ()V
 	public final fun createDirectoriesCreatesParentsAndIsIdempotent ()V
+	public final fun createDirectoriesDurableGivesTheSameResults ()V
 	public final fun createDirectoriesOverAFileIsNotADirectory ()V
 	public final fun deleteOfANonEmptyDirectoryIsDirectoryNotEmpty ()V
 	public final fun deleteOfASymbolicLinkLeavesItsTarget ()V

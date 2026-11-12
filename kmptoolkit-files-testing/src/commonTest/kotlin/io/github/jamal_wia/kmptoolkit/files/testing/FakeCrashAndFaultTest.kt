@@ -19,7 +19,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** F-1..F-15 of the spec: what the published fake does to a write, a move and a delete at every crash point. */
+/** F-1..F-24 of the spec: what the published fake does to a write, a move and a delete at every crash point. */
 class FakeCrashAndFaultTest {
 
     private fun fakeWith(vararg files: Pair<String, String>, caseSensitive: Boolean = true): FakeFileAccess {
@@ -171,6 +171,78 @@ class FakeCrashAndFaultTest {
         val result: FileResult<Unit> = fake.writeAtomically("/d/a/f", bytes("v"), WriteOptions(durability = Durability.SyncedWithDirectory, createParentDirectories = true))
         assertTrue(result.errorOrNull() is FileError.Io, "was $result")
         assertEquals("v", fake.text("/d/a/f"))
+    }
+
+    // ---- F-20..F-24: directories that exist before the write --------------------------------------
+
+    private val syncedWrite: WriteOptions = WriteOptions(durability = Durability.SyncedWithDirectory)
+
+    private fun FakeFileAccess.powerLossAndRevert(): FakeFileAccess {
+        crashAfter(FakeOperation.Metadata)
+        assertFailsWith<SimulatedCrash> { metadata("/") }
+        return restartAfterCrash(CrashKind.PowerLoss, revertUnsyncedDirectoryEntries = true)
+    }
+
+    @Test
+    fun `F-20 a directory made without durable is lost by a power loss even when the record write is SyncedWithDirectory`() {
+        val fake: FakeFileAccess = FakeFileAccess()
+        assertTrue(fake.createDirectories("/files/receipts").isSuccess)
+        assertTrue(fake.writeAtomically("/files/receipts/r1", bytes("receipt"), syncedWrite).isSuccess)
+        assertNull(fake.powerLossAndRevert().text("/files/receipts/r1"), "the documented condition: the directories were not durable")
+    }
+
+    @Test
+    fun `F-21 a directory made with durable keeps a SyncedWithDirectory record through a power loss`() {
+        val fake: FakeFileAccess = FakeFileAccess()
+        assertTrue(fake.createDirectories("/files/receipts", durable = true).isSuccess)
+        assertTrue(fake.writeAtomically("/files/receipts/r1", bytes("receipt"), syncedWrite).isSuccess)
+        assertEquals("receipt", fake.powerLossAndRevert().text("/files/receipts/r1"))
+    }
+
+    @Test
+    fun `F-23 durable creation syncs nothing for an existing directory and the created levels deepest first`() {
+        val existing: FakeFileAccess = fakeWith()
+        assertTrue(existing.createDirectories("/d", durable = true).isSuccess)
+        assertEquals(emptyList(), existing.syncedDirectories())
+
+        val created: FakeFileAccess = fakeWith()
+        assertTrue(created.createDirectories("/d/a/b", durable = true).isSuccess)
+        assertEquals(listOf("/d/a", "/d"), created.syncedDirectories(), "the parents of the new levels, deepest first")
+    }
+
+    @Test
+    fun `F-23 two creators of one new directory both sync its parent and the directory survives a power loss`() {
+        val fake: FakeFileAccess = fakeWith()
+        var racing: Boolean = false
+        fake.beforeOperation = { operation: FakeOperation, path: String ->
+            if (operation == FakeOperation.CreateDirectory && path == "/d/new" && !racing) {
+                racing = true
+                assertTrue(fake.createDirectories("/d/new", durable = true).isSuccess, "the winner")
+            }
+        }
+        assertTrue(fake.createDirectories("/d/new", durable = true).isSuccess, "the loser also succeeds")
+        assertEquals(listOf("/d", "/d"), fake.syncedDirectories(), "each creator synced the parent of the directory")
+        fake.beforeOperation = null
+        assertTrue(fake.writeAtomically("/d/new/f", bytes("v"), syncedWrite).isSuccess)
+        assertEquals("v", fake.powerLossAndRevert().text("/d/new/f"))
+    }
+
+    @Test
+    fun `F-24 a write that loses the race to create its parent directory still syncs that directory into its parent`() {
+        val fake: FakeFileAccess = fakeWith()
+        var racing: Boolean = false
+        fake.beforeOperation = { operation: FakeOperation, path: String ->
+            if (operation == FakeOperation.CreateDirectory && path == "/d/new" && !racing) {
+                racing = true
+                // The other thread wins the race without making the directory durable.
+                assertTrue(fake.createDirectories("/d/new").isSuccess)
+            }
+        }
+        val options: WriteOptions = WriteOptions(durability = Durability.SyncedWithDirectory, createParentDirectories = true)
+        assertTrue(fake.writeAtomically("/d/new/f", bytes("v"), options).isSuccess)
+        fake.beforeOperation = null
+        assertEquals(listOf("/d", "/d/new"), fake.syncedDirectories(), "the lost level counts as created: /d is synced")
+        assertEquals("v", fake.powerLossAndRevert().text("/d/new/f"))
     }
 
     // ---- F-6, F-11, F-13: no-replace ---------------------------------------------------------------

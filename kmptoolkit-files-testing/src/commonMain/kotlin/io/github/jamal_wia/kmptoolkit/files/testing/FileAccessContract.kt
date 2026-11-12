@@ -94,6 +94,7 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         createDirectoriesCreatesParentsAndIsIdempotent()
         createDirectoriesOverAFileIsNotADirectory()
         createDirectoriesByConcurrentCreatorsAllSucceed()
+        createDirectoriesDurableGivesTheSameResults()
         readBytesOfAnAbsentFileIsNotFound()
         readBytesOfADirectoryIsADirectory()
         readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead()
@@ -243,6 +244,32 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         }
         expect(problems.all { it == null }, "every concurrent creator must succeed: ${problems.filterNotNull()}")
         expect(files.metadata(deep)?.kind == FileKind.Directory, "the directory exists afterwards")
+    }
+
+    /**
+     * `createDirectories(durable = true)` is observably the same as without it: it creates every missing parent, is
+     * idempotent, a file at the path or in the way is [FileError.NotADirectory], and concurrent creators all succeed.
+     * Durability itself is not observable here.
+     */
+    public fun createDirectoriesDurableGivesTheSameResults(): Unit = scenario("createDirectoriesDurableGivesTheSameResults") {
+        val deep: String = p("da", "db", "dc")
+        ok(files.createDirectories(deep, durable = true), "durable createDirectories")
+        ok(files.createDirectories(deep, durable = true), "durable createDirectories again")
+        ok(files.createDirectories(p("da"), durable = true), "durable createDirectories of an existing parent")
+        expect(files.metadata(deep)?.kind == FileKind.Directory, "the deepest level is a directory")
+        expect(files.metadata(p("da"))?.kind == FileKind.Directory, "the first level is a directory")
+        write("df", "x")
+        failure<FileError.NotADirectory>(files.createDirectories(p("df"), durable = true), "durable createDirectories over a file")
+        failure<FileError.NotADirectory>(files.createDirectories(p("df", "x"), durable = true), "durable createDirectories below a file")
+        expect(text("df") == "x", "the file is untouched")
+        val shared: String = p("dx", "dy", "dz")
+        val problems: Array<String?> = arrayOfNulls(WORKERS)
+        runConcurrently(WORKERS) { index ->
+            val result: FileResult<Unit> = files.createDirectories(shared, durable = true)
+            if (!result.isSuccess) problems[index] = "worker $index got $result"
+        }
+        expect(problems.all { it == null }, "every concurrent durable creator must succeed: ${problems.filterNotNull()}")
+        expect(files.metadata(shared)?.kind == FileKind.Directory, "the directory exists afterwards")
     }
 
     // ---- readBytes --------------------------------------------------------------------------------

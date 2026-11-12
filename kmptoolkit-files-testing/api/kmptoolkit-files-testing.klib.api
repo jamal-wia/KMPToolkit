@@ -91,7 +91,7 @@ final class io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess : io.git
         final fun <set-nowMillis>(kotlin/Long) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.nowMillis.<set-nowMillis>|<set-nowMillis>(kotlin.Long){}[0]
 
     final fun crashAfter(io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation, kotlin/Int = ...) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.crashAfter|crashAfter(io.github.jamal_wia.kmptoolkit.files.testing.FakeOperation;kotlin.Int){}[0]
-    final fun createDirectories(kotlin/String): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.createDirectories|createDirectories(kotlin.String){}[0]
+    final fun createDirectories(kotlin/String, kotlin/Boolean): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.createDirectories|createDirectories(kotlin.String;kotlin.Boolean){}[0]
     final fun createDirectory(kotlin/String) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.createDirectory|createDirectory(kotlin.String){}[0]
     final fun createFile(kotlin/String, kotlin/ByteArray = ...) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.createFile|createFile(kotlin.String;kotlin.ByteArray){}[0]
     final fun createSymbolicLink(kotlin/String, kotlin/String) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.createSymbolicLink|createSymbolicLink(kotlin.String;kotlin.String){}[0]
@@ -137,6 +137,7 @@ final class io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract { //
     final fun concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload|concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload(){}[0]
     final fun createDirectoriesByConcurrentCreatorsAllSucceed() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.createDirectoriesByConcurrentCreatorsAllSucceed|createDirectoriesByConcurrentCreatorsAllSucceed(){}[0]
     final fun createDirectoriesCreatesParentsAndIsIdempotent() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.createDirectoriesCreatesParentsAndIsIdempotent|createDirectoriesCreatesParentsAndIsIdempotent(){}[0]
+    final fun createDirectoriesDurableGivesTheSameResults() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.createDirectoriesDurableGivesTheSameResults|createDirectoriesDurableGivesTheSameResults(){}[0]
     final fun createDirectoriesOverAFileIsNotADirectory() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.createDirectoriesOverAFileIsNotADirectory|createDirectoriesOverAFileIsNotADirectory(){}[0]
     final fun deleteOfANonEmptyDirectoryIsDirectoryNotEmpty() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteOfANonEmptyDirectoryIsDirectoryNotEmpty|deleteOfANonEmptyDirectoryIsDirectoryNotEmpty(){}[0]
     final fun deleteOfASymbolicLinkLeavesItsTarget() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteOfASymbolicLinkLeavesItsTarget|deleteOfASymbolicLinkLeavesItsTarget(){}[0]
