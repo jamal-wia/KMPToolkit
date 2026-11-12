@@ -341,7 +341,7 @@ class RecorderDocsAsTestR7Test {
             { AudioRecorderConfig(bitRate = Int.MIN_VALUE) },
             { AudioRecorderConfig(durationUpdateInterval = Duration.ZERO) },
             { AudioRecorderConfig(durationUpdateInterval = (-1).seconds) },
-            { AudioRecorderConfig(durationUpdateInterval = Duration.NEGATIVE_INFINITY) },
+            { AudioRecorderConfig(durationUpdateInterval = -Duration.INFINITE) },
             { AudioRecorderConfig(levelUpdateInterval = Duration.ZERO) },
             { AudioRecorderConfig(levelUpdateInterval = (-5).milliseconds) },
             { AudioRecorderConfig(levelFloorDbfs = 0f) },
