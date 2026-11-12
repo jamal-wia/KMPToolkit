@@ -35,7 +35,7 @@ import org.robolectric.shadows.ShadowAlarmManager
  * schedule of the pass answered `Failed`.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], shadows = [AndroidAlarmSchedulerKillAtEveryStepAdversarialTest.DyingShadowAlarmManager::class])
+@Config(sdk = [30, 34], shadows = [AndroidAlarmSchedulerKillAtEveryStepAdversarialTest.DyingShadowAlarmManager::class])
 class AndroidAlarmSchedulerKillAtEveryStepAdversarialTest {
 
     private val context: Context = RuntimeEnvironment.getApplication()
