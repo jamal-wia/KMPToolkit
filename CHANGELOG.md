@@ -57,14 +57,11 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-uploader`: an `IN_FLIGHT` item whose type has no registered handler is parked once its lease has
   ended, not at once while an executor may still hold the lease. An item with a failure outside its handler pending
   and an unmet constraint now arms its alarm at the failure's backoff gate.
-<<<<<<< HEAD
 - `kmptoolkit-audio-recorder` now depends on `kmptoolkit-files`. No file name or directory layout changes.
 - `kmptoolkit-core` no longer contains `isAbsoluteFilePath` (internal API without a compatibility promise); use
   `Paths.isAbsolute` from `kmptoolkit-files`.
-=======
 - `kmptoolkit-scheduler` (Android): the saturation message and docs name a process death between arming a
   replacement and retiring the old alarm as a second cause; behaviour unchanged.
->>>>>>> origin/adv/e2-r19-fix
 
 ### Fixed
 
@@ -87,13 +84,10 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   active one, once per `drain()` call per row with a growing backoff and an alarm kept armed while the store keeps
   failing, and `settle` starts a drain pass even when its delete throws. A `KEEP` or `REPLACE` enqueue that
   supersedes the parked row before that retry succeeds still withdraws it, as the conflict policy says.
-<<<<<<< HEAD
 - `kmptoolkit-audio-recorder` (iOS): deleting a recording no longer removes a directory tree that replaced the output
   file.
-=======
 - `kmptoolkit-scheduler` (iOS): a `schedule` cancelled while the notification center was adding the request
   no longer leaves the alarm armed; the request is removed before the cancellation propagates.
->>>>>>> origin/adv/e2-r19-fix
 
 ## [4.0.0]
 
