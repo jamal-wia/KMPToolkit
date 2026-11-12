@@ -33,6 +33,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-storage` (`jvm`): the temporary file of a write is named `<file name><digits>.tmp` as before; for a store
   file name longer than 232 UTF-8 bytes the file name in it is shortened (cut to 215 bytes, then `~` and 16 hex
   characters of its SHA-256), so every store name that fits a file name stays writable.
+- `kmptoolkit-audio-recorder` now depends on `kmptoolkit-files`. No file name or directory layout changes.
+- `kmptoolkit-core` no longer contains `isAbsoluteFilePath` (internal API without a compatibility promise); use
+  `Paths.isAbsolute` from `kmptoolkit-files`.
 
 ## [4.0.0]
 

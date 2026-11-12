@@ -1,7 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
-import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
-import io.github.jamal_wia.kmptoolkit.core.isAbsoluteFilePath
+import io.github.jamal_wia.kmptoolkit.files.Paths
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -143,7 +142,6 @@ public data class AudioRecorderConfig(
  *   used when [AudioRecorder.prepare] is called without an explicit path. Must not be blank, and must not
  *   contain a path separator — a prefix is a name, not a nested path.
  */
-@OptIn(ToolkitInternalApi::class)
 public data class RecordingStorage(
     public val directoryPath: String? = null,
     public val directoryName: String? = null,
@@ -154,7 +152,7 @@ public data class RecordingStorage(
         require(!fileNamePrefix.contains('/') && !fileNamePrefix.contains('\\')) {
             "fileNamePrefix must not contain a path separator, was '$fileNamePrefix'"
         }
-        require(directoryPath == null || (directoryPath.isNotBlank() && isAbsoluteFilePath(directoryPath))) {
+        require(directoryPath == null || (directoryPath.isNotBlank() && Paths.isAbsolute(directoryPath))) {
             "directoryPath must be null or a non-blank absolute path"
         }
         require(directoryName == null || directoryName.isNotBlank()) {

@@ -34,6 +34,5 @@ final class io.github.jamal_wia.kmptoolkit.core/StateMachineLock { // io.github.
 final val io.github.jamal_wia.kmptoolkit.core/SharedIdleTimer // io.github.jamal_wia.kmptoolkit.core/SharedIdleTimer|{}SharedIdleTimer[0]
     final fun <get-SharedIdleTimer>(): io.github.jamal_wia.kmptoolkit.core/IdleTimerHolder // io.github.jamal_wia.kmptoolkit.core/SharedIdleTimer.<get-SharedIdleTimer>|<get-SharedIdleTimer>(){}[0]
 
-final fun io.github.jamal_wia.kmptoolkit.core/isAbsoluteFilePath(kotlin/String): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.core/isAbsoluteFilePath|isAbsoluteFilePath(kotlin.String){}[0]
 final fun io.github.jamal_wia.kmptoolkit.core/newIdleTimerHolder(kotlin/Function0<kotlin/Boolean>, kotlin/Function1<kotlin/Boolean, kotlin/Unit>, kotlin/Function0<kotlin/Boolean>, kotlin/Function1<kotlin/Function0<kotlin/Unit>, kotlin/Unit>): io.github.jamal_wia.kmptoolkit.core/IdleTimerHolder // io.github.jamal_wia.kmptoolkit.core/newIdleTimerHolder|newIdleTimerHolder(kotlin.Function0<kotlin.Boolean>;kotlin.Function1<kotlin.Boolean,kotlin.Unit>;kotlin.Function0<kotlin.Boolean>;kotlin.Function1<kotlin.Function0<kotlin.Unit>,kotlin.Unit>){}[0]
 final fun io.github.jamal_wia.kmptoolkit.core/newReentrantLock(): io.github.jamal_wia.kmptoolkit.core/ReentrantLockHandle // io.github.jamal_wia.kmptoolkit.core/newReentrantLock|newReentrantLock(){}[0]
