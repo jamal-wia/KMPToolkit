@@ -307,7 +307,12 @@ internal class VlcjVideoEngine(
                 val player: VlcNativePlayer? = synchronized(lock) {
                     if (!isOpen(s) || s.holdsSeekTarget()) null else s.player
                 }
-                val time: Long = player?.time() ?: -1L
+                // A clock read that throws is no reading: the last known time stands and the next poll tries again.
+                val time: Long = try {
+                    player?.time() ?: -1L
+                } catch (@Suppress("TooGenericExceptionCaught") ignored: Exception) {
+                    -1L
+                }
                 // Checked again: a seek made from a VLC thread, which does not wait for nativeCalls,
                 // may have recorded its target while the clock was being read.
                 if (time >= 0L) synchronized(lock) { if (!s.holdsSeekTarget()) s.timeMs = time }
@@ -683,7 +688,13 @@ internal class VlcjVideoEngine(
                 s.outputBegun = true
                 val seek: Long = s.pendingSeekMs
                 Plan({
-                    s.applySettings()
+                    // Best effort: a volume or rate libvlc refuses must not leave the pending seek unapplied (and
+                    // the playhead frozen on it); the next setVolume or setSpeed applies the latest values again.
+                    try {
+                        s.applySettings()
+                    } catch (@Suppress("TooGenericExceptionCaught") ignored: Exception) {
+                        // see above
+                    }
                     if (seek >= 0L) s.player?.setTime(seek)
                 }) { applied: Boolean ->
                     if (applied && seek >= 0L) {
@@ -794,8 +805,12 @@ internal class VlcjVideoEngine(
          */
         override fun display(pixels: ByteBuffer, width: Int, height: Int) {
             if (s.closed || width <= 0 || height <= 0) return
-            val argb = IntArray(width * height)
-            copyRv32ToArgb(pixels, argb, width * height)
+            // A picture of more than Int.MAX_VALUE pixels cannot have an array: the product would wrap to a wrong
+            // (possibly zero or negative) size. It is dropped like any picture the engine cannot hold.
+            val pixelCount: Long = width.toLong() * height.toLong()
+            if (pixelCount > Int.MAX_VALUE) return
+            val argb = IntArray(pixelCount.toInt())
+            copyRv32ToArgb(pixels, argb, pixelCount.toInt())
             publishFrame(s, VideoFrame(width, height, argb))
         }
     }

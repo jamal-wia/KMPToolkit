@@ -140,6 +140,16 @@ hold a frame for as long as it likes, so a reused buffer could be overwritten wh
 generation (the JVM's default G1 collector reclaims such large arrays eagerly); only the frames still
 referenced are in memory at any time.
 
+A picture of more than `Int.MAX_VALUE` pixels (for example 65536×65536) cannot be held in an array and is
+**dropped**: no frame is published for it, and the previous frame stays.
+
+### Native calls that throw
+
+An exception from libvlc's clock read is treated as no reading: the position keeps its last value and the
+next poll tries again, so the shared player keeps following the playhead. An exception from applying the
+volume or rate when output begins is swallowed (the next `setVolume` or `setSpeed` applies the latest values
+again), so a seek made before output still reaches libvlc and the playhead does not stay on its target.
+
 ### Picture size and anamorphic video
 
 VLC hands pictures over at their **stored** size, without applying the sample aspect ratio. For an
