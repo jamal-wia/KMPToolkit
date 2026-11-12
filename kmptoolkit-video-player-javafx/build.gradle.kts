@@ -78,9 +78,11 @@ tasks.withType<Test>().configureEach {
     // A native crash inside OpenJFX's macOS media backend (CoreVideo display link, see
     // .claude/specs/release-4-1-0/plans/javafx-native-crash-advice.md) must end the worker without
     // the macOS crash dialog: OnError runs after hs_err is written and before abort(), and SIGKILL is
-    // not reported by ReportCrash. The hs_err file goes to build/, not the module directory.
+    // not reported by ReportCrash. The hs_err file goes to build/hs_err, not the module directory.
     val hsErrDir: String = File(layout.buildDirectory.get().asFile, "hs_err").absolutePath
     systemProperty("kmptoolkit.test.hsErrDir", hsErrDir)
+    // HotSpot falls back to the working directory when the ErrorFile directory does not exist.
+    doFirst { File(hsErrDir).mkdirs() }
     jvmArgs(
         "-XX:OnError=kill -9 %p",
         "-XX:ErrorFile=" + File(hsErrDir, "hs_err_pid%p.log").path,
