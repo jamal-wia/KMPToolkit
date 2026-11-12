@@ -5,6 +5,7 @@ import io.github.jamal_wia.kmptoolkit.files.FileAccess
 import io.github.jamal_wia.kmptoolkit.files.FileError
 import io.github.jamal_wia.kmptoolkit.files.FileProtection
 import io.github.jamal_wia.kmptoolkit.files.FileResult
+import io.github.jamal_wia.kmptoolkit.files.Paths
 import io.github.jamal_wia.kmptoolkit.files.WriteOptions
 import io.github.jamal_wia.kmptoolkit.files.createFileAccess
 import io.github.jamal_wia.kmptoolkit.files.isSuccess
@@ -51,7 +52,7 @@ import platform.Foundation.timeIntervalSinceNow
 internal class IosOutcomeStorage(
     private val dir: String,
     /** Where an entry's temporary file is written before it is renamed into [dir]: a sibling, so the rename is atomic. */
-    private val partialDir: String = "${dir.substringBeforeLast('/')}/$PARTIAL_DIRECTORY_NAME",
+    private val partialDir: String = Paths.join(Paths.parentOf(dir) ?: dir, PARTIAL_DIRECTORY_NAME),
     private val files: FileAccess = createFileAccess(),
 ) : OutcomeStorage {
 
@@ -244,12 +245,11 @@ internal class IosOutcomeStorage(
         private const val ASCII_LIMIT: Int = 0x80
 
         /**
-         * The Foundation form of the protection class every entry is written with (atomic, protected until the first
-         * unlock after boot). Entries are written through FileAccess now, asked for
-         * [FileProtection.CompleteUntilFirstUserAuthentication]; this constant is the reference the tests compare
-         * that class with.
+         * Foundation reference value of 4.x (atomic, protected until the first unlock after boot). The write no
+         * longer uses it: it passes `FileProtection.CompleteUntilFirstUserAuthentication` to FileAccess. Kept only
+         * because a frozen test reads it; delete it together with that assertion.
          */
-        val WRITE_OPTIONS: ULong = NSDataWritingAtomic or NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication
+        internal val WRITE_OPTIONS: ULong = NSDataWritingAtomic or NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication
 
         /** The attributes the directory is created with: the same protection class. */
         val DIRECTORY_ATTRIBUTES: Map<Any?, *> = mapOf(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)

@@ -121,6 +121,20 @@ class IosOutcomeStorageFilesTest {
     }
 
     @Test
+    fun `every name written is ASCII and each id reads back its own bytes for NFC NFD emoji long accented and upper-case ids`() {
+        val ids: List<String> = listOf(
+            "caf\u00e9", "cafe\u0301", "\uD83D\uDE00-id", "\u00e9".repeat(200), "Photo-AbC",
+        )
+        val storage = IosOutcomeStorage(dir)
+        for ((index, id) in ids.withIndex()) assertTrue(storage.write(id, byteArrayOf(index.toByte(), 42)), "write of id #$index")
+
+        for (directory in listOf(dir, partial)) {
+            for (name in names(directory)) assertTrue(name.all { it.code < 0x80 }, "non-ASCII name '$name' in $directory")
+        }
+        for ((index, id) in ids.withIndex()) assertContentEquals(byteArrayOf(index.toByte(), 42), storage.read(id), "id #$index reads its own bytes")
+    }
+
+    @Test
     fun `a write whose temporary directory cannot be made reports it and writes nothing`() {
         val storage = IosOutcomeStorage("/nonexistent-root-for-files-test/outcomes")
 
