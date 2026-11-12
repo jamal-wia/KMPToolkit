@@ -97,7 +97,8 @@ public annotation class ToolkitInternalApi
 `kmptoolkit-core` is not a module you depend on: it is pulled in transitively by the modules that
 share something through it (today: the `StateMachineLock` the audio player, the video player and
 the audio recorder serialize their state machines with; the iOS idle-timer holder the system-bars
-wake lock and the video surface share; and the marker itself). Everything in it
+wake lock and the video surface share; and the marker itself, which `kmptoolkit-files` exposes as an
+`api` dependency for its internal SPI). Everything in it
 is `@ToolkitInternalApi`; see [`kmptoolkit-core/`](kmptoolkit-core/01-overview.md).
 
 If your code needs `@OptIn(ToolkitInternalApi::class)` to compile against a KMPToolkit module,
@@ -238,10 +239,11 @@ The rules for a module that does this:
 
 ## Desktop targets
 
-Twelve artifacts also publish `jvm`: `kmptoolkit-systembars` and `kmptoolkit-storage`, each with its
-`-testing` fixtures, `kmptoolkit-language` with `kmptoolkit-language-compose`,
-`kmptoolkit-hardware-keys`, `kmptoolkit-hijri`, `kmptoolkit-video-player` with its `-testing` and
-`-compose` companions, and the internal support artifact `kmptoolkit-core`. Two more are **JVM-only** — the desktop video engines
+Fourteen artifacts also publish `jvm`: `kmptoolkit-systembars`, `kmptoolkit-storage` and
+`kmptoolkit-files`, each with its `-testing` fixtures, `kmptoolkit-language` with
+`kmptoolkit-language-compose`, `kmptoolkit-hardware-keys`, `kmptoolkit-hijri`,
+`kmptoolkit-video-player` with its `-testing` and `-compose` companions, and the internal support
+artifact `kmptoolkit-core`. Two more are **JVM-only** — the desktop video engines
 `kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx`, built with the
 `kmptoolkit.library.jvm` convention. Every other module stays Android + iOS, and the exception is
 narrow and deliberate.
@@ -271,6 +273,13 @@ in **shared** code:
   as a parameter. The JVM half is real, like language's: a properties-file store the app points at
   its own directory. The secure store is deliberately absent on desktop — there is no platform key
   store to hold its key — so only the plain factory exists there.
+- **Files.** `FileAccess` and `KeyedMutex` are types a consumer threads through **shared** code —
+  a repository that writes its records, a cleaner that deletes a cache tree — and a consumer's own
+  shared file helpers compile for `jvm` as well. The bar is met twice: `kmptoolkit-storage`'s JVM
+  store depends on this module, and omitting the target would stop any shared module that takes a
+  `FileAccess` from compiling for desktop. The JVM half is real, not a no-op: the same engine runs
+  over `java.nio`, including the Windows rules (reserved names, the rename retry, the in-process
+  gate).
 - **Hardware keys.** `DialogWindowHardwareKeyEffect` is called from inside dialog content, and
   dialog content is typical shared UI. Desktop has no Android-style per-window key routing, so the
   `jvm` actual is a no-op — the target exists only so that the shared dialog compiles.
