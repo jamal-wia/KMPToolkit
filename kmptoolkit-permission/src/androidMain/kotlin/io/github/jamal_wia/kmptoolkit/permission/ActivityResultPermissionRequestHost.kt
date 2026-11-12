@@ -16,6 +16,7 @@ import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
+import java.lang.ref.WeakReference
 
 /**
  * The library's own [PermissionRequestHost]: it shows each dialog from the `ComponentActivity`
@@ -105,6 +106,26 @@ public class ActivityResultPermissionRequestHost(
             onResult = { result: ActivityResult -> onResult(result.resultCode) },
             onAbandoned = { onResult(null) },
         )
+
+    /**
+     * Unregisters [registered] again from a post to the main looper, which runs after the registry's dispatch
+     * and so frees the request code (the first unregister, inside the callback, already dropped the callback;
+     * this call is idempotent). The queued message holds the launcher and the activity weakly and nothing of
+     * the finished request: a message waiting in the queue must not keep a finished activity or the caller's
+     * result lambda alive. A launcher collected before the post runs is only a registry entry that is not
+     * freed, as before this post existed. It leaves the key alone when a newer request of this host has taken
+     * it on that activity meanwhile (a caller that asks again from inside the answer): unregistering by key
+     * would remove that request's callback, and that request frees the code through its own post.
+     */
+    private fun postUnregister(registered: ActivityResultLauncher<*>, key: String, activity: ComponentActivity) {
+        val launcher: WeakReference<ActivityResultLauncher<*>> = WeakReference(registered)
+        val owner: WeakReference<ComponentActivity> = WeakReference(activity)
+        Handler(Looper.getMainLooper()).post {
+            val live: ActivityResultLauncher<*> = launcher.get() ?: return@post
+            val shownFrom: ComponentActivity? = owner.get()
+            if (shownFrom == null || pending?.holds(key, shownFrom) != true) live.unregister()
+        }
+    }
 
     private fun <I, O> start(
         kind: String,
@@ -207,15 +228,7 @@ public class ActivityResultPermissionRequestHost(
                 val registered: ActivityResultLauncher<I> = launcher ?: return
                 launcher = null
                 registered.unregister()
-                if (insideRegistryCallback) {
-                    // Idempotent: the first call dropped the callback at once, this one frees the request code.
-                    Handler(Looper.getMainLooper()).post {
-                        // A newer request of this host may have registered under the same key on this activity
-                        // meanwhile (a caller that asks again from inside the answer): unregistering by key would
-                        // remove its callback. That request frees the code itself through its own post.
-                        if (pending?.holds(this@PendingRequest.key, activity) != true) registered.unregister()
-                    }
-                }
+                if (insideRegistryCallback) postUnregister(registered, this@PendingRequest.key, activity)
             }
         }
 
