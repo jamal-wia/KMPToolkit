@@ -192,6 +192,12 @@ Practical consequences:
   Centre. To clear it too (for example on logout), call
   `UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers:)` with the same ids;
   the request identifier is the alarm id verbatim.
+- **The alarm id is shared with the notifier.** [`kmptoolkit-notification`](../kmptoolkit-notification/05-platform-notes.md)
+  uses its notification id verbatim as the request identifier too, so on iOS a `Notifier.post` or
+  `Notifier.cancel` with the id of a pending alarm discards that alarm (`post` replaces it with an
+  immediate notification, `cancel` removes it), and an alarm that fires replaces a notification the
+  notifier is showing under the same id. Give alarms and notifications distinct ids. Android keeps the
+  two apart, so the collision exists only on iOS.
 - `Exact` on iOS means "the OS accepted the request for that instant" — it is not the same
   guarantee as an Android exact alarm, because it is a presentation, not an execution.
 

@@ -48,8 +48,10 @@ public fun createNotifier(
 /**
  * `UNUserNotificationCenter` implementation.
  *
- * The caller's id is the request identifier verbatim, so re-posting one id replaces its
- * notification and cancelling removes exactly it — no id mapping is needed as on Android.
+ * The caller's id is the request identifier verbatim, so re-posting one id replaces its request
+ * and cancelling removes the delivered notification and any pending request under it. The
+ * identifier space is the app's, shared with `kmptoolkit-scheduler`'s alarm ids — see
+ * docs/kmptoolkit-notification/05-platform-notes.md.
  *
  * Three fields of [LocalNotification] have no iOS counterpart at all and are ignored:
  * [LocalNotification.icon] (the OS always shows the app icon), [LocalNotification.ongoing] and
@@ -186,6 +188,8 @@ internal class IosNotifier(
         postLock.withLock {
             coalescer.forget(id)
             val notificationCenter: UNUserNotificationCenter = center
+            // Pending too: a post handed over a moment ago may not be presented yet. This also
+            // removes a scheduler alarm armed under the same id (documented in 05-platform-notes).
             notificationCenter.removeDeliveredNotificationsWithIdentifiers(listOf(id))
             notificationCenter.removePendingNotificationRequestsWithIdentifiers(listOf(id))
         }
