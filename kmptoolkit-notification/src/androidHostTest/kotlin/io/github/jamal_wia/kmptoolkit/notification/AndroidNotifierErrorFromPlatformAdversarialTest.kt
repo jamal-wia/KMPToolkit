@@ -38,7 +38,7 @@ import org.robolectric.shadows.ShadowNotificationManager
  */
 @RunWith(AndroidJUnit4::class)
 @Config(shadows = [AndroidNotifierErrorFromPlatformAdversarialTest.ErrorShadowNotificationManager::class])
-class AndroidNotifierErrorFromPlatformAdversarialTest {
+open class AndroidNotifierErrorFromPlatformAdversarialTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val manager: NotificationManager get() = context.getSystemService(NotificationManager::class.java)
@@ -79,7 +79,11 @@ class AndroidNotifierErrorFromPlatformAdversarialTest {
 
     @Test
     fun `an Error from any platform stage leaves the notifier usable and the next identical frame posts`() {
-        for (stage in listOf("areNotificationsEnabled", "getNotificationChannel", "createNotificationChannel", "notify")) {
+        // Channels exist from API 26: below it the two channel stages are never reached.
+        val stages: List<String> = listOf("areNotificationsEnabled") +
+            (if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) listOf("getNotificationChannel", "createNotificationChannel") else emptyList()) +
+            listOf("notify")
+        for (stage in stages) {
             for (make in errors()) {
                 val error: Error = make()
                 val notifier: Notifier = notifier()
