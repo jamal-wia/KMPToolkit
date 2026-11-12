@@ -660,7 +660,8 @@ abstract class RealFileAccessTests {
 
     @Test
     fun `windows reserved names and trailing dots are InvalidPath on a Windows host`() {
-        if (!windowsHost) TestEnv.skip("only a Windows host applies Windows path rules")
+        // iOS tests cannot be skipped; the same rules run on every host in ScriptedOpsEngineTest.
+        if (!windowsHost) return
         for (name: String in listOf("CON", "nul.txt", "a.", "b ")) {
             assertTrue(fs.writeAtomically(p(name), ByteArray(1)).errorOrNull() is FileError.InvalidPath, name)
             assertNull(fs.metadata(p(name)), name)
