@@ -18,6 +18,8 @@ class FakeFileAccessContractTest {
             files = fake,
             root = "/root",
             createSymbolicLink = { path: String, target: String -> fake.createSymbolicLink(path, target) },
+            setLastModified = { path: String, millis: Long -> fake.setLastModified(path, millis); true },
+            nowMillis = { fake.nowMillis },
         )
     }
 
@@ -85,5 +87,42 @@ class FakeFileAccessContractTest {
         }
         val violation: FileAccessContractViolation = assertFailsWith { failing.verifyAll() }
         assertEquals(true, violation.message.orEmpty().contains("NoSpace"), "was: ${violation.message}")
+    }
+
+    @Test
+    fun `the age checks fail when the fixture cannot set a time and are skipped without the hook`() {
+        val refusing: FileAccessContract = FileAccessContract {
+            val fake: FakeFileAccess = FakeFileAccess()
+            fake.createDirectory("/root")
+            FileAccessFixture(files = fake, root = "/root", setLastModified = { _: String, _: Long -> false }, nowMillis = { fake.nowMillis })
+        }
+        val violation: FileAccessContractViolation = assertFailsWith { refusing.sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest() }
+        assertTrue(violation.message.orEmpty().contains("could not set the modification time"), "was: ${violation.message}")
+        val skipping: FileAccessContract = FileAccessContract {
+            val fake: FakeFileAccess = FakeFileAccess()
+            fake.createDirectory("/root")
+            FileAccessFixture(files = fake, root = "/root")
+        }
+        skipping.sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest()
+        skipping.sweepWithZeroAgeDeletesAnOldEntry()
+    }
+
+    @Test
+    fun `the age checks catch a sweep that ignores the age`() {
+        val ignoring: FileAccessContract = FileAccessContract {
+            val fake: FakeFileAccess = FakeFileAccess()
+            fake.createDirectory("/root")
+            FileAccessFixture(
+                files = object : FileAccess by fake {
+                    override fun sweep(directory: String, olderThanMillis: Long, cancellation: io.github.jamal_wia.kmptoolkit.files.CancellationCheck, match: (String) -> Boolean): FileResult<Int> =
+                        fake.sweep(directory, 0L, cancellation, match)
+                },
+                root = "/root",
+                setLastModified = { path: String, millis: Long -> fake.setLastModified(path, millis); true },
+                nowMillis = { fake.nowMillis },
+            )
+        }
+        val violation: FileAccessContractViolation = assertFailsWith { ignoring.sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest() }
+        assertTrue(violation.message.orEmpty().startsWith("sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest"), "was: ${violation.message}")
     }
 }

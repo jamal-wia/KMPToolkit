@@ -167,6 +167,8 @@ class MyDecoratorContractTest {
                 root = root,
                 separator = '/',                          // the character that joins a directory and a name
                 createSymbolicLink = { path, target -> createLinkSomehow(path, target) }, // null: link checks skipped
+                setLastModified = { path, millis -> setMtime(path, millis) },             // null: sweep age checks skipped
+                nowMillis = { System.currentTimeMillis() },                               // the clock of the file system under test
                 cleanup = { deleteTree(root) },
             )
         }
@@ -185,10 +187,25 @@ target, `Fail`, links, temp directory, no leftover, concurrent writers), `move`,
 `deleteRecursively` (including concurrent deleters and cancellation), `treeSize`, `sweep`,
 `freeSpaceBytes`, `exists` and `withIo` cancellation.
 
+Two optional fixture members drive the age rule of `sweep`:
+
+- `setLastModified: ((path, millis) -> Boolean)?` sets the modification time of an entry. When it is
+  `null` the two age checks (`sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest`,
+  `sweepWithZeroAgeDeletesAnOldEntry`) are **skipped** — they return without asserting, so a green run
+  without the hook says nothing about the age rule. When the hook returns `false` the check fails with
+  a violation saying the fixture could not set the time. Every real implementation can provide it
+  (`File.setLastModified`, `NSFileManager.setAttributes`, `FakeFileAccess.setLastModified`).
+- `nowMillis: () -> Long` is the clock of the file system under test in epoch milliseconds (default:
+  the wall clock). A `FakeFileAccess` fixture passes `{ fake.nowMillis }`.
+
+The age checks date entries with margins of ten minutes around the age (a real clock moves), not at the
+exact boundary: with an age of one hour an entry ten minutes beyond it is deleted and counted, one ten
+minutes inside it, one dated in the future, a name the matcher refuses and a directory are kept. The
+exact boundary (strict `>`) is pinned on the fake's own clock and by this module's scripted tests.
+
 Not in the contract, because the interface cannot observe it: crash and power-loss behaviour (use
 `FakeFileAccess`), exact modification times and the exact free space (a real clock and a real volume
-cannot be pinned), and the age comparison of `sweep` (a fixture cannot set modification times; use
-`FakeFileAccess.setLastModified`).
+cannot be pinned).
 
 The contract uses plain Kotlin only (no test framework), so the module has no test-library
 dependency; run it from whichever framework you use.

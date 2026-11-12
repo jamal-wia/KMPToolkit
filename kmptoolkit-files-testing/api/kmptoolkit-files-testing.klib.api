@@ -168,11 +168,13 @@ final class io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract { //
     final fun readBytesOfADirectoryIsADirectory() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.readBytesOfADirectoryIsADirectory|readBytesOfADirectoryIsADirectory(){}[0]
     final fun readBytesOfAnAbsentFileIsNotFound() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.readBytesOfAnAbsentFileIsNotFound|readBytesOfAnAbsentFileIsNotFound(){}[0]
     final fun readBytesRejectsAnInvalidMax() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.readBytesRejectsAnInvalidMax|readBytesRejectsAnInvalidMax(){}[0]
+    final fun sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest|sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest(){}[0]
     final fun sweepKeepsEntriesNewerThanTheAge() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepKeepsEntriesNewerThanTheAge|sweepKeepsEntriesNewerThanTheAge(){}[0]
     final fun sweepNeverDeletesWhatDoesNotMatchOrADirectory() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepNeverDeletesWhatDoesNotMatchOrADirectory|sweepNeverDeletesWhatDoesNotMatchOrADirectory(){}[0]
     final fun sweepOfAnAbsentDirectoryIsZero() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepOfAnAbsentDirectoryIsZero|sweepOfAnAbsentDirectoryIsZero(){}[0]
     final fun sweepPropagatesExceptionsOfTheMatcher() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepPropagatesExceptionsOfTheMatcher|sweepPropagatesExceptionsOfTheMatcher(){}[0]
     final fun sweepRejectsANegativeAge() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepRejectsANegativeAge|sweepRejectsANegativeAge(){}[0]
+    final fun sweepWithZeroAgeDeletesAnOldEntry() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepWithZeroAgeDeletesAnOldEntry|sweepWithZeroAgeDeletesAnOldEntry(){}[0]
     final fun treeSizeCountsALinkAsZero() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.treeSizeCountsALinkAsZero|treeSizeCountsALinkAsZero(){}[0]
     final fun treeSizeOfAnAbsentPathIsZero() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.treeSizeOfAnAbsentPathIsZero|treeSizeOfAnAbsentPathIsZero(){}[0]
     final fun treeSizeStopsWhenCancelled() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.treeSizeStopsWhenCancelled|treeSizeStopsWhenCancelled(){}[0]
@@ -198,7 +200,7 @@ final class io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContractViola
 }
 
 final class io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture { // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture|null[0]
-    constructor <init>(io.github.jamal_wia.kmptoolkit.files/FileAccess, kotlin/String, kotlin/Char = ..., kotlin/Function2<kotlin/String, kotlin/String, kotlin/Unit>? = ..., kotlin/Function0<kotlin/Unit> = ...) // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.<init>|<init>(io.github.jamal_wia.kmptoolkit.files.FileAccess;kotlin.String;kotlin.Char;kotlin.Function2<kotlin.String,kotlin.String,kotlin.Unit>?;kotlin.Function0<kotlin.Unit>){}[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.files/FileAccess, kotlin/String, kotlin/Char = ..., kotlin/Function2<kotlin/String, kotlin/String, kotlin/Unit>? = ..., kotlin/Function2<kotlin/String, kotlin/Long, kotlin/Boolean>? = ..., kotlin/Function0<kotlin/Long> = ..., kotlin/Function0<kotlin/Unit> = ...) // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.<init>|<init>(io.github.jamal_wia.kmptoolkit.files.FileAccess;kotlin.String;kotlin.Char;kotlin.Function2<kotlin.String,kotlin.String,kotlin.Unit>?;kotlin.Function2<kotlin.String,kotlin.Long,kotlin.Boolean>?;kotlin.Function0<kotlin.Long>;kotlin.Function0<kotlin.Unit>){}[0]
 
     final val cleanup // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.cleanup|{}cleanup[0]
         final fun <get-cleanup>(): kotlin/Function0<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.cleanup.<get-cleanup>|<get-cleanup>(){}[0]
@@ -206,10 +208,14 @@ final class io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture { // 
         final fun <get-createSymbolicLink>(): kotlin/Function2<kotlin/String, kotlin/String, kotlin/Unit>? // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.createSymbolicLink.<get-createSymbolicLink>|<get-createSymbolicLink>(){}[0]
     final val files // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.files|{}files[0]
         final fun <get-files>(): io.github.jamal_wia.kmptoolkit.files/FileAccess // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.files.<get-files>|<get-files>(){}[0]
+    final val nowMillis // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.nowMillis|{}nowMillis[0]
+        final fun <get-nowMillis>(): kotlin/Function0<kotlin/Long> // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.nowMillis.<get-nowMillis>|<get-nowMillis>(){}[0]
     final val root // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.root|{}root[0]
         final fun <get-root>(): kotlin/String // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.root.<get-root>|<get-root>(){}[0]
     final val separator // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.separator|{}separator[0]
         final fun <get-separator>(): kotlin/Char // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.separator.<get-separator>|<get-separator>(){}[0]
+    final val setLastModified // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.setLastModified|{}setLastModified[0]
+        final fun <get-setLastModified>(): kotlin/Function2<kotlin/String, kotlin/Long, kotlin/Boolean>? // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.setLastModified.<get-setLastModified>|<get-setLastModified>(){}[0]
 }
 
 final class io.github.jamal_wia.kmptoolkit.files.testing/SimulatedCrash : kotlin/Error { // io.github.jamal_wia.kmptoolkit.files.testing/SimulatedCrash|null[0]

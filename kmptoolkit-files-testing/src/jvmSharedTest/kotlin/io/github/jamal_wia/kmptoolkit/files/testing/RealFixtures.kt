@@ -27,6 +27,7 @@ internal fun realFixture(files: FileAccess): FileAccessFixture {
         createSymbolicLink = if (canLink) { path: String, target: String ->
             Files.createSymbolicLink(File(path).toPath(), File(target).toPath())
         } else null,
+        setLastModified = { path: String, millis: Long -> File(path).setLastModified(millis) },
         cleanup = { root.deleteRecursively() },
     )
 }

@@ -15,6 +15,7 @@ import io.github.jamal_wia.kmptoolkit.files.getOrNull
 import io.github.jamal_wia.kmptoolkit.files.isSuccess
 import io.github.jamal_wia.kmptoolkit.files.withIo
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
@@ -33,6 +34,11 @@ import kotlinx.coroutines.withTimeout
  * @property separator the character that joins a directory and a name in [files]' syntax.
  * @property createSymbolicLink creates a symbolic link at `path` pointing at `target` (an absolute path in the same
  *   syntax), or `null` where the checks that need a link are to be skipped.
+ * @property setLastModified sets the modification time of the entry at `path` to `millis` (epoch milliseconds) and
+ *   returns whether it worked, or is `null` where the age checks of `sweep` are to be skipped. A check whose call
+ *   returns `false` fails with a [FileAccessContractViolation] saying the fixture could not set the time.
+ * @property nowMillis the clock of the file system under test in epoch milliseconds (default: the wall clock); the
+ *   age checks date entries relative to it. A [FakeFileAccess] fixture passes `{ fake.nowMillis }`.
  * @property cleanup runs after the check, even when it failed: remove what the fixture created.
  * @since 5.0.0
  */
@@ -42,6 +48,8 @@ public class FileAccessFixture(
     // path-hygiene-ignore: PH5 the default separator of a fixture is the POSIX one of the fake; real fixtures pass their own
     public val separator: Char = '/',
     public val createSymbolicLink: ((path: String, target: String) -> Unit)? = null,
+    public val setLastModified: ((path: String, millis: Long) -> Boolean)? = null,
+    public val nowMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     public val cleanup: () -> Unit = {},
 )
 
@@ -125,6 +133,8 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         treeSizeStopsWhenCancelled()
         sweepKeepsEntriesNewerThanTheAge()
         sweepNeverDeletesWhatDoesNotMatchOrADirectory()
+        sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest()
+        sweepWithZeroAgeDeletesAnOldEntry()
         sweepOfAnAbsentDirectoryIsZero()
         sweepRejectsANegativeAge()
         sweepPropagatesExceptionsOfTheMatcher()
@@ -614,6 +624,45 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(text("sub", "inner") == "y", "the sweep does not recurse")
     }
 
+    /**
+     * With an age of one hour an entry dated 10 minutes beyond it is deleted and counted; one dated 10 minutes inside
+     * it, one dated in the future, one whose name the matcher refuses and a directory are kept, whatever their date.
+     * Skipped when the fixture has no `setLastModified`.
+     */
+    public fun sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest(): Unit = scenario("sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest") {
+        val set: (String, Long) -> Boolean = fixture.setLastModified ?: return@scenario
+        val hour: Long = 3_600_000L
+        val ten: Long = 600_000L
+        val now: Long = fixture.nowMillis()
+        write("old", "x")
+        write("young", "x")
+        write("future", "x")
+        write("refused", "x")
+        mkdir("dir")
+        setTime(set, p("old"), now - hour - ten)
+        setTime(set, p("young"), now - hour + ten)
+        setTime(set, p("future"), now + hour)
+        setTime(set, p("refused"), now - hour - ten)
+        setTime(set, p("dir"), now - hour - ten)
+        val deleted: Int = ok(files.sweep(root, hour) { it != "refused" }, "sweep")
+        expect(deleted == 1, "exactly the old matching file is counted, was $deleted")
+        expect(names(root) == listOf("dir", "future", "refused", "young"), "only the old file went, was ${names(root)}")
+    }
+
+    /** With an age of 0 an entry dated 10 minutes ago is deleted; a refused name and a directory of that date are kept. Skipped without `setLastModified`. */
+    public fun sweepWithZeroAgeDeletesAnOldEntry(): Unit = scenario("sweepWithZeroAgeDeletesAnOldEntry") {
+        val set: (String, Long) -> Boolean = fixture.setLastModified ?: return@scenario
+        val ago: Long = fixture.nowMillis() - 600_000L
+        write("old", "x")
+        write("refused", "x")
+        mkdir("dir")
+        setTime(set, p("old"), ago)
+        setTime(set, p("refused"), ago)
+        setTime(set, p("dir"), ago)
+        expect(ok(files.sweep(root, 0L) { it != "refused" }, "sweep") == 1, "the old matching file is deleted and counted")
+        expect(names(root) == listOf("dir", "refused"), "the refused name and the directory are kept, was ${names(root)}")
+    }
+
     /** An absent directory is `Success(0)`. */
     public fun sweepOfAnAbsentDirectoryIsZero(): Unit = scenario("sweepOfAnAbsentDirectoryIsZero") {
         expect(ok(files.sweep(p("absent"), 0L) { true }, "sweep of an absent directory") == 0, "an absent directory sweeps 0")
@@ -713,7 +762,7 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         }
     }
 
-    private class Scope(private val rule: String, private val fixture: FileAccessFixture) {
+    private class Scope(private val rule: String, val fixture: FileAccessFixture) {
         val files: FileAccess get() = fixture.files
         val root: String get() = fixture.root
         val separator: Char get() = fixture.separator
@@ -722,6 +771,10 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
 
         fun expect(condition: Boolean, message: String) {
             if (!condition) violation(message)
+        }
+
+        fun setTime(set: (String, Long) -> Boolean, path: String, millis: Long) {
+            if (!set(path, millis)) violation("the fixture could not set the modification time of '$path'")
         }
 
         fun linkMaker(): ((String, String) -> Unit)? = fixture.createSymbolicLink
