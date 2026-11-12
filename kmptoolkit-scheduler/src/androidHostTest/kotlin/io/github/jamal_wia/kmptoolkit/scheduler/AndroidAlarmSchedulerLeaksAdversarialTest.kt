@@ -181,6 +181,9 @@ class AndroidAlarmSchedulerLeaksAdversarialTest {
         val created: List<Thread> = Thread.getAllStackTraces().keys.filter { it !in before && it.isAlive && !pool.matches(it.name) }
         assertTrue(created.isEmpty(), "threads left behind: ${created.map { it.name }}")
         val workers: Int = Thread.getAllStackTraces().keys.count { it.name.startsWith("DefaultDispatcher-worker") }
-        assertTrue(workers <= 64 + 1, "the IO pool grew to $workers workers for a handler that returns at once")
+        // The pool is shared by Dispatchers.Default (as many workers as cores) and Dispatchers.IO (64 more at most), and by every other
+        // test of this JVM: the library may use them, never exceed their ceiling by a thread of its own.
+        val ceiling: Int = Runtime.getRuntime().availableProcessors() + 64 + 1
+        assertTrue(workers <= ceiling, "the shared pool grew to $workers workers (ceiling $ceiling) for a handler that returns at once")
     }
 }
