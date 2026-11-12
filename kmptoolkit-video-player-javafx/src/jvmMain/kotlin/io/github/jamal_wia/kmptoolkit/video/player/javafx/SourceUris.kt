@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.video.player.javafx
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 import java.io.File
 import java.io.FileNotFoundException
+import java.net.URI
 import java.net.URISyntaxException
 import java.net.URL
 
@@ -21,10 +22,14 @@ internal fun resolveSourceUri(source: VideoSource, classLoader: ClassLoader): St
         require(source.path.isNotBlank()) { "Asset path is blank" }
         val url: URL = classLoader.getResource(source.path.removePrefix("/"))
             ?: throw FileNotFoundException("No classpath resource '${source.path}'")
-        // A loader that does not percent-encode (File.toURL(), plugin loaders) hands back a file: URL
-        // that is not a valid URI, which JavaFX Media rejects; its path is then the file path as
-        // written, and the file's own URI is encoded. Anything else (`jar:` and the rest) goes on as is.
-        if (url.protocol == "file") fileUrlAsUri(url) else url.toExternalForm()
+        // A loader that does not percent-encode (File.toURL(), plugin loaders) hands back a file: URL, or a
+        // jar:file: URL, that is not a valid URI, which JavaFX Media rejects; the file path is then taken as
+        // written and the file's own URI is encoded. Anything else goes on as is.
+        when (url.protocol) {
+            "file" -> fileUrlAsUri(url)
+            "jar" -> jarUrlAsUri(url)
+            else -> url.toExternalForm()
+        }
     }
 
     is VideoSource.File -> {
@@ -50,3 +55,27 @@ private fun fileUrlAsUri(url: URL): String = try {
 } catch (_: URISyntaxException) {
     File(url.path).toURI().toString()
 }
+
+/**
+ * A `jar:file:<jar>!/<entry>` URL as a valid URI: untouched when it already is one (a loader that
+ * percent-encodes), otherwise the jar's own encoded URI and the entry encoded as a path. Anything that is not
+ * a jar on the local disk goes on as written.
+ */
+private fun jarUrlAsUri(url: URL): String {
+    val written: String = url.toExternalForm()
+    try {
+        return url.toURI().toString()
+    } catch (_: URISyntaxException) {
+        // Repaired below.
+    }
+    val separator: Int = written.indexOf(JAR_SEPARATOR)
+    val spec: String = written.removePrefix("jar:")
+    if (separator < 0 || !spec.startsWith("file:")) return written
+    val jarPath: String = written.substring("jar:file:".length, separator)
+    val entry: String = written.substring(separator + JAR_SEPARATOR.length)
+    val jarUri: String = File(jarPath).toURI().toString()
+    val entryPath: String = URI(null, null, "/$entry", null).rawPath.removePrefix("/")
+    return "jar:$jarUri$JAR_SEPARATOR$entryPath"
+}
+
+private const val JAR_SEPARATOR: String = "!/"

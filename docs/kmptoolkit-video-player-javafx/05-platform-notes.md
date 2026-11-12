@@ -40,7 +40,9 @@ From the [OpenJFX 27 media documentation](https://openjfx.io/javadoc/27/javafx.m
 | HLS (`.m3u8`: MPEG-2 TS or fMP4 segments) | H.264/AVC, H.265/HEVC (fMP4) | AAC, MP3 |
 | MP3, WAV, AIFF, M4A | — (audio only) | MP3, PCM, AAC |
 
-Protocols: `file:`, `http:`, `https:`, `jar:` (which is how a classpath `Asset` inside a jar plays).
+Protocols: `file:`, `http:`, `https:`, `jar:` (which is how a classpath `Asset` inside a jar plays). A class loader that does not percent-encode its
+URLs (`File.toURL()`, plugin loaders) is repaired for `file:` and `jar:file:` alike: the jar's own URI is
+encoded and the entry is encoded as a path.
 
 Per OS, decoding is done by the platform:
 

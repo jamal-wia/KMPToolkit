@@ -32,8 +32,8 @@ The module's `jvmTest` runs the real engine against real JavaFX Media:
   `-Pjavafx.required=true` and a machine where JavaFX cannot run fails them instead: use it wherever
   the real-engine tests are meant to run, so they cannot all be skipped without anyone noticing.
 - **Always run, JavaFX or not:** header rejection, missing asset/file, blank input, an unavailable
-  runtime (through an internal seam), an asset whose class loader returns a `file:` URL that is not
-  percent-encoded resolving to a valid URI of that file, calls before any load; that `prepare` starts the toolkit off
+  runtime (through an internal seam), an asset whose class loader returns a `file:` or `jar:file:` URL that is not
+  percent-encoded resolving to a valid URI of that file (and, with real JavaFX, a clip played out of a jar in such a folder), calls before any load; that `prepare` starts the toolkit off
   the thread that called it (a runtime seam that blocks); and, in a class loader that cannot see
   OpenJFX at all, that `createJavaFxVideoPlayer()` creates a player without touching JavaFX, that
   `frameSourceOrNull()` is non-null, and that `prepare` settles on

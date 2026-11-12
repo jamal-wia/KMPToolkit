@@ -16,9 +16,9 @@ import kotlinx.coroutines.withTimeout
 /**
  * Round 6, docs versus code: "VideoSource.Asset ... works from a directory and from inside a jar"
  * (03-guide, 05-platform-notes: `jar:` is how a classpath Asset inside a jar plays). A packaged desktop app
- * lives in a folder whose name may hold a space or a non-ASCII letter ("My App.app"); these tests play a
- * real clip out of a real jar in such a folder. (A loader that does not percent-encode its URLs is a
- * suspect, r6-D2-S7.)
+ * lives in a folder whose name may hold a space or a non-ASCII letter ("My App.app"), and a plugin class
+ * loader may hand out URLs that are not percent-encoded. The engine fixes the second case for `file:`
+ * only; these tests play a real clip out of a real jar in such a folder.
  */
 @OptIn(ToolkitInternalApi::class)
 class JavaFxJarAssetR6AdversarialTest {
@@ -74,5 +74,14 @@ class JavaFxJarAssetR6AdversarialTest {
         val loader = URLClassLoader(arrayOf(jar.toURI().toURL()), null)
         cleanup += { loader.close() }
         playsFrom(loader, "/videos/clip.mp4")
+    }
+
+    @Test
+    fun `an asset inside a jar whose loader does not percent encode its URLs plays`() {
+        val jar: File = jarOf("My App")
+        @Suppress("DEPRECATION")
+        val loader = URLClassLoader(arrayOf(jar.toURL()), null)
+        cleanup += { loader.close() }
+        playsFrom(loader, "videos/clip.mp4")
     }
 }
