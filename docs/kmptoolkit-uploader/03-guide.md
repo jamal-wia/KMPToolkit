@@ -388,7 +388,7 @@ A drain pass that fails as a whole (a locked database, say) retries itself: afte
 delay that doubles on every consecutive failure, at most `heartbeatInterval`. A pass that succeeds resets it.
 
 `drain()` exists too, but calling it on a started engine breaks single-flight. It is for tests and
-diagnostics.
+diagnostics. On a closed engine it does nothing.
 
 ## Shutting down
 

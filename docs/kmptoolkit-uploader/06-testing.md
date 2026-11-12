@@ -50,7 +50,8 @@ passed to `cancelByTag`.
 `FakeUploader` is safe to use from several threads: every call, read and `trigger()` is atomic, and the
 result function runs outside any lock, so it may call back into the fake. `MutableUploaderClock` and
 `RecordingWakeScheduler` are thread-safe too (the engine calls both from the caller's thread and from its drain at once);
-`RecordingUploadTransport` is not.
+`RecordingUploadTransport` is not. Recording a call costs the same however many calls came before it, so a test that
+enqueues tens of thousands of times stays linear on every platform.
 
 ## Testing with the real engine
 
@@ -164,7 +165,9 @@ verbatim payloads, whole-row equality after every guarded write, absolute attemp
 under falling creation times, a live observation that never completes, the tail revival of a parked key, exact
 point reads, snapshot lists and the one-winner races of concurrent claims and keeps. The new checks are additive
 public functions of `UploaderStoreContract`; a store that passed the old 46 may now fail one of them, which is the
-check doing its job.
+check doing its job. Since 4.1.0 `observeByTypeFiltersAndOrders` also pins the type match to exact equality: a store that
+matches by prefix or substring, ignores case, or reads `_` or `%` in a type as a wildcard (the classic SQL `LIKE`
+mistake) now fails it. The check count is unchanged.
 
 **What the contract cannot check** is durability across a process restart — no in-process check can
 observe that. If your store buffers writes anywhere, prove that separately; the engine's central

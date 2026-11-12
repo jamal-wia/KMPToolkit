@@ -712,7 +712,11 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         expect(store.deleteByTag("session").isEmpty()) { "a second wipe of the same tag removes, and returns, nothing" }
     }
 
-    /** The observation flow filters by type and keeps insertion order. */
+    /**
+     * The observation flow filters by type and keeps insertion order. The type is compared exactly: a prefix, a
+     * longer name containing it, the same letters in another case and a name matching it as a wildcard pattern (`_`
+     * or `%`, as SQL `LIKE` reads them) are other types.
+     */
     public suspend fun observeByTypeFiltersAndOrders() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", type = "one"))
@@ -721,6 +725,30 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         val observed: List<String> = store.observeByType("one").first().map { it.id }
         expect(observed == listOf("a", "c")) {
             "observeByType must emit only that type, in order; got $observed"
+        }
+
+        val lookalikes: List<Pair<String, String>> = listOf(
+            "d" to "ones", "e" to "One", "f" to "o_e", "g" to "on", "h" to "xone", "i" to "o%e", "j" to "ONES",
+        )
+        lookalikes.forEach { (id, type) -> store.insertKeep(item(id = id, type = type)) }
+        val expected: List<Pair<String, List<String>>> = listOf(
+            "one" to listOf("a", "c"),
+            "on" to listOf("g"),
+            "ones" to listOf("d"),
+            "One" to listOf("e"),
+            "o_e" to listOf("f"),
+            "o%e" to listOf("i"),
+            "o%" to emptyList(),
+            "_ne" to emptyList(),
+            "%" to emptyList(),
+            "ne" to emptyList(),
+        )
+        for ((type, ids) in expected) {
+            val seen: List<String> = store.observeByType(type).first().map { it.id }
+            expect(seen == ids) {
+                "observeByType('$type') must match the type exactly (no prefix, substring, case folding or " +
+                    "wildcard); expected $ids, got $seen"
+            }
         }
     }
 

@@ -26,7 +26,7 @@ whether a call can block.
 | Member | Signature | Notes |
 |---|---|---|
 | `start` | `fun start()` | Idempotent. Launches one drain coroutine, wires triggers, drains leftovers. A call after `close()` is a no-op. |
-| `drain` | `suspend fun drain()` | One full pass. **Do not call on a started engine** — it breaks single-flight. For tests and diagnostics. |
+| `drain` | `suspend fun drain()` | One full pass. **Do not call on a started engine** — it breaks single-flight. For tests and diagnostics. On a closed engine it runs nothing and returns, however it is called: a closed engine is permanently inert. |
 | `settle` | `suspend fun settle(id: String, claim: Long, result: SettleResult)` | Reports a detached delivery, with the `id` and `claim` from the executor's `AttemptContext`. Every race degrades to a no-op; see below. |
 | `awaitDrained` | `suspend fun awaitDrained(timeout: Duration): Boolean` | For a wake job. An `IN_FLIGHT` item counts as **not** drained. An already empty queue is `true` even for a zero timeout. A failing store read never throws: it counts as "not drained" and is re-read at `drainPollInterval`, so a persistent failure ends in `false` at the timeout. |
 | `close` | `fun close()` | Idempotent, non-suspending. Stops the engine, leaves the queue and your scope alone. An attempt running at close is cancelled and records nothing except what already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close; a claim that was being written, or that finished after close, is released if it is still this engine's, so the next engine starts the item at once. It does not wait for a running attempt: one that ignores its cancellation may still be running when a new engine starts the same item, so a handler that does not honour cancellation can see its item run twice, as after a process kill. |
@@ -207,13 +207,16 @@ public sealed interface UploadAttempt {
 ```
 
 How a transport for `UploadHandler` items reaches the engine registered in `UploaderEngineRegistry`.
-`prepareAttempt` is `NothingOwed` for an item gone, not in flight, dropped or parked by its handler, or
-whose preparation threw. `complete` returns `false` only when no engine registered within the wait, or
-its store failed; an unknown or already settled id is a no-op that returns `true`. `complete(itemId,
+`prepareAttempt` is `NothingOwed` for an item gone, not in flight, dropped or parked by its handler,
+whose preparation threw, or whose type has a plain `UploaderHandler` rather than an `UploadHandler`.
+`complete` returns `false` only when no engine registered within the wait, or its store failed; an
+unknown or already settled id, or the id of a plain handler's item, is a no-op that returns `true`. A
+plain handler's item is never changed by the gateway (it settles through `UploaderEngine.settle`); an
+item whose type has no handler registered at all is parked, as the drain parks it. `complete(itemId,
 response)` (since 4.0.0) reports what the server answered — the engine builds
 `UploadResult.Completed(response.statusCode)` from it — while `complete(itemId, result)` is the
 status-only form, for a `TransportFailure` or a transport that cannot read the body. `progress` is best
-effort and never waits.
+effort and never waits; the fraction is clamped to `0..1` and a `NaN` is dropped.
 
 ## `UploadResponse` (since 4.0.0)
 
@@ -224,7 +227,7 @@ public class UploadResponse(
     body: ByteArray,
     public val isBodyTruncated: Boolean,
 ) {
-    public val headers: Map<String, String>        // lowercase names, read-only
+    public val headers: Map<String, String>        // lowercase names, read-only (a cast to MutableMap fails)
     public fun body(): ByteArray                   // a fresh copy, never null
     public fun header(name: String): String?       // case-insensitive
 }
@@ -265,6 +268,11 @@ time — the request never carries file bytes, which is also what keeps it well 
 as browsers do, and CR and LF are removed from a file's `contentType`, on both platforms; text values are
 body content and go out untouched.
 
+`toString` of a request prints the url, the method, the header *names* and the fields, and never a header value or a
+text field's value (it prints that value's length): bearer tokens and personal data do not reach a log or a crash
+report through a request, nor through `UploadPreparation.Proceed` or `UploadAttempt.Ready`, which hold one. Since 4.1.0;
+earlier versions printed the values.
+
 ## `UploadResult` / `defaultUploadClassification`
 
 ```kotlin
@@ -299,7 +307,8 @@ interface RetryPolicy {
 
 `ExponentialBackoffRetryPolicy(baseDelayMillis = 1_000, maxDelayMillis = 300_000, jitterRatio = 0.2,
 giveUp = Never, random = Random.Default)` — `min(max, base × 2^(n−1))`, spread by ±`jitterRatio`,
-clamped to `0..maxDelayMillis`. Rejects a non-positive base, a max below the base, and a jitter
+clamped to `0..maxDelayMillis`; the curve keeps doubling for as many attempts as it takes to reach the ceiling,
+whatever the base. Rejects a non-positive base, a max below the base, and a jitter
 outside `0.0..1.0`. Inject a seeded `Random` for a deterministic test.
 A count below `1` (down to `Int.MIN_VALUE`) is treated as `1`. The engine's failure count of an item saturates at
 `Int.MAX_VALUE` instead of wrapping, so an item that already holds that many failures is still parked or dropped by its

@@ -237,7 +237,7 @@ now holding it.
 | `getById` | Tolerant lookup; `null` is a normal answer, not an error |
 | `deleteById` | Removes one row |
 | `deleteByTag` | Removes every row with that exact tag, in **every** state — this is a logout wipe. Returns the removed rows, in insertion order, read in the same atomic step as the delete: the engine cancels each one's upload, so an item enqueued while the wipe ran must be among them |
-| `observeByType` | Live flow, **all** states, insertion order. Emits on collection and on every change; never completes |
+| `observeByType` | Live flow, **all** states, insertion order, the type matched **exactly** (no prefix, substring, case folding or `LIKE` wildcards). Emits on collection and on every change; never completes |
 | `clearAll` | Removes everything. A debug/test hatch |
 
 The payload and the tag are **opaque**. A store stores and returns them unchanged and never parses,

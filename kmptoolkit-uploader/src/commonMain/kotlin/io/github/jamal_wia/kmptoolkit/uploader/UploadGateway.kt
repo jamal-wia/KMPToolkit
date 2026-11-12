@@ -16,6 +16,12 @@ import kotlin.time.Duration.Companion.seconds
  * `createUploaderEngine` cannot be reached this way and reads as unavailable: a decorator around the engine,
  * registered in its place, serves wake jobs only, so register the engine itself when you use an [UploadHandler].
  *
+ * Only an [UploadHandler]'s items go through the gateway. A call with the id of an item whose type has a plain
+ * [UploaderHandler] (one that settles through [UploaderEngine.settle]) changes nothing: [prepareAttempt] reads it
+ * as [UploadAttempt.NothingOwed] and [complete] as an unknown id. Such a call comes from a platform job that
+ * outlived a change of the item's handler kind, or from a transport bug; it is logged as a warning. An item
+ * whose type has no handler registered at all is parked, as the drain parks it.
+ *
  * The built-in transports use this for you. Call it yourself only when writing a transport of your
  * own for an [UploadHandler] — a test transport over a mock HTTP client, for instance.
  *
@@ -29,8 +35,8 @@ public object UploadGateway {
     /**
      * The request for the attempt about to run for [itemId], prepared now by its handler.
      *
-     * @return [UploadAttempt.Ready] to upload; [UploadAttempt.NothingOwed] when the item is gone or no
-     *   longer in flight, or when the handler dropped or parked it, or when preparing failed
+     * @return [UploadAttempt.Ready] to upload; [UploadAttempt.NothingOwed] when the item is gone, no
+     *   longer in flight or not an [UploadHandler]'s item, or when the handler dropped or parked it, or when preparing failed
      *   (the failure is charged to the item as a failed attempt under its retry policy) — in every one of those cases, upload
      *   nothing; [UploadAttempt.EngineUnavailable] when no engine registered within [engineWait], or its
      *   store failed to read the item, in which case the executor should retry later rather than
@@ -55,7 +61,7 @@ public object UploadGateway {
     /**
      * Reports upload progress of [itemId] to its handler's [UploadHandler.onUploadProgress]. Best
      * effort: dropped silently when no engine is registered right now, the item has settled, or the
-     * payload cannot be decoded. [fraction] is clamped to 0..1.
+     * payload cannot be decoded. [fraction] is clamped to 0..1; a NaN is dropped.
      */
     public suspend fun progress(itemId: String, fraction: Float) {
         (UploaderEngineRegistry.current as? DefaultUploaderEngine)?.reportUploadProgress(itemId, fraction)
@@ -74,7 +80,8 @@ public object UploadGateway {
      * @return `false` when no engine registered within [engineWait], or its store failed while settling —
      *   the outcome did not land, and the executor should keep it and retry. A later retry of an item that
      *   settled meanwhile is harmless; one that did not settle uploads again, so [UploadHandler.onDelivered]
-     *   must tolerate running twice.
+     *   must tolerate running twice. An unknown or already settled [itemId], or the id of an item that is not an
+     *   [UploadHandler]'s, is a no-op that returns `true`.
      */
     public suspend fun complete(
         itemId: String,
@@ -96,7 +103,8 @@ public object UploadGateway {
      * point, so a transport hands over what it read (at most 1 MiB, with
      * [UploadResponse.isBodyTruncated] set if it had to stop there) and need not know the limit.
      *
-     * @return as [complete]; an unknown or already settled [itemId] is a no-op that returns `true`.
+     * @return as [complete]; an unknown or already settled [itemId], or the id of an item that is not an
+     *   [UploadHandler]'s, is a no-op that returns `true`.
      * @since 4.0.0
      */
     public suspend fun complete(
@@ -159,7 +167,7 @@ public sealed interface UploadAttempt {
     /** Upload [request] now. */
     public data class Ready(val request: UploadRequest) : UploadAttempt
 
-    /** Upload nothing: the item is settled, finished by its handler, or not ready to prepare. */
+    /** Upload nothing: the item is settled, finished by its handler, not ready to prepare, or not an [UploadHandler]'s item. */
     public data object NothingOwed : UploadAttempt
 
     /** No engine to ask, or its store could not read the item. Retry later; do not treat the item as settled. */

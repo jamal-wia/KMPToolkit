@@ -189,7 +189,9 @@ class MyTransport(private val http: HttpClient) : UploadTransport {
 - A body you could not read completely does not make the answer a transport failure: report the status
   with `isBodyTruncated = true`, or an accepted upload would be sent again.
 - `complete` returns `false` when no engine is registered or its store failed: keep the outcome and
-  report it again. An unknown or already settled id is a no-op that returns `true`.
+  report it again. An unknown or already settled id is a no-op that returns `true`, and so is the id of an
+  item whose handler is a plain `UploaderHandler` (for example a job that outlived an app update that changed
+  the type's handler kind): the gateway leaves that item alone and its lease re-hands it.
 - Keep `launch` idempotent per item id; the gateway settles under the item's current claim.
 
 ## Android: `createWorkManagerUploadHandlerTransport`

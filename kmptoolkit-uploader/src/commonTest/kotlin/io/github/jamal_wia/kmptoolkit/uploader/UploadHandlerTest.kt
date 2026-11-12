@@ -297,7 +297,7 @@ class UploadHandlerTest {
     }
 
     @Test
-    fun `a completion for an item whose handler is not an upload handler parks it`() = runTest {
+    fun `a completion for an item whose handler is not an upload handler leaves it alone`() = runTest {
         val plain = TestHandler(onExecute = { _, _ -> AttemptResult.Detached(leaseMillis = 1_000) })
         val engine: UploaderEngine = startEngine(plain, backgroundScope)
         engine.enqueue(plain, "payload")
@@ -305,7 +305,8 @@ class UploadHandlerTest {
 
         UploadGateway.complete("item-1", UploadResult.Completed(200), WAIT)
 
-        assertEquals(UploaderItemState.PARKED, store.find("item-1")?.state)
+        // R8-S3 (D-23): the gateway is the channel of upload handlers only; a plain handler's item stays in flight.
+        assertEquals(UploaderItemState.IN_FLIGHT, store.find("item-1")?.state)
     }
 
     // --- Progress ------------------------------------------------------------------------------
