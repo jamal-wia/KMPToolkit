@@ -137,6 +137,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `Application` instead of registering a new lifecycle callback each.
 - `kmptoolkit-permission` (Android): a refusal flag the storage failed to clear when the permission was granted no
   longer turns a later system reset into `PermanentlyDenied`.
+- `kmptoolkit-permission` (Android): the default host no longer leaves a request code in the activity's result registry
+  (and its saved state) for every finished dialog.
 
 ## [4.0.0]
 

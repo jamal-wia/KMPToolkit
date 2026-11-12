@@ -291,7 +291,8 @@ random token of the running process, so the answer to a dialog that was up when 
 which the restored activity's registry parks under the old key, never matches a request of the new
 process and is never taken for its first one. The dead request's answer stays unread in that
 activity's saved state until the activity finishes (one small entry; no public registry API can
-remove it).
+remove it). The same holds for the key of a dialog that was still up when the process died; the key of an
+answered one is released.
 
 The host holds the activity whose registry the dialog uses only while that dialog is showing; nothing
 is kept between requests. An activity destroyed for recreation (a configuration change, the system
@@ -299,7 +300,11 @@ reclaiming it) is let go at its destroy, and the answer is picked up from the re
 it resumes. An activity that another live one covered while the dialog was up stays registered until
 the request ends, since the answer goes to the registry the dialog was started from; every
 registration, including one the registry handed a waiting answer to during registration, is dropped
-when the request ends. A request ends when the user answers, when the activity the dialog was shown
+when the request ends. A registration dropped from inside the registry's own result callback is unregistered
+at once and again from a post to the main looper, which runs after the registry's dispatch and frees the
+request code (the registry keeps the code of an unregistered key until the dispatch is over, and it would
+otherwise stay for every answered dialog, in memory and in the activity's saved state); the post leaves the
+key alone when a newer request of the host has taken it on that activity meanwhile. A request ends when the user answers, when the activity the dialog was shown
 from (or its recreated instance) is finished (destroyed, or another activity resumes over it), or at
 process death. Only that activity decides it: another activity of the app that opens and finishes
 while the dialog is up (a trampoline or deep-link screen) never ends the request, and the activity the

@@ -2,6 +2,8 @@ package io.github.jamal_wia.kmptoolkit.permission
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.ActivityResultLauncher
@@ -159,6 +161,10 @@ public class ActivityResultPermissionRequestHost(
         private val onAbandoned: () -> Unit,
     ) {
         var resumes: ActivitySubscription? = null
+
+        /** Whether this live request is registered under [registryKey] with [activity]'s registry. */
+        fun holds(registryKey: String, activity: ComponentActivity): Boolean =
+            key == registryKey && attachments.any { it.activity === activity }
         private val attachments: MutableList<Attachment> = mutableListOf()
 
         /**
@@ -184,11 +190,32 @@ public class ActivityResultPermissionRequestHost(
                 if (event == Lifecycle.Event.ON_DESTROY) onDestroyed(this)
             }
 
-            fun release() {
+            /**
+             * Lets go of the registration. [insideRegistryCallback] is true when this runs from the registry's
+             * own result callback (or from `register` handing over a parked answer): androidx drops the
+             * request code of a key from its tables only if the key is no longer in its `launchedKeys`, and
+             * it removes it from there after the callback returns, so an unregister inside the callback
+             * would leave the key and its code in the registry, and in the activity's saved state, for good.
+             * The unregister therefore runs twice: now, which drops the callback, and again from a post to the
+             * main looper, which runs after the dispatch and frees the code unless a newer request of this host
+             * has taken the key on this activity. The request is
+             * already finished then and its key belongs to no other request, so nothing can be answered to
+             * it meanwhile.
+             */
+            fun release(insideRegistryCallback: Boolean = false) {
                 activity.lifecycle.removeObserver(destroyWatch)
                 val registered: ActivityResultLauncher<I> = launcher ?: return
                 launcher = null
                 registered.unregister()
+                if (insideRegistryCallback) {
+                    // Idempotent: the first call dropped the callback at once, this one frees the request code.
+                    Handler(Looper.getMainLooper()).post {
+                        // A newer request of this host may have registered under the same key on this activity
+                        // meanwhile (a caller that asks again from inside the answer): unregistering by key would
+                        // remove its callback. That request frees the code itself through its own post.
+                        if (pending?.holds(this@PendingRequest.key, activity) != true) registered.unregister()
+                    }
+                }
             }
         }
 
@@ -228,7 +255,7 @@ public class ActivityResultPermissionRequestHost(
             activity.lifecycle.addObserver(attachment.destroyWatch)
             val registered: ActivityResultLauncher<I> = activity.activityResultRegistry.register(key, contract) { output: O ->
                 if (pending === this) {
-                    finish()
+                    finish(insideRegistryCallback = true)
                     onResult(output)
                 }
             }
@@ -236,7 +263,7 @@ public class ActivityResultPermissionRequestHost(
             // `register` hands a parked answer to the callback before it returns, so `finish` ran with no
             // launcher to unregister: do it now that there is one.
             if (pending !== this) {
-                attachment.release()
+                attachment.release(insideRegistryCallback = true)
                 return null
             }
             return registered
@@ -275,7 +302,7 @@ public class ActivityResultPermissionRequestHost(
             attachment.release()
         }
 
-        fun finish() {
+        fun finish(insideRegistryCallback: Boolean = false) {
             pending = null
             resumes?.cancel()
             resumes = null
@@ -283,7 +310,7 @@ public class ActivityResultPermissionRequestHost(
             attachments.clear()
             origin = null
             lostOriginClass = null
-            all.forEach { it.release() }
+            all.forEach { it.release(insideRegistryCallback) }
         }
     }
 }

@@ -12,6 +12,11 @@ import kotlinx.coroutines.flow.updateAndGet
  * number its hosts from 1 again and give its first request the key of a dialog the previous process left
  * up. The token is random per process, so that answer can never match a key of this one.
  *
+ * Accepted residue: the key of a dialog that was still up when the process died stays in that task's saved
+ * state, because nothing in the new process answers or unregisters it. Every key of a dialog that was
+ * answered is released again (the host posts the unregister past the registry's dispatch), so the registry
+ * does not grow with the number of hosts or of process generations.
+ *
  * A [MutableStateFlow] updated with `updateAndGet`, not an atomic (D-21): the constructor of the host that
  * asks for a prefix is not suspending, and the update is one atomic step.
  */
