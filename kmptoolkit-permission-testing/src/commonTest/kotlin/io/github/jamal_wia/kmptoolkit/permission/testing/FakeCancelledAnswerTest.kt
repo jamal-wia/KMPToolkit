@@ -65,7 +65,7 @@ class FakeCancelledAnswerTest {
     }
 
     @Test
-    fun `a batch cancelled while held keeps the answer of every permission in it`() = runTest {
+    fun `a batch cancelled while held keeps only the answer of the permission on screen`() = runTest {
         val fake = FakePermissionController()
         fake.holdRequests = true
         val job: Job = launch { fake.request(listOf(CommonPermission.Camera, CommonPermission.Microphone)) }
@@ -77,6 +77,6 @@ class FakeCancelledAnswerTest {
         runCurrent()
 
         assertEquals(PermissionStatus.Granted, fake.check(CommonPermission.Camera))
-        assertEquals(PermissionStatus.Granted, fake.check(CommonPermission.Microphone))
+        assertEquals(PermissionStatus.NotDetermined, fake.check(CommonPermission.Microphone))
     }
 }

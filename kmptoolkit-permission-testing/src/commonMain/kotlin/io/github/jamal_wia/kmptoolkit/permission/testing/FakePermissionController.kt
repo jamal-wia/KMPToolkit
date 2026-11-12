@@ -36,10 +36,13 @@ import kotlinx.coroutines.sync.withLock
  *   while the system UI is up, or when it is cancelled then — and clear it to let them finish.
  * - **A cancelled request keeps the user's answer**, as both real controllers do: cancelling the
  *   caller of a request whose dialog is "up" ([holdRequests]) abandons the result, not the dialog, so
- *   the scripted outcome is still stored when the hold is cleared and the next [check] sees it. A
- *   request cancelled while it was only queued behind another one never reached the dialog and stores
- *   nothing. Unlike the real Android controller, a request made while a cancelled one's dialog is
- *   still "up" is not made to wait for it.
+ *   the scripted outcome is stored when the hold is cleared, before any held request resumes, and the
+ *   next [check] sees it. A status changed meanwhile (for example by [setStatus]) to one that shows no
+ *   UI is left alone. A request cancelled while only queued stores nothing. A cancelled batch stores
+ *   only the permission whose dialog was up; on Android the runtime permissions that shared that
+ *   dialog are answered too, so use [setStatus] if a test needs that. Like the iOS controller, and
+ *   unlike the Android one, the fake does not make the next request wait for a cancelled request's
+ *   dialog.
  * - **[observe] follows every change.** A flow from [observe] emits the current status and then every
  *   different status [setStatus], [request] or a changed [defaultStatus] produces — the double's
  *   stand-in for the user changing a permission in settings while the app was away.
@@ -111,12 +114,13 @@ public class FakePermissionController(
     public var settingsAvailable: Boolean = true
 
     /**
-     * While `true`, every request suspends — as if the system UI were on screen — after being recorded
+     * While `true`, every request that would show system UI suspends — as if it were on screen — after being recorded
      * and before its outcome is applied. Setting it back to `false` lets held requests finish, in order.
      *
      * A request cancelled while held still has its outcome stored when this is set back to `false`
-     * (before any held request resumes): the user's answer is not lost with the caller, as on a real
-     * device.
+     * (before any held request resumes), unless the status meanwhile shows no UI: the user's answer is
+     * not lost with the caller, as on a real device. Of a cancelled batch only the permission whose
+     * dialog was up is stored; a request cancelled while only queued stores nothing.
      */
     public var holdRequests: Boolean
         get() = held.value
@@ -171,16 +175,9 @@ public class FakePermissionController(
         val distinct: List<Permission> = permissions.distinct()
         return requestMutex.withLock {
             val answers: MutableMap<Permission, PermissionStatus> = LinkedHashMap()
-            for ((index: Int, permission: Permission) in distinct.withIndex()) {
-                try {
-                    answers[permission] = answer(permission)
-                } catch (cancelled: CancellationException) {
-                    // One shared dialog: the rest of the batch is answered by it too.
-                    for (rest: Permission in distinct.drop(index + 1)) {
-                        keepAnswer { settle(rest) }
-                    }
-                    throw cancelled
-                }
+            for (permission: Permission in distinct) {
+                // A cancel inside answer keeps only the answer of the permission whose dialog was up.
+                answers[permission] = answer(permission)
             }
             answers
         }
