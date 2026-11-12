@@ -336,8 +336,8 @@ or the lease — for that.
 so behaviour is unchanged unless you set them; both must be positive and finite.
 
 **The five-argument constructor.** 5.0.0 adds `journalDirectoryName` as a sixth parameter. The five-argument
-initializer of 4.x stays as a secondary constructor (not deprecated), so Swift and already compiled callers keep working
-and use the default journal directory; Swift code that wants another name uses the six-argument initializer.
+initializer of 4.x stays as a secondary constructor (not deprecated), so Swift callers, and Kotlin callers that pass all five arguments, keep working
+and use the default journal directory; other code compiled against 4.x must be recompiled (source compatible); Swift code that wants another name uses the six-argument initializer.
 
 **Swift and the three-parameter constructor.** Before 4.0.0 the configuration had three parameters.
 Swift has no default arguments, so Swift code that calls

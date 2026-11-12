@@ -48,7 +48,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `BackgroundUploadConfig.journalDirectoryName` (iOS); the default `kmptoolkit-uploader` is unchanged, so existing
   journals are found. On Android the name travels in the work request's input data
   (`UploadHandlerWorker.JOURNAL_DIRECTORY_NAME_KEY`); a job enqueued by 4.x has none and uses the default. The
-  five-argument `BackgroundUploadConfig` constructor of 4.x stays.
+  five-argument `BackgroundUploadConfig` constructor of 4.x stays (Swift and Kotlin callers that pass all five
+  arguments keep working; other code compiled against 4.x must be recompiled).
 
 ### Changed
 
@@ -65,8 +66,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-uploader`: an `IN_FLIGHT` item whose type has no registered handler is parked once its lease has
   ended, not at once while an executor may still hold the lease. An item with a failure outside its handler pending
   and an unmet constraint now arms its alarm at the failure's backoff gate.
-- `kmptoolkit-uploader` now depends on `kmptoolkit-files` (the outcome journals' writes and reads). No entry format,
-  file name or directory layout changes.
+- `kmptoolkit-uploader` now depends on `kmptoolkit-files` (the outcome journals' writes and reads). No entry format or entry
+  name changes; existing journals are found.
 - `kmptoolkit-uploader` (iOS): journal entries are written through a sibling `outcomes-partial` directory and synced
   to disk before they replace the entry, instead of Foundation's atomic write. Entries and leftovers of earlier
   versions are read and swept as before.
