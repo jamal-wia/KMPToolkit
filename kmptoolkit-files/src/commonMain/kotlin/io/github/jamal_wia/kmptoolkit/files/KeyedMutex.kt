@@ -10,6 +10,9 @@ import kotlinx.coroutines.sync.withLock
  * Not reentrant: a [withLock] nested in a [withLock] of the same key deadlocks. Safe from any thread on every
  * platform.
  *
+ * Taking and releasing a key costs time proportional to the number of keys held or awaited at that moment (the
+ * registry is copied on every change): it is built for up to hundreds of keys held at once, not tens of thousands.
+ *
  * @since 5.0.0
  */
 public class KeyedMutex<K : Any> {

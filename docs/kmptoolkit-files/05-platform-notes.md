@@ -100,6 +100,11 @@ long", …). On a non-English Windows or Linux desktop a `NoSpace` can therefore
 `FileError.Io` carrying the original exception as `cause`; treat `Io` as "failed, reason unknown" and
 log `cause`. iOS and Android API 24–25 map by `errno` and do not depend on text.
 
+ENOTDIR (a regular file where the path needs a directory) is one of the text-dependent cases on a JVM. A query
+(`metadata`, `exists`) still answers `null`/`false`, but on a Linux desktop in another language `readBytes`,
+`createDirectories`, `writeAtomically` and `move` can report `Io` where an English system reports `NotFound` or
+`NotADirectory`. macOS, iOS and Android are not affected (unlocalized `strerror` or `errno`).
+
 ## Case-insensitive volumes and Unicode
 
 No function folds case or normalizes Unicode except `PathKey.of(path, CaseFolding.Always)` (NFD first and NFC last: the
