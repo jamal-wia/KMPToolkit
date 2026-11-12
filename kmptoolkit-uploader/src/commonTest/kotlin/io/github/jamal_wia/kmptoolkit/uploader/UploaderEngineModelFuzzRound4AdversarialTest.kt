@@ -157,7 +157,7 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
         val clock = TestClock(1_000L)
         val world = World(seed, store, clock)
         val handler: TestHandler = handlerOf(world)
-        val ids = SequentialIds("s$seed")
+        val ids = SequentialIds("s$seed-model")
         val flakyStore = FlakyStore(store, Random(seed * 31 + 7)).also { it.failing = flaky }
         val uncertain: MutableSet<String> = mutableSetOf()
         val wake = TestWakeScheduler()

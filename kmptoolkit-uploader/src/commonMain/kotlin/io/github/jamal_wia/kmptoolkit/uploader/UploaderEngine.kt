@@ -29,7 +29,8 @@ import kotlinx.coroutines.CoroutineScope
  * - **At-least-once delivery.** An item is deleted only after its handler confirms success. The
  *   process can die between a successful send and that deletion, so handlers must tolerate a
  *   repeat — see [UploaderHandler]. An effect whose handler succeeded but whose row could not be deleted is not
- *   run again by the same process: the delete is retried with backoff. After a process death it may run again.
+ *   run again by the same process, also not by an engine built to replace a closed one: the delete is retried with
+ *   backoff. After a process death it may run again.
  * - **Single-flight.** Exactly one drain runs at a time. Triggers are conflated.
  * - **FIFO within an ordering channel**, scoped per handler type. See [UploaderHandler.orderingKey]
  *   for what that does and does not promise across channels.
@@ -61,6 +62,9 @@ public interface UploaderEngine : Uploader {
      * A pass sweeps the queue, executes every item that is eligible right now, and repeats until a
      * sweep executes nothing; it then arms an alarm for the soonest gate and returns. It never
      * sleeps waiting for a backoff.
+     *
+     * A [close] during a drain you called yourself stops it like the engine's own pass, and the call returns; a
+     * cancelled caller still gets its cancellation. A closed engine runs nothing, however it is called.
      *
      * **You almost never call this.** It exists for tests that want a deterministic pass, and for
      * diagnostics. Calling it on a started engine breaks the single-flight guarantee — use
@@ -136,10 +140,10 @@ public interface UploaderEngine : Uploader {
      *
      * It does **not** cancel the [CoroutineScope] you provided, which is yours, and it does not
      * touch the queue: everything owed is still owed, and a freshly constructed engine picks it up. An attempt
-     * running at close is cancelled and records nothing except what already happened: a `Success` still removes its
-     * row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close;
-     * a claim that was being written, or that finished after close, is released if it is still this engine's, so the
-     * next engine starts the item at once.
+     * running at close, also one of a [drain] you called yourself, is cancelled and records nothing except what
+     * already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close;
+     * a claim that was being written, or that finished after close, is released if it is still this engine's, and an
+     * engine already started in this process is woken by the release, so the next engine starts the item at once.
      *
      * [close] does not wait for a running attempt; one that ignores its cancellation may still be running when a new
      * engine starts the same item, so a handler that does not honour cancellation can see its item run twice, as

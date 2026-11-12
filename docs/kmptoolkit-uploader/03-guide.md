@@ -28,7 +28,8 @@ Three states, and only two ways out of the queue: a confirmed delivery, or a dec
 
 Delivery is at-least-once: a process that dies between a successful send and the deletion of the row sends again
 on the next launch. Within one process an effect whose handler succeeded but whose row could not be deleted is
-never run again; the engine retries only the delete, with a growing backoff. An attempt that fails outside its
+never run again, also not by an engine you built to replace a closed one (the memory is per process); the engine
+retries only the delete, with a growing backoff. An attempt that fails outside its
 handler (a store write failing, say) backs off the same way instead of repeating at the alarm floor.
 
 A payload is small: it is stored as text in the queue's row, and the SQLDelight store refuses a row over 1 MiB. Queue a
@@ -401,7 +402,7 @@ slot if this engine holds it. It does not cancel the scope you provided and does
 queue — everything owed is still owed, and a freshly constructed engine picks it up. Cancelling your
 own scope stops the engine just as effectively.
 
-An attempt running at close is cancelled and records nothing except what already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close; a claim that was being written, or that finished after close, is released if it is still this engine's, so the next engine starts the item at once.
+An attempt running at close, also one of a `drain()` you called yourself, is cancelled and records nothing except what already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close; a claim that was being written, or that finished after close, is released if it is still this engine's, and an engine already started in this process is woken by the release, so the next engine starts the item at once.
 The owner may build the next engine right after `close()` returns: a closed engine's late release of a claim writes
 nothing when the row shows another engine's claim.
 

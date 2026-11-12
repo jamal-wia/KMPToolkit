@@ -15,6 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -181,7 +182,7 @@ internal class DefaultUploaderEngine(
                 // ensureActive(). A pass that fails re-arms itself with a growing delay, so a locked
                 // database is retried in milliseconds rather than at the next heartbeat.
                 try {
-                    drain()
+                    drainPass()
                     consecutiveFailures = 0
                 } catch (e: CancellationException) {
                     currentCoroutineContext().ensureActive()
@@ -195,6 +196,12 @@ internal class DefaultUploaderEngine(
                 }
             }
         }
+
+        // A claim released by a closed engine wakes this one at once (close KDoc, D-31). Registered before the initial
+        // trigger below: a release announced earlier has already written its row, which that pass reads as pending, and
+        // one announced later triggers a pass. The callback is a send to a conflated channel: thread-safe, never throws.
+        val releaseWake: DisposableHandle = ClaimsInDoubt.onRelease { trigger() }
+        engineJob.invokeOnCompletion { releaseWake.dispose() }
 
         constraintProviders.forEach { provider ->
             // Built inside flow {} so that even a `satisfied` getter that throws is caught here, and ending in
@@ -283,6 +290,7 @@ internal class DefaultUploaderEngine(
             // handler's items have one at all. Whatever the handler kind, an attempt the engine is running for the
             // superseded item is stopped. None of this suspends or throws.
             superseded?.let { old ->
+                DeliveredUnconfirmed.forget(old)
                 stopAttempt(old.id)
                 if (handler is UploadHandler<*> && old.state != UploaderItemState.PARKED) {
                     cancelUpload(old, reason = "superseded by ${record.logName}")
@@ -334,6 +342,7 @@ internal class DefaultUploaderEngine(
                 false
             }
         if (!stillQueued) {
+            DeliveredUnconfirmed.forget(record)
             stopAttempt(id)
             cancelUpload(record, reason = "withdrawn")
         }
@@ -349,7 +358,10 @@ internal class DefaultUploaderEngine(
         // non-cancellable so its list always comes back and every stop and cancel below runs.
         currentCoroutineContext().ensureActive()
         val removed: List<UploaderItem> = withContext(NonCancellable) { store.deleteByTag(tag) }
-        removed.forEach { record -> stopAttempt(record.id) }
+        removed.forEach { record ->
+            DeliveredUnconfirmed.forget(record)
+            stopAttempt(record.id)
+        }
         val owed: List<UploaderItem> = removed.filter { it.state != UploaderItemState.PARKED }
         owed.forEach { record -> cancelUpload(record, reason = "withdrawn by tag") }
         logger.i { "Withdrew every item tagged '$tag' (${owed.size} active)." }
@@ -502,6 +514,34 @@ internal class DefaultUploaderEngine(
         store.park(record.id, boundedFailureText(reason), record.state, record.claim)
 
     override suspend fun drain() {
+        // A drain() the owner calls runs its attempts in the caller's coroutine, which close() does not cancel on its
+        // own, so a close landing meanwhile must stop it as it stops the engine's own pass (P2, P5): a pass scope that
+        // close() (or the end of the engine's scope) cancels. A cancelled caller still gets its cancellation.
+        if (isClosed) return
+        try {
+            coroutineScope {
+                val pass: CoroutineScope = this
+                val watcher: Job = launch(start = CoroutineStart.UNDISPATCHED) {
+                    closed.first { it }
+                    pass.cancel()
+                }
+                val ended: DisposableHandle = engineJob.invokeOnCompletion { pass.cancel() }
+                try {
+                    drainPass()
+                } finally {
+                    watcher.cancel()
+                    ended.dispose()
+                }
+            }
+        } catch (e: CancellationException) {
+            // The caller's own cancellation is rethrown; one that close() caused ends the drain normally.
+            currentCoroutineContext().ensureActive()
+            if (!isClosed) throw e
+        }
+    }
+
+    /** One call's worth of drain work: the body of [drain], and of every pass of the engine's own loop. */
+    private suspend fun drainPass() {
         // Per call of drain(): ids whose attempt already ran in it, and ids already skipped once as "moved". An
         // item gets one turn per pass of work; a second turn waits for the next trigger or alarm, so neither a
         // zero backoff nor a store whose point read disagrees with its list read can keep one call spinning.
@@ -583,11 +623,12 @@ internal class DefaultUploaderEngine(
                     soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, outside.notBeforeMillis)
                     continue
                 }
-                if (outside != null && outside.deliveredUnconfirmed) {
-                    // The effect succeeded in this process and only its confirming delete failed: repeating the
-                    // effect would send it twice, so only the delete is retried.
+                if (DeliveredUnconfirmed.matches(item)) {
+                    // The effect succeeded in this process (in this engine or one it replaced) and only its
+                    // confirming delete failed: repeating the effect would send it twice, so only the delete is retried.
                     try {
                         store.deleteById(item.id)
+                        DeliveredUnconfirmed.forget(item)
                         outsideFailures.update { it - item.id }
                         logger.i { "Confirmed the delivery of ${item.logName} after its delete failed earlier." }
                     } catch (e: CancellationException) {
@@ -820,7 +861,7 @@ internal class DefaultUploaderEngine(
     ) {
         when (outcome) {
             is AttemptResult.Success -> {
-                deleteAfterEffect(item.id)
+                deleteAfterEffect(item)
                 logger.i { "Delivered ${item.logName} after ${item.attempts} failed attempts." }
             }
 
@@ -845,7 +886,7 @@ internal class DefaultUploaderEngine(
             }
 
             is AttemptResult.Drop -> {
-                deleteAfterEffect(item.id)
+                deleteAfterEffect(item)
                 logger.i { "Dropped ${item.logName} — ${outcome.reason}." }
             }
 
@@ -1009,6 +1050,8 @@ internal class DefaultUploaderEngine(
                         disposition = FailureDisposition.RETRY,
                     )
                 }
+                // The item is startable again: wake the engine that replaced this one, which saw the claim live.
+                ClaimsInDoubt.announceRelease()
             }
         } catch (e: Throwable) {
             logger.w(e) { "Releasing the interrupted claim of ${item.logName} failed; its lease runs out instead." }
@@ -1152,10 +1195,11 @@ internal class DefaultUploaderEngine(
 
     /**
      * What the engine remembers, in memory only, about an item whose attempt failed outside its handler.
-     * [notBeforeMillis] is the earliest wall-clock time of the next try; [deliveredUnconfirmed] means the
-     * handler already succeeded (or dropped the item) and only the confirming delete failed.
+     * [notBeforeMillis] is the earliest wall-clock time of the next try. Whether the handler already succeeded (or
+     * dropped the item) and only the confirming delete failed is not kept here but process-wide, in
+     * [DeliveredUnconfirmed], so that an engine built to replace this one knows it too.
      */
-    private data class OutsideFailure(val count: Int, val notBeforeMillis: Long, val deliveredUnconfirmed: Boolean) {
+    private data class OutsideFailure(val count: Int, val notBeforeMillis: Long) {
         /**
          * Due when its time has come, or when it lies further ahead than the heartbeat (a clock stepped
          * backwards must not freeze the item for the whole jump).
@@ -1186,25 +1230,24 @@ internal class DefaultUploaderEngine(
             val old: OutsideFailure? = map[id]
             val count: Int = (old?.count ?: 0) + 1
             notBefore = saturatingAdd(now, failedPassRetryMillis(count))
-            map + (id to OutsideFailure(count, notBefore, old?.deliveredUnconfirmed ?: false))
+            map + (id to OutsideFailure(count, notBefore))
         }
         return notBefore
     }
 
     /**
      * Deletes the row of an item whose handler has finished with it (delivered, or dropped). A delete that
-     * fails is remembered as such: the effect already ran in this process, so the drain retries only the
-     * delete and never the handler.
+     * fails is remembered as such, per process ([DeliveredUnconfirmed]): the effect already ran in this process, so
+     * the drain, this engine's or a replacement's, retries only the delete and never the handler.
      */
-    private suspend fun deleteAfterEffect(id: String) {
+    private suspend fun deleteAfterEffect(item: UploaderItem) {
         try {
-            store.deleteById(id)
+            store.deleteById(item.id)
         } catch (e: Throwable) {
-            outsideFailures.update { map ->
-                map + (id to (map[id]?.copy(deliveredUnconfirmed = true) ?: OutsideFailure(0, 0L, true)))
-            }
+            DeliveredUnconfirmed.remember(item)
             throw e
         }
+        DeliveredUnconfirmed.forget(item)
     }
 
     /**
