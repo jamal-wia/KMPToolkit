@@ -443,4 +443,196 @@ class EngineBossRound3SuspectsAdversarialTest {
             parent.cancel()
         }
     }
+
+    @Test
+    fun `bn3-S3a at the top of the clock range one drain retries a failing confirming delete in a loop`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val store = FlakyStore(inner)
+            val handler = TestHandler()
+            val clock = TestClock(Long.MAX_VALUE)
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), clock, idGenerator = SequentialIds("bn3s3a")::next)
+            engine.enqueue(handler, "send-message")
+            store.deleteFailures = 500 // a locked database; the loop, if any, ends when it unlocks
+
+            engine.drain()
+
+            assertEquals(1, handler.payloads.size, "setup: the effect ran once (the delivered memory holds)")
+            assertTrue(
+                store.deleteCalls <= 2,
+                "one drain() hammered the failing delete ${store.deleteCalls} times instead of backing off",
+            )
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `bn3-S3 control one step below the top of the clock range the failing delete backs off`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val store = FlakyStore(inner)
+            val handler = TestHandler()
+            val clock = TestClock(Long.MAX_VALUE - 1)
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), clock, idGenerator = SequentialIds("bn3s3k")::next)
+            engine.enqueue(handler, "send-message")
+            store.deleteFailures = 500
+
+            engine.drain()
+
+            assertTrue(store.deleteCalls <= 2, "control: ${store.deleteCalls} deletes")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `bn3-S3b at the top of the clock range one drain re-runs a handler whose failure could not be written`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val store = FlakyStore(inner)
+            val handler = failingHandler()
+            val clock = TestClock(Long.MAX_VALUE)
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), clock, idGenerator = SequentialIds("bn3s3b")::next)
+            engine.enqueue(handler, "send-message")
+            store.failureWrites = 500
+
+            engine.drain()
+
+            assertTrue(
+                handler.payloads.size <= 1,
+                "one drain() re-ran the handler ${handler.payloads.size} times (each a real delivery attempt) instead of backing off",
+            )
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    /** Leaks a [kotlinx.coroutines.CancellationException] from the next [leaks] failure writes: a store whose own scope ended. */
+    private class CancellationLeakingStore(private val inner: TestUploaderStore) : UploaderStore by inner {
+        var leaks: Int = 0
+        override suspend fun recordFailure(
+            id: String,
+            attempts: Int,
+            nextRunAtEpochMillis: Long,
+            lastError: String?,
+            expectedState: UploaderItemState,
+            expectedClaim: Long,
+            disposition: FailureDisposition,
+        ): Boolean {
+            if (leaks > 0) {
+                leaks--
+                throw kotlinx.coroutines.CancellationException("the store's own scope")
+            }
+            return inner.recordFailure(id, attempts, nextRunAtEpochMillis, lastError, expectedState, expectedClaim, disposition)
+        }
+    }
+
+    @Test
+    fun `bn3-S3 fix a confirming delete that fails in a later call is tried once per drain at the top of the clock range`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val store = FlakyStore(inner)
+            val handler = TestHandler()
+            val clock = TestClock(1_000_000L)
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), clock, idGenerator = SequentialIds("bn3s3d")::next)
+            engine.enqueue(handler, "send-message")
+            store.deleteFailures = 500
+            engine.drain()
+            assertEquals(1, handler.payloads.size, "setup: the effect ran in an earlier call")
+            assertEquals(1, store.deleteCalls, "setup: its confirming delete failed once")
+
+            clock.millis = Long.MAX_VALUE // every gate and lease now reads as due
+            engine.drain()
+            assertEquals(2, store.deleteCalls, "one drain() tried the failing confirming delete once (P9), not in a loop")
+            engine.drain()
+            assertEquals(3, store.deleteCalls, "the next drain() has its own turn")
+            assertEquals(1, handler.payloads.size, "the effect never ran again")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `bn3-S3 fix a failure write that leaks a cancellation re-runs the handler once per drain at the top of the clock range`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val store = CancellationLeakingStore(inner)
+            val handler = failingHandler()
+            val clock = TestClock(Long.MAX_VALUE)
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), clock, idGenerator = SequentialIds("bn3s3c")::next)
+            engine.enqueue(handler, "send-message")
+            store.leaks = 500
+
+            engine.drain()
+
+            assertEquals(1, handler.payloads.size, "one drain() ran the handler once (P9)")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `bn3-S3 fix two drains at the top of the clock range run the handler exactly twice`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val store = FlakyStore(inner)
+            val handler = failingHandler()
+            val clock = TestClock(Long.MAX_VALUE)
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), clock, idGenerator = SequentialIds("bn3s3t")::next)
+            engine.enqueue(handler, "send-message")
+            store.failureWrites = 500
+
+            engine.drain()
+            engine.drain()
+
+            assertEquals(2, handler.payloads.size, "each drain() gives the item one turn, a failed one included")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    /** Leaks a [kotlinx.coroutines.CancellationException] from the next [leaks] deletes. */
+    private class CancellationLeakingDeleteStore(private val inner: TestUploaderStore) : UploaderStore by inner {
+        var leaks: Int = 0
+        var deleteCalls: Int = 0
+        override suspend fun deleteById(id: String) {
+            deleteCalls++
+            if (leaks > 0) {
+                leaks--
+                throw kotlinx.coroutines.CancellationException("the store's own scope")
+            }
+            inner.deleteById(id)
+        }
+    }
+
+    @Test
+    fun `bn3-S3 fix a confirming delete that leaks a cancellation is tried once per drain at the top of the clock range`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val store = CancellationLeakingDeleteStore(inner)
+            val handler = TestHandler()
+            val clock = TestClock(1_000_000L)
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), clock, idGenerator = SequentialIds("bn3s3x")::next)
+            engine.enqueue(handler, "send-message")
+            store.leaks = 500
+            engine.drain()
+            assertEquals(1, store.deleteCalls, "setup: the delete leaked a cancellation once")
+
+            clock.millis = Long.MAX_VALUE
+            engine.drain()
+
+            assertEquals(2, store.deleteCalls, "one drain() tried the confirming delete once (P9)")
+            assertEquals(1, handler.payloads.size, "the effect never ran again")
+        } finally {
+            parent.cancel()
+        }
+    }
 }

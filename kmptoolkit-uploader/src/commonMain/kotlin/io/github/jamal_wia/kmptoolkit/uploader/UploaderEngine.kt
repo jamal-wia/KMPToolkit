@@ -61,7 +61,9 @@ public interface UploaderEngine : Uploader {
      *
      * A pass sweeps the queue, executes every item that is eligible right now, and repeats until a
      * sweep executes nothing; it then arms an alarm for the soonest gate and returns. It never
-     * sleeps waiting for a backoff.
+     * sleeps waiting for a backoff. Each item gets at most one turn per call, a failed one included: a retry
+     * that is due again at once, or a failure whose gate reads as due (a clock held at `Long.MAX_VALUE` makes
+     * every gate and lease read as due), waits for the next trigger or alarm.
      *
      * A [close] during a drain you called yourself stops it like the engine's own pass, and the call returns; a
      * cancelled caller still gets its cancellation. A closed engine runs nothing, however it is called.

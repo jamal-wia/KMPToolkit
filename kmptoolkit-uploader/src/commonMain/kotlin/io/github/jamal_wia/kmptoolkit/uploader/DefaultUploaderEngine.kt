@@ -126,6 +126,15 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   own confirming retry are not calls to it: the first never remembers or forgets, the second is the retry itself.
  *   *Pinned by:* EngineBossRound3SuspectsAdversarialTest (bn3-S2a and its fix tests), the boss round 1 and 2 suites of
  *   the delivered memory, UploadHandlerTest.
+ * - **P9, Turn.** In one call of `drain()` (and in one pass of the engine's own loop) an item gets **at most one
+ *   turn**, decided in one place in [drainPass], before any work on the item: an attempt that ran, an attempt that
+ *   failed (outside its handler or not), or a confirming delete that failed uses it up; a later sweep of the same call
+ *   leaves the item for the next trigger or alarm. A confirming delete that **succeeded** uses nothing (the row is
+ *   gone, and the tail of its ordering channel must still run in the same call). The turn bounds every clock: the
+ *   in-memory backoff of a failure outside the handler cannot (a clock held at `Long.MAX_VALUE` saturates every gate
+ *   and lease, so each reads as due, and items then retry at the alarm floor per call instead of at their backoff).
+ *   *Pinned by:* EngineBossRound3SuspectsAdversarialTest (bn3-S3a, S3b, control and the fix tests) and
+ *   EngineBossRound3AdversarialTest (P1: the tail of a confirmed delivery runs in the same drain).
  */
 internal class DefaultUploaderEngine(
     private val store: UploaderStore,
@@ -564,9 +573,10 @@ internal class DefaultUploaderEngine(
 
     /** One call's worth of drain work: the body of [drain], and of every pass of the engine's own loop. */
     private suspend fun drainPass() {
-        // Per call of drain(): ids whose attempt already ran in it, and ids already skipped once as "moved". An
-        // item gets one turn per pass of work; a second turn waits for the next trigger or alarm, so neither a
-        // zero backoff nor a store whose point read disagrees with its list read can keep one call spinning.
+        // Per call of drain(), rule P9: ids that had their turn in this call (an attempt that ran or failed, or a
+        // failed confirming delete) and ids already skipped once as "moved". An item gets one turn per pass of work;
+        // a second turn waits for the next trigger or alarm, so neither a zero backoff, nor a clock at Long.MAX_VALUE
+        // (every gate reads as due), nor a store whose point read disagrees with its list read can keep one call spinning.
         val ranThisDrain: MutableSet<String> = HashSet()
         val movedThisDrain: MutableSet<String> = HashSet()
         while (true) {
@@ -645,6 +655,13 @@ internal class DefaultUploaderEngine(
                     soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, outside.notBeforeMillis)
                     continue
                 }
+                // P9: the one place the turn is checked. The item already had its turn in this call and is due again at
+                // once (a retry whose policy returned no delay, or a failure whose gate reads as due on this clock): its
+                // next try waits for the next trigger or alarm instead of repeating in this loop.
+                if (item.id in ranThisDrain) {
+                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, saturatingAdd(nowMillis, failedPassRetryMillis(1)))
+                    continue
+                }
                 if (DeliveredUnconfirmed.matches(item)) {
                     // The effect succeeded in this process (in this engine or one it replaced) and only its
                     // confirming delete failed: repeating the effect would send it twice, so only the delete is retried.
@@ -657,20 +674,14 @@ internal class DefaultUploaderEngine(
                     } catch (e: CancellationException) {
                         currentCoroutineContext().ensureActive()
                         logger.e(e) { "Confirming the delivery of ${item.logName} leaked a cancellation; retrying later." }
+                        ranThisDrain += item.id // P9
                         soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
                     } catch (e: Throwable) {
                         logger.e(e) { "Confirming the delivery of ${item.logName} failed again; retrying later." }
+                        ranThisDrain += item.id // P9
                         soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
                     }
                     executedAny = true
-                    continue
-                }
-                // One item's failure must not abort the pass: the items behind it would not run, no alarm
-                // would be armed for their gates, and the same row would be first again on the next trigger.
-                if (item.id in ranThisDrain) {
-                    // It already ran in this call and is due again at once: a retry whose policy returned no delay.
-                    // Its next try waits for the next trigger or alarm instead of re-running in this loop.
-                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, saturatingAdd(nowMillis, failedPassRetryMillis(1)))
                     continue
                 }
                 try {
@@ -689,9 +700,11 @@ internal class DefaultUploaderEngine(
                 } catch (e: CancellationException) {
                     currentCoroutineContext().ensureActive()
                     logger.e(e) { "Attempt of ${item.logName} leaked a cancellation; retrying later." }
+                    ranThisDrain += item.id // P9
                     bumpOutsideFailure(item.id)
                 } catch (e: Throwable) {
                     logger.e(e) { "Attempt of ${item.logName} failed outside its handler; retrying later." }
+                    ranThisDrain += item.id // P9
                     bumpOutsideFailure(item.id)
                 }
                 executedAny = true

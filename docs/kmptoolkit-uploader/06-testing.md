@@ -118,6 +118,10 @@ clock.advanceBy(10_001)
 engine.drain()                    // the item is attemptable again, wasDetached == true
 ```
 
+`advanceBy` stops at the top of the `Long` range instead of wrapping. A clock held at `Long.MAX_VALUE` makes
+every backoff and lease read as due; each item still gets at most one turn per `drain()` (a failed one
+included), so such a test cannot loop, but its items retry at the alarm floor instead of at their backoff.
+
 Each hand-off carries its own `AttemptContext.claim`, so a test of a late report names which executor
 is reporting — the first one, whose lease expired, or the one holding the item now:
 
