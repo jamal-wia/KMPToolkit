@@ -49,6 +49,8 @@ internal actual object TestEnv {
 
     actual fun openDescriptorCount(): Long? = TestFs.openDescriptorCount()
 
+    actual val isLinuxHost: Boolean = System.getProperty("os.name").orEmpty().startsWith("Linux", ignoreCase = true)
+
     actual fun skip(reason: String): Nothing {
         Assume.assumeTrue(reason, false)
         error("unreachable: the assumption above skips the test")
