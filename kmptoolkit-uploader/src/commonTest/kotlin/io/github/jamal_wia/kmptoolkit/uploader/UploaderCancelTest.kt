@@ -224,7 +224,7 @@ class UploaderCancelTest {
     // --- cancelByTag -----------------------------------------------------------------------------
 
     @Test
-    fun `cancelByTag withdraws every item of that tag in any state and nothing else`() = runTest {
+    fun `cancelByTag withdraws every item of that tag in any state and cancels each one's upload and nothing else`() = runTest {
         val parking = TestUploadHandler(transport, type = "parking", prepare = { UploadPreparation.Park("bad") })
         val engine: UploaderEngine = startEngine(backgroundScope, audio, voice, parking)
         val inFlight: String = engine.enqueue(audio, "homework", tag = "session-1")!!
@@ -239,7 +239,7 @@ class UploaderCancelTest {
 
         engine.cancelByTag("session-1")
 
-        assertEquals(setOf("cancel:$inFlight", "cancel:$pending"), transport.events.toSet())
+        assertEquals(setOf("cancel:$inFlight", "cancel:$parked", "cancel:$pending"), transport.events.toSet())
         assertEquals(listOf(otherSession), store.items.map { it.id })
     }
 

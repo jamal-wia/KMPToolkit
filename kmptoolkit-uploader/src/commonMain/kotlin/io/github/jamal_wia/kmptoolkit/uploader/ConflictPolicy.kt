@@ -36,7 +36,8 @@ public enum class ConflictPolicy {
      * indefinitely and starve everything behind it.
      *
      * A superseded item whose upload an [UploadHandler]'s transport is running is cancelled, as
-     * [Uploader.cancel] would: the old version must not keep uploading next to the new one.
+     * [Uploader.cancel] would, whatever its state, parked included (a parked item can still have an earlier claim's
+     * upload running after its lease ran out): the old version must not keep uploading next to the new one.
      *
      * Cancelling the superseded item's upload or running attempt is a side effect that happens at once and is
      * not rolled back: if a transaction around the enqueue rolls back, the old row is restored and stays queued; an item whose effect already ran in this process and only its delete was

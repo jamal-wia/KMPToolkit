@@ -115,8 +115,9 @@ public interface Uploader {
     /**
      * [cancel] for every item whose [UploaderItem.tag] equals [tag], in any state — the logout wipe:
      * effects queued under one account must neither replay nor keep uploading under its credentials
-     * once it has signed out. Each item is withdrawn as by [cancel], including the guarantee that no attempt
-     * begins afterwards and a running one is cancelled. As for [cancel], those side effects are not rolled
+     * once it has signed out. Each item is withdrawn as by [cancel], whatever its state, parked included (a parked
+     * item can still have an earlier claim's upload running after its lease ran out), including the guarantee that
+     * no attempt begins afterwards and a running one is cancelled. As for [cancel], those side effects are not rolled
      * back when an enclosing transaction rolls back. A caller cancelled before the wipe starts removes nothing;
      * once it has started, cancelling the caller does not interrupt it: every removed item is stopped and its
      * upload cancelled. Once its store write has started, the call waits for that write to finish even if the caller is cancelled or times out; a store call that never returns holds the call with it.

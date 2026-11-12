@@ -216,9 +216,16 @@ public sealed interface UploadPreparation {
     /** Upload [request]. */
     public data class Proceed(val request: UploadRequest) : UploadPreparation
 
-    /** Nothing to upload, and nothing owed: remove the item. */
+    /**
+     * Nothing to upload, and nothing owed: remove the item. At a re-hand of an expired lease the engine also cancels
+     * the earlier claim's upload.
+     */
     public data class Drop(val reason: String) : UploadPreparation
 
-    /** Cannot upload, and retrying will not help: keep the item, visibly, for inspection. */
+    /**
+     * Cannot upload, and retrying will not help: keep the item, visibly, for inspection. At a re-hand of an expired
+     * lease an earlier claim's upload that is still running is left alone; if it delivers, the delivery settles the
+     * item. Withdraw the item ([Uploader.cancel], [Uploader.cancelByTag]) to stop it.
+     */
     public data class Park(val reason: String) : UploadPreparation
 }

@@ -188,7 +188,9 @@ uploader.cancelByTag("session-$userId")
 ```
 
 The tag is opaque — the library never interprets it — and the wipe crosses every state, including
-in-flight and parked items. Prefer this to `UploaderStore.deleteByTag`, which removes the rows but
+in-flight and parked items. A parked item can still have an earlier claim's upload running (its lease
+ran out while the transfer went on, and the re-hand then parked it), so the wipe, and a `REPLACE`, cancel
+the upload of a parked item too. Prefer this to `UploaderStore.deleteByTag`, which removes the rows but
 leaves running uploads going.
 
 ## Making a domain write and its effect atomic
@@ -304,6 +306,12 @@ class AvatarUploadHandler(transport: UploadTransport, private val auth: Auth) :
 platform job or a process death right after the commit can skip it, and nothing calls it later. Do not make it
 the only place that deletes the uploaded source file. Reconcile leftover files when your app starts, or free the
 file in `onDelivered` (at least once, before the commit) where that fits.
+
+When the lease of an upload ran out and the engine hands the item off again, `prepareUpload` sees
+`AttemptContext.wasDetached = true` before anything launches. A `Drop` at that point also cancels the
+earlier claim's upload (the item is gone). A `Park` leaves an earlier upload that is still running alone: if
+it delivers, the delivery settles the parked item (the built-in transports keep a delivered answer until it is
+settled, and cancelling would erase it); withdraw the item to stop it.
 
 `prepareUpload` runs again when the platform actually starts the upload, so the token is fresh and a
 job re-run for an item that settled meanwhile uploads nothing. On Android the platform job stores only
