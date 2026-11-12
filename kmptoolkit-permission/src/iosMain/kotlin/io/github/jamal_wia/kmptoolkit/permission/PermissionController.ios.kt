@@ -18,23 +18,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import platform.AVFAudio.AVAudioSession
-import platform.AVFoundation.AVCaptureDevice
-import platform.AVFoundation.AVMediaTypeVideo
-import platform.AVFoundation.authorizationStatusForMediaType
-import platform.AVFoundation.requestAccessForMediaType
 import platform.CoreLocation.CLAuthorizationStatus
 import platform.CoreLocation.kCLAuthorizationStatusNotDetermined
-import platform.Foundation.NSURL
+import platform.Foundation.NSError
 import platform.Photos.PHAccessLevelAddOnly
 import platform.Photos.PHAccessLevelReadWrite
-import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationOpenNotificationSettingsURLString
 import platform.UIKit.UIApplicationOpenSettingsURLString
-import platform.UserNotifications.UNNotificationSettings
-import platform.UserNotifications.UNUserNotificationCenter
-import platform.darwin.dispatch_async
-import platform.darwin.dispatch_get_main_queue
+import platform.UserNotifications.UNAuthorizationStatus
 
 /**
  * Creates the iOS [PermissionController].
@@ -71,11 +62,14 @@ public fun createPermissionController(
  *
  * @param hasUsageDescription whether the app's `Info.plist` has a key — a seam, so the "missing purpose
  *   string" path is testable in a test bundle that has none.
+ * @param port every platform call the controller makes — a seam, so the controller's own logic is testable
+ *   against a scripted fake; the real platform by default.
  */
 internal class IosPermissionController(
     private val logger: Logger,
     private val options: IosPermissionOptions,
     private val hasUsageDescription: (String) -> Boolean,
+    private val port: IosAuthorizationPort = SystemIosAuthorizations,
 ) : PermissionController {
 
     /** A permission whose request just resolved, so every [observe] of it re-reads at once. */
@@ -109,7 +103,7 @@ internal class IosPermissionController(
             launch(start = CoroutineStart.UNDISPATCHED) {
                 requestsResolved.collect { resolved -> if (resolved.statusSource() == permission.statusSource()) send(Unit) }
             }
-            val unregister: () -> Unit = addBecameActiveListener { trySend(Unit) }
+            val unregister: () -> Unit = port.addBecameActiveListener { trySend(Unit) }
             trySend(Unit)
             awaitClose { unregister() }
         }
@@ -127,19 +121,9 @@ internal class IosPermissionController(
             } else {
                 UIApplicationOpenSettingsURLString
             }
-        val url: NSURL = NSURL.URLWithString(urlString) ?: return false
-        val application: UIApplication = UIApplication.sharedApplication
-        if (!application.canOpenURL(url)) {
-            logger.w { "The system settings URL cannot be opened on this device" }
-            return false
-        }
-        // UIApplication is main-thread-only, and this may well be called from a background
-        // coroutine, so the open is dispatched rather than attempted in place. `true` therefore
-        // means "handed to UIKit", not "the settings screen actually opened".
-        dispatch_async(dispatch_get_main_queue()) {
-            application.openURL(url, options = emptyMap<Any?, Any?>(), completionHandler = null)
-        }
-        return true
+        val opened: Boolean = port.openSettingsUrl(urlString)
+        if (!opened) logger.w { "The system settings URL cannot be opened on this device" }
+        return opened
     }
 
     /**
@@ -197,29 +181,29 @@ internal class IosPermissionController(
 
     private suspend fun currentStatus(permission: Permission): PermissionStatus = when (permission) {
         CommonPermission.Notifications -> checkNotifications()
-        CommonPermission.Microphone -> recordPermissionStatus(AVAudioSession.sharedInstance().recordPermission)
-        CommonPermission.Camera -> captureStatus(AVCaptureDevice.authorizationStatusForMediaType(AVMediaTypeVideo))
+        CommonPermission.Microphone -> recordPermissionStatus(port.recordPermission())
+        CommonPermission.Camera -> captureStatus(port.cameraAuthorization())
         CommonPermission.Location ->
-            foregroundLocationStatus(LocationAuthorization.current(), LocationAuthorization.isAccuracyReduced())
+            foregroundLocationStatus(port.locationAuthorization(), port.isLocationAccuracyReduced())
         CommonPermission.LocationBackground -> backgroundLocationStatus(
-            LocationAuthorization.current(),
-            LocationAuthorization.alwaysUpgradeAsked,
-            LocationAuthorization.isAccuracyReduced(),
+            port.locationAuthorization(),
+            port.alwaysUpgradeAsked,
+            port.isLocationAccuracyReduced(),
         )
-        CommonPermission.AudioLibrary -> mediaLibraryStatus(MediaLibraryAuthorization.current())
+        CommonPermission.AudioLibrary -> mediaLibraryStatus(port.mediaLibraryAuthorization())
         CommonPermission.BluetoothConnect, CommonPermission.BluetoothScan, CommonPermission.BluetoothAdvertise ->
-            bluetoothStatus(BluetoothAuthorization.current())
-        CommonPermission.PhotoLibrary -> photoLibraryStatus(PhotoLibraryAuthorization.current(PHAccessLevelReadWrite))
-        CommonPermission.PhotoLibraryAdd -> photoLibraryStatus(PhotoLibraryAuthorization.current(PHAccessLevelAddOnly))
-        CommonPermission.Contacts -> contactsStatus(ContactsAuthorization.current())
-        CommonPermission.Calendar -> calendarStatus(CalendarAuthorization.current(), writeOnly = false)
-        CommonPermission.CalendarWriteOnly -> calendarStatus(CalendarAuthorization.current(), writeOnly = true)
+            bluetoothStatus(port.bluetoothAuthorization())
+        CommonPermission.PhotoLibrary -> photoLibraryStatus(port.photoLibraryAuthorization(PHAccessLevelReadWrite))
+        CommonPermission.PhotoLibraryAdd -> photoLibraryStatus(port.photoLibraryAuthorization(PHAccessLevelAddOnly))
+        CommonPermission.Contacts -> contactsStatus(port.contactsAuthorization())
+        CommonPermission.Calendar -> calendarStatus(port.calendarAuthorization(), writeOnly = false)
+        CommonPermission.CalendarWriteOnly -> calendarStatus(port.calendarAuthorization(), writeOnly = true)
         CommonPermission.MotionActivity ->
-            motionActivityStatus(MotionActivityAuthorization.current(), MotionActivityAuthorization.isAvailable())
-        IosPermission.Tracking -> trackingStatus(TrackingAuthorization.current())
-        IosPermission.SpeechRecognition -> speechRecognitionStatus(SpeechRecognitionAuthorization.current())
-        IosPermission.Reminders -> remindersStatus(CalendarAuthorization.currentReminders())
-        IosPermission.FocusStatus -> focusStatusStatus(FocusStatusAuthorization.current())
+            motionActivityStatus(port.motionAuthorization(), port.isMotionActivityAvailable())
+        IosPermission.Tracking -> trackingStatus(port.trackingAuthorization())
+        IosPermission.SpeechRecognition -> speechRecognitionStatus(port.speechRecognitionAuthorization())
+        IosPermission.Reminders -> remindersStatus(port.remindersAuthorization())
+        IosPermission.FocusStatus -> focusStatusStatus(port.focusStatusAuthorization())
         else -> PermissionStatus.Unavailable
     }
 
@@ -241,39 +225,39 @@ internal class IosPermissionController(
             CommonPermission.Microphone -> requestMicrophone()
             CommonPermission.Camera -> requestCamera()
             CommonPermission.Location -> {
-                LocationAuthorization.requestWhenInUse()
+                port.requestWhenInUse()
                 currentStatus(permission)
             }
             CommonPermission.LocationBackground -> requestBackgroundLocation()
-            CommonPermission.AudioLibrary -> mediaLibraryStatus(MediaLibraryAuthorization.request())
+            CommonPermission.AudioLibrary -> mediaLibraryStatus(port.requestMediaLibrary())
             CommonPermission.BluetoothConnect, CommonPermission.BluetoothScan, CommonPermission.BluetoothAdvertise ->
-                bluetoothStatus(BluetoothAuthorization.request())
+                bluetoothStatus(port.requestBluetooth())
             CommonPermission.PhotoLibrary ->
-                photoLibraryStatus(PhotoLibraryAuthorization.request(PHAccessLevelReadWrite))
+                photoLibraryStatus(port.requestPhotoLibrary(PHAccessLevelReadWrite))
             CommonPermission.PhotoLibraryAdd ->
-                photoLibraryStatus(PhotoLibraryAuthorization.request(PHAccessLevelAddOnly))
+                photoLibraryStatus(port.requestPhotoLibrary(PHAccessLevelAddOnly))
             CommonPermission.Contacts -> {
-                ContactsAuthorization.request { error -> logger.w { "Contacts authorization failed: $error" } }
+                port.requestContacts { error -> logger.w { "Contacts authorization failed: $error" } }
                 // Re-read rather than trusting the Boolean: it does not tell limited from full.
                 currentStatus(permission)
             }
             CommonPermission.Calendar, CommonPermission.CalendarWriteOnly -> {
-                CalendarAuthorization.request(writeOnly = permission == CommonPermission.CalendarWriteOnly) { error ->
+                port.requestCalendar(writeOnly = permission == CommonPermission.CalendarWriteOnly) { error ->
                     logger.w { "Calendar authorization failed: $error" }
                 }
                 currentStatus(permission)
             }
             CommonPermission.MotionActivity -> {
-                MotionActivityAuthorization.request()
+                port.requestMotionActivity()
                 currentStatus(permission)
             }
-            IosPermission.Tracking -> trackingStatus(TrackingAuthorization.request())
-            IosPermission.SpeechRecognition -> speechRecognitionStatus(SpeechRecognitionAuthorization.request())
+            IosPermission.Tracking -> trackingStatus(port.requestTracking())
+            IosPermission.SpeechRecognition -> speechRecognitionStatus(port.requestSpeechRecognition())
             IosPermission.Reminders -> {
-                CalendarAuthorization.requestReminders { error -> logger.w { "Reminders authorization failed: $error" } }
+                port.requestReminders { error -> logger.w { "Reminders authorization failed: $error" } }
                 currentStatus(permission)
             }
-            IosPermission.FocusStatus -> focusStatusStatus(FocusStatusAuthorization.request())
+            IosPermission.FocusStatus -> focusStatusStatus(port.requestFocusStatus())
             else -> current
         }
     }
@@ -292,22 +276,21 @@ internal class IosPermissionController(
      * Asking again from "when in use" shows the upgrade prompt — at most once per install.
      */
     private suspend fun requestBackgroundLocation(): PermissionStatus {
-        if (LocationAuthorization.current() == kCLAuthorizationStatusNotDetermined) {
-            LocationAuthorization.requestWhenInUse()
-            return backgroundLocationStatus(LocationAuthorization.current(), reducedAccuracy = LocationAuthorization.isAccuracyReduced())
+        if (port.locationAuthorization() == kCLAuthorizationStatusNotDetermined) {
+            port.requestWhenInUse()
+            return backgroundLocationStatus(port.locationAuthorization(), reducedAccuracy = port.isLocationAccuracyReduced())
         }
-        val status: CLAuthorizationStatus = LocationAuthorization.requestAlways()
-        return backgroundLocationStatus(status, LocationAuthorization.alwaysUpgradeAsked, LocationAuthorization.isAccuracyReduced())
+        val status: CLAuthorizationStatus = port.requestAlways()
+        return backgroundLocationStatus(status, port.alwaysUpgradeAsked, port.isLocationAccuracyReduced())
     }
 
     /** The one common authorization iOS answers only asynchronously. */
     private suspend fun checkNotifications(): PermissionStatus =
         suspendCancellableCoroutine { continuation ->
-            UNUserNotificationCenter.currentNotificationCenter()
-                .getNotificationSettingsWithCompletionHandler { settings: UNNotificationSettings? ->
-                    val status: PermissionStatus = notificationStatus(settings?.authorizationStatus)
-                    if (continuation.isActive) continuation.resume(status)
-                }
+            port.notificationAuthorization { authorization: UNAuthorizationStatus? ->
+                val status: PermissionStatus = notificationStatus(authorization)
+                if (continuation.isActive) continuation.resume(status)
+            }
         }
 
     /**
@@ -320,11 +303,10 @@ internal class IosPermissionController(
         // Provisional alone, already provisional: nothing more to ask for.
         if (asked.isEmpty()) return checkNotifications()
         suspendCancellableCoroutine { continuation ->
-            UNUserNotificationCenter.currentNotificationCenter()
-                .requestAuthorizationWithOptions(authorizationOptions(asked)) { _, error ->
-                    if (error != null) logger.w { "Notification authorization failed: $error" }
-                    if (continuation.isActive) continuation.resume(Unit)
-                }
+            port.requestNotifications(authorizationOptions(asked)) { error: NSError? ->
+                if (error != null) logger.w { "Notification authorization failed: $error" }
+                if (continuation.isActive) continuation.resume(Unit)
+            }
         }
         // Re-read rather than trusting the Boolean: it does not tell provisional from full.
         return checkNotifications()
@@ -332,14 +314,14 @@ internal class IosPermissionController(
 
     private suspend fun requestMicrophone(): PermissionStatus =
         suspendCancellableCoroutine { continuation ->
-            AVAudioSession.sharedInstance().requestRecordPermission { granted: Boolean ->
+            port.requestRecordPermission { granted: Boolean ->
                 if (continuation.isActive) continuation.resume(granted.toStatus())
             }
         }
 
     private suspend fun requestCamera(): PermissionStatus =
         suspendCancellableCoroutine { continuation ->
-            AVCaptureDevice.requestAccessForMediaType(AVMediaTypeVideo) { granted: Boolean ->
+            port.requestCameraAccess { granted: Boolean ->
                 if (continuation.isActive) continuation.resume(granted.toStatus())
             }
         }
