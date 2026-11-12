@@ -439,7 +439,7 @@ default.
 | `FakeUploader` | Records enqueues; for testing code that only decides to enqueue |
 | `RecordingWakeScheduler` | Counts arming and disarming |
 | `MutableConstraintProvider` | A constraint you flip by hand |
-| `MutableUploaderClock` | A wall clock you move by hand, including backwards |
+| `MutableUploaderClock` | A wall clock you move by hand, including backwards; `advanceBy` stops at the `Long` range instead of wrapping |
 | `RecordingUploadTransport` | Since 1.5.0. Records hand-offs for an `UploadHandler`; settle through `UploadGateway` — `complete(itemId, UploadResponse)` hands the handler a server answer (since 4.0.0) |
 
 See [`06-testing.md`](06-testing.md).

@@ -119,4 +119,15 @@ class AndroidOutcomeStorageTest {
 
         assertFalse(torn.get(), "a reader saw a part of an entry")
     }
+
+    @Test
+    fun `purging at a clock so negative that the cutoff would wrap keeps a fresh leftover`() {
+        partial.mkdirs()
+        val fresh = File(partial, "fresh.tmp")
+        fresh.writeText("x")
+        // now - age would wrap to a huge positive cutoff and delete every leftover, even one just written.
+        val wrapping = AndroidOutcomeStorage(dir, partial, leftoverAgeMillis = 1_000L, now = { Long.MIN_VALUE + 10L })
+        wrapping.purgeLeftovers()
+        assertTrue(fresh.exists(), "a leftover must not be purged when the clock reads before every file date")
+    }
 }
