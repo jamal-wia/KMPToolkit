@@ -38,7 +38,7 @@ public class UploadResponse(
     public val isBodyTruncated: Boolean,
 ) {
 
-    /** The response headers, read-only, with lowercase names. */
+    /** The response headers, read-only (a cast to a mutable map fails), with lowercase names. */
     public val headers: Map<String, String> = mergeHeaders(headers)
 
     private val bodyBytes: ByteArray = body.copyOf()
@@ -93,7 +93,7 @@ public class UploadResponse(
                 val previous: String? = merged[key]
                 merged[key] = if (previous == null) value else "$previous, $value"
             }
-            return merged.toMap()
+            return ReadOnlyMap(merged)
         }
 
         fun capHeaders(headers: Map<String, String>): Map<String, String> {
@@ -104,9 +104,20 @@ public class UploadResponse(
                 if (total > MAX_RESPONSE_HEADER_CHARS) break
                 kept[name] = value
             }
-            return if (kept.size == headers.size) headers else kept.toMap()
+            return if (kept.size == headers.size) headers else ReadOnlyMap(kept)
         }
     }
+}
+
+/**
+ * A [Map] that is not a `MutableMap`: delegating to a `LinkedHashMap` by `toMap()` would hand out the very
+ * mutable map, which a cast would reach. Equality, hash and text are the delegate's, so it equals any map with the
+ * same entries.
+ */
+private class ReadOnlyMap(private val delegate: Map<String, String>) : Map<String, String> by delegate {
+    override fun equals(other: Any?): Boolean = delegate == other
+    override fun hashCode(): Int = delegate.hashCode()
+    override fun toString(): String = delegate.toString()
 }
 
 /** The most response-body bytes the engine ever keeps, whatever a handler asks for. */

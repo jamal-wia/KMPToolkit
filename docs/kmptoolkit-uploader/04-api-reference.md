@@ -224,7 +224,7 @@ public class UploadResponse(
     body: ByteArray,
     public val isBodyTruncated: Boolean,
 ) {
-    public val headers: Map<String, String>        // lowercase names, read-only
+    public val headers: Map<String, String>        // lowercase names, read-only (a cast to MutableMap fails)
     public fun body(): ByteArray                   // a fresh copy, never null
     public fun header(name: String): String?       // case-insensitive
 }
@@ -264,6 +264,11 @@ time — the request never carries file bytes, which is also what keeps it well 
 `Data` cap on Android. Field and file names are sent percent-escaped for `"`, CR and LF (`%22`, `%0D`, `%0A`)
 as browsers do, and CR and LF are removed from a file's `contentType`, on both platforms; text values are
 body content and go out untouched.
+
+`toString` of a request prints the url, the method, the header *names* and the fields, and never a header value or a
+text field's value (it prints that value's length): bearer tokens and personal data do not reach a log or a crash
+report through a request, nor through `UploadPreparation.Proceed` or `UploadAttempt.Ready`, which hold one. Since 4.1.0;
+earlier versions printed the values.
 
 ## `UploadResult` / `defaultUploadClassification`
 
