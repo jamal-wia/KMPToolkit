@@ -5,7 +5,6 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteException
 import io.github.jamal_wia.kmptoolkit.downloader.DownloaderStorage.Companion.WRITE_BUFFER_SIZE
 import io.github.jamal_wia.kmptoolkit.files.FileAccess
-import io.github.jamal_wia.kmptoolkit.files.FileKind
 import io.github.jamal_wia.kmptoolkit.files.SqliteFiles
 import io.github.jamal_wia.kmptoolkit.files.createFileAccess
 import io.github.jamal_wia.kmptoolkit.files.getOrNull
