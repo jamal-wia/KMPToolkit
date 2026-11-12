@@ -22,7 +22,8 @@ import kotlinx.coroutines.test.runTest
 
 /**
  * Round 9 (mutation survivors): behaviours that a hand-made mutant of the engine left every earlier test green on, found by
- * deleting the `trigger()` of `cancel`, and the `PARKED` exclusion of a REPLACE.
+ * deleting the `trigger()` of `cancel`, and the `PARKED` exclusion of a REPLACE (that exclusion was removed in 4.1.0, A1 boss round 3, rule P8;
+ * the test now pins the cancel for a parked item too).
  */
 class EngineSurvivorsRound9AdversarialTest {
 
@@ -66,7 +67,7 @@ class EngineSurvivorsRound9AdversarialTest {
     }
 
     @Test
-    fun `a REPLACE over a parked upload cancels no upload and one over a live upload cancels it`() = runTest {
+    fun `a REPLACE cancels the upload of the item it supersedes whether parked or live`() = runTest {
         val transport = RecordingUploadTransport()
         val handler = Upload(transport)
         fun row(id: String, key: String, state: UploaderItemState) = UploaderItem(
@@ -77,9 +78,9 @@ class EngineSurvivorsRound9AdversarialTest {
         val engine = createUploaderEngine(store, listOf(handler), backgroundScope, config = UploaderConfig(heartbeatInterval = 10.hours))
 
         engine.enqueue(handler, "p2", uniqueKey = "kp", conflictPolicy = ConflictPolicy.REPLACE)
-        assertEquals(emptyList(), transport.cancels, "a parked item has no upload to cancel")
+        assertEquals(listOf("parked"), transport.cancels, "a parked item can still have an earlier claim's upload running, so a REPLACE cancels it as cancel(id) would")
         engine.enqueue(handler, "l2", uniqueKey = "kl", conflictPolicy = ConflictPolicy.REPLACE)
-        assertEquals(listOf("live"), transport.cancels)
+        assertEquals(listOf("parked", "live"), transport.cancels)
         engine.close()
     }
 

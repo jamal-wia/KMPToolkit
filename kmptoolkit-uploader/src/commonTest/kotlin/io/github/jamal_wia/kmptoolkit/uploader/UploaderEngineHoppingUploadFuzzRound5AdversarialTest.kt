@@ -100,7 +100,7 @@ class UploaderEngineHoppingUploadFuzzRound5AdversarialTest {
         )
         val enqueued: MutableList<String> = mutableListOf()
         val withdrawn: MutableSet<String> = mutableSetOf()
-        // withdrawn while still owed (a row that was gone, delivered or parked has no upload to stop)
+        // withdrawn while still owed (a row that was gone or delivered has no upload to stop; the check covers only rows still owed; a parked row is cancelled too but not required to be)
         val withdrawnOwed: MutableSet<String> = mutableSetOf()
         fun owed(id: String?): Boolean = id != null && store.find(id)?.let { it.state != UploaderItemState.PARKED } == true
         val finished: MutableSet<String> = mutableSetOf()

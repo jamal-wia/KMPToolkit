@@ -124,6 +124,8 @@ public class MutableUploaderClock(initial: Long = 0L) : UploaderClock {
      * Moves the clock forward.
      *
      * The reading stops at the `Long` range instead of wrapping around, so a huge advance never lands in the past.
+     * A clock held at `Long.MAX_VALUE` makes every backoff and lease read as due; each item still gets at most one
+     * turn per `drain()`.
      *
      * @param millis how far to advance; may be negative to simulate a wall-clock jump backwards.
      */
