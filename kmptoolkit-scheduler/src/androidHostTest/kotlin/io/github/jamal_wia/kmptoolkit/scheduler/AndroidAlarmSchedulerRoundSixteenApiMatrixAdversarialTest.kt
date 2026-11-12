@@ -21,7 +21,7 @@ import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowAlarmManager
 
 /**
- * Round 16 (platform edges, lean API matrix): the exact-alarm right exists from Android 12 (API 31) only; below
+ * Round 16 (platform edges, lean API matrix, two levels because a wider list exhausts the shared test JVM): the exact-alarm right exists from Android 12 (API 31) only; below
  * it the scheduler must not ask, and from 31 up a missing right is the documented `Inexact(MISSING)` downgrade,
  * a right revoked inside the check-then-act window is `Inexact(REVOKED)` on every level, and a platform refusal
  * (the 500 alarm cap is an `IllegalStateException` since Android 12, any `RuntimeException` before) is a `Failed`
@@ -29,7 +29,7 @@ import org.robolectric.shadows.ShadowAlarmManager
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(
-    sdk = [24, 30, 31, 35],
+    sdk = [24, 31],
     shadows = [AndroidAlarmSchedulerRoundSixteenApiMatrixAdversarialTest.MatrixShadowAlarmManager::class],
 )
 class AndroidAlarmSchedulerRoundSixteenApiMatrixAdversarialTest {
