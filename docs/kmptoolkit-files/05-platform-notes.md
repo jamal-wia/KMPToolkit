@@ -173,7 +173,10 @@ Two differences remain:
 Not verifiable on a host; recorded for a person with a device:
 
 1. **API 24–25 legacy ops** (`android.system.Os`): create, write, fsync, rename, link, directory fsync
-   and the `errno` mapping on an API 24 or 25 device or emulator.
+   and the `errno` mapping on an API 24 or 25 device or emulator, and that the factory selects the legacy
+   ops there (`java.nio.file.Files` not loadable) and the NIO ops on API 26 and newer. The selection is by
+   NIO presence, not by `SDK_INT`; its premise (API 24-25 devices have a working `android.system.Os` and no
+   `java.nio.file`) cannot be verified on a host.
 2. **`link` inside `filesDir`/`noBackupFilesDir`** on API 24/25, 26, 30 and 35 with the current
    `targetSdk`. If it is denied, `ExistingFile.Fail` on Android will be documented as unsupported.
 3. **Directory fsync on ART** (`FileChannel.open(dir, READ).force(true)`, API 26+) for
