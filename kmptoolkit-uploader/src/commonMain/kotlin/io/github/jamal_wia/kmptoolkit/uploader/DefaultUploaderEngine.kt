@@ -93,7 +93,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   closed engine).
  * - **P4, Engine alive gate.** No hand-off of a closed engine launches. A claim that returns `true` after [close] is
  *   released (P3) and nothing is launched. A withdrawal does **not** gate the launch: the withdrawal's own cancel,
- *   after its `stopAttempt`, plus the post-launch check keep a cancel after the last launch. A [close] from another
+ *   after its stop of the attempt, plus the post-launch check keep a cancel after the last launch. A [close] from another
  *   thread that lands between the check and the launch cannot be excluded without making [close] block.
  *   *Pinned by:* UploaderEngineWithdrawalWindowRound5AdversarialTest (`[cancel, launch, cancel]`: the gate is on the
  *   engine, not on the attempt) and UploaderEngineContractSuspectsRound6AdversarialTest (claim finished after close).
@@ -107,7 +107,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   replacement engine starts the same item, which is the same at-least-once window a process kill opens.
  *   *Pinned by:* UploaderEngineContractRound6AdversarialTest (hung withdrawal).
  * - **P8, Withdraw.** Every row a withdrawal removes ([cancel], [cancelByTag], a REPLACE) goes through one funnel,
- *   [withdrawRemoved]: the attempt the engine runs for it is stopped and its upload is cancelled, **whatever the
+ *   [Withdrawals.onRemoved]: the attempt the engine runs for it is stopped and its upload is cancelled, **whatever the
  *   row's state, parked included**. A parked row can still have an earlier claim's upload running: a re-hand that
  *   parks does not cancel that upload (the transports erase an outcome journal entry on cancel, and a delivery
  *   waiting there must still settle the item), and an iOS background transfer outlives the process. So no withdrawal
@@ -158,6 +158,8 @@ internal class DefaultUploaderEngine(
     /** The only holder of the store: every row read and write of this engine goes through it. */
     private val ledger: RowLedger = RowLedger(store, transactionRunner, this.logger)
 
+    private val attemptRegistry: AttemptRegistry = AttemptRegistry(ledger, this.logger)
+
     private val handlersByType: Map<String, UploaderHandler<*>> =
         handlers.associateBy { it.type }.also { byType ->
             // A duplicate type would surface as delayed data loss rather than as an error: enqueue
@@ -168,6 +170,9 @@ internal class DefaultUploaderEngine(
                     handlers.groupBy { it.type }.filterValues { it.size > 1 }.keys
             }
         }
+
+    /** The only code that stops an attempt for a removed row or cancels an upload (rule P8). */
+    private val withdrawals: Withdrawals = Withdrawals(handlersByType, attemptRegistry, this.logger)
 
     private val providersByKey: Map<String, ConstraintProvider> =
         constraintProviders.associateBy { it.key }.also { byKey ->
@@ -313,7 +318,7 @@ internal class DefaultUploaderEngine(
             // cancellation on return even though the transaction committed, and the stop and the cancel must still
             // happen, whatever the wake scheduler below does. P8: whatever the row's state, parked included (an earlier
             // claim's upload can outlive its lease). None of this suspends or throws.
-            superseded.row?.let { old -> withdrawRemoved(listOf(old), reason = "superseded by ${record.logName}") }
+            superseded.row?.let { old -> withdrawals.onRemoved(listOf(old), reason = "superseded by ${record.logName}") }
             // Persist-first for the wake too: even if the process dies before the drain runs, the
             // platform wake is already armed for the debt that was just persisted. This sits in a finally
             // because a caller cancelled (or a store failing) after the row committed but before the call
@@ -345,7 +350,7 @@ internal class DefaultUploaderEngine(
         // P1: the side effects follow the row. A delete that committed and then failed must not orphan the upload,
         // but one that changed nothing must not stop a live one: only a row provably still queued keeps its attempt
         // and upload.
-        if (!withdrawn.stillQueued) withdrawRemoved(listOf(withdrawn.row), reason = "withdrawn")
+        if (!withdrawn.stillQueued) withdrawals.onRemoved(listOf(withdrawn.row), reason = "withdrawn")
         trigger() // an emptied queue lets the drain disarm the wake
         withdrawn.failure?.let { throw it }
     }
@@ -357,40 +362,9 @@ internal class DefaultUploaderEngine(
         // A caller cancelled before the wipe starts removes nothing; once started, the wipe is
         // non-cancellable so its list always comes back and every stop and cancel below runs.
         val removed: List<UploaderItem> = ledger.withdrawByTag(tag)
-        withdrawRemoved(removed, reason = "withdrawn by tag")
+        withdrawals.onRemoved(removed, reason = "withdrawn by tag")
         logger.i { "Withdrew every item tagged '$tag' (${removed.size} removed)." }
         trigger()
-    }
-
-    /**
-     * Rule P8, the one place a withdrawal acts on the rows it removed: stops the attempt the engine runs for each of
-     * [rows] and cancels its upload, **whatever its state** (a parked row can still have an earlier claim's upload
-     * running; a pending one may be mid-hand-off; cancelling an id the transport is not running is a no-op). Called
-     * only after the store call that removed the rows. Never clears the delivered-but-unconfirmed memory (P1): only a
-     * confirming delete does. Does not suspend and does not throw (a transport that throws is logged).
-     */
-    private fun withdrawRemoved(rows: List<UploaderItem>, reason: String) {
-        rows.forEach { row -> stopAttempt(row.id) }
-        rows.forEach { row -> cancelUpload(row, reason) }
-    }
-
-    /**
-     * Cancels [record]'s upload when its handler is an [UploadHandler], whose transport the engine
-     * knows. Reached from [withdrawRemoved] and from the end of a re-hand that drops the item (rule P8); not a
-     * withdrawal by itself.
-     */
-    private fun cancelUpload(record: UploaderItem, reason: String) {
-        val handler: UploadHandler<*> = handlersByType[record.type] as? UploadHandler<*> ?: run {
-            logger.i { "Withdrew ${record.logName} — $reason." }
-            return
-        }
-        try {
-            handler.transport.cancel(record.id)
-            logger.i { "Withdrew ${record.logName} and cancelled its upload — $reason." }
-        } catch (e: Throwable) {
-            // The row is already gone; a transport that throws must not fail the caller's withdrawal.
-            logger.e(e) { "Withdrew ${record.logName}, but cancelling its upload failed — $reason." }
-        }
     }
 
     override suspend fun awaitDrained(timeout: Duration): Boolean {
@@ -657,7 +631,7 @@ internal class DefaultUploaderEngine(
                     continue
                 }
                 try {
-                    val ran: Boolean = attemptUnlessMoved(item) { attempt -> executeItem(item, handler, attempt) }
+                    val ran: Boolean = attemptRegistry.runUnlessMoved(item) { attempt -> executeItem(item, handler, attempt) }
                     outsideFailures.update { it - item.id }
                     if (ran) {
                         ranThisDrain += item.id
@@ -948,7 +922,7 @@ internal class DefaultUploaderEngine(
                 try {
                     applyOutcome(item, handler, AttemptResult.Drop(preparation.reason))
                 } finally {
-                    if (context.wasDetached) cancelUpload(item, reason = "dropped at its re-hand")
+                    if (context.wasDetached) withdrawals.onRehandDrop(item)
                 }
                 return
             }
@@ -1011,13 +985,13 @@ internal class DefaultUploaderEngine(
         // upload to cancel yet. Seen from here, after the launch, the row is gone, so cancel it now. A row
         // gone because a fast upload already settled makes this a harmless no-op.
         // The attempt's own withdrawal flag is read first: a store that notices cancellation throws from the
-        // re-read of an attempt that stopAttempt has just cancelled, and the cancel below would be skipped. Every
-        // engine withdrawal removes the row, then calls stopAttempt (which sets the flag), then cancels the upload
+        // re-read of an attempt that the withdrawal has just cancelled, and the cancel below would be skipped. Every
+        // engine withdrawal removes the row, then stops the attempt (which sets the flag), then cancels the upload
         // itself, so there is always a cancel after the last launch. The re-read covers a row removed by something
         // other than the engine and runs non-cancellable for the same reason.
         val removed: Boolean = attempt.withdrawn.value || withContext(NonCancellable) { ledger.get(item.id) } == null
         if (removed) {
-            cancelUpload(item, reason = "removed during its hand-off")
+            withdrawals.onRemovedDuringHandOff(item)
         }
     }
 
@@ -1030,7 +1004,7 @@ internal class DefaultUploaderEngine(
      */
     private fun cancelEarlierClaimIfDropped(item: UploaderItem, context: AttemptContext, applied: FailureDisposition?) {
         if (applied == FailureDisposition.DROP && context.wasDetached) {
-            cancelUpload(item, reason = "dropped at its re-hand")
+            withdrawals.onRehandDrop(item)
         }
     }
 
@@ -1094,83 +1068,11 @@ internal class DefaultUploaderEngine(
         return disposition
     }
 
-    /** An attempt the drain is running for one item, and whether a withdrawal has stopped it. */
-    private class RunningAttempt(val job: Job, val attempts: Int) {
-        val withdrawn: MutableStateFlow<Boolean> = MutableStateFlow(false)
-    }
+    /** See [AttemptRegistry.stampOf]. */
+    internal fun runningAttemptStamp(id: String): Int? = attemptRegistry.stampOf(id)
 
-    /** The attempts the drain is running right now, by item id: the handshake with [stopAttempt]. */
-    private val runningAttempts: MutableStateFlow<Map<String, RunningAttempt>> = MutableStateFlow(emptyMap())
-
-    /**
-     * The `attempts` of the attempt the engine is running for [id] right now, or `null` when none runs. A transport
-     * launched from a handler's `execute` always runs inside that item's attempt, so this is the attempt that launch
-     * belongs to.
-     */
-    internal fun runningAttemptStamp(id: String): Int? = runningAttempts.value[id]?.attempts
-
-    /**
-     * Waits, at most [timeoutMillis], until the engine runs no attempt for [id]. A transport that a plain handler
-     * launches from `execute` can settle (or read the row) before the attempt wrote its `markInFlight`; once the
-     * attempt has ended the row is in flight under the next claim (or the claim missed), and a settle under the
-     * row's current claim is then correct. Returns at once when no attempt runs.
-     */
-    internal suspend fun awaitHandOff(id: String, timeoutMillis: Long) {
-        if (id !in runningAttempts.value) return
-        withTimeoutOrNull(timeoutMillis) { runningAttempts.first { id !in it } }
-    }
-
-    /**
-     * Stops the attempt the engine is running for [id], if any: marks it withdrawn and cancels it, without
-     * waiting for it. Called after the store call that removed the row, so that either the attempt registered
-     * before this call and is cancelled by it, or it registers afterwards and its re-read of the row finds the
-     * row gone ([attemptUnlessMoved]). Neither side takes a lock: both steps are atomic on their own.
-     */
-    private fun stopAttempt(id: String) {
-        runningAttempts.value[id]?.let { running ->
-            running.withdrawn.value = true
-            running.job.cancel()
-        }
-    }
-
-    /**
-     * Runs [block], the attempt for [item], unless the item moved since the pass read it, and cancels it when a
-     * withdrawal removes the item while it runs. The attempt registers first and re-reads its row second; a
-     * withdrawal removes the row first and looks for a registered attempt second, so one of the two always sees
-     * the other and no attempt of a removed item begins after the withdrawal returned. A withdrawn attempt
-     * records nothing: its row is gone, or a transaction that rolled the withdrawal back restored it unspent.
-     */
-    private suspend fun attemptUnlessMoved(item: UploaderItem, block: suspend (RunningAttempt) -> Unit): Boolean {
-        return coroutineScope {
-            lateinit var entry: RunningAttempt
-            // Lazy, so `entry` is assigned before the block can run.
-            val attempt: Deferred<Unit> = async(start = CoroutineStart.LAZY) { block(entry) }
-            entry = RunningAttempt(attempt, item.attempts)
-            runningAttempts.update { it + (item.id to entry) }
-            try {
-                if (ledger.get(item.id) != item) {
-                    logger.i { "Attempt of ${item.logName} skipped — the item moved since this pass read it." }
-                    return@coroutineScope false
-                }
-                try {
-                    attempt.await()
-                } catch (e: CancellationException) {
-                    // close() or a cancelled scope still propagates from here.
-                    currentCoroutineContext().ensureActive()
-                    if (entry.withdrawn.value) {
-                        logger.i { "Attempt of ${item.logName} stopped — the item was withdrawn." }
-                        return@coroutineScope true
-                    }
-                    throw e // a leaked cancellation: the drain's catch handles it as before
-                }
-                true
-            } finally {
-                runningAttempts.update { map -> if (map[item.id] === entry) map - item.id else map }
-                // A lazy child that never started would keep this scope waiting for it.
-                attempt.cancel()
-            }
-        }
-    }
+    /** See [AttemptRegistry.awaitEnd]. */
+    internal suspend fun awaitHandOff(id: String, timeoutMillis: Long) = attemptRegistry.awaitEnd(id, timeoutMillis)
 
     /**
      * What the engine remembers, in memory only, about an item whose attempt failed outside its handler.
