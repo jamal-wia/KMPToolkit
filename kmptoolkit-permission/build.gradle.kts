@@ -45,6 +45,8 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
+            // The fixture's behaviour is checked against the real controllers (fake fidelity tests).
+            implementation(project(":kmptoolkit-permission-testing"))
         }
         androidMain.dependencies {
             // api: KeyValueStorage is a parameter of the public Android factory, so a consumer
