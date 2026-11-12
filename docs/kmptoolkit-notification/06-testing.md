@@ -134,12 +134,17 @@ Derived from the contract in [`01-overview.md`](01-overview.md) and
   entries. See [`05-platform-notes.md`](05-platform-notes.md#permissions-and-the-manifest) for the
   exact pinned set.
 
-**`iosTest`** — what a test binary can honestly assert about `UNUserNotificationCenter`: that an
-unauthorized post is reported without the centre being touched at all. Anything that does reach the
-centre cannot be unit-tested — a test binary is not an app bundle, and
-`currentNotificationCenter()` raises `NSInternalInconsistencyException` there — so the cancel path's
-contract is covered on the Android side against a real notification manager, and by
-`ProgressCoalescerTest` for the shared half. Whether a notification is *drawn* is a device question.
+**`iosTest`** — a test binary is not an app bundle, and `currentNotificationCenter()` raises
+`NSInternalInconsistencyException` there, so the notifier is driven through an internal
+`NotificationCenterPort` seam with a fake center (the real adapter, `SystemNotificationCenter`,
+fetches the center on every call and is never constructed in a test). What this covers:
+the permission gate without the center being touched at all, and with the fake center a post that
+completes when the center answers, a frame overtaken by a newer one that never reaches the center,
+the cancel-after-hand-over and failure-before-hand-over outcomes of the progress baseline, the
+`UNErrorDomain` "not allowed" mapping to `PermissionDenied`, `cancel` (delivered then pending, exactly
+that id) and `cancelAll` (delivered only), and the content of the request (title, body, thread, category,
+sound, interruption level). What stays a device question: that the real adapter's one-line delegations
+reach the real center, and whether a notification is *drawn*.
 
 Virtual time throughout the coalescing tests: a `kotlin.time.TestTimeSource` the test advances by
 hand, injected into `ProgressCoalescer`. Verifying a 500 ms throttle by waiting 500 ms would be slow
