@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -372,6 +373,16 @@ internal class AndroidPermissionController(
 
     /** Flag operations already reported as failed, so a storage that stays down warns once per flag. */
     private val reportedFlagFailures: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
+
+    /**
+     * Flag keys whose removal failed when the permission was granted. Such a flag is stored but no longer
+     * true: the permission was granted after it was written. It reads as absent, and a read retries the
+     * removal, so a storage that was down for one check cannot turn a later system reset into a permanent
+     * denial. A new refusal ([writeFlag]) takes the key out again, since that flag is real. Process memory
+     * only: a process that dies before the storage recovers reads the flags until the next granted check
+     * clears them.
+     */
+    private val uncleared: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     /** Platform reads already reported as failed (seam name plus Android string), so a read that fails on every resume warns once. */
     private val reportedPlatformFailures: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
@@ -1051,7 +1062,16 @@ internal class AndroidPermissionController(
      * flag reads as absent (the safe side: nothing is turned into a permanent denial), and is reported
      * to the logger once per key, so a storage that is down says so without a line on every check.
      */
-    private suspend fun readFlag(key: String): String? =
+    private suspend fun readFlag(key: String): String? {
+        if (key in uncleared.value) {
+            // Stale since the permission was granted: retry its removal, and read as absent either way.
+            removeFlag(key)
+            return null
+        }
+        return readStoredFlag(key)
+    }
+
+    private suspend fun readStoredFlag(key: String): String? =
         when (val result: StorageResult<String?> = storage.get(key)) {
             is StorageResult.Success -> result.value
             is StorageResult.Failure -> {
@@ -1061,13 +1081,19 @@ internal class AndroidPermissionController(
         }
 
     private suspend fun writeFlag(key: String, value: String) {
+        uncleared.update { it - key }
         val result: StorageResult<Unit> = storage.put(key, value)
         if (result is StorageResult.Failure) reportFlagFailure("write", key, result)
     }
 
     private suspend fun removeFlag(key: String) {
-        val result: StorageResult<Unit> = storage.remove(key)
-        if (result is StorageResult.Failure) reportFlagFailure("remove", key, result)
+        when (val result: StorageResult<Unit> = storage.remove(key)) {
+            is StorageResult.Success -> uncleared.update { it - key }
+            is StorageResult.Failure -> {
+                uncleared.update { it + key }
+                reportFlagFailure("remove", key, result)
+            }
+        }
     }
 
     /** Warns the first time [operation] on [key] fails; a storage that stays down does not fill the log. */
@@ -1092,7 +1118,9 @@ internal class AndroidPermissionController(
     }
 
     /**
-     * Removes both flags, but only those there are to remove.
+     * Removes both flags, but only those there are to remove. A flag the storage cannot read is removed
+     * anyway (a write only on that failure, so [check] stays a query in the common case), and one that
+     * cannot be removed is remembered in [uncleared].
      *
      * The guard is what keeps [check] a query. It runs on every check of a granted permission — the
      * overwhelmingly common call — and the overwhelmingly common state there is "granted, nothing
@@ -1100,7 +1128,14 @@ internal class AndroidPermissionController(
      */
     private suspend fun clearFlags(permission: Permission) {
         listOf(askedKey(keyPrefix, permission), rationaleSeenKey(keyPrefix, permission)).forEach { key: String ->
-            if (readFlag(key) != null) removeFlag(key)
+            val present: Boolean = key in uncleared.value || when (val result: StorageResult<String?> = storage.get(key)) {
+                is StorageResult.Success -> result.value != null
+                is StorageResult.Failure -> {
+                    reportFlagFailure("read", key, result)
+                    true
+                }
+            }
+            if (present) removeFlag(key)
         }
     }
 }

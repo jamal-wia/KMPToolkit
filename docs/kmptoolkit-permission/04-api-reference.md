@@ -338,8 +338,12 @@ Every collaborator but `context` and `storage` has a default:
 - **`config`** — see `AndroidPermissionConfig`.
 - **`logger`** — where an undeclared permission, a dialog that could not be shown, an unreadable flag
   and a launcher failure are reported. A flag the storage cannot read, write or remove is treated as
-  not set and logged as a warning once per flag, so a storage that is down is visible without a line
-  on every check.
+  not set and logged as a warning once per permission (or flag) for the controller's lifetime, so a
+  storage that is down is visible without a line on every check. A refusal flag that could not be removed
+  when the permission was granted is remembered by the controller, read as absent and removed again at
+  the next read, so a later system reset reads as if never refused; a refusal made after that is recorded
+  as usual. If the process dies before the storage recovers, the flags can be read again until the next
+  check that sees the permission granted removes them.
 
 ### `AndroidPermissionConfig` (Android only)
 
