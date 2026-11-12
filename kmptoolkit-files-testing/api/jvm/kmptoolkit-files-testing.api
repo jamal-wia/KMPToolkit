@@ -122,6 +122,7 @@ public final class io/github/jamal_wia/kmptoolkit/files/testing/FileAccessContra
 	public final fun deleteRecursivelyRemovesAFullTree ()V
 	public final fun deleteRecursivelyStopsWhenCancelled ()V
 	public final fun deleteRemovesAFileALinkAndAnEmptyDirectory ()V
+	public final fun everyFunctionRejectsRelativeEmptyAndNulPaths ()V
 	public final fun existsFollowsSymbolicLinks ()V
 	public final fun freeSpaceOfAMissingPathFollowsItsAncestor ()V
 	public final fun listIsSortedWithoutDotEntries ()V
@@ -143,12 +144,14 @@ public final class io/github/jamal_wia/kmptoolkit/files/testing/FileAccessContra
 	public final fun readBytesOfADirectoryIsADirectory ()V
 	public final fun readBytesOfAnAbsentFileIsNotFound ()V
 	public final fun readBytesRejectsAnInvalidMax ()V
+	public final fun sweepDeletesAnOldSymbolicLink ()V
 	public final fun sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest ()V
 	public final fun sweepKeepsEntriesNewerThanTheAge ()V
 	public final fun sweepNeverDeletesWhatDoesNotMatchOrADirectory ()V
 	public final fun sweepOfAnAbsentDirectoryIsZero ()V
 	public final fun sweepPropagatesExceptionsOfTheMatcher ()V
 	public final fun sweepRejectsANegativeAge ()V
+	public final fun sweepStopsWhenCancelled ()V
 	public final fun sweepWithZeroAgeDeletesAnOldEntry ()V
 	public final fun treeSizeCountsALinkAsZero ()V
 	public final fun treeSizeOfAnAbsentPathIsZero ()V

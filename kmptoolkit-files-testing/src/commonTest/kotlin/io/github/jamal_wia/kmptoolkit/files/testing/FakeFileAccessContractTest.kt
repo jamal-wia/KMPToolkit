@@ -125,4 +125,45 @@ class FakeFileAccessContractTest {
         val violation: FileAccessContractViolation = assertFailsWith { ignoring.sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest() }
         assertTrue(violation.message.orEmpty().startsWith("sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest"), "was: ${violation.message}")
     }
+
+    @Test
+    fun `a decorator that resolves relative paths against a base fails the invalid path check`() {
+        val sandbox: FileAccessContract = FileAccessContract {
+            val fake: FakeFileAccess = FakeFileAccess()
+            fake.createDirectory("/root")
+            FileAccessFixture(
+                files = object : FileAccess by fake {
+                    override fun list(directory: String): FileResult<List<String>> =
+                        fake.list(if (directory.startsWith("/")) directory else "/root/$directory")
+                },
+                root = "/root",
+            )
+        }
+        val violation: FileAccessContractViolation = assertFailsWith { sandbox.everyFunctionRejectsRelativeEmptyAndNulPaths() }
+        assertTrue(violation.message.orEmpty().startsWith("everyFunctionRejectsRelativeEmptyAndNulPaths"), "was: ${violation.message}")
+    }
+
+    @Test
+    fun `a decorator that drops the cancellation of sweep fails the sweep cancellation check`() {
+        val dropping: FileAccessContract = FileAccessContract {
+            val fake: FakeFileAccess = FakeFileAccess()
+            fake.createDirectory("/root")
+            FileAccessFixture(
+                files = object : FileAccess by fake {
+                    override fun sweep(directory: String, olderThanMillis: Long, cancellation: io.github.jamal_wia.kmptoolkit.files.CancellationCheck, match: (String) -> Boolean): FileResult<Int> =
+                        fake.sweep(directory, olderThanMillis, io.github.jamal_wia.kmptoolkit.files.CancellationCheck.Never, match)
+                },
+                root = "/root",
+            )
+        }
+        assertFailsWith<FileAccessContractViolation> { dropping.sweepStopsWhenCancelled() }
+    }
+
+    @Test
+    fun `a fake sweeps an old symbolic link and keeps its target`() {
+        val fake: FakeFileAccess = FakeFileAccess()
+        FileAccessContract { fixtureOf(fake) }.sweepDeletesAnOldSymbolicLink()
+        assertTrue("/root/link" !in fake.entries(), "the link went")
+        assertTrue("/root/target" in fake.entries(), "its target stayed (so the check ran and did not skip)")
+    }
 }

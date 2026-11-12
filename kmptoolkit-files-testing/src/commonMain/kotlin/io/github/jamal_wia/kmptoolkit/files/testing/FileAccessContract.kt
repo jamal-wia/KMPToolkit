@@ -109,6 +109,7 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         writeAtomicallyHonoursTheTempDirectoryAndLeavesItClean()
         writeAtomicallyWithACustomTempPrefixLeavesNothing()
         writeAtomicallyRejectsRelativeEmptyAndNulPaths()
+        everyFunctionRejectsRelativeEmptyAndNulPaths()
         concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload()
         moveReplacesTheTargetWithTheSourceContent()
         moveWithFailNeverReplaces()
@@ -135,6 +136,8 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         sweepNeverDeletesWhatDoesNotMatchOrADirectory()
         sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest()
         sweepWithZeroAgeDeletesAnOldEntry()
+        sweepDeletesAnOldSymbolicLink()
+        sweepStopsWhenCancelled()
         sweepOfAnAbsentDirectoryIsZero()
         sweepRejectsANegativeAge()
         sweepPropagatesExceptionsOfTheMatcher()
@@ -378,6 +381,39 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
             expect(files.metadata(path) == null, "metadata of '$path' is null")
             expect(!files.exists(path), "exists of '$path' is false")
         }
+    }
+
+    /**
+     * Every function that takes a path answers a relative, empty or NUL-containing one with [FileError.InvalidPath]
+     * naming it (a query answers `null` or `false`) and changes nothing: `list`, `createDirectories`, `readBytes`,
+     * `writeAtomically` (also its `tempDirectory`), `move` (`from` and `to`), `delete`, `deleteRecursively`,
+     * `treeSize`, `sweep`, `metadata`, `freeSpaceBytes` and `exists`. A decorator that resolves relative paths
+     * against a base directory fails here.
+     */
+    public fun everyFunctionRejectsRelativeEmptyAndNulPaths(): Unit = scenario("everyFunctionRejectsRelativeEmptyAndNulPaths") {
+        write("keep", "x")
+        val good: String = p("keep")
+        for (bad: String in listOf("", "relative", "dir${separator}relative", "a\u0000b")) {
+            fun invalid(what: String, result: FileResult<*>) {
+                val error: FileError.InvalidPath = failure(result, "$what of '$bad'")
+                expect(error.path == bad, "$what must name the invalid path '$bad', was '${error.path}'")
+            }
+            invalid("list", files.list(bad))
+            invalid("createDirectories", files.createDirectories(bad))
+            invalid("readBytes", files.readBytes(bad, 1))
+            invalid("writeAtomically", files.writeAtomically(bad, ByteArray(1)))
+            invalid("writeAtomically with an invalid tempDirectory", files.writeAtomically(p("new"), ByteArray(1), WriteOptions(tempDirectory = bad)))
+            invalid("move from", files.move(bad, p("moved")))
+            invalid("move to", files.move(good, bad))
+            invalid("delete", files.delete(bad))
+            invalid("deleteRecursively", files.deleteRecursively(bad))
+            invalid("treeSize", files.treeSize(bad))
+            invalid("sweep", files.sweep(bad, 0L) { true })
+            expect(files.metadata(bad) == null && files.metadata(bad, followLinks = true) == null, "metadata of '$bad' is null")
+            expect(files.freeSpaceBytes(bad) == null, "freeSpaceBytes of '$bad' is null")
+            expect(!files.exists(bad), "exists of '$bad' is false")
+        }
+        expect(names(root) == listOf("keep") && text("keep") == "x", "nothing was created or changed, was ${names(root)}")
     }
 
     /** Concurrent writers of one path never share a temporary file: all succeed and one whole payload is left. */
@@ -663,6 +699,33 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(names(root) == listOf("dir", "refused"), "the refused name and the directory are kept, was ${names(root)}")
     }
 
+    /**
+     * `sweep` deletes an old symbolic link (not its target), like a regular file. Needs the fixture's `createSymbolicLink`
+     * and `setLastModified`; skipped without them, and skipped when dating the link evidently dated its target instead
+     * (some hosts cannot set the time of a link itself).
+     */
+    public fun sweepDeletesAnOldSymbolicLink(): Unit = scenario("sweepDeletesAnOldSymbolicLink") {
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        val set: (String, Long) -> Boolean = fixture.setLastModified ?: return@scenario
+        val old: Long = fixture.nowMillis() - 7_200_000L
+        write("target", "t")
+        link(p("link"), p("target"))
+        setTime(set, p("link"), old)
+        val dated: Long? = files.metadata(p("link"))?.lastModifiedMillis
+        if (dated == null || dated > old + 60_000L) return@scenario
+        expect(ok(files.sweep(root, 3_600_000L) { it == "link" }, "sweep") == 1, "the old link is deleted and counted")
+        expect(files.metadata(p("link")) == null, "the link is gone")
+        expect(text("target") == "t", "its target is untouched")
+    }
+
+    /** `sweep` checks its [CancellationCheck] before every entry: a cancelled check ends with [FileError.Cancelled] and deletes nothing. */
+    public fun sweepStopsWhenCancelled(): Unit = scenario("sweepStopsWhenCancelled") {
+        write("a", "x")
+        write("b", "x")
+        failure<FileError.Cancelled>(files.sweep(root, 0L, CancellationCheck { true }) { true }, "sweep when cancelled")
+        expect(names(root) == listOf("a", "b"), "nothing was deleted, was ${names(root)}")
+    }
+
     /** An absent directory is `Success(0)`. */
     public fun sweepOfAnAbsentDirectoryIsZero(): Unit = scenario("sweepOfAnAbsentDirectoryIsZero") {
         expect(ok(files.sweep(p("absent"), 0L) { true }, "sweep of an absent directory") == 0, "an absent directory sweeps 0")
@@ -710,7 +773,11 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(!files.exists(p("dangling")), "a dangling link does not")
     }
 
-    /** A caller cancelled during `withIo` gets a [CancellationException], never the block's own failure. */
+    /**
+     * A caller cancelled during `withIo` gets a [CancellationException], never the block's own failure. `withIo` is an
+     * extension no implementation can override, so this checks the extension, not the implementation under test; it is
+     * listed because consumers rely on it.
+     */
     public fun withIoCancelledThrowsCancellationException(): Unit = scenario("withIoCancelledThrowsCancellationException") {
         val outcome: Throwable? = runBlockingForContract {
             val started: CompletableDeferred<Unit> = CompletableDeferred()
@@ -740,7 +807,10 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(outcome is CancellationException, "a cancelled caller must get CancellationException, was $outcome")
     }
 
-    /** `withIo` hands the block this instance and returns its result. */
+    /**
+     * `withIo` hands the block this instance and returns its result. The extension cannot be overridden, so the one
+     * part that depends on the implementation is that the block's calls reach it: the write goes through the instance.
+     */
     public fun withIoReturnsTheResultOfTheBlock(): Unit = scenario("withIoReturnsTheResultOfTheBlock") {
         val written: FileResult<Unit> = runBlockingForContract {
             files.withIo(Dispatchers.Default) { writeAtomically(p("f"), "io".encodeToByteArray()) }

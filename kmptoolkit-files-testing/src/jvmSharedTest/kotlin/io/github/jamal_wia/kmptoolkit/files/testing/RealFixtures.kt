@@ -27,7 +27,23 @@ internal fun realFixture(files: FileAccess): FileAccessFixture {
         createSymbolicLink = if (canLink) { path: String, target: String ->
             Files.createSymbolicLink(File(path).toPath(), File(target).toPath())
         } else null,
-        setLastModified = { path: String, millis: Long -> File(path).setLastModified(millis) },
+        setLastModified = { path: String, millis: Long -> setTime(path, millis) },
         cleanup = { root.deleteRecursively() },
     )
+}
+
+/** Dates the entry itself: a symbolic link is dated without following it where the host can, else its target is. */
+private fun setTime(path: String, millis: Long): Boolean {
+    val target: java.nio.file.Path = File(path).toPath()
+    if (Files.isSymbolicLink(target)) {
+        try {
+            val time: java.nio.file.attribute.FileTime = java.nio.file.attribute.FileTime.fromMillis(millis)
+            Files.getFileAttributeView(target, java.nio.file.attribute.BasicFileAttributeView::class.java, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                .setTimes(time, time, null)
+            return true
+        } catch (_: Exception) {
+            // Falls through: the contract skips the link check when the link itself was not dated.
+        }
+    }
+    return File(path).setLastModified(millis)
 }
