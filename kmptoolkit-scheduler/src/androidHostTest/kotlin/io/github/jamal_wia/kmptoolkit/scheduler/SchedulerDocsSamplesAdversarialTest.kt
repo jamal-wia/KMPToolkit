@@ -184,19 +184,24 @@ class SchedulerDocsSamplesAdversarialTest {
     fun `cancelAll cancels exactly the ids passed, in order, and cancelling an id that is not armed is a no-op`() {
         val scheduler: AlarmScheduler = createAlarmScheduler(context)
         runBlocking {
-            listOf("a", "b", "c", "d").forEach {
+            listOf("a", "b", "c", "d", "e").forEach {
                 scheduler.schedule(ScheduledAlarm(it, "T", 1_000L, AlarmNotification("t", "b", "c")))
             }
             OrderRecordingShadow.cancelled.clear()
-            scheduler.cancelAll(listOf("c", "never-armed", "a", "c"))
+            // Not a palindrome, so a reversed or sorted order cannot pass: c before a before b.
+            scheduler.cancelAll(listOf("c", "never-armed", "a", "b"))
+            val order: List<String> = OrderRecordingShadow.cancelled.map { it.substringAfterLast('/') }
+            assertEquals(listOf("c", "a", "b"), order, "cancelled pending intents, in the order of the ids passed")
+
+            OrderRecordingShadow.cancelled.clear()
+            scheduler.cancelAll(listOf("d", "d"))
+            assertEquals(listOf("d"), OrderRecordingShadow.cancelled.map { it.substringAfterLast('/') }, "a repeated id cancels once")
         }
-        val order: List<String> = OrderRecordingShadow.cancelled.map { it.substringAfterLast('/') }
-        assertEquals(listOf("c", "a"), order, "cancelled pending intents, in the order of the ids passed")
         val left: Set<String> = shadowAlarmManager.scheduledAlarms
             .map { shadowOf(it.operation).savedIntent.getStringExtra("alarm_id").orEmpty() }.toSet()
-        assertEquals(setOf("b", "d"), left, "cancelAll cancelled something it was not given")
+        assertEquals(setOf("e"), left, "cancelAll cancelled something it was not given")
         runBlocking { scheduler.cancelAll(emptyList()) }
-        assertEquals(2, shadowAlarmManager.scheduledAlarms.size, "an empty collection is a no-op")
+        assertEquals(1, shadowAlarmManager.scheduledAlarms.size, "an empty collection is a no-op")
     }
 
     @Test
