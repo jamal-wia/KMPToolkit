@@ -15,6 +15,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import org.robolectric.Shadows
 
 /**
@@ -23,6 +24,7 @@ import org.robolectric.Shadows
  * fake meet here, cycle after cycle, in a directory that does not exist yet.
  */
 @RunWith(AndroidJUnit4::class)
+@Config(shadows = [StrictShadowMediaRecorder::class])
 class RecorderEndToEndTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
