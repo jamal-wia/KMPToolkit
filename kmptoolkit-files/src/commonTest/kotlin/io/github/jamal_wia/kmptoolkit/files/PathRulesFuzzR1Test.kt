@@ -94,10 +94,16 @@ class PathRulesFuzzR1Test {
             val baseParsed = rules.parse(normalizedBase)
             val resolvedParsed = rules.parse(resolved)
             assertEquals(baseParsed.root, resolvedParsed.root, "base '$base' relative '$relative' -> '$resolved'")
-            assertTrue(resolvedParsed.segments.size >= baseParsed.segments.size, "base '$base' relative '$relative' -> '$resolved'")
-            for (i: Int in baseParsed.segments.indices) {
-                assertEquals(baseParsed.segments[i], resolvedParsed.segments[i], "base '$base' relative '$relative' -> '$resolved'")
+            val baseSegments: List<String> = baseParsed.segments.filter { it != "." }
+            val resolvedSegments: List<String> = resolvedParsed.segments.filter { it != "." }
+            assertTrue(resolvedSegments.size >= baseSegments.size, "base '$base' relative '$relative' -> '$resolved'")
+            for (i: Int in baseSegments.indices) {
+                assertEquals(baseSegments[i], resolvedSegments[i], "base '$base' relative '$relative' -> '$resolved'")
             }
+            assertTrue(
+                resolvedSegments.drop(baseSegments.size).none { it == ".." },
+                "base '$base' relative '$relative' -> '$resolved' climbs out of the base",
+            )
         }
     }
 

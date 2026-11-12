@@ -61,7 +61,11 @@ internal sealed class PathRules(val separator: Char) {
             }
         }
         if (parsed.root.isEmpty() && kept.isEmpty()) return "."
-        return parsed.root + kept.joinToString(separator.toString())
+        val result: String = parsed.root + kept.joinToString(separator.toString())
+        // A relative result must stay relative: a first segment that looks like a drive ("C:") would otherwise turn
+        // "./C:/x" into the drive-absolute "C:\x". POSIX can never get here.
+        if (parsed.root.isEmpty() && rootLength(result) > 0) return "." + separator + result
+        return result
     }
 
     fun resolveInside(base: String, relative: String): String? {
@@ -72,10 +76,15 @@ internal sealed class PathRules(val separator: Char) {
         val resolved: String = normalizeLexically(joined)
         val target: ParsedPath = parse(resolved)
         if (target.root != normalizedBase.root) return null
-        if (target.segments.size < normalizedBase.segments.size) return null
-        for (i: Int in normalizedBase.segments.indices) {
-            if (target.segments[i] != normalizedBase.segments[i]) return null
+        // A base or result of "." has the segment list ["."]: compare without every "." segment.
+        val baseSegments: List<String> = normalizedBase.segments.filter { it != "." }
+        val targetSegments: List<String> = target.segments.filter { it != "." }
+        if (targetSegments.size < baseSegments.size) return null
+        for (i: Int in baseSegments.indices) {
+            if (targetSegments[i] != baseSegments[i]) return null
         }
+        // Past a relative base, a leading ".." in what remains climbs out of it.
+        if (targetSegments.drop(baseSegments.size).any { it == ".." }) return null
         return resolved
     }
 
