@@ -62,6 +62,16 @@ class MultipartResponseFramingRound7AdversarialTest {
     )
 
     @Test
+    fun `a body cut short under an identity content encoding is flagged truncated`() {
+        serve { it.send("HTTP/1.1 200 OK\r\nContent-Encoding: identity\r\nContent-Length: 100\r\nConnection: close\r\n\r\n" + "x".repeat(50)) }
+
+        val response: UploadResponse = assertNotNull(upload().response)
+
+        assertEquals(50, response.body().size)
+        assertTrue(response.isBodyTruncated, "50 of the 100 announced bytes arrived and the body was reported complete")
+    }
+
+    @Test
     fun `a body cut short without any content encoding is flagged truncated`() {
         serve { it.send("HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n" + "x".repeat(50)) }
 

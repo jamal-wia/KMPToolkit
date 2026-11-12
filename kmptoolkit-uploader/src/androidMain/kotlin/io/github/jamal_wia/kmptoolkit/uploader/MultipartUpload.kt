@@ -186,7 +186,8 @@ private fun readResponse(
             // body. Not bounded when the stack decoded the body (a content encoding) or the transfer is chunked,
             // where the declared length is not the length of what the stream delivers.
             val declared: Long? = connection.getHeaderField("Content-Length")?.trim()?.toLongOrNull()
-            val delimitedByLength: Boolean = declared != null && connection.contentEncoding == null &&
+            val decoded: Boolean = isContentEncoded(connection.contentEncoding)
+            val delimitedByLength: Boolean = declared != null && !decoded &&
                 connection.getHeaderField("Transfer-Encoding")?.contains("chunked", ignoreCase = true) != true
             val bound: Int? = declared?.takeIf { delimitedByLength && it in 0 until MAX_RESPONSE_BODY_BYTES }?.toInt()
             read = stream.use { input ->
@@ -194,8 +195,8 @@ private fun readResponse(
             }
             // A server that closes early may end a fixed-length body without any error on some stacks:
             // fewer bytes than it declared is an incomplete body. Skipped when the stack decoded the
-            // body (a content encoding), where the declared length is not the decoded one.
-            if (declared != null && connection.contentEncoding == null && read.bytes.size < declared && !read.cut) {
+            // body (a content encoding other than `identity`, which leaves the body as it is), where the declared length is not the decoded one.
+            if (declared != null && !decoded && read.bytes.size < declared && !read.cut) {
                 read = ReadBody(read.bytes, cut = true)
             }
         } else if (declaresBody(connection)) {
@@ -451,3 +452,7 @@ internal suspend fun <T> withWriteWatchdog(stallMillis: Int, block: suspend (Wri
 }
 
 private const val WATCHDOG_POLL_MILLIS: Long = 250L
+
+/** Whether a `Content-Encoding` value changes the body: `identity` (and an absent or blank value) does not. */
+private fun isContentEncoded(contentEncoding: String?): Boolean =
+    contentEncoding != null && contentEncoding.isNotBlank() && !contentEncoding.trim().equals("identity", ignoreCase = true)
