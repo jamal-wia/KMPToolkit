@@ -248,4 +248,21 @@ class JavaFxRateGivingR8AdversarialTest {
             }
         }
     }
+
+    @Test
+    fun `a seek posted right after a play is not undone by a speed given in the fresh-play window`() {
+        repeat(12) { trial ->
+            val e: JavaFxVideoEngine = loaded()
+            try {
+                e.start()
+                e.seekTo(2_000L)
+                e.setSpeed(2f)
+                sleep(350L)
+                val position: Long = e.positionMs()
+                assertTrue(position >= 1_900L, "trial $trial: the playhead is at $position ms after play, seekTo(2000), speed 2")
+            } finally {
+                e.release()
+            }
+        }
+    }
 }
