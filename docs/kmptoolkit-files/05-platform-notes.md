@@ -128,7 +128,7 @@ with `ENOTSUP` or `EINVAL` falls back to `fsync`. `Synced` is plain `fsync` — 
 the JDK allows. A directory created by the same call (`createParentDirectories`) is made durable too: after the rename the
 parent of each level the call created is synced, deepest first, then the target's parent, so the first record in
 a new directory survives power loss (a new directory's entry is durable only once its parent is synced; F2FS on
-Android is the file system known to need it). Windows skips the directory sync: NTFS journals the rename.
+Android is the file system known to need it). An existing directory is assumed durable; `createDirectories(durable = true)` and `AppDirectories` sync the levels they create the same way (one `F_FULLFSYNC` on iOS), and a level lost to a concurrent creator counts as created. Windows skips the directory sync: NTFS journals the rename.
 
 ## Protection classes and backup flags (iOS)
 

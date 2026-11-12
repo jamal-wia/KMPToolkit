@@ -146,7 +146,7 @@ leaves an **empty** target (the reason `Synced` is the default); a `Synced` writ
 and reverted entries leaves the old content whole; `SyncedWithDirectory` survives even that, **including the first record in a
 directory the same call created** (`createParentDirectories`): the engine then syncs the parent of every
 level it created, deepest first, before the final sync of the target's parent (one extra directory sync per
-created level, none when the directory already existed, and none for `Synced` or `Buffered`).
+created level, none when the directory already existed, and none for `Synced` or `Buffered`). An existing directory is assumed durable; see `createDirectories(durable = true)`, which the fake models the same way: a directory made without `durable` is lost by power loss with reverted entries, and the record written into it with it, while `durable = true` and `AppDirectories` keep both.
 
 ### What the fake does not model
 
@@ -186,7 +186,7 @@ class MyDecoratorContractTest {
 `FileAccessContractViolation` (an `AssertionError`) with a message that starts with the name of the
 check. Each check is also a public function (`writeAtomicallyReplacesTheWholeContent()`,
 `deleteRecursivelyDoesNotFollowSymbolicLinks()`, …) so a runner can report them one by one. The
-checks cover metadata kinds and links, `list`, `createDirectories` (including concurrent creators),
+checks cover metadata kinds and links, `list`, `createDirectories` (including concurrent creators, and `durable = true` giving the same results),
 `readBytes` limits, `InvalidPath` for a relative, empty or NUL-containing path on every function (so a decorator
 that resolves relative paths against a base fails), every `writeAtomically` outcome (replace, empty content, missing parent, directory
 target, `Fail`, links, temp directory, no leftover, concurrent writers), `move`, `delete`,

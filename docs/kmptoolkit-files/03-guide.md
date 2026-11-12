@@ -29,6 +29,13 @@ the guarantee reaches:
 | `Synced` (default) | the temporary file is synced before the rename | old or whole new | old or whole new, never torn | one `fsync` |
 | `SyncedWithDirectory` | synced, then the directory entry is synced too (iOS: `F_FULLFSYNC`) | old or whole new | once `Success` is returned the new content survives | two syncs; on iOS a full flush, milliseconds |
 
+`SyncedWithDirectory` holds on one condition: the directories on the path that existed before the call must
+themselves be durable. A directory created a moment earlier with a plain `createDirectories` may still be
+lost by a power cut, and the record with it. Get the directory from `AppDirectories` (it creates durably),
+or create it with `createDirectories(dir, durable = true)`, or let the write create it
+(`createParentDirectories`, which syncs what it created). A directory that has existed for a while, or
+across a reboot, is durable; repeated durable calls on existing directories cost nothing.
+
 Pick `Synced` for records you can regenerate or whose loss is tolerable (the default, and what the
 downloader does). Pick `SyncedWithDirectory` for the few writes where "I told the user it was saved"
 must still be true after a power cut — an outbox entry, a purchase receipt. Pick `Buffered` for
