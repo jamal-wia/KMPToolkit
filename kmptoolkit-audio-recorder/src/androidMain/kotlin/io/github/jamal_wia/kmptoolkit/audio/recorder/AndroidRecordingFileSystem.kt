@@ -57,6 +57,15 @@ internal class AndroidRecordingFileSystem(
         }
     }
 
+    override fun isRegularFile(path: String): Boolean {
+        @Suppress("TooGenericExceptionCaught", "SwallowedException")
+        return try {
+            File(path).isFile
+        } catch (failure: Throwable) {
+            false
+        }
+    }
+
     override fun delete(path: String) {
         @Suppress("TooGenericExceptionCaught", "SwallowedException")
         try {

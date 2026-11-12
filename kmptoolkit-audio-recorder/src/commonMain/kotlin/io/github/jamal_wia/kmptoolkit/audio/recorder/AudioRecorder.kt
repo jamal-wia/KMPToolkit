@@ -252,6 +252,13 @@ public interface AudioRecorder {
      * partial file is **kept**: a library does not delete a user's audio because the encoder
      * complained on close. The path on the state is how you find the file; [cancel] deletes it.
      *
+     * The same failure answers a file that is no longer there when the encoder has finished: deleted,
+     * or replaced by something that is not a regular file (a directory), by a cache cleaner, the user
+     * or another process while the recording ran. [RecorderState.Completed] always names an existing
+     * file, so such a stop is [RecorderError.EngineFailure] with [RecorderOperation.STOP] whose
+     * `cause` is an `IllegalStateException`; the path stays on the [RecorderState.Failed] state and
+     * [cancel] clears it.
+     *
      * Suspending because the platform finalizes the container here — on Android, writing the
      * MPEG-4 `moov` atom — which takes a noticeable fraction of a second on a long recording. That
      * work runs on the factory's `coroutineContext`, not on the caller's thread.

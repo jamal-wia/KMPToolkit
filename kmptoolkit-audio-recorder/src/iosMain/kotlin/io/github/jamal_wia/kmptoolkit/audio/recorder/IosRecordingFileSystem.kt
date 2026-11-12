@@ -71,6 +71,11 @@ internal class IosRecordingFileSystem : RecordingFileSystem {
 
     override fun exists(path: String): Boolean = fileManager.fileExistsAtPath(path)
 
+    override fun isRegularFile(path: String): Boolean = memScoped {
+        val flag: BooleanVar = alloc<BooleanVar>()
+        fileManager.fileExistsAtPath(path, isDirectory = flag.ptr) && !flag.value
+    }
+
     override fun delete(path: String) {
         fileManager.removeItemAtPath(path, error = null)
     }

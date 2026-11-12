@@ -116,4 +116,75 @@ class RecorderEnvironmentProbeR8Test {
         assertTrue(File(abandonedPath).exists(), "a fresh recorder deleted another recorder's file")
         assertTrue(abandonedPath != freshPath)
     }
+
+    @Test
+    fun `a file deleted under a running recording does not complete as an existing file`() {
+        val recorder: AudioRecorder = newRecorder("deleted")
+        val path: String = prepareOk(recorder)
+        assertTrue(recorder.start().isSuccess)
+        assertTrue(File(path).delete())
+        val result: RecorderResult<RecordedFile> = blocking { recorder.stop() }
+        when (result) {
+            is RecorderResult.Success ->
+                assertTrue(File(result.value.path).exists(), "Completed names a file that does not exist: ${result.value.path}")
+            is RecorderResult.Failure -> Unit
+        }
+        assertEquals(0, StrictRecorderWorld.live.get())
+    }
+
+    @Test
+    fun `a file replaced by a directory under a running recording never throws out of stop or cancel`() {
+        val recorder: AudioRecorder = newRecorder("replaced")
+        val path: String = prepareOk(recorder)
+        assertTrue(recorder.start().isSuccess)
+        assertTrue(File(path).delete())
+        assertTrue(File(path).mkdirs())
+        val result: RecorderResult<RecordedFile> = blocking { recorder.stop() }
+        if (result is RecorderResult.Success) {
+            assertTrue(File(result.value.path).isFile, "Completed names something that is not a file")
+        }
+        // Whatever the answer was, the recorder can be put back to use and released.
+        val state: RecorderState = recorder.state.value
+        if (state is RecorderState.Failed && state.outputPath != null) blocking { recorder.cancel() }
+        assertEquals(0, StrictRecorderWorld.live.get())
+    }
+
+    @Test
+    fun `stop after the file vanished is a typed stop failure that keeps the path and can be cancelled`() {
+        val recorder: AudioRecorder = newRecorder("vanished")
+        val path: String = prepareOk(recorder)
+        assertTrue(recorder.start().isSuccess)
+        assertTrue(File(path).delete())
+        val failure: RecorderResult.Failure = assertIs<RecorderResult.Failure>(blocking { recorder.stop() })
+        val error: RecorderError.EngineFailure = assertIs<RecorderError.EngineFailure>(failure.error)
+        assertEquals(RecorderOperation.STOP, error.operation)
+        assertEquals(RecorderState.Failed(error, path), recorder.state.value)
+        assertEquals(0, StrictRecorderWorld.live.get())
+        assertTrue(blocking { recorder.cancel() }.isSuccess)
+        assertEquals(RecorderState.Idle, recorder.state.value)
+    }
+
+    @Test
+    fun `stop after the file became a directory is a typed stop failure and cancel removes it`() {
+        val recorder: AudioRecorder = newRecorder("became-dir")
+        val path: String = prepareOk(recorder)
+        assertTrue(recorder.start().isSuccess)
+        assertTrue(File(path).delete())
+        assertTrue(File(path).mkdirs())
+        val failure: RecorderResult.Failure = assertIs<RecorderResult.Failure>(blocking { recorder.stop() })
+        assertEquals(RecorderOperation.STOP, assertIs<RecorderError.EngineFailure>(failure.error).operation)
+        assertEquals(path, (recorder.state.value as RecorderState.Failed).outputPath)
+        assertTrue(blocking { recorder.cancel() }.isSuccess)
+        assertEquals(RecorderState.Idle, recorder.state.value)
+    }
+
+    @Test
+    fun `stop after an untouched recording still completes with an existing file`() {
+        val recorder: AudioRecorder = newRecorder("intact")
+        val path: String = prepareOk(recorder)
+        assertTrue(recorder.start().isSuccess)
+        val completed: RecordedFile = assertIs<RecorderResult.Success<RecordedFile>>(blocking { recorder.stop() }).value
+        assertEquals(path, completed.path)
+        assertTrue(File(completed.path).isFile)
+    }
 }

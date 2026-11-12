@@ -22,6 +22,9 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
     /** Paths that already exist before the recorder runs, e.g. a reused explicit output path. */
     val existingPaths: MutableSet<String> = mutableSetOf()
 
+    /** Paths that are not regular files (deleted or replaced by a directory) for [isRegularFile]. */
+    val notRegularFiles: MutableSet<String> = mutableSetOf()
+
     /** Raised from [ensureWritableDirectory], like a platform call that throws instead of answering. */
     var ensureWritableDirectoryFailure: Throwable? = null
 
@@ -68,6 +71,8 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
     }
 
     override fun exists(path: String): Boolean = path in existingPaths
+
+    override fun isRegularFile(path: String): Boolean = path !in notRegularFiles
 
     override fun delete(path: String) {
         deletedPaths += path
