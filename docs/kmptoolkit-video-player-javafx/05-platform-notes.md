@@ -163,7 +163,10 @@ decoder writes straight into memory without a render-and-read-back step.
   gives a speed it changed while paused only after `start()`, so the engine does the same for a speed that
   arrives within about 600 ms of a plain `play()` (the speed was changed while paused or ready, or right
   after a play): it seeks the native player to where it stands, issues `play()` again and gives the speed
-  right after, and a speed that follows `start()` immediately replaces the one `start()` was about to give.
+  right after, and a speed that follows `start()` immediately replaces the one `start()` was about to give,
+  whichever thread made the calls (on the FX thread, where `start()` runs at once and the next call queues,
+  the pending speed is given two FX tasks later, so the speed that follows still gets in front of it and the
+  native player sees one away-and-back, not three rate changes next to `play()`).
   After a loop wrap the speed is given again as one change once the playhead has wrapped and moved about
   200 ms, and no sooner than 300 ms after a seek made meanwhile (a rate change within about 100 ms of a
   native seek can freeze the playhead too); the reported time of a loop's second cycle can hold still for

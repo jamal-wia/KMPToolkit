@@ -108,9 +108,9 @@ internal class FxPlayback private constructor(
     private var playIssuedAtNanos: Long = 0L
 
     /**
-     * The speed [start] has still to give after its play(): given one FX task later, so a speed the caller gives right
-     * after [start] (the shared player gives it that way) replaces it and reaches the native player once, not as
-     * a second change on top of the first. Null when nothing is pending.
+     * The speed [start] has still to give after its play(): given two FX tasks later, so a speed the caller gives right
+     * after [start] (the shared player gives it that way, from any thread, the FX thread included) replaces it and
+     * reaches the native player once, not as a second change on top of the first. Null when nothing is pending.
      */
     private var pendingNudge: Double? = null
 
@@ -227,7 +227,11 @@ internal class FxPlayback private constructor(
         seekedSincePlay = false
         playIssuedAtNanos = 0L
         pendingNudge = rate
-        FxThread.postLater { giveNudge() }
+        // Two tasks later, not one: called on the FX thread, the shared player's setSpeed right after start() queues
+        // behind a nudge posted one task later (post() runs inline only when nothing is queued), found the nudge already
+        // given and wrote the speed as a third rate change right after play(), which can freeze the playhead on macOS.
+        // One more hop puts that setSpeed in front of the nudge, where it replaces it.
+        FxThread.postLater { FxThread.postLater { giveNudge() } }
     }
 
     /** Gives the native player the speed [start] left pending, as the old nudge: away and back. */

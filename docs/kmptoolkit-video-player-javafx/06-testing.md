@@ -62,6 +62,10 @@ The module's `jvmTest` runs the real engine against real JavaFX Media:
   the player gives the speed after `start()`, which no engine-level test above reaches) and
   `JavaFxSeekAtSpeedFreezeR6AdversarialTest` (a seek just after a loop wrap at a speed of 2 does not leave
   the playhead standing). Both are races: `KMPTOOLKIT_R6_TRIALS` lengthens a run.
+- **Calls from the FX thread** — `JavaFxFxThreadCallerR7AdversarialTest` (the same speed scenarios driven from a
+  button handler: the playhead moves on at the speed asked for) and `JavaFxFxThreadNudgeR8FixerTest` (a listener
+  on the native rate property: a replay at a new speed from the FX thread gives the native player one
+  away-and-back to the new speed, never the replaced old one).
 - **Unreadable file** — `SourceUrisUnreadableFileR5Test`: a `VideoSource.File` the process cannot read
   fails with `FileNotFoundException` before JavaFX is involved (JavaFX itself took 4 s to fail it).
 - **Reading JavaFX back.** Volume, rate and status have no getter on the engine contract; an
