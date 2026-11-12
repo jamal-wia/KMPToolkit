@@ -67,7 +67,8 @@ internal class ProgressCoalescer(
      * completes, never when one is prepared, because frames are prepared outside the post lock and a
      * newer frame can be prepared between an older frame's liveness check and its completion: a
      * snapshot taken at prepare time would then name a frame the tray no longer shows. Dropped by
-     * [forget] / [clear], by [complete] for a terminal frame and by [pruneStale].
+     * [forget] / [clear], by [complete] for a terminal frame and by [pruneStale] (with the id's baseline,
+     * so a live run keeps it however long it lasts; on its own clock once the id has no baseline).
      */
     private val lastShown: MutableMap<String, Post> = mutableMapOf()
 
@@ -157,7 +158,13 @@ internal class ProgressCoalescer(
                 iterator.remove()
             }
         }
-        lastShown.values.removeAll { record: Post -> record.at.elapsedNow() > staleAfter }
+        // A `lastShown` record of an id that still has a baseline lives and dies with it: the loop above
+        // judged that id by its last sign of life, and aging the record by the (older) time it was posted
+        // would make a live run lose it, so a later refused frame would find nothing to restore. Only a
+        // record whose id has no baseline left (a settled-away or abandoned one) ages on its own clock.
+        lastShown.entries.removeAll { entry: MutableMap.MutableEntry<String, Post> ->
+            posted[entry.key] == null && entry.value.at.elapsedNow() > staleAfter
+        }
         // Tickets with no baseline (terminal frames) and tickets whose caller never completed or
         // rolled them back have no `posted` entry to age out with, so they age out on their own.
         latest.values.removeAll { ticket: PostTicket -> ticket.at.elapsedNow() > staleAfter }
