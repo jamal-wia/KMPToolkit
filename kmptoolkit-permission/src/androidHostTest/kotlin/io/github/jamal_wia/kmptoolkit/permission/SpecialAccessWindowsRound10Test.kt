@@ -22,11 +22,26 @@ import org.robolectric.annotation.Config
  * `openSettings` returns `false`" for the six that have nothing to open there. Nothing is stored.
  */
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [24, 25, 26, 29, 30, 31, 33, 34, 35])
+@Config(sdk = [34])
 class SpecialAccessWindowsRound10Test {
 
     private val app: Application = ApplicationProvider.getApplicationContext()
-    private val sdk: Int = android.os.Build.VERSION.SDK_INT
+
+    /** The level the code under test reads (`Build.VERSION.SDK_INT`), set on the one default image: an image per level is the memory cost round 8 hit. */
+    private var sdk: Int = android.os.Build.VERSION.SDK_INT
+
+    private fun everyLevel(block: () -> Unit) {
+        val real: Int = android.os.Build.VERSION.SDK_INT
+        try {
+            for (level in 24..35) {
+                org.robolectric.util.ReflectionHelpers.setStaticField(android.os.Build.VERSION::class.java, "SDK_INT", level)
+                sdk = level
+                block()
+            }
+        } finally {
+            org.robolectric.util.ReflectionHelpers.setStaticField(android.os.Build.VERSION::class.java, "SDK_INT", real)
+        }
+    }
 
     private fun <T> bounded(block: suspend () -> T): T = runBlocking { withTimeout(10_000) { block() } }
 
@@ -47,7 +62,7 @@ class SpecialAccessWindowsRound10Test {
         )
 
     @Test
-    fun `below its API level an access the OS gave every app is Granted and one that did not exist is Unavailable`() {
+    fun `below its API level an access the OS gave every app is Granted and one that did not exist is Unavailable`() = everyLevel {
         val granted: List<AndroidPermission.SpecialAccess> = listOf(
             AndroidPermission.ExactAlarm, AndroidPermission.AllFilesAccess, AndroidPermission.KeepPermissionsWhenUnused,
         )
@@ -67,14 +82,14 @@ class SpecialAccessWindowsRound10Test {
     }
 
     @Test
-    fun `full-screen notifications below API 34 are Granted when declared and Unavailable when not`() {
-        if (sdk >= 34) return
+    fun `full-screen notifications below API 34 are Granted when declared and Unavailable when not`() = everyLevel {
+        if (sdk >= 34) return@everyLevel
         assertEquals(PermissionStatus.Granted, bounded { controller(setOf(Manifest.permission.USE_FULL_SCREEN_INTENT), mutableListOf()).check(AndroidPermission.FullScreenNotifications) })
         assertEquals(PermissionStatus.Unavailable, bounded { controller(emptySet(), mutableListOf()).check(AndroidPermission.FullScreenNotifications) })
     }
 
     @Test
-    fun `an access with nothing to open here answers at once without the launcher and openSettings says false`() {
+    fun `an access with nothing to open here answers at once without the launcher and openSettings says false`() = everyLevel {
         for ((access, from) in introducedAt) {
             val screens: MutableList<SystemScreenRequest> = mutableListOf()
             val declared: Set<String> = setOf(Manifest.permission.USE_FULL_SCREEN_INTENT)
@@ -96,7 +111,7 @@ class SpecialAccessWindowsRound10Test {
     }
 
     @Test
-    fun `an access that exists here and is not granted reads Denied with an explanation and nothing is stored`() {
+    fun `an access that exists here and is not granted reads Denied with an explanation and nothing is stored`() = everyLevel {
         val storage = InMemoryKeyValueStorage()
         val c = testController(app, storage, sdkInt = sdk, declaredPermissions = { emptySet() })
         for (access in listOf(AndroidPermission.Overlay, AndroidPermission.WriteSettings, AndroidPermission.UsageStatsAccess, AndroidPermission.DoNotDisturbAccess)) {
