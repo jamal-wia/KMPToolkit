@@ -402,7 +402,7 @@ slot if this engine holds it. It does not cancel the scope you provided and does
 queue — everything owed is still owed, and a freshly constructed engine picks it up. Cancelling your
 own scope stops the engine just as effectively.
 
-An attempt running at close is cancelled and records nothing except what already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close; a claim that was being written, or that finished after close, is released if it is still this engine's, so the next engine starts the item at once.
+An attempt running at close, also one of a `drain()` you called yourself, is cancelled and records nothing except what already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close; a claim that was being written, or that finished after close, is released if it is still this engine's, so the next engine starts the item at once.
 The owner may build the next engine right after `close()` returns: a closed engine's late release of a claim writes
 nothing when the row shows another engine's claim.
 

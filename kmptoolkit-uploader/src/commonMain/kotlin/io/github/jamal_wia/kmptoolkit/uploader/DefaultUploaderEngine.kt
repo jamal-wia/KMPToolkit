@@ -15,6 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -181,7 +182,7 @@ internal class DefaultUploaderEngine(
                 // ensureActive(). A pass that fails re-arms itself with a growing delay, so a locked
                 // database is retried in milliseconds rather than at the next heartbeat.
                 try {
-                    drain()
+                    drainPass()
                     consecutiveFailures = 0
                 } catch (e: CancellationException) {
                     currentCoroutineContext().ensureActive()
@@ -507,6 +508,34 @@ internal class DefaultUploaderEngine(
         store.park(record.id, boundedFailureText(reason), record.state, record.claim)
 
     override suspend fun drain() {
+        // A drain() the owner calls runs its attempts in the caller's coroutine, which close() does not cancel on its
+        // own, so a close landing meanwhile must stop it as it stops the engine's own pass (P2, P5): a pass scope that
+        // close() (or the end of the engine's scope) cancels. A cancelled caller still gets its cancellation.
+        if (isClosed) return
+        try {
+            coroutineScope {
+                val pass: CoroutineScope = this
+                val watcher: Job = launch(start = CoroutineStart.UNDISPATCHED) {
+                    closed.first { it }
+                    pass.cancel()
+                }
+                val ended: DisposableHandle = engineJob.invokeOnCompletion { pass.cancel() }
+                try {
+                    drainPass()
+                } finally {
+                    watcher.cancel()
+                    ended.dispose()
+                }
+            }
+        } catch (e: CancellationException) {
+            // The caller's own cancellation is rethrown; one that close() caused ends the drain normally.
+            currentCoroutineContext().ensureActive()
+            if (!isClosed) throw e
+        }
+    }
+
+    /** One call's worth of drain work: the body of [drain], and of every pass of the engine's own loop. */
+    private suspend fun drainPass() {
         // Per call of drain(): ids whose attempt already ran in it, and ids already skipped once as "moved". An
         // item gets one turn per pass of work; a second turn waits for the next trigger or alarm, so neither a
         // zero backoff nor a store whose point read disagrees with its list read can keep one call spinning.

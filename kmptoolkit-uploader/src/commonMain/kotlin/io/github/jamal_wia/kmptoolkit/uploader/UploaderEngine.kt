@@ -63,6 +63,9 @@ public interface UploaderEngine : Uploader {
      * sweep executes nothing; it then arms an alarm for the soonest gate and returns. It never
      * sleeps waiting for a backoff.
      *
+     * A [close] during a drain you called yourself stops it like the engine's own pass, and the call returns; a
+     * cancelled caller still gets its cancellation. A closed engine runs nothing, however it is called.
+     *
      * **You almost never call this.** It exists for tests that want a deterministic pass, and for
      * diagnostics. Calling it on a started engine breaks the single-flight guarantee — use
      * [trigger] there instead.
@@ -137,8 +140,8 @@ public interface UploaderEngine : Uploader {
      *
      * It does **not** cancel the [CoroutineScope] you provided, which is yours, and it does not
      * touch the queue: everything owed is still owed, and a freshly constructed engine picks it up. An attempt
-     * running at close is cancelled and records nothing except what already happened: a `Success` still removes its
-     * row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close;
+     * running at close, also one of a [drain] you called yourself, is cancelled and records nothing except what
+     * already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close;
      * a claim that was being written, or that finished after close, is released if it is still this engine's, so the
      * next engine starts the item at once.
      *

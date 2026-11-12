@@ -5,10 +5,17 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
 /**
@@ -220,6 +227,161 @@ class EngineBossSurvivorsRound1AdversarialTest {
             engine.drain()
             assertEquals(emptyList(), handler.payloads, "a closed engine ran an effect")
             assertEquals(UploaderItemState.PENDING, store.find(id)?.state)
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    /**
+     * P2 and P5: every UploadPreparation of a cancelled attempt records nothing. A handler that ignores the close landing
+     * during its preparation and answers Drop must not delete the row of the closed engine. (A1 boss round 1, S4: close() must stop a drain() the owner called itself.)
+     */
+    @Test
+    fun `a drop answered after close by a preparation that ignored it deletes nothing`() = runTest {
+        val parent = Job()
+        try {
+            val store = TestUploaderStore()
+            val transport = Transport()
+            val handler = PreparingHandler(transport) { UploadPreparation.Drop("not needed any more") }
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), TestClock(1_000L))
+            val id: String = engine.enqueue(handler, "x")!!
+            handler.during = { engine.close() }
+            runCatching { engine.drain() }
+            assertEquals(UploaderItemState.PENDING, store.find(id)?.state, "the closed engine's attempt dropped the row")
+            assertEquals(emptyList(), transport.events)
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    /**
+     * P5: a throw from prepareUpload that arrives after the attempt's cancellation spends no attempt. (Mutant B25: the
+     * drain-side catch charges it.)
+     */
+    @Test
+    fun `a preparation that throws after close spends no attempt`() = runTest {
+        val parent = Job()
+        try {
+            val store = TestUploaderStore()
+            val transport = Transport()
+            val handler = PreparingHandler(transport) { throw IllegalStateException("socket closed by the stop") }
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), TestClock(1_000L))
+            val id: String = engine.enqueue(handler, "x")!!
+            handler.during = { engine.close() }
+            runCatching { engine.drain() }
+            val row: UploaderItem? = store.find(id)
+            assertEquals(UploaderItemState.PENDING, row?.state)
+            assertEquals(0, row?.attempts, "the stop's own failure was charged to the item")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    /**
+     * Decision D-29 (S4): a close() during a drain() the caller made stops it like the engine's own pass, and drain()
+     * returns normally instead of throwing the stop at its caller.
+     */
+    @Test
+    fun `a drain whose engine is closed meanwhile returns normally and spends no attempt`() = runTest {
+        val parent = Job()
+        try {
+            val store = TestUploaderStore()
+            val handler = PreparingHandler(Transport()) { throw IllegalStateException("socket closed by the stop") }
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), TestClock(1_000L))
+            val id: String = engine.enqueue(handler, "x")!!
+            handler.during = { engine.close() }
+            engine.drain() // must not throw: the stop is the owner's own doing
+            val row: UploaderItem? = store.find(id)
+            assertEquals(UploaderItemState.PENDING, row?.state)
+            assertEquals(0, row?.attempts, "the stop's own failure was charged to the item")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    /** A success that a manual drain answered while close() landed still removes its row, and drain() returns. */
+    @Test
+    fun `a manual drain closed during a success still deletes its row and returns`() = runTest {
+        val parent = Job()
+        try {
+            val store = TestUploaderStore()
+            lateinit var engine: UploaderEngine
+            val handler = TestHandler(onExecute = { _, _ ->
+                engine.close()
+                AttemptResult.Success
+            })
+            engine = testEngine(store, listOf(handler), scopeOn(parent), TestClock(1_000L))
+            val id: String = engine.enqueue(handler, "x")!!
+            engine.drain()
+            assertEquals(1, handler.payloads.size)
+            assertEquals(null, store.find(id), "a delivered effect's row was left for the next engine to run again")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    /** A caller cancelled during its own drain() still gets the cancellation: only a close() is swallowed. */
+    @Test
+    fun `a drain whose caller is cancelled still throws`() = runTest {
+        val parent = Job()
+        try {
+            val store = TestUploaderStore()
+            val handler = PreparingHandler(Transport()) { UploadPreparation.Drop("not needed any more") }
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), TestClock(1_000L))
+            val id: String = engine.enqueue(handler, "x")!!
+            val inPreparation = CompletableDeferred<Unit>()
+            handler.during = {
+                inPreparation.complete(Unit)
+                awaitCancellation()
+            }
+            var returned = false
+            val caller: Deferred<Unit> = async {
+                engine.drain()
+                returned = true
+            }
+            runCurrent()
+            assertTrue(inPreparation.isCompleted, "setup: the drain is inside the preparation")
+            caller.cancel()
+            runCurrent()
+            assertTrue(caller.isCancelled, "the caller's cancellation did not end the call")
+            assertFalse(returned, "drain() returned normally to a cancelled caller")
+            assertEquals(UploaderItemState.PENDING, store.find(id)?.state, "the cancelled drain recorded something")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    /** No close: the drain finishes by itself, and nothing it set up is left running (runTest would not end). */
+    @Test
+    fun `a drain without a close ends and leaves no watcher behind`() = runTest {
+        val parent = Job()
+        try {
+            val store = TestUploaderStore()
+            val handler = TestHandler()
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), TestClock(1_000L))
+            engine.enqueue(handler, "x")!!
+            engine.drain()
+            engine.drain()
+            runCurrent()
+            assertEquals(1, handler.payloads.size)
+            assertTrue(coroutineContext[Job]!!.children.none { it.isActive }, "a drain left a coroutine running in its caller's scope")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    /** The owner's scope, cancelled during a manual drain(), stops it like a close() does. */
+    @Test
+    fun `a drain stops when the owner's scope is cancelled meanwhile`() = runTest {
+        val parent = Job()
+        try {
+            val store = TestUploaderStore()
+            val handler = PreparingHandler(Transport()) { UploadPreparation.Drop("not needed any more") }
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), TestClock(1_000L))
+            val id: String = engine.enqueue(handler, "x")!!
+            handler.during = { parent.cancel() }
+            engine.drain()
+            assertEquals(UploaderItemState.PENDING, store.find(id)?.state, "an attempt of a cancelled engine dropped the row")
         } finally {
             parent.cancel()
         }
