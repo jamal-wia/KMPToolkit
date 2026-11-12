@@ -143,6 +143,32 @@ class VlcjHostileSourcesR7AdversarialTest {
         assertTrue(!File(media.mrl).exists())
     }
 
+    @Test
+    fun `a picture whose size overflows an Int is never published with a pixel array of the wrong size`() {
+        val rt = FakeVlcRuntime().also { runtimes += it }
+        val engine = VlcjVideoEngine(vlcArgs = emptyList(), discover = { true }, createRuntime = { rt })
+        try {
+            runBlocking { withTimeout(5_000L) { engine.load(VideoSource.File(TestClip.file.path)) } }
+            engine.start()
+            val small: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(64).order(java.nio.ByteOrder.nativeOrder())
+            // 65536 x 65536 is 2^32 pixels: the Int product is 0. 46341 x 46341 wraps to a negative number.
+            for ((w: Int, h: Int) in listOf(65_536 to 65_536, 46_341 to 46_341, 65_536 to 32_769, Int.MAX_VALUE to 2)) {
+                runCatching { rt.player.fire { display(small, w, h) } }
+                val frame = engine.frames.value
+                if (frame != null) {
+                    assertEquals(
+                        frame.width.toLong() * frame.height.toLong(),
+                        frame.pixels.size.toLong(),
+                        "a ${w}x$h picture was published as a ${frame.width}x${frame.height} frame with ${frame.pixels.size} pixels",
+                    )
+                }
+            }
+        } finally {
+            engine.release()
+            engine.dispose()
+        }
+    }
+
     private fun clockCase(start: Long) {
         val rt = FakeVlcRuntime().also { runtimes += it }
         val clock = AtomicLong(start)

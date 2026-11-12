@@ -230,6 +230,50 @@ class VlcjHalfBrokenLibvlcR7AdversarialTest {
         assertBooksBalanced(m, engine, "setTime")
     }
 
+    @Test
+    fun `settings that throw when output begins do not freeze the playhead on a seek made before output`() {
+        val m = Model()
+        val engine = newEngine(m)
+        load(engine)
+        val p: HalfPlayer = m.players.single()
+        engine.seekTo(1_500L)
+        engine.start()
+        m.fail = "setVolume"
+        m.failTimes = 1
+        p.fire { playing() }
+        m.tasks.submit {}.get(5L, TimeUnit.SECONDS)
+        m.timeAnswers = { 2_222L }
+        p.fire { timeChanged(2_222L) }
+        awaitPosition(engine, 2_222L, "the playhead stayed on the pending seek after the settings of Playing threw")
+        assertBooksBalanced(m, engine, "settings")
+    }
+
+    @Test
+    fun `a clock read that throws does not stop the shared player from following the playhead`() {
+        val m = Model()
+        val engine = newEngine(m)
+        val player: VideoPlayer = createVlcjVideoPlayer(engine, VideoPlayerConfig(positionUpdateIntervalMs = 10L), Dispatchers.Default)
+        try {
+            runBlocking { withTimeout(5_000L) { player.prepare(VideoSource.File(TestClip.file.path)) } }
+            val p: HalfPlayer = m.players.single()
+            player.play()
+            p.fire { playing() }
+            val reads = AtomicInteger()
+            m.timeAnswers = {
+                val n: Int = reads.incrementAndGet()
+                if (n in 3..6) throw IllegalStateException("libvlc clock failed")
+                100L + n * 10L
+            }
+            val until: Long = System.nanoTime() + 5_000_000_000L
+            while (reads.get() < 40 && System.nanoTime() < until) Thread.sleep(10L)
+            assertTrue(reads.get() >= 40, "the shared player stopped reading the clock after ${reads.get()} reads (a polling coroutine died)")
+            assertTrue(player.stateFlow.value is VideoPlayerState.Playing, "state ${player.stateFlow.value}")
+            assertTrue(player.playbackPositionFlow.value > 200L, "position ${player.playbackPositionFlow.value}")
+        } finally {
+            player.release()
+        }
+    }
+
     private fun awaitPosition(engine: VlcjVideoEngine, expected: Long, message: String) {
         val until: Long = System.nanoTime() + 3_000_000_000L
         while (engine.positionMs() != expected && System.nanoTime() < until) Thread.sleep(20L)
