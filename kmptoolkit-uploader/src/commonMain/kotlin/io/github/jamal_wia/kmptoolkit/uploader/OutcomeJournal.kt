@@ -462,7 +462,7 @@ internal const val MAX_ENCODED_ENTRY_BYTES: Long = 4L * 1024 * 1024
  * The on-disk form of an entry. Version 1 (unstamped): `int version, int status, long writtenAt, byte truncated,
  * int headerCount, (int nameLength, name, int valueLength, value) * headerCount, int bodyLength, body`.
  * Version 2 (stamped): `int version, int status, long writtenAt, int attemptStamp, byte truncated`, then the rest
- * as version 1; a negative stamp is [DecodedOutcome.Corrupt]. Big-endian, strings in UTF-8. Every length is
+ * as version 1; a negative stamp is [DecodedOutcome.Corrupt]. Big-endian, strings in UTF-8 (a lone surrogate in the three-byte form of its code unit, see [encodeJournalText]). Every length is
  * checked against what is left, so a short or damaged file reads as [DecodedOutcome.Corrupt] and never throws.
  */
 internal object OutcomeCodec {
@@ -480,8 +480,8 @@ internal object OutcomeCodec {
         out.byte(if (response.isBodyTruncated) 1 else 0)
         out.int(response.headers.size)
         for ((name, value) in response.headers) {
-            out.bytes(name.encodeToByteArray())
-            out.bytes(value.encodeToByteArray())
+            out.bytes(encodeJournalText(name))
+            out.bytes(encodeJournalText(value))
         }
         out.bytes(response.body())
         return out.toByteArray()
@@ -506,8 +506,8 @@ internal object OutcomeCodec {
             if (headerCount < 0 || headerCount.toLong() * 8L > input.remaining) return DecodedOutcome.Corrupt
             val headers: MutableMap<String, String> = LinkedHashMap()
             repeat(headerCount) {
-                val name: String = input.bytes().decodeToString()
-                headers[name] = input.bytes().decodeToString()
+                val name: String = decodeJournalText(input.bytes())
+                headers[name] = decodeJournalText(input.bytes())
             }
             val body: ByteArray = input.bytes()
             if (input.remaining != 0 || body.size > MAX_RESPONSE_BODY_BYTES) return DecodedOutcome.Corrupt
