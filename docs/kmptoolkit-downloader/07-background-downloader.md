@@ -276,6 +276,20 @@ Stop writing as soon as `cancelDownload` is called. The engine may delete the te
 record right after; a write that lands after that leaves bytes with no record, which would later
 resume or commit with only `DownloadUnit.sha256` checked.
 
+### Handing an existing file to the storage
+
+A downloader that fetched the bytes somewhere else (a system download manager, another app directory, possibly
+another volume) puts them into the unit's temp path with `kmptoolkit-files` and then marks the temp file complete.
+`FileAccess.move` falls back to a synced copy when the volumes differ, so this is safe across volumes:
+
+```kotlin
+files.move(location, storage.getTempFilePath(unit), MoveOptions(createParentDirectories = true)) // cross-volume safe
+storage.markTempFileComplete(unit)
+```
+
+`files` is a `FileAccess` from `createFileAccess()`. The storage has no method for this on purpose: its temp path may
+be a hashed one under `tmp/`, and only `getTempFilePath(unit)` names it.
+
 ## A worked skeleton (Android)
 
 The shape most Android implementations converge on: a foreground service so the OS does not kill
