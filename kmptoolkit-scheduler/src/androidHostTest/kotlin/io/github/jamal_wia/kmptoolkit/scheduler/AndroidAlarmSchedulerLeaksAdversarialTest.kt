@@ -169,6 +169,7 @@ class AndroidAlarmSchedulerLeaksAdversarialTest {
         @Suppress("DEPRECATION")
         val intent = shadowOf(requireNotNull(shadowOf(alarmManager).nextScheduledAlarm?.operation)).savedIntent
         val before: Set<Thread> = Thread.getAllStackTraces().keys
+        val workersBefore: Int = before.count { it.name.startsWith("DefaultDispatcher-worker") }
         repeat(1_500) { AlarmReceiver().onReceive(app, intent) }
         val deadline: Long = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
         while (handler.fired.get() < 1_500 && System.nanoTime() < deadline) Thread.sleep(10)
@@ -181,9 +182,9 @@ class AndroidAlarmSchedulerLeaksAdversarialTest {
         val created: List<Thread> = Thread.getAllStackTraces().keys.filter { it !in before && it.isAlive && !pool.matches(it.name) }
         assertTrue(created.isEmpty(), "threads left behind: ${created.map { it.name }}")
         val workers: Int = Thread.getAllStackTraces().keys.count { it.name.startsWith("DefaultDispatcher-worker") }
-        // The pool is shared by Dispatchers.Default (as many workers as cores) and Dispatchers.IO (64 more at most), and by every other
-        // test of this JVM: the library may use them, never exceed their ceiling by a thread of its own.
-        val ceiling: Int = Runtime.getRuntime().availableProcessors() + 64 + 1
-        assertTrue(workers <= ceiling, "the shared pool grew to $workers workers (ceiling $ceiling) for a handler that returns at once")
+        // The coroutine pools are shared with every other test of this JVM, so only the growth this test caused counts. Dispatchers.IO
+        // may add up to 64 workers for a burst; a library that made a thread (or a pool) per delivered alarm would add about 1500.
+        val grew: Int = workers - workersBefore
+        assertTrue(grew <= 64, "the shared pool grew by $grew workers for fifteen hundred handlers that return at once")
     }
 }
