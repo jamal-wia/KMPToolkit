@@ -83,7 +83,7 @@ class JavaFxFxThreadSequenceFuzzR9AdversarialTest {
         val engine = JavaFxVideoEngine(readyTimeoutMs = 15_000L)
         val player: VideoPlayer = createVideoPlayer(engine)
         try {
-            runBlocking { withTimeout(20_000L) { player.prepare(VideoSource.Asset(TestClip.ASSET)) } }
+            runBlocking { withTimeout(20_000L) { player.prepare(VideoSource.Asset(TestClip.AUDIO_ASSET)) } }
             repeat(steps) { step(player, rnd, log) }
             val tail: String = log.takeLast(8).joinToString(" ")
             // 1. A player left Playing must move on: its playhead changes, or it leaves Playing, within the bound.

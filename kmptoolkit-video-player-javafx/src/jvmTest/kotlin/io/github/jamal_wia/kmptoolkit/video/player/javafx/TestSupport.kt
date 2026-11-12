@@ -14,11 +14,23 @@ internal object TestClip {
     const val HEIGHT: Int = 48
     const val DURATION_MS: Long = 3_000L
 
+    /**
+     * The audio-only clip (1 s of silence, no video track) for tests that churn many players: a player
+     * without a video track never gets a CoreVideo display link, so it cannot hit the OpenJFX macOS
+     * dispose race (see `plans/javafx-native-crash-advice.md`).
+     */
+    const val AUDIO_ASSET: String = "silence-8khz-1s.wav"
+
     /** A copy on disk, for [io.github.jamal_wia.kmptoolkit.video.player.VideoSource.File]. */
-    fun copyToTempFile(): File {
-        val file: File = File.createTempFile("kmptoolkit-clip", ".mp4").apply { deleteOnExit() }
-        val stream = TestClip::class.java.classLoader.getResourceAsStream(ASSET)
-            ?: error("test clip $ASSET missing from the test classpath")
+    fun copyToTempFile(): File = copyAssetToTempFile(ASSET, "kmptoolkit-clip", ".mp4")
+
+    /** A copy of [AUDIO_ASSET] on disk. */
+    fun copyAudioToTempFile(): File = copyAssetToTempFile(AUDIO_ASSET, "kmptoolkit-audio", ".wav")
+
+    private fun copyAssetToTempFile(asset: String, prefix: String, suffix: String): File {
+        val file: File = File.createTempFile(prefix, suffix).apply { deleteOnExit() }
+        val stream = TestClip::class.java.classLoader.getResourceAsStream(asset)
+            ?: error("test clip $asset missing from the test classpath")
         stream.use { input -> file.outputStream().use { input.copyTo(it) } }
         return file
     }
@@ -50,9 +62,9 @@ internal const val HS_ERR_DIR_PROPERTY: String = "kmptoolkit.test.hsErrDir"
  * OpenJFX's macOS media backend then ends the child with SIGKILL (no macOS crash dialog) and leaves
  * its `hs_err` log under the build directory. See `plans/javafx-native-crash-advice.md`.
  */
-internal fun childJvmCrashGuardArgs(): List<String> {
-    val dir: String = System.getProperty(HS_ERR_DIR_PROPERTY) ?: return emptyList()
-    return listOf("-XX:OnError=kill -9 %p", "-XX:ErrorFile=" + File(dir, "hs_err_pid%p.log").path)
+internal fun childJvmCrashGuardArgs(hsErrDir: String? = System.getProperty(HS_ERR_DIR_PROPERTY)): List<String> {
+    val dir: String = hsErrDir ?: return emptyList()
+    return listOf("-XX:OnError=kill -9 %p", "-XX:ErrorFile=" + File(dir, "hs_err_pid%p.log").path, "-D$HS_ERR_DIR_PROPERTY=$dir")
 }
 
 internal sealed interface EngineEvent {

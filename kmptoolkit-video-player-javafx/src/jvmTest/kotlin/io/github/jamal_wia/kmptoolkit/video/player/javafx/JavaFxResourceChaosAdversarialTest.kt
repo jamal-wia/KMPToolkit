@@ -44,6 +44,11 @@ class JavaFxResourceChaosAdversarialTest {
         withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.ASSET)) }
     }
 
+    /** Churn tests load the audio-only clip: no video track, no display link (see [TestClip.AUDIO_ASSET]). */
+    private fun loadAudio(engine: JavaFxVideoEngine) = runBlocking {
+        withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.AUDIO_ASSET)) }
+    }
+
     private fun drainFxThread() {
         val done = CountDownLatch(1)
         Platform.runLater { done.countDown() }
@@ -79,13 +84,13 @@ class JavaFxResourceChaosAdversarialTest {
     @Test
     fun `eighty load start release cycles leave descriptors and threads where they were`() {
         val engine: JavaFxVideoEngine = newEngine()
-        repeat(6) { load(engine); engine.start(); engine.release() }
+        repeat(6) { loadAudio(engine); engine.start(); engine.release() }
         drainFxThread()
         System.gc()
         val files: Long = openFiles()
         val threads: Int = liveThreads()
         repeat(80) {
-            load(engine)
+            loadAudio(engine)
             engine.start()
             Thread.sleep(Random.nextLong(0L, 25L))
             engine.release()
@@ -193,7 +198,7 @@ class JavaFxResourceChaosAdversarialTest {
     @Test
     fun `loads that time out after a millisecond or two leave no player, thread or descriptor behind`() {
         val warm: JavaFxVideoEngine = newEngine()
-        repeat(3) { load(warm); warm.release() }
+        repeat(3) { loadAudio(warm); warm.release() }
         drainFxThread()
         System.gc()
         val files: Long = openFiles()
@@ -202,7 +207,7 @@ class JavaFxResourceChaosAdversarialTest {
         repeat(100) { n ->
             val engine = JavaFxVideoEngine(readyTimeoutMs = 1L + n % 3)
             val outcome: String = try {
-                runBlocking { withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.ASSET)) } }
+                runBlocking { withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.AUDIO_ASSET)) } }
                 "ok"
             } catch (e: Throwable) {
                 e::class.simpleName ?: "?"
@@ -222,7 +227,7 @@ class JavaFxResourceChaosAdversarialTest {
         val files: Long = openFiles()
         val threads: Int = liveThreads()
         val many: List<JavaFxVideoEngine> = List(30) { newEngine() }
-        many.forEach { load(it); it.start() }
+        many.forEach { loadAudio(it); it.start() }
         Thread.sleep(300L)
         many.forEach { it.release() }
         settle()

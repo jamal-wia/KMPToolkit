@@ -51,7 +51,7 @@ class JavaFxReleaseRaceFuzzR9AdversarialTest {
             else -> {
                 player.unload()
                 // prepare() needs the FX thread to build the player: blocking the FX thread on it would be the caller's own deadlock.
-                if (!onFx) runBlocking { withTimeout(20_000L) { player.prepare(VideoSource.Asset(TestClip.ASSET)) } }
+                if (!onFx) runBlocking { withTimeout(20_000L) { player.prepare(VideoSource.Asset(TestClip.AUDIO_ASSET)) } }
             }
         }
     }
@@ -71,7 +71,7 @@ class JavaFxReleaseRaceFuzzR9AdversarialTest {
                 val engine = JavaFxVideoEngine(readyTimeoutMs = 15_000L)
                 val player: VideoPlayer = createVideoPlayer(engine)
                 try {
-                    runBlocking { withTimeout(20_000L) { player.prepare(VideoSource.Asset(TestClip.ASSET)) } }
+                    runBlocking { withTimeout(20_000L) { player.prepare(VideoSource.Asset(TestClip.AUDIO_ASSET)) } }
                     val releaseAt: Int = rnd.nextInt(3, 14)
                     for (step: Int in 0 until 16) {
                         if (step == releaseAt) {

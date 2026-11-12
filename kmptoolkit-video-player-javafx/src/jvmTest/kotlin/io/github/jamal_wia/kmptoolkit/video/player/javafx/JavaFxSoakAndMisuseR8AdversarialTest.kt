@@ -55,7 +55,7 @@ class JavaFxSoakAndMisuseR8AdversarialTest {
         try {
             runBlocking {
                 withTimeout(60_000L) {
-                    player.prepare(VideoSource.Asset(TestClip.ASSET))
+                    player.prepare(VideoSource.Asset(TestClip.AUDIO_ASSET))
                     repeat(random.nextInt(5, 25)) {
                         val op: Int = random.nextInt(14)
                         trace.append(op).append(',')
@@ -71,7 +71,7 @@ class JavaFxSoakAndMisuseR8AdversarialTest {
                             8 -> player.setRepeatMode(RepeatMode.entries[random.nextInt(2)])
                             9 -> player.replay()
                             10 -> player.unload()
-                            11 -> loads += launch(Dispatchers.Default, CoroutineStart.DEFAULT) { player.prepare(VideoSource.Asset(TestClip.ASSET)) }
+                            11 -> loads += launch(Dispatchers.Default, CoroutineStart.DEFAULT) { player.prepare(VideoSource.Asset(TestClip.AUDIO_ASSET)) }
                             12 -> if (loads.isNotEmpty()) loads.removeAt(random.nextInt(loads.size)).cancel()
                             else -> Thread.sleep(random.nextLong(0L, 60L))
                         }

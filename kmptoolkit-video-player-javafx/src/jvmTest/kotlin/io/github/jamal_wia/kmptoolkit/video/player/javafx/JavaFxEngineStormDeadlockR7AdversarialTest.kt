@@ -101,7 +101,7 @@ class JavaFxEngineStormDeadlockR7AdversarialTest {
                             0, 1 -> runBlocking {
                                 runCatching {
                                     withTimeout(random.nextLong(30L, 1_500L)) {
-                                        engine.load(if (random.nextBoolean()) VideoSource.Asset(TestClip.ASSET) else VideoSource.File(TestClip.copyToTempFile().path))
+                                        engine.load(if (random.nextBoolean()) VideoSource.Asset(TestClip.AUDIO_ASSET) else VideoSource.File(TestClip.copyAudioToTempFile().path))
                                     }
                                 }
                             }
