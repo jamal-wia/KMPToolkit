@@ -73,6 +73,8 @@ class VlcjSoakAndMisuseR8AdversarialTest {
                 val loads: MutableList<Job> = mutableListOf()
                 runBlocking {
                     withTimeout(60_000L) {
+                        // Every cycle really opens a native player first; the random calls then run on a loaded source.
+                        player.prepare(if (random.nextBoolean()) VideoSource.File(TestClip.file.path) else VideoSource.Asset("assets/clip.mp4"))
                         repeat(random.nextInt(20, 120)) {
                             steps++
                             val current: FakeVlcPlayer? = runtime.players.lastOrNull()
