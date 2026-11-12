@@ -583,4 +583,13 @@ class FakeCrashAndFaultTest {
         assertNull(fake.metadata("/d/a", followLinks = true), "metadata of a loop must return")
         assertTrue(fake.readBytes("/d/a", 10).errorOrNull() is FileError.Io)
     }
+
+    @Test
+    fun `a case-insensitive fake keeps names with a backslash distinct on every host`() {
+        val fake: FakeFileAccess = fakeWith(caseSensitive = false)
+        for (name: String in listOf("a\\", "a", "x\\..\\y", "y")) assertTrue(fake.writeAtomically("/d/$name", bytes(name)).isSuccess)
+        assertEquals(listOf("a", "a\\", "x\\..\\y", "y"), fake.list("/d").getOrNull())
+        assertEquals("a\\", fake.text("/d/a\\"))
+        assertEquals("a", fake.text("/d/A"))
+    }
 }

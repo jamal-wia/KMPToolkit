@@ -3,14 +3,13 @@
 package io.github.jamal_wia.kmptoolkit.files.testing
 
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
-import io.github.jamal_wia.kmptoolkit.files.CaseFolding
 import io.github.jamal_wia.kmptoolkit.files.FileError
 import io.github.jamal_wia.kmptoolkit.files.FileKind
 import io.github.jamal_wia.kmptoolkit.files.FileMetadata
 import io.github.jamal_wia.kmptoolkit.files.FileProtection
-import io.github.jamal_wia.kmptoolkit.files.PathKey
 import io.github.jamal_wia.kmptoolkit.files.spi.FileOpException
 import io.github.jamal_wia.kmptoolkit.files.spi.FileSystemOps
+import io.github.jamal_wia.kmptoolkit.files.spi.foldCaseForKey
 import io.github.jamal_wia.kmptoolkit.files.spi.ReadableFile
 import io.github.jamal_wia.kmptoolkit.files.spi.WritableFile
 import kotlin.concurrent.Volatile
@@ -125,7 +124,7 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
 
     // ---- name and path helpers --------------------------------------------------------------------
 
-    private fun key(name: String): String = if (caseSensitive) name else PathKey.of(name, CaseFolding.Always)
+    private fun key(name: String): String = if (caseSensitive) name else foldCaseForKey(name)
 
     private fun node(id: Long): Node = nodes.getValue(id)
 
