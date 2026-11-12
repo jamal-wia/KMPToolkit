@@ -4,6 +4,11 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteException
 import io.github.jamal_wia.kmptoolkit.downloader.DownloaderStorage.Companion.WRITE_BUFFER_SIZE
+import io.github.jamal_wia.kmptoolkit.files.FileAccess
+import io.github.jamal_wia.kmptoolkit.files.FileKind
+import io.github.jamal_wia.kmptoolkit.files.SqliteFiles
+import io.github.jamal_wia.kmptoolkit.files.createFileAccess
+import io.github.jamal_wia.kmptoolkit.files.getOrNull
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.i
@@ -55,6 +60,8 @@ internal class AndroidDownloaderStorage(
     private val logger: Logger,
     /** Test seam: Android's `filesDir` is case-sensitive, so production never sets this. */
     caseInsensitive: Boolean = false,
+    /** The file-system primitives of tree walks and links; production uses the platform default. */
+    private val files: FileAccess = createFileAccess(),
 ) : DownloaderStorage, RelativePathChecking, TransferLockScope {
 
     private val baseDir: File by lazy { File(context.filesDir, config.baseDirectoryName) }
@@ -260,31 +267,17 @@ internal class AndroidDownloaderStorage(
 
     /**
      * Deletes [file] and everything under it, treating an entry that another thread already removed
-     * as gone. Kotlin's `deleteRecursively` walks with `FileTreeWalk`, which asserts (an
-     * `AssertionError`, live in every test JVM) when a tree vanishes under its walk; two cleanups of
-     * one tree, or a cleanup racing a recommit, must never surface that. A symbolic link is removed
-     * as a link, never followed.
+     * as gone. `FileAccess.deleteRecursively` walks without following any symbolic link and counts an
+     * entry that vanished under its walk as removed; two cleanups of one tree, or a cleanup racing a
+     * recommit, must never surface a failure. A symbolic link is removed as a link.
      */
     private fun deleteTree(file: File) {
-        if (!isSymbolicLink(file)) {
-            file.listFiles()?.forEach { child: File -> deleteTree(child) }
-        }
-        file.delete()
+        // The result is ignored: a tree that cannot be removed completely is left for the next sweep.
+        files.deleteRecursively(file.path)
     }
 
     /** The size of the files under [file]; an entry that vanished meanwhile counts as zero. */
-    private fun treeSize(file: File): Long {
-        val children: Array<File>? = file.listFiles()
-        return if (children == null) file.length() else children.sumOf { child: File -> treeSize(child) }
-    }
-
-    private fun isSymbolicLink(file: File): Boolean = try {
-        val parent: File? = file.parentFile?.canonicalFile
-        val candidate: File = if (parent == null) file else File(parent, file.name)
-        candidate.canonicalFile != candidate.absoluteFile
-    } catch (e: java.io.IOException) {
-        false
-    }
+    private fun treeSize(file: File): Long = files.treeSize(file.path).getOrNull() ?: 0L
 
     private fun deleteTempData(names: UnitFileLayout.Names) {
         File(baseDir, names.partial).delete()
@@ -543,7 +536,7 @@ internal class AndroidDownloaderStorage(
 
     /** Removes the write-ahead log, shared-memory and journal files SQLite keeps next to [database]. */
     private fun deleteSqliteSidecars(database: File) {
-        for (suffix: String in SQLITE_SIDECAR_SUFFIXES) File(database.path + suffix).delete()
+        for (sidecar: String in SqliteFiles.sidecarsOf(database.path)) File(sidecar).delete()
     }
 
     /** Deletes [tempFile] and throws when it does not start with the 16-byte SQLite header or is shorter than 100 bytes. */
@@ -706,8 +699,6 @@ internal class AndroidDownloaderStorage(
     private companion object {
         /** The sibling name the single root directory is moved to while its children go up; a free variant is chosen. */
         const val TEMPORARY_ROOT_NAME: String = ".kmptoolkit-up"
-
-        val SQLITE_SIDECAR_SUFFIXES: List<String> = listOf("-wal", "-shm", "-journal")
 
         /** What a [FileNotFoundException] says when the name or the path cannot exist, as opposed to a full or read-only disk. */
         val UNLAYABLE_REASONS: List<String> =
