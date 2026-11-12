@@ -90,7 +90,7 @@ public data class ScheduledAlarm(
 
 | Parameter | Contract |
 |---|---|
-| `id` | Identity. Replacement and cancellation key on it. **Must not be blank** — an `IllegalArgumentException` is thrown at construction otherwise. |
+| `id` | Identity. Replacement and cancellation key on it. **Must not be blank** — an `IllegalArgumentException` is thrown at construction otherwise. On iOS it is the notification-request identifier verbatim, shared with `kmptoolkit-notification`'s ids: do not reuse an alarm's id for a `Notifier.post` or `Notifier.cancel` (see [`05-platform-notes.md`](05-platform-notes.md#ios-1)). |
 | `type` | Routing key, matched exactly and case-sensitively against `AlarmHandler.type`. **Must not be blank.** |
 | `fireAtEpochMillis` | Milliseconds since the Unix epoch, UTC. A `Long` rather than a date-time type so the module needs no date-time dependency. Past values are accepted. |
 | `notification` | What the OS shows. Required because iOS must be given the text at schedule time. |

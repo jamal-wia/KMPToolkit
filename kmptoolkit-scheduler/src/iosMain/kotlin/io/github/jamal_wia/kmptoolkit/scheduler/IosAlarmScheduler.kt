@@ -42,7 +42,8 @@ public fun createAlarmScheduler(
  *
  * [ScheduledAlarm.id] is the notification-request identifier verbatim, so re-adding one id replaces
  * its pending request and cancelling removes exactly it — no request-code mapping is needed as on
- * Android.
+ * Android. The identifier space is shared with `kmptoolkit-notification`, whose `post` and `cancel`
+ * of the same id replace or remove the request.
  */
 internal class IosAlarmScheduler(
     private val soundResolver: AlarmSoundResolver,

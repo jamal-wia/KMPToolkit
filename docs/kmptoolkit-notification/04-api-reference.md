@@ -26,13 +26,18 @@ The one type shared code depends on.
   unchecked the platforms disagree destructively about it — Android quietly accepts it as one more
   tag, `UNNotificationRequest` raises an Objective-C exception that Kotlin/Native cannot catch and
   the process dies. Suspending because checking authorization is asynchronous on iOS; on Android it
-  does not suspend in practice.
+  does not suspend in practice. On iOS `id` is the request identifier verbatim, the same space
+  `kmptoolkit-scheduler` uses for alarm ids, so posting an id that is also a pending alarm's id
+  replaces that alarm.
 - **`post(id, notification, options)`** — the same post, presented according to
   `NotificationOptions`. The interface default ignores `options` and calls the two-argument form, so
   an older implementation keeps working; the Android notifier overrides it (the iOS one ignores options
   and keeps the default), and a decorator must override it. The two-argument form is the same as passing `NotificationOptions.DEFAULT`.
 - **`cancel`** — removes the notification under `id` and forgets its progress-coalescing state. A
-  no-op for an id that is not showing, including one this instance never posted. Reports nothing,
+  no-op for an id that is not showing, including one this instance never posted. On iOS it also
+  removes a pending request with that identifier, which includes an alarm `kmptoolkit-scheduler`
+  armed under the same id; use distinct ids (see
+  [`05-platform-notes.md`](05-platform-notes.md#ios-specifics)). Reports nothing,
   because neither platform reports anything. Never throws for a platform refusal (a dead binder, a
   revoked right): on Android it is logged under the tag `KmpToolkitNotification` and the notification
   may stay on the tray.

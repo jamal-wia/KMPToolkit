@@ -9,6 +9,9 @@ package io.github.jamal_wia.kmptoolkit.scheduler
  * @param id stable identity of this alarm. Re-scheduling the same id **replaces** the pending
  *   alarm on both platforms rather than adding a second one, and [AlarmScheduler.cancel] takes
  *   this value. Must not be blank.
+ *   On iOS it is the notification-request identifier verbatim, shared with
+ *   `kmptoolkit-notification`'s ids: a `Notifier.post` or `Notifier.cancel` with the same id discards
+ *   the pending alarm, so keep alarm ids and notification ids distinct.
  * @param type routing key matched against [AlarmHandler.type] when the alarm fires on Android.
  *   Matching is exact and case-sensitive. Must not be blank.
  * @param fireAtEpochMillis the instant to fire at, in milliseconds since the Unix epoch (UTC), as
