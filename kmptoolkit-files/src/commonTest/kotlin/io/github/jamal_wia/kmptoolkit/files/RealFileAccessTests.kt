@@ -732,4 +732,29 @@ abstract class RealFileAccessTests {
             assertTrue(fs.sweep(path, 0) { true }.errorOrNull() is FileError.InvalidPath)
         }
     }
+
+    @Test
+    fun `a write with a 232 byte ASCII temp prefix succeeds and leaves no temporary file`() {
+        val prefix: String = "t".repeat(232)
+        assertTrue(fs.writeAtomically(p("rec"), bytesOf("v"), WriteOptions(createParentDirectories = true, tempPrefix = prefix)).isSuccess)
+        assertContentEquals(bytesOf("v"), fs.readBytes(p("rec"), 16).getOrNull())
+        assertEquals(listOf("rec"), fs.list(root).getOrNull())
+    }
+
+    @Test
+    fun `a write with a 232 byte multi-byte temp prefix succeeds and leaves no temporary file`() {
+        val prefix: String = "\u00e9".repeat(116)
+        assertEquals(232, prefix.encodeToByteArray().size)
+        assertTrue(fs.writeAtomically(p("rec"), bytesOf("v"), WriteOptions(createParentDirectories = true, tempPrefix = prefix)).isSuccess)
+        assertContentEquals(bytesOf("v"), fs.readBytes(p("rec"), 16).getOrNull())
+        assertEquals(listOf("rec"), fs.list(root).getOrNull())
+    }
+
+    @Test
+    fun `isTempName accepts a 232 byte prefix with a 19 digit temp name`() {
+        val prefix: String = "t".repeat(232)
+        val name: String = prefix + "1234567890123456789.tmp"
+        assertEquals(255, name.encodeToByteArray().size)
+        assertTrue(FileNames.isTempName(name, prefix))
+    }
 }

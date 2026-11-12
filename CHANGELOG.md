@@ -21,6 +21,26 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-files-testing`: `FakeFileAccess`, an in-memory file system that runs the real engine, with fault
   injection, crash and power-loss simulation; `FileAccessContract` to check any `FileAccess` decorator.
 
+### Changed
+
+- `kmptoolkit-storage` (`jvm`) now depends on `kmptoolkit-files` (its atomic write and per-file lock). No store file
+  name, file format or directory layout changes.
+- `kmptoolkit-storage` (`jvm`): when the file system refuses an atomic rename, a write now fails with
+  `StorageError.OperationFailed` instead of replacing the file non-atomically. On Windows, a replace blocked by
+  another process holding the file open is retried for up to about 210 ms.
+- `kmptoolkit-storage` (`jvm`, Windows): a store whose name is a reserved device name (`CON`, `NUL`, `COM1`...) can
+  no longer be written (reads still work); 4.x wrote it on Windows 11 only.
+- `kmptoolkit-storage` (`jvm`): the temporary file of a write is named `<file name><digits>.tmp` as before; for a store
+  file name longer than 232 UTF-8 bytes the file name in it is shortened (cut to 215 bytes, then `~` and 16 hex
+  characters of its SHA-256), so every store name that fits a file name stays writable.
+
+### Fixed
+
+- `kmptoolkit-storage` (`jvm`): `clear()` also removes the temporary files of a killed 4.x write whose random part has
+  20 digits; they were missed before.
+- `kmptoolkit-files`: `FileAccessConfig.tempPrefix` and `WriteOptions.tempPrefix` accept up to 232 UTF-8 bytes
+  (`FileAccessConfig.MAX_TEMP_PREFIX_BYTES`), so every temporary name fits 255 bytes.
+
 ## [4.0.0]
 
 Source compatible with 3.0.x, except for implementations of the opt-in `ToolkitInheritanceApi` interface

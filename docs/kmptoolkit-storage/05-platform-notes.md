@@ -228,15 +228,22 @@ app sharing that code with desktop could not compile it for desktop without the 
 - **Durability.** Every write rewrites the whole file into a temporary sibling, syncs it to the device
   and atomically renames it over the old one, so a process killed — or a machine losing power —
   mid-write leaves the previous contents. A temporary file a killed write left behind is removed by
-  `clear()`, which matches only this store's own temporary names (`<file name><digits>.tmp`), never a
-  neighbouring store's in-flight file. Every read reads the file afresh.
+  `clear()`, which matches only this store's own temporary names (`<file name><digits>.tmp`, the shape of
+  4.x too, or, for a store file name longer than 232 UTF-8 bytes, the name cut to 215 bytes plus `~` and 16
+  hex characters of its SHA-256 as the prefix), never a neighbouring store's in-flight file. Every read reads the file afresh. The write is
+  [`kmptoolkit-files`](../kmptoolkit-files/01-overview.md)' `writeAtomically` (`Durability.Synced`): on
+  Windows a replace blocked by another process that holds the file open is retried for up to about
+  210 ms, and when the file system refuses an atomic rename the write fails with `OperationFailed`
+  instead of replacing the file non-atomically (earlier versions fell back to a plain replace).
 - **Failures.** A corrupted or hand-edited file (a malformed `\uXXXX` escape), a name the file system
   rejects (`:` or `*` on Windows) and a denied security check arrive as `OperationFailed`, never as an
-  exception. A name whose part before the first dot is a Windows device name (`CON`, `NUL`, `COM1`, `aux.txt`...)
-  is an ordinary file on Windows 11; earlier Windows versions resolve it to the device, and the write then fails
-  as `OperationFailed`. Avoid such names if the store must work on, or move between, older Windows versions.
+  exception. On Windows, a store whose name makes a reserved device name (`CON`, `NUL`, `COM1`, `aux`...:
+  the part of the file name before its first dot) can be read but not written (`OperationFailed`); pick another
+  name. A name that is a valid file name but longer than 232 bytes in all is still written: its temporary file
+  uses a shortened, hashed prefix.
   The store is meant for a handful of small values; it is not a database.
-- **Concurrency.** Instances over the same file in one process share a `Mutex`. Two *processes* writing
+- **Concurrency.** Instances over the same file in one process share a lock (a `KeyedMutex` keyed by the
+  case- and Unicode-folded canonical path). Two *processes* writing
   the same file are not coordinated — keep one writer per file.
 - **No secure store.** The JVM has no platform key store this module could keep a key in without
   inventing its own — and a key kept next to the data it encrypts protects nothing. Desktop apps that
@@ -261,7 +268,7 @@ call from the main thread and from any number of coroutines at once:
   writers adding the same Keychain item at once — two coroutines, or an app extension sharing the
   access group — make the loser's `SecItemAdd` fail with `errSecDuplicateItem`; the store then
   updates the item instead, so neither write reports a failure.
-- **Desktop.** Instances over the same file share a coroutine `Mutex`, so their read-modify-write
+- **Desktop.** Instances over the same file share a coroutine lock (`KeyedMutex` of `kmptoolkit-files`), so their read-modify-write
   cycles over the file never interleave. The lock is keyed by the path in Unicode NFC with the full
   case mapping (`ß`, `ẞ` and `ss`, the Greek sigma forms, `Settings` and `settings` share it), so two
   spellings of one name share it on a volume that folds case (macOS, Windows); on a case-sensitive volume they are two files behind one lock. A file that

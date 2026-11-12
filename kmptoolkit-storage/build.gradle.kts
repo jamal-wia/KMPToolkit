@@ -45,6 +45,11 @@ kotlin {
             // atomic; no coroutines type appears in a public signature.
             implementation(libs.kotlinx.coroutines.core)
         }
+        jvmMain.dependencies {
+            // The desktop store's atomic write and its per-file lock are kmptoolkit-files' writeAtomically and
+            // KeyedMutex; Android and iOS keep their own stores. implementation: no files type is public here.
+            implementation(project(":kmptoolkit-files"))
+        }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
             // Not published; host path rules and the unwritable-directory helper for the file tests.

@@ -16,7 +16,8 @@ kotlin {
 ```
 
 The version is whatever `kmptoolkit.version` says in this repository's `gradle.properties`; with
-the BOM, omit it. There is no permission to declare and nothing to add to `Info.plist` — see
+the BOM, omit it. On the `jvm` target the module brings `kmptoolkit-files` along (its atomic write and
+per-file lock); Android and iOS do not. There is no permission to declare and nothing to add to `Info.plist` — see
 [`05-platform-notes.md`](05-platform-notes.md).
 
 ## 2. Create the store in your platform layer

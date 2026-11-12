@@ -106,6 +106,7 @@ public final class io/github/jamal_wia/kmptoolkit/files/FileAccess$DefaultImpls 
 public final class io/github/jamal_wia/kmptoolkit/files/FileAccessConfig {
 	public static final field Companion Lio/github/jamal_wia/kmptoolkit/files/FileAccessConfig$Companion;
 	public static final field DEFAULT_TEMP_PREFIX Ljava/lang/String;
+	public static final field MAX_TEMP_PREFIX_BYTES I
 	public fun <init> ()V
 	public fun <init> (Ljava/lang/String;)V
 	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V

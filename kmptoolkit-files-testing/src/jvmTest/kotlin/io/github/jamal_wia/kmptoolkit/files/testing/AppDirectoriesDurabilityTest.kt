@@ -7,6 +7,7 @@ import io.github.jamal_wia.kmptoolkit.files.WriteOptions
 import io.github.jamal_wia.kmptoolkit.files.createAppDirectories
 import io.github.jamal_wia.kmptoolkit.files.getOrNull
 import io.github.jamal_wia.kmptoolkit.files.isSuccess
+import org.junit.Assume
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -19,7 +20,7 @@ class AppDirectoriesDurabilityTest {
 
     @Test
     fun `F-22 a record written into an AppDirectories directory survives a power loss and a second lookup syncs nothing`() {
-        if (!posixHost) return // the fake's POSIX paths are not absolute on a Windows host
+        Assume.assumeTrue("the fake's POSIX paths are not absolute on a Windows host", posixHost)
         val fake: FakeFileAccess = FakeFileAccess()
         val directories: AppDirectories = createAppDirectories("/files", cacheDirectory = "/files", temporaryDirectory = "/tmp", files = fake)
         val receipts: String = directories.directory(AppRoot.Files, "receipts").getOrNull() ?: error("directory failed")

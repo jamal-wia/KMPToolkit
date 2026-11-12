@@ -67,7 +67,7 @@ files.withIo {
   `FileAccessConfig.tempPrefix`).
 
 On every failure the temporary file is removed and the target is untouched, with one documented
-exception: when the final directory sync of `SyncedWithDirectory` fails the call reports
+exception: when one of the final directory syncs of `SyncedWithDirectory` fails the call reports
 `FileError.Io`, but the target already holds the new bytes.
 
 Writers and readers that go through `FileAccess` in one process never make each other fail, on every
