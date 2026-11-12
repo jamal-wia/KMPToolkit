@@ -60,6 +60,7 @@ class UploaderStorageUpgradeRound8AdversarialTest {
         storages.forEach { runCatching { it.close() } }
         names.forEach { name ->
             val file: File = application().getDatabasePath(uploaderDatabaseFileName(name))
+            // path-hygiene-ignore: PH2 restores flags a permission test cleared; harmless on Windows
             file.setWritable(true)
             application().deleteDatabase(uploaderDatabaseFileName(name))
         }
@@ -240,6 +241,7 @@ class UploaderStorageUpgradeRound8AdversarialTest {
             val name: String = freshName("ro$version")
             val path: File = writeOldFile(name, version = version, rows = 20)
             val before: String = sha(path)
+            // path-hygiene-ignore: PH2 read-only attribute exists on every host; asserted
             assertTrue(path.setReadOnly(), "could not make the file read-only on this host")
             try {
                 val outcome: String = try {
@@ -256,6 +258,7 @@ class UploaderStorageUpgradeRound8AdversarialTest {
                 println("R8 READ-ONLY v$version: $outcome")
                 if (version == 1) assertEquals("refused", outcome, "a v1 file needs a migration and cannot be written")
             } finally {
+                // path-hygiene-ignore: PH2 restores flags a permission test cleared; harmless on Windows
                 path.setWritable(true)
             }
             assertEquals(before, sha(path), "the read-only file's bytes changed (v$version)")

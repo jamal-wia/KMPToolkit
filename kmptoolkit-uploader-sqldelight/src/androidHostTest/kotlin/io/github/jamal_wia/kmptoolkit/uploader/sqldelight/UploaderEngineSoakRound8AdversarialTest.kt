@@ -62,6 +62,7 @@ class UploaderEngineSoakRound8AdversarialTest {
 
     private fun dbThreads(): Int = Thread.getAllStackTraces().keys.count { it.name == "kmptoolkit-uploader-db" && it.isAlive }
 
+    // path-hygiene-ignore: PH2 descriptor count where /dev/fd exists; the assertion is skipped elsewhere
     private fun openFds(): Int = File("/dev/fd").list()?.size ?: -1
 
     /** What the handlers did, as the model of the world sees it. */

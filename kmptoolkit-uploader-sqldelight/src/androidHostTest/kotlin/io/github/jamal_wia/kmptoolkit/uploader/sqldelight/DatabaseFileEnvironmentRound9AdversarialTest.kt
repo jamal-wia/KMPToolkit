@@ -31,6 +31,7 @@ class DatabaseFileEnvironmentRound9AdversarialTest {
     @AfterTest
     fun cleanUp() {
         storages.forEach { runCatching { it.close() } }
+        // path-hygiene-ignore: PH2 restores flags a permission test cleared; harmless on Windows
         names.forEach { runCatching { dbFile(it).parentFile?.setWritable(true) } }
         names.forEach { runCatching { deleteDatabaseFile(uploaderDatabaseFileName(it)) } }
     }
@@ -130,8 +131,10 @@ class DatabaseFileEnvironmentRound9AdversarialTest {
         val name = "r9-readonly"
         names += name
         val dir: File = dbFile(name).parentFile!!.also { it.mkdirs() }
+        // path-hygiene-ignore: PH2 permission probe guarded by an assumption; skipped where the host ignores it
         assumeTrue(dir.setWritable(false) && !File(dir, "probe").also { runCatching { it.createNewFile() } }.exists())
         val failure: Throwable? = runCatching { open(name) }.exceptionOrNull()
+        // path-hygiene-ignore: PH2 restores flags a permission test cleared; harmless on Windows
         dir.setWritable(true)
         assertNotNull(failure, "a store opened in a directory that cannot hold its file")
         assertTrue(failure is UploaderStorageException, "failed with ${failure::class.qualifiedName}: ${failure.message}")
