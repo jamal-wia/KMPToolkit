@@ -122,6 +122,7 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
         var errors: Int = 0
         var prepares: Int = 0
         var playing: Boolean = false // what the engine should be doing
+        var buffering: Boolean = false
 
         val playable: Boolean get() = kind == Kind.READY || kind == Kind.PLAYING || kind == Kind.PAUSED || kind == Kind.COMPLETED
         val effectiveVolume: Float get() = if (muted) 0f else volume
@@ -135,6 +136,7 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
             loaded = true
             pos = 0L
             playing = false
+            buffering = false
             if (fail) {
                 kind = Kind.ERROR
                 errors++
@@ -199,6 +201,7 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
             kind = Kind.COMPLETED
             pos = duration
             playing = false
+            buffering = false
             completions++
         }
 
@@ -206,6 +209,7 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
             if (released || !playable) return
             kind = Kind.ERROR
             playing = false
+            buffering = false
             errors++
         }
 
@@ -215,6 +219,7 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
             loaded = false
             pos = 0L
             playing = false
+            buffering = false
         }
 
         fun release() {
@@ -224,6 +229,7 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
             loaded = false
             pos = 0L
             playing = false
+            buffering = false
         }
     }
 
@@ -300,7 +306,7 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
             add("play"); add("play"); add("pause"); add("stop"); add("replay")
             add("seek"); add("seek"); add("seekForward"); add("seekBackward")
             add("speed"); add("volume"); add("mute"); add("repeat"); add("repeat")
-            add("unload")
+            add("unload"); add("buffer"); add("buffer")
             if (model.kind == Kind.PLAYING) {
                 add("playToEnd"); add("playToEnd"); add("advancePause"); add("failPlayback")
                 add("rawCompletion")
@@ -358,6 +364,11 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
             }
             "mute" -> { val m: Boolean = random.nextBoolean(); player.setMuted(m); model.muted = m }
             "repeat" -> { val m: RepeatMode = RepeatMode.entries[random.nextInt(2)]; player.setRepeatMode(m); model.repeat = m }
+            "buffer" -> {
+                val on: Boolean = random.nextBoolean()
+                fake.reportBuffering(on)
+                if (model.playable && model.kind != Kind.COMPLETED && !model.released) model.buffering = on
+            }
             "unload" -> { player.unload(); model.unload() }
             "release" -> { player.release(); model.release() }
             "playToEnd" -> {
@@ -377,7 +388,7 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
                 model.fail()
             }
             "rawCompletion" -> {
-                if (model.repeat == RepeatMode.Off && model.kind == Kind.PLAYING) {
+                if (model.kind == Kind.PLAYING) {
                     fake.pause()
                     fake.advancePositionTo(duration)
                 }
@@ -409,6 +420,7 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
                 fail("$where: prepare after release must report VideoPlayerReleasedException, got $state")
             }
         }
+        if (player.isBufferingFlow.value != model.buffering) fail("$where: buffering ${player.isBufferingFlow.value} model ${model.buffering}")
         if (player.playbackSpeedFlow.value != model.speed) fail("$where: speed ${player.playbackSpeedFlow.value} model ${model.speed}")
         if (player.volumeFlow.value != model.volume) fail("$where: volume ${player.volumeFlow.value} model ${model.volume}")
         if (player.isMutedFlow.value != model.muted) fail("$where: muted")

@@ -46,6 +46,11 @@ class VideoPlayerEventOrderingR10AdversarialTest {
     private class Spy(val inner: FakeVideoPlaybackEngine = FakeVideoPlaybackEngine(durationMs = 4_000L)) :
         io.github.jamal_wia.kmptoolkit.video.player.VideoPlaybackEngine by inner {
         @Volatile var kept: VideoPlaybackEngineListener? = null
+        @Volatile var onRelease: (() -> Unit)? = null
+        override fun release() {
+            onRelease?.invoke()
+            inner.release()
+        }
         override fun setListener(listener: VideoPlaybackEngineListener?) {
             if (listener != null) kept = listener
             inner.setListener(listener)
@@ -246,6 +251,49 @@ class VideoPlayerEventOrderingR10AdversarialTest {
         } finally {
             local.cancel()
             player.release()
+        }
+    }
+
+    @Test
+    fun `reports an engine makes from inside the release that drops a source never become the next prepare's outcome`() {
+        for (report: String in listOf("failure", "completion", "buffering")) {
+            val spy = Spy()
+            val player: VideoPlayer = newPlayer(spy)
+            try {
+                player.prepareNow()
+                player.play()
+                val listener: VideoPlaybackEngineListener = spy.kept ?: fail("no listener")
+                spy.onRelease = {
+                    when (report) {
+                        "failure" -> listener.onFailed(IllegalStateException("from the old source"))
+                        "completion" -> listener.onCompleted()
+                        else -> listener.onBufferingChanged(true)
+                    }
+                }
+                player.prepareNow()
+                spy.onRelease = null
+                Thread.sleep(30L)
+                assertEquals(VideoPlayerState.Ready(4_000L), player.stateFlow.value, "$report of the dropped source decided the next prepare")
+                assertTrue(!player.isBufferingFlow.value, "$report: a stall of the dropped source is shown")
+                // and the same from inside unload()
+                player.play()
+                spy.onRelease = {
+                    when (report) {
+                        "failure" -> listener.onFailed(IllegalStateException("from the old source"))
+                        "completion" -> listener.onCompleted()
+                        else -> listener.onBufferingChanged(true)
+                    }
+                }
+                player.unload()
+                spy.onRelease = null
+                Thread.sleep(30L)
+                assertEquals(VideoPlayerState.Idle, player.stateFlow.value, "$report during unload")
+                assertTrue(!player.isBufferingFlow.value, "$report during unload: buffering")
+                player.prepareNow()
+                assertEquals(VideoPlayerState.Ready(4_000L), player.stateFlow.value, "$report during unload leaked into the next prepare")
+            } finally {
+                player.release()
+            }
         }
     }
 }
