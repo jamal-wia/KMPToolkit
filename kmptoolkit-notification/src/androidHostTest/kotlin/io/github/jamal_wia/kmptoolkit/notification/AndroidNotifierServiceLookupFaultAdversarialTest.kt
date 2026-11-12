@@ -63,7 +63,7 @@ class AndroidNotifierServiceLookupFaultAdversarialTest {
             .map { it.extras.getString(Notification.EXTRA_TITLE).orEmpty() }
 
     @Test
-    fun `a lookup that throws turns the post into Failed, never an exception, and the same progress posts once the service is back`() {
+    fun `a lookup that throws turns the post into Failed never an exception and the same progress posts once the service is back`() {
         val notifier: Notifier = notifier()
         mode.set("throws")
 
@@ -82,7 +82,7 @@ class AndroidNotifierServiceLookupFaultAdversarialTest {
     }
 
     @Test
-    fun `a lookup that answers null never throws from post, cancel or cancelAll`() {
+    fun `a lookup that answers null never throws from post cancel or cancelAll`() {
         val notifier: Notifier = notifier()
         runBlocking { notifier.post("kept", frame(10)) }
         mode.set("null")

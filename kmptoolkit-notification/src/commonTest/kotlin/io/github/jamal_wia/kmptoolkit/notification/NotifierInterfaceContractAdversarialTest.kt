@@ -73,7 +73,7 @@ class NotifierInterfaceContractAdversarialTest {
     }
 
     @Test
-    fun `a decorator that forwards only the two-argument post hands its inner notifier the plain form, as the guide warns`() = runTest {
+    fun `a decorator that forwards only the two-argument post hands its inner notifier the plain form as the guide warns`() = runTest {
         val inner = OptionsAwareNotifier()
         val decorator: Notifier = TwoArgumentDecorator(inner)
 
@@ -94,7 +94,7 @@ class NotifierInterfaceContractAdversarialTest {
     }
 
     @Test
-    fun `noOpNotifier is one shared stateless instance that disables both forms, rejects a blank id in both, and cancels silently`() = runTest {
+    fun `noOpNotifier is one shared stateless instance that disables both forms rejects a blank id in both and cancels silently`() = runTest {
         val first: Notifier = noOpNotifier()
         val second: Notifier = noOpNotifier()
 

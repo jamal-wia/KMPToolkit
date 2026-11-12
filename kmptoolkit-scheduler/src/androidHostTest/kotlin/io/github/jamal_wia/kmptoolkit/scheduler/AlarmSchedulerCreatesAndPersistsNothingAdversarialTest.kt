@@ -64,7 +64,7 @@ class AlarmSchedulerCreatesAndPersistsNothingAdversarialTest {
     )
 
     @Test
-    fun `a full life of alarms - schedule, replace, fire, cancel - writes no file and no preference`() {
+    fun `a full life of alarms - schedule replace fire cancel - writes no file and no preference`() {
         val before: Map<String, Long> = appFiles()
         val fired = CountDownLatch(3)
         val handler = object : AlarmHandler {
@@ -97,7 +97,7 @@ class AlarmSchedulerCreatesAndPersistsNothingAdversarialTest {
     }
 
     @Test
-    fun `the scheduler creates no notification channel and renders no notification, fired or not`() {
+    fun `the scheduler creates no notification channel and renders no notification fired or not`() {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val shadow = shadowOf(notificationManager)
         val channelsBefore: Int = shadow.notificationChannels.size

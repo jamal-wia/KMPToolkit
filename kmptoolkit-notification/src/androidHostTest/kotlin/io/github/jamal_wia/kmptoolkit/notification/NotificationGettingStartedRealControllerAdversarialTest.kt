@@ -54,7 +54,7 @@ class NotificationGettingStartedRealControllerAdversarialTest {
 
     @Test
     @Config(sdk = [32])
-    fun `below API 33 the same real wiring posts without any grant, as the platform notes say`() {
+    fun `below API 33 the same real wiring posts without any grant as the platform notes say`() {
         val permissions: PermissionController = createPermissionController(context = app, storage = createKeyValueStorage(app))
         val notifier: Notifier = createNotifier(context = app, permissions = permissions)
 
@@ -66,7 +66,7 @@ class NotificationGettingStartedRealControllerAdversarialTest {
     }
 
     @Test
-    fun `NotificationActionIntent answers null for a plain intent and for extras of the wrong type, never an exception`() {
+    fun `NotificationActionIntent answers null for a plain intent and for extras of the wrong type never an exception`() {
         val plain = Intent("any")
         val wrongType = Intent("any")
             .putExtra(NotificationActionIntent.EXTRA_ACTION_ID, 7)

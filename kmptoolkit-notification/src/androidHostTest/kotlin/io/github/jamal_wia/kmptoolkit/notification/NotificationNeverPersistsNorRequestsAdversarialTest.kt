@@ -54,7 +54,7 @@ class NotificationNeverPersistsNorRequestsAdversarialTest {
     }
 
     @Test
-    fun `posting, updating, cancelling and building a foreground notification write no file and no preference`() {
+    fun `posting updating cancelling and building a foreground notification write no file and no preference`() {
         val permissions = FakePermissionController(defaultStatus = PermissionStatus.Granted)
         val before: Map<String, Long> = appFiles()
         val notifier: Notifier = createNotifier(context, permissions, NotificationConfig(minProgressInterval = kotlin.time.Duration.ZERO))
@@ -69,7 +69,7 @@ class NotificationNeverPersistsNorRequestsAdversarialTest {
     }
 
     @Test
-    fun `the notifier only ever checks the notification permission and never requests, batches or opens settings`() {
+    fun `the notifier only ever checks the notification permission and never requests batches or opens settings`() {
         for (status in listOf<PermissionStatus>(PermissionStatus.Granted, PermissionStatus.Denied(), PermissionStatus.Limited)) {
             val permissions = FakePermissionController(defaultStatus = status)
             val notifier: Notifier = createNotifier(context, permissions, NotificationConfig(minProgressInterval = kotlin.time.Duration.ZERO))
