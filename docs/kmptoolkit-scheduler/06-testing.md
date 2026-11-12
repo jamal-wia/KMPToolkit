@@ -64,8 +64,10 @@ it, and an alarm whose result is `Failed` is **not** armed — it appears in `sc
 **Recordings are snapshots.** `scheduleCalls` and `armed` hold a copy of each alarm taken when
 `schedule` is called, with its own copy of `payload`. Code that reuses one mutable map to build
 several alarms is recorded as it was at each call, as the real schedulers, which write the payload
-into the platform request at the call, would arm it. A recorded alarm is equal (`==`) to the one
-your code passed, not the same instance: compare with `assertEquals`, not `assertSame`.
+into the platform request at the call, would arm it (the real schedulers copy the payload before
+they wait for their process-wide lock, so a call queued behind another one arms it as it was at the
+call too). A recorded alarm is equal (`==`) to the one your code passed, not the same instance:
+compare with `assertEquals`, not `assertSame`.
 
 **Not thread-safe.** It is meant for one test's coroutine at a time.
 
@@ -109,7 +111,8 @@ For reference when judging whether a behavior is already guaranteed:
 - **`iosTest`** — the 64-pending-request pre-check of the iOS scheduler against a fake notification
   center: below the cap, a new request at the cap refused, re-scheduling a pending id at the cap
   accepted, a cancel freeing room, and concurrent requests (also across scheduler instances) at 63
-  pending admitting exactly one.
+  pending admitting exactly one; an exception from inside the critical section (a throwing
+  `AlarmSoundResolver`, a throwing fake center) propagating unchanged without poisoning the lock.
 
 The real `UNUserNotificationCenter` calls themselves are not unit-tested: they need a real app
 bundle and an authorization state, and everything around them that can be wrong on its own — the

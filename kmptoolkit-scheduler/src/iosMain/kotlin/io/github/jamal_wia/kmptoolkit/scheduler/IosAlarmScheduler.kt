@@ -61,12 +61,16 @@ internal class IosAlarmScheduler(
         // ran while schedule was still awaiting the authorization status removed nothing and the
         // alarm was armed right after. Requests added by code outside this library are still not
         // serialised with it.
+        //
+        // The alarm is copied before the lock: the caller may edit or reuse its payload map while
+        // this call waits behind another one, and the request armed is the alarm passed at the call.
+        val snapshot: ScheduledAlarm = alarm.copy(payload = alarm.payload.toMap())
         return scheduleLock.withLock {
             if (center.isAuthorizationDenied()) {
                 return@withLock AlarmScheduleResult.Failed(AlarmFailure.NotificationPermissionDenied)
             }
 
-            val otherPending: Int = center.pendingIdentifiers().count { it != alarm.id }
+            val otherPending: Int = center.pendingIdentifiers().count { it != snapshot.id }
             if (otherPending >= PENDING_REQUEST_CAP) {
                 return@withLock AlarmScheduleResult.Failed(
                     AlarmFailure.PlatformError(
@@ -77,9 +81,9 @@ internal class IosAlarmScheduler(
             }
 
             val request: UNNotificationRequest = UNNotificationRequest.requestWithIdentifier(
-                identifier = alarm.id,
-                content = contentFor(alarm),
-                trigger = triggerFor(alarm.fireAtEpochMillis),
+                identifier = snapshot.id,
+                content = contentFor(snapshot),
+                trigger = triggerFor(snapshot.fireAtEpochMillis),
             )
             val error: NSError? = center.add(request)
             if (error == null) {

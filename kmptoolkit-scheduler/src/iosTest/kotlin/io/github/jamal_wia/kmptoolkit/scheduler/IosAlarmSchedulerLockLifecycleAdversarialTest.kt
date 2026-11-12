@@ -12,6 +12,7 @@ import platform.UserNotifications.UNNotificationRequest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -93,6 +94,23 @@ class IosAlarmSchedulerLockLifecycleAdversarialTest {
                 val healthy = ScriptedCenter()
                 assertEquals(AlarmScheduleResult.Exact, scheduler(healthy).schedule(alarm("b")))
                 assertEquals(listOf("b"), healthy.pending)
+            }
+        }
+    }
+
+    @Test
+    fun `a sound resolver that throws propagates out of schedule arms nothing and leaves the lock free`() {
+        val boom = IllegalStateException("resolver exploded")
+        val center = ScriptedCenter()
+        runBlocking {
+            withTimeout(TIMEOUT_MILLIS) {
+                val thrown = assertFailsWith<IllegalStateException> {
+                    scheduler(center, AlarmSoundResolver { throw boom }).schedule(alarm("a"))
+                }
+                assertSame(boom, thrown)
+                assertTrue(center.pending.isEmpty())
+                assertEquals(AlarmScheduleResult.Exact, scheduler(center).schedule(alarm("b")))
+                assertEquals(listOf("b"), center.pending)
             }
         }
     }

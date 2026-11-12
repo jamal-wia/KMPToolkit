@@ -173,6 +173,13 @@ Practical consequences:
   with it and can still push the total past 64. Schedule a rolling window rather than
   a year of reminders.
 
+- **Refusals are values, not exceptions.** `UNUserNotificationCenter` reports through completion
+  handlers: a denied authorization becomes `Failed(NotificationPermissionDenied)`, the cap and an
+  `NSError` from `addNotificationRequest` become `Failed(PlatformError)`, and removing pending
+  requests cannot fail. Unlike Android, nothing is caught: an exception thrown by your
+  `AlarmSoundResolver` is your code's failure and propagates out of `schedule`, with nothing armed
+  and the lock released.
+
   Verification status: the pre-check is verified by unit tests against a fake notification center
   only. Confirming the OS behavior on a real device (schedule 65) is still outstanding, as is confirming that a completed add is immediately visible in the pending list, which the lock relies on.
 - **Delivery is at the requested time**, subject to the usual system discretion (Focus modes,
