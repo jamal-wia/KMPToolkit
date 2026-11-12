@@ -8,27 +8,57 @@ import java.nio.file.AccessDeniedException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.DirectoryNotEmptyException
 import java.nio.file.FileAlreadyExistsException
+import java.nio.file.FileStore
 import java.nio.file.FileSystemException
 import java.nio.file.InvalidPathException
 import java.nio.file.NoSuchFileException
 import java.nio.file.NotDirectoryException
 
+/** Errors identified by their exception type alone, which no locale can change; `null` for an untyped failure. */
+internal fun typedNioError(e: Throwable, path: String): FileError? = when (e) {
+    is NoSuchFileException -> FileError.NotFound(path)
+    is FileAlreadyExistsException -> FileError.AlreadyExists(path)
+    is NotDirectoryException -> FileError.NotADirectory(path)
+    is DirectoryNotEmptyException -> FileError.DirectoryNotEmpty(path)
+    is AccessDeniedException -> FileError.AccessDenied(path)
+    is AtomicMoveNotSupportedException -> FileError.CrossDevice(path)
+    is InvalidPathException -> FileError.InvalidPath(path)
+    is UnsupportedOperationException -> FileError.Unsupported(path)
+    is SecurityException -> FileError.AccessDenied(path)
+    else -> null
+}
+
 /** Maps what java.nio throws to a typed [FileError]; [path] is the path the operation was working on. */
 internal fun mapNioError(e: Throwable, path: String, forLink: Boolean = false): FileError {
+    typedNioError(e, path)?.let { return it }
     val reason: String = ((e as? FileSystemException)?.reason ?: e.message ?: "").lowercase()
-    return when {
-        e is NoSuchFileException -> FileError.NotFound(path)
-        e is FileAlreadyExistsException -> FileError.AlreadyExists(path)
-        e is NotDirectoryException -> FileError.NotADirectory(path)
-        e is DirectoryNotEmptyException -> FileError.DirectoryNotEmpty(path)
-        e is AccessDeniedException -> FileError.AccessDenied(path)
-        e is AtomicMoveNotSupportedException -> FileError.CrossDevice(path)
-        e is InvalidPathException -> FileError.InvalidPath(path)
-        e is UnsupportedOperationException -> FileError.Unsupported(path)
-        e is SecurityException -> FileError.AccessDenied(path)
-        e is FileSystemException || e is IOException -> mapByText(e, reason, path, forLink)
-        else -> FileError.Io(path, null, e)
+    return if (e is FileSystemException || e is IOException) mapByText(e, reason, path, forLink) else FileError.Io(path, null, e)
+}
+
+private val FAT_FAMILY: Set<String> = setOf("fat", "fat12", "fat16", "fat32", "vfat", "msdos", "exfat")
+
+/**
+ * Classifies a failed `Files.createLink` without trusting message text, which the OS localizes: the exception type
+ * first, then the file stores (different stores: [FileError.CrossDevice]; a FAT family store: [FileError.Unsupported]),
+ * and the message text only as the last resort. A store lookup that fails is ignored.
+ */
+internal fun classifyLinkFailure(
+    e: Throwable,
+    path: String,
+    sourceStore: () -> FileStore?,
+    targetStore: () -> FileStore?,
+): FileError {
+    typedNioError(e, path)?.let { return it }
+    if (e is FileSystemException) {
+        val source: FileStore? = try { sourceStore() } catch (_: Exception) { null }
+        val target: FileStore? = try { targetStore() } catch (_: Exception) { null }
+        if (source != null && target != null && source != target) return FileError.CrossDevice(path)
+        for (store: FileStore? in listOf(source, target)) {
+            val type: String? = try { store?.type()?.lowercase() } catch (_: Exception) { null }
+            if (type != null && type in FAT_FAMILY) return FileError.Unsupported(path)
+        }
     }
+    return mapNioError(e, path, forLink = true)
 }
 
 private fun mapByText(e: Throwable, reason: String, path: String, forLink: Boolean): FileError = when {

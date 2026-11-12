@@ -136,7 +136,20 @@ internal class NioFileSystemOps : FileSystemOps {
     override fun link(existing: String, newPath: String) {
         val source: Path = pathOf(existing)
         val target: Path = pathOf(newPath)
-        nio(newPath, forLink = true) { Files.createLink(target, source) }
+        try {
+            Files.createLink(target, source)
+        } catch (e: FileOpException) {
+            throw e
+        } catch (e: Exception) {
+            throw FileOpException(
+                classifyLinkFailure(
+                    e,
+                    newPath,
+                    sourceStore = { Files.getFileStore(source) },
+                    targetStore = { Files.getFileStore(target.parent) },
+                ),
+            )
+        }
     }
 
     override fun remove(path: String) {
