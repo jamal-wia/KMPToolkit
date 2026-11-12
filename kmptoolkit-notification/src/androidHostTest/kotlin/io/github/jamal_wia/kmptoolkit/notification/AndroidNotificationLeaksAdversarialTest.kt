@@ -159,10 +159,11 @@ class AndroidNotificationLeaksAdversarialTest {
         withTimeout(120_000) {
             val gate = GatedPermissions()
             val notifier: Notifier = createNotifier(app, gate, NotificationConfig(minProgressInterval = Duration.ZERO))
-            val references: MutableList<WeakReference<LocalNotification>> = mutableListOf()
+            val references: MutableList<WeakReference<NotificationChannelSpec>> = mutableListOf()
             repeat(1_500) { i: Int ->
                 val notification: LocalNotification = frame(i, NotificationProgress.Determinate(i % 100))
-                references += WeakReference(notification)
+                // The probe is the channel spec object, which every copy of the notification shares: it finds a retained copy too.
+                references += WeakReference(notification.channel)
                 val job = launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
                     notifier.post("id${i % 30}", notification)
                 }
