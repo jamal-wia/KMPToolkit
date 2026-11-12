@@ -154,6 +154,11 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
 - **Free space** comes from `NSFileSystemFreeSize`, which reports the volume's free space and does
   not account for iOS's "purgeable" space — it can under-report what is actually available. A path
   the platform cannot answer for is reported as unknown, and an unknown never blocks a recording.
+  The recorder reads it through `kmptoolkit-files` (`FileAccess.freeSpaceBytes`), which does the same
+  `NSFileSystemFreeSize` read.
+- **Deleting a recording is not recursive.** Discarding a file (`cancel`, `release`) removes a regular
+  file, a link or an empty directory at the path; a non-empty directory that replaced the file is left
+  alone. Earlier versions removed such a directory tree on iOS.
 - **`AVAudioRecorder`'s initializer is failable.** It returns `nil` with an `NSError` for settings
   CoreAudio rejects — an unusual sample rate and channel-count combination, say. Kotlin/Native binds
   it as non-null, so the `NSError` is captured explicitly and folded into

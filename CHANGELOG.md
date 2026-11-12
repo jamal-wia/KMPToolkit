@@ -37,6 +37,11 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-core` no longer contains `isAbsoluteFilePath` (internal API without a compatibility promise); use
   `Paths.isAbsolute` from `kmptoolkit-files`.
 
+### Fixed
+
+- `kmptoolkit-audio-recorder` (iOS): deleting a recording no longer removes a directory tree that replaced the output
+  file.
+
 ## [4.0.0]
 
 Source compatible with 3.0.x, except for implementations of the opt-in `ToolkitInheritanceApi` interface
