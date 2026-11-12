@@ -30,7 +30,12 @@ internal object NotifierFidelityDriver {
     private val CHANNELS: List<NotificationChannelSpec> = listOf(
         NotificationChannelSpec("c0", "C0"),
         NotificationChannelSpec("c1", "C1", importance = NotificationImportance.High),
+        NotificationChannelSpec(" é/💥 ", "N\u202E?#", description = "line\nbreak"),
+        NotificationChannelSpec("x".repeat(300), "n".repeat(200)),
     )
+    private val TEXTS: List<String> = listOf("", " ", "plain", "line\nbreak", "\u202Erlo", "é💥", "\uFEFF", "t".repeat(900))
+    // Below 1024 characters on purpose: LocalNotification.body documents that the platform truncates longer text (Android 13 and
+    // later keep 1024), which RecordingNotifier cannot know.
     private val OPTIONS: List<NotificationOptions> = listOf(
         NotificationOptions.DEFAULT,
         NotificationOptions(alertOnce = false),
@@ -97,8 +102,8 @@ internal object NotifierFidelityDriver {
                         else -> NotificationProgress.Determinate(random.nextInt(0, 101))
                     }
                     val frame = LocalNotification(
-                        title = "t${random.nextInt(3)}",
-                        body = "b${random.nextInt(2)}",
+                        title = TEXTS.random(random),
+                        body = TEXTS.random(random),
                         channel = CHANNELS.random(random),
                         progress = progress,
                         actions = if (random.nextBoolean()) emptyList() else listOf(NotificationAction("p", "Pause")),
@@ -122,11 +127,20 @@ internal object NotifierFidelityDriver {
             val onScreen: Map<String, Pair<String, String>> = host.shown(IDS)
             val fakeScreen: Map<String, Pair<String, String>> =
                 fake.showing.mapValues { (_, n: LocalNotification) -> n.title to n.body }
+            assertEquals(
+                describe(onScreen),
+                describe(fakeScreen),
+                "$where: the double and the real tray disagree on what is shown (id: title length/code points, body length/code points). Steps: $log",
+            )
             assertEquals(onScreen, fakeScreen, "$where: the double and the real tray disagree on what is shown. Steps: $log")
             assertEquals(askedPosts, fake.posted.map { it.id to it.notification }, "$where: the post log. Steps: $log")
             assertEquals(askedCancels, fake.cancelled, "$where: the cancel log. Steps: $log")
             assertEquals(askedCancelAll, fake.cancelAllCount, "$where: the cancelAll count. Steps: $log")
         }
+    }
+
+    private fun describe(tray: Map<String, Pair<String, String>>): String = tray.entries.sortedBy { it.key }.joinToString { (id: String, text: Pair<String, String>) ->
+        "$id: ${text.first.length}/${text.first.map { it.code.toString(16) }.take(4)} ${text.second.length}/${text.second.map { it.code.toString(16) }.take(4)}"
     }
 
     /** Both reject a blank id the same way, on both overloads, without recording a post of it. */

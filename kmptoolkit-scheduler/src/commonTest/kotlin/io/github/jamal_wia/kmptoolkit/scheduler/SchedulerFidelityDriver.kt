@@ -19,7 +19,12 @@ internal object SchedulerFidelityDriver {
         mapOf("k" to "v"),
         mapOf("k" to "", "é" to "💥"),
         mapOf("a b" to "c=d&e", "k2" to "x".repeat(300)),
+        // Keys and values a consumer's own data can contain: an empty key, line breaks, direction marks, a very long key.
+        mapOf("" to "empty key", "line\nbreak" to "tab\there", "\u202E" to "\uFEFF"),
+        mapOf("k".repeat(5_000) to "v".repeat(5_000)),
     )
+    private val TEXTS: List<String> = listOf("", " ", "plain", "line\nbreak", "\u202Erlo", "é💥", "\uFEFF", "t".repeat(2_000))
+    private val CHANNEL_IDS: List<String> = listOf("c", " c ", "é/💥", "a b?c#d", "x".repeat(300))
 
     suspend fun run(host: SchedulerFuzzHost, seeds: Int, steps: Int) {
         repeat(seeds) { seed: Int -> runSeed(host, seed, steps) }
@@ -45,7 +50,7 @@ internal object SchedulerFidelityDriver {
                         id = id,
                         type = TYPES.random(random),
                         fireAtEpochMillis = TIMES.random(random),
-                        notification = AlarmNotification(title = "t$step", body = "b${random.nextInt(2)}", channelId = "c"),
+                        notification = AlarmNotification(title = TEXTS.random(random), body = TEXTS.random(random), channelId = CHANNEL_IDS.random(random)),
                         payload = PAYLOADS.random(random),
                     )
                     val answered: AlarmScheduleResult = real.schedule(alarm)
