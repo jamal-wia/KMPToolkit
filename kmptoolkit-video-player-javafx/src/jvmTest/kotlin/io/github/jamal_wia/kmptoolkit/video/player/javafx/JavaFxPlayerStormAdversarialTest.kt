@@ -1,7 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.video.player.javafx
 
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
-import io.github.jamal_wia.kmptoolkit.video.player.RepeatMode
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayer
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerConfig
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
@@ -51,30 +50,8 @@ class JavaFxPlayerStormAdversarialTest {
         assertTrue(done.await(seconds, TimeUnit.SECONDS), "the FX thread did not drain within $seconds s")
     }
 
-    private fun drive(player: VideoPlayer, random: Random, deadlineNanos: Long, assets: List<String> = listOf(TestClip.ASSET)) {
-        while (System.nanoTime() < deadlineNanos) {
-            when (random.nextInt(12)) {
-                0, 1 -> runBlocking {
-                    try {
-                        withTimeout(6_000L) { player.prepare(VideoSource.Asset(assets.random(random))) }
-                    } catch (e: Exception) {
-                        // A superseded, unloaded or timed-out prepare is an outcome, not a failure of the test.
-                    }
-                }
-                2 -> player.play()
-                3 -> player.pause()
-                4 -> player.seekTo(random.nextLong(0L, 3_200L))
-                5 -> player.setPlaybackSpeed(0.25f + random.nextFloat() * 3f)
-                6 -> player.setVolume(random.nextFloat())
-                7 -> player.unload()
-                8 -> player.setRepeatMode(if (random.nextBoolean()) RepeatMode.One else RepeatMode.Off)
-                9 -> player.seekForward(random.nextLong(1L, 2_000L))
-                10 -> player.replay()
-                else -> player.setMuted(random.nextBoolean())
-            }
-            if (random.nextInt(4) == 0) Thread.sleep(random.nextLong(0L, 8L))
-        }
-    }
+    private fun drive(player: VideoPlayer, random: Random, deadlineNanos: Long, assets: List<String> = listOf(TestClip.AUDIO_ASSET)) =
+        driveStormPlayer(player, random, deadlineNanos, assets)
 
     @Test
     fun `twelve players on twelve threads under prepare unload seek rate storms are all released and the FX thread drains`() {
@@ -108,7 +85,7 @@ class JavaFxPlayerStormAdversarialTest {
             createVideoPlayer(JavaFxVideoEngine(readyTimeoutMs = 10_000L), VideoPlayerConfig(positionUpdateIntervalMs = 10L), Dispatchers.Default)
         }
         try {
-            runBlocking { players.forEach { withTimeout(15_000L) { it.prepare(VideoSource.Asset(TestClip.ASSET)) } } }
+            runBlocking { players.forEach { withTimeout(15_000L) { it.prepare(VideoSource.Asset(TestClip.AUDIO_ASSET)) } } }
             players.forEach { it.play() }
             val wrong = AtomicInteger(0)
             val slowest = AtomicInteger(0)
@@ -172,20 +149,15 @@ class JavaFxPlayerStormAdversarialTest {
 
     @Test
     fun `eight players alternating a video and an audio only source under the same storm end clean`() {
-        val players: List<VideoPlayer> = List(8) {
-            createVideoPlayer(JavaFxVideoEngine(readyTimeoutMs = 10_000L), VideoPlayerConfig(positionUpdateIntervalMs = 10L), Dispatchers.Default)
-        }
-        val deadline: Long = System.nanoTime() + 5_000_000_000L
-        val assets: List<String> = listOf(TestClip.ASSET, "silence-8khz-1s.wav")
-        val drivers = players.mapIndexed { n, player -> thread(name = "mixed-$n") { drive(player, Random(n * 17L + 3), deadline, assets) } }
-        drivers.forEach { it.join(30_000L) }
-        assertTrue(drivers.none { it.isAlive }, "a driver thread hung")
-        val releasers = players.map { thread { it.release() } }
-        releasers.forEach { it.join(15_000L) }
-        assertTrue(releasers.none { it.isAlive }, "a release hung")
-        drainFxThread()
-        Thread.sleep(300L)
-        drainFxThread()
-        assertEquals(emptyList(), errors.toList(), "uncaught exceptions during the storm")
+        // Real video players created and disposed at this rate can hit the OpenJFX macOS display link race
+        // (plans/javafx-native-crash-advice.md), so the scenario runs in a child JVM; a known CoreVideo
+        // crash of the child is retried (up to 3 attempts), anything else fails.
+        val run: ChildRun = runChildRetryingKnownCrash(VideoStormChildMain::class.java.name, listOf("mixed"))
+        val result: Map<String, String> = run.results()
+        assertEquals(0, run.exit, "child exit; ${run.output}")
+        assertEquals("0", result["driversHung"], "a driver thread hung: $result")
+        assertEquals("0", result["releasersHung"], "a release hung: $result")
+        assertEquals("true", result["drained"], "the FX thread did not drain: $result")
+        assertEquals("", result["errors"], "uncaught exceptions during the storm: $result")
     }
 }
