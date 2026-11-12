@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.notification
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration
@@ -13,8 +14,7 @@ import kotlin.time.TestTimeSource
  * Round 15 (contract lawyer), 03-guide "Abandoned runs": "The notifier forgets such a position by itself
  * once the id has been quiet for far longer than any sensible rate limit (the larger of 120 times
  * `minProgressInterval` and ten minutes) ... The only visible effect is that a very late frame for a
- * forgotten id is posted, like the first frame of any run." Only the quiet half is committed; an id that keeps
- * posting inside its bucket is forgotten as well, which is the SUSPECT r15-S2.
+ * forgotten id is posted, like the first frame of any run."
  */
 class ProgressCoalescerAbandonedRunHorizonAdversarialTest {
 
@@ -42,6 +42,26 @@ class ProgressCoalescerAbandonedRunHorizonAdversarialTest {
         // 1 minute: 120 x = 2 h.
         assertFalse(lateFrameIsPostedAfterQuiet(1.minutes, 100.minutes))
         assertTrue(lateFrameIsPostedAfterQuiet(1.minutes, 130.minutes))
+    }
+
+    @Test
+    fun `an id that keeps posting frames inside its bucket is not quiet and stays suppressed for an hour`() {
+        val coalescer: ProgressCoalescer = coalescer(500.milliseconds)
+        assertTrue(coalescer.shouldPost("a", NotificationProgress.Determinate(31)))
+        val posted: MutableList<Duration> = mutableListOf()
+
+        var elapsed: Duration = Duration.ZERO
+        while (elapsed < 60.minutes) {
+            time += 1.seconds
+            elapsed += 1.seconds
+            if (coalescer.shouldPost("a", NotificationProgress.Determinate(32))) posted += elapsed
+        }
+
+        assertEquals(
+            emptyList(),
+            posted,
+            "an id that posted a frame every second is not quiet, yet its in-bucket frames were posted at $posted",
+        )
     }
 
     private fun ProgressCoalescer.shouldPost(id: String, progress: NotificationProgress?): Boolean {
