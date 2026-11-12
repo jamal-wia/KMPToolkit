@@ -167,6 +167,20 @@ class ConsumerTestsInVirtualTimeRound11Test {
         assertEquals(listOf(listOf<Permission>(CommonPermission.Camera, CommonPermission.Microphone)), controller.batchRequests)
     }
 
+    @Test
+    fun `the checks a presenter made are recorded in order and clearRecordings forgets them`() = runTest {
+        val controller = FakePermissionController(defaultStatus = PermissionStatus.Granted)
+        RecorderPresenter(controller, backgroundScope).onRecordTapped()
+        assertEquals(listOf<Permission>(CommonPermission.Microphone), controller.checks)
+
+        controller.check(CommonPermission.Camera)
+        assertEquals(listOf<Permission>(CommonPermission.Microphone, CommonPermission.Camera), controller.checks)
+
+        controller.clearRecordings()
+        assertTrue(controller.checks.isEmpty())
+        assertEquals(PermissionStatus.Granted, controller.check(CommonPermission.Camera), "clearRecordings keeps the scripted statuses")
+    }
+
     // ---- virtual time ---------------------------------------------------------------------------------------
 
     @Test
