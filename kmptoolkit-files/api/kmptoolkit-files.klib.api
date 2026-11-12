@@ -135,7 +135,7 @@ abstract interface io.github.jamal_wia.kmptoolkit.files/AppDirectories { // io.g
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.files/FileAccess { // io.github.jamal_wia.kmptoolkit.files/FileAccess|null[0]
-    abstract fun createDirectories(kotlin/String): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files/FileAccess.createDirectories|createDirectories(kotlin.String){}[0]
+    abstract fun createDirectories(kotlin/String, kotlin/Boolean = ...): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files/FileAccess.createDirectories|createDirectories(kotlin.String;kotlin.Boolean){}[0]
     abstract fun delete(kotlin/String): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files/FileAccess.delete|delete(kotlin.String){}[0]
     abstract fun deleteRecursively(kotlin/String, io.github.jamal_wia.kmptoolkit.files/CancellationCheck = ...): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files/FileAccess.deleteRecursively|deleteRecursively(kotlin.String;io.github.jamal_wia.kmptoolkit.files.CancellationCheck){}[0]
     abstract fun freeSpaceBytes(kotlin/String): kotlin/Long? // io.github.jamal_wia.kmptoolkit.files/FileAccess.freeSpaceBytes|freeSpaceBytes(kotlin.String){}[0]

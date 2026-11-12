@@ -24,6 +24,9 @@ internal class FaultOps(private val real: FileSystemOps) : FileSystemOps {
     private class Fault(val op: Op, val error: FileError, var remaining: Int, val match: (String) -> Boolean)
 
     val log: MutableList<LoggedOp> = mutableListOf()
+
+    /** The `full` argument of every directory sync that reached the real ops, in order. */
+    val syncFlags: MutableList<Boolean> = mutableListOf()
     private val faults: MutableList<Fault> = mutableListOf()
     private var crashOp: Op? = null
     private var crashOccurrence: Int = 0
@@ -130,7 +133,10 @@ internal class FaultOps(private val real: FileSystemOps) : FileSystemOps {
     override fun remove(path: String) = intercept(Op.Remove, path) { real.remove(path) }
 
     override fun syncDirectory(directory: String, full: Boolean) =
-        intercept(Op.SyncDirectory, directory) { real.syncDirectory(directory, full) }
+        intercept(Op.SyncDirectory, directory) {
+            syncFlags += full
+            real.syncDirectory(directory, full)
+        }
 
     override fun usableSpace(path: String): Long? = intercept(Op.UsableSpace, path) { real.usableSpace(path) }
 }

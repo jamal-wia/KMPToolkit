@@ -145,9 +145,35 @@ internal class FileEngine(
 
     // ---- directories ------------------------------------------------------------------------------
 
-    override fun createDirectories(path: String): FileResult<Unit> = createDirectoriesTracking(path, ArrayList())
+    override fun createDirectories(path: String, durable: Boolean): FileResult<Unit> {
+        val created: MutableList<String> = ArrayList()
+        val made: FileResult<Unit> = createDirectoriesTracking(path, created)
+        if (made is FileResult.Failure || !durable || created.isEmpty()) return made
+        return attempt(path) {
+            try {
+                syncCreatedLevels(created, full = true)
+            } catch (e: FileOpException) {
+                return FileResult.Failure(FileError.Io(path, (e.error as? FileError.Io)?.platformCode, e))
+            }
+            FileResult.Success(Unit)
+        }
+    }
 
-    /** [createDirectories] that appends to [created], outermost first, each level this call itself created. */
+    /**
+     * Syncs each of [levels] (outermost first) into its parent, deepest first. With [full] the last sync, that of the
+     * outermost level, is the full flush; otherwise none is (the caller flushes after them).
+     */
+    private fun syncCreatedLevels(levels: List<String>, full: Boolean) {
+        val syncs: List<String> = levels.asReversed().mapNotNull { level: String -> rules.parentOf(level) }
+        for ((index: Int, parentDir: String) in syncs.withIndex()) {
+            ops.syncDirectory(parentDir, full && index == syncs.lastIndex)
+        }
+    }
+
+    /**
+     * [createDirectories] that appends to [created], outermost first, each level this call itself created or lost
+     * the creation race for (found to be a directory after [FileError.AlreadyExists]).
+     */
     private fun createDirectoriesTracking(path: String, created: MutableList<String>): FileResult<Unit> {
         if (!isValid(path)) return invalid(path)
         return attempt(path) {
@@ -172,6 +198,7 @@ internal class FileEngine(
                     if (ops.metadata(level, true)?.kind != FileKind.Directory) {
                         return FileResult.Failure(FileError.NotADirectory(level))
                     }
+                    created += level
                 }
             }
             FileResult.Success(Unit)
@@ -292,9 +319,7 @@ internal class FileEngine(
                     try {
                         // A new directory's entry is durable only once its parent is synced: deepest level first,
                         // then the target's parent with the full flush (one device flush covers them all on iOS).
-                        for (level: String in createdLevels.asReversed()) {
-                            ops.syncDirectory(rules.parentOf(level) ?: continue, false)
-                        }
+                        syncCreatedLevels(createdLevels, full = false)
                         ops.syncDirectory(parent, true)
                     } catch (e: FileOpException) {
                         return FileResult.Failure(FileError.Io(parent, (e.error as? FileError.Io)?.platformCode, e))

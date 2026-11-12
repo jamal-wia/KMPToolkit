@@ -69,7 +69,8 @@ public final class io/github/jamal_wia/kmptoolkit/files/ExistingFile : java/lang
 public abstract interface class io/github/jamal_wia/kmptoolkit/files/FileAccess {
 	public static final field Companion Lio/github/jamal_wia/kmptoolkit/files/FileAccess$Companion;
 	public static final field MAX_READ_BYTES J
-	public abstract fun createDirectories (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public abstract fun createDirectories (Ljava/lang/String;Z)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun createDirectories$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;ZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
 	public abstract fun delete (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
 	public abstract fun deleteRecursively (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
 	public static synthetic fun deleteRecursively$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
@@ -93,6 +94,7 @@ public final class io/github/jamal_wia/kmptoolkit/files/FileAccess$Companion {
 }
 
 public final class io/github/jamal_wia/kmptoolkit/files/FileAccess$DefaultImpls {
+	public static synthetic fun createDirectories$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;ZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
 	public static synthetic fun deleteRecursively$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
 	public static synthetic fun metadata$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;ZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileMetadata;
 	public static synthetic fun move$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/MoveOptions;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;

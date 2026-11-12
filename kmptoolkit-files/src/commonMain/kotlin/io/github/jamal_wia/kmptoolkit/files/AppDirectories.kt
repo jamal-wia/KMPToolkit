@@ -12,6 +12,7 @@ public interface AppDirectories {
 
     /**
      * Creates `<root>/<name>` (and the root) if missing and returns its path; idempotent and safe from many threads.
+     * A directory it creates is durable against power loss before the path is returned.
      * [Backup.Excluded] marks the DIRECTORY (iOS NSURLIsExcludedFromBackupKey, re-applied on every call), so files
      * replaced atomically inside it stay excluded. [AppRoot.NoBackup] is always excluded. [AppRoot.Cache] and
      * [AppRoot.Temporary] are never backed up, so Excluded is a no-op there. Android [AppRoot.Files] + Excluded is
