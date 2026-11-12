@@ -10,7 +10,6 @@ import io.github.jamal_wia.kmptoolkit.permission.testing.FakePermissionControlle
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -92,7 +91,7 @@ class AndroidNotifierEnsuredChannelsBoundAdversarialTest {
         assertEquals(3, CountingShadow.writes.get(), "B is still cached after A changed")
         assertEquals("a2", description("r18-a"))
         assertEquals("b1", description("r18-b"))
-        assertTrue(notifier.ensuredChannelCountForTest() == 2)
+        assertEquals(2, notifier.ensuredChannelCountForTest())
     }
 
     @Implements(NotificationManager::class)
