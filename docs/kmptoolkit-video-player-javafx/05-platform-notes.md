@@ -159,9 +159,15 @@ decoder writes straight into memory without a render-and-read-back step.
   before a loop wraps, would be lost. On a resume at a speed other than 1 the engine seeks the native
   player to where it already stands (unless a seek is already pending) and gives the speed right after
   `play()`: a rate change right after a plain `play()` can freeze the playhead for good (about one resume
-  in four in the measurements), while one right after a native seek did not in any run. After a loop wrap
-  the speed is given again as one change once the playhead has wrapped and moved about 200 ms; the
-  reported time of a loop's second cycle can hold still for about 300 ms and then catch up.
+  in four in the measurements), while one right after a native seek did not in any run. The shared player
+  gives a speed it changed while paused only after `start()`, so the engine does the same for a speed that
+  arrives within about 600 ms of a plain `play()` (the speed was changed while paused or ready, or right
+  after a play): it seeks the native player to where it stands, issues `play()` again and gives the speed
+  right after, and a speed that follows `start()` immediately replaces the one `start()` was about to give.
+  After a loop wrap the speed is given again as one change once the playhead has wrapped and moved about
+  200 ms, and no sooner than 300 ms after a seek made meanwhile (a rate change within about 100 ms of a
+  native seek can freeze the playhead too); the reported time of a loop's second cycle can hold still for
+  about 300 ms and then catch up.
   A rate that is not finite and positive, or a NaN volume, is ignored at the engine (the player never
   passes one).
 - **Buffering** is reported from JavaFX's `STALLED` status; the buffered position comes from

@@ -101,6 +101,23 @@ internal class FxPlayback private constructor(
     private var seekedSincePlay: Boolean = false
 
     /**
+     * When the last [start] issued a plain play(), with no native seek before it and no rate given after it
+     * ([System.nanoTime]), or 0 when there is no such play. A speed given within [FRESH_PLAY_NANOS] of it is given the
+     * way [start] gives a resume at a speed (see [setSpeed]).
+     */
+    private var playIssuedAtNanos: Long = 0L
+
+    /**
+     * The speed [start] has still to give after its play(): given one FX task later, so a speed the caller gives right
+     * after [start] (the shared player gives it that way) replaces it and reaches the native player once, not as
+     * a second change on top of the first. Null when nothing is pending.
+     */
+    private var pendingNudge: Double? = null
+
+    /** A deferred rate is not given before this ([System.nanoTime]): a seek restarts the wait (see [seekTo]). */
+    private var deferredNotBeforeNanos: Long = 0L
+
+    /**
      * The speed to give the native player after a loop wrap, while the rate property holds 1.0 until then
      * (see [deferRate]). Null when the property holds the speed.
      */
@@ -193,8 +210,10 @@ internal class FxPlayback private constructor(
         val resuming: Boolean = !playIssued
         playIssued = true
         if (!resuming || rate == 1.0) {
+            val hadSeek: Boolean = seekedSincePlay
             player.play()
             seekedSincePlay = false
+            playIssuedAtNanos = if (resuming && !hadSeek) System.nanoTime() else 0L
             return@post
         }
         // Resuming at a speed other than 1 (macOS: play() starts the native player at normal speed whatever the
@@ -206,6 +225,21 @@ internal class FxPlayback private constructor(
         if (!seekedSincePlay) player.seek(player.currentTime)
         player.play()
         seekedSincePlay = false
+        playIssuedAtNanos = 0L
+        pendingNudge = rate
+        FxThread.postLater { giveNudge() }
+    }
+
+    /** Gives the native player the speed [start] left pending, as the old nudge: away and back. */
+    private fun giveNudge() {
+        val rate: Double = pendingNudge ?: return
+        pendingNudge = null
+        if (disposed) return
+        if (!playIssued) {
+            // Paused again meanwhile: the property only keeps the speed for the next start.
+            player.rate = rate
+            return
+        }
         player.rate = 1.0
         player.rate = rate
     }
@@ -227,6 +261,13 @@ internal class FxPlayback private constructor(
                 atEnd = false
                 player.seek(Duration.millis(positionMs.toDouble()))
                 seekedSincePlay = true
+                if (deferredRate != null) {
+                    // The playhead jumped without the native player having settled, and a rate change within about
+                    // 100 ms of a native seek can make the playhead stand still: wait again, from the new place.
+                    deferredFrom = Double.NaN
+                    deferredAfterWrap = false
+                    deferredNotBeforeNanos = System.nanoTime() + SEEK_RATE_SETTLE_NANOS
+                }
                 refreshPicture()
             }
             sink.onSeekApplied()
@@ -235,7 +276,25 @@ internal class FxPlayback private constructor(
 
     fun setSpeed(speed: Float): Unit = FxThread.post {
         if (disposed) return@post
-        if (deferredRate != null) deferredRate = speed.toDouble() else player.rate = speed.toDouble()
+        val rate: Double = speed.toDouble()
+        when {
+            pendingNudge != null -> pendingNudge = rate
+            deferredRate != null -> deferredRate = rate
+            rate != player.rate && rate != 1.0 && playIssued && playIssuedAtNanos != 0L &&
+                System.nanoTime() - playIssuedAtNanos < FRESH_PLAY_NANOS -> {
+                // A play() has just been issued (the shared player gives the speed right after start(), so a
+                // speed changed while paused arrives here): a rate change right after a plain play() can freeze
+                // the playhead on macOS. Give it the way start() gives a resume at a speed: the native player is
+                // seeked to where it stands, play() is issued again and the rate is nudged right after.
+                if (!seekedSincePlay) player.seek(player.currentTime)
+                player.play()
+                seekedSincePlay = false
+                playIssuedAtNanos = 0L
+                player.rate = 1.0
+                player.rate = rate
+            }
+            else -> player.rate = rate
+        }
     }
 
     fun setVolume(volume: Float): Unit = FxThread.post {
@@ -295,6 +354,7 @@ internal class FxPlayback private constructor(
         deferredRate = rate
         deferredFrom = Double.NaN
         deferredAfterWrap = afterWrap
+        deferredNotBeforeNanos = 0L
         player.rate = 1.0
     }
 
@@ -302,6 +362,7 @@ internal class FxPlayback private constructor(
     private fun applyDeferredRate() {
         val rate: Double = deferredRate ?: return
         if (player.status != MediaPlayer.Status.PLAYING) return
+        if (System.nanoTime() < deferredNotBeforeNanos) return
         val position: Double = player.currentTime.toMillis()
         if (position.isNaN()) return
         if (deferredAfterWrap) {
@@ -420,6 +481,12 @@ internal class FxPlayback private constructor(
 
         /** How far the playhead must move, at normal speed, before a rate deferred at a loop wrap is given (see [deferRate]). */
         private const val LOOP_RATE_SETTLE_MS: Double = 200.0
+
+        /** How long after a play() a speed is still given the way a resume gives it (see [setSpeed]). */
+        private const val FRESH_PLAY_NANOS: Long = 600_000_000L
+
+        /** How long after a seek a deferred rate keeps waiting (see [seekTo]). */
+        private const val SEEK_RATE_SETTLE_NANOS: Long = 300_000_000L
 
         /** How long the pulse keeps copying after the picture changed while not playing (a seek). */
         private const val REFRESH_WINDOW_NANOS: Long = 500_000_000L
