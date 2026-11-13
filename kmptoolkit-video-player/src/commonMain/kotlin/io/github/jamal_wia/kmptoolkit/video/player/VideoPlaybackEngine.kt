@@ -16,7 +16,8 @@ package io.github.jamal_wia.kmptoolkit.video.player
  *   the last [release]; no method of the engine is called after it. It defaults to a no-op, for an
  *   engine whose [release] already frees everything.
  * - **[load] honors cancellation**, throws to report failure, and leaves nothing playable behind in
- *   either case. The player never runs two loads at once.
+ *   either case. A `CancellationException` thrown from [load] while the player still wants the load is
+ *   reported as a failure (`Error`), not as a cancellation. The player never runs two loads at once.
  * - **Never call the listener after [release]**, including callbacks already queued on a platform
  *   thread; a call already running on another thread has returned before [release] returns. The player
  *   drops every report of a source it has told the engine to drop, but cannot see a call that has not
@@ -24,7 +25,10 @@ package io.github.jamal_wia.kmptoolkit.video.player
  * - **Transport and settings calls tolerate the wrong state** — swallow the platform's
  *   "illegal state" rather than throwing. Only [load] reports failure by throwing. If another method throws
  *   anyway, the player still settles: `prepare` ends in `Error`, `release()` disposes the engine and resets to
- *   `Idle`, `unload()` resets to `Idle`; the last two then rethrow the engine's exception.
+ *   `Idle`, `unload()` resets to `Idle`; the last two then rethrow the engine's exception. Any other method
+ *   that throws breaks this contract: the exception reaches the caller of the player method and that
+ *   transition may be left half applied. A reading that throws during a position poll, which has no caller,
+ *   settles the player on `Error` carrying it.
  * - **[durationMs], [positionMs] and [bufferedPositionMs] return `0` when unknown** and are cheap:
  *   they are polled from the player's coroutine context, so an engine whose platform object is
  *   confined to one thread answers from values it caches on that thread.

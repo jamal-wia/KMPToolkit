@@ -47,8 +47,11 @@ resets the playhead, buffered position, buffering and picture size.
 - Passes through `Preparing`, settles on `Ready(duration)` or `Error(cause)`.
 - **Does not throw on failure** — the platform's `Throwable` arrives as `VideoPlayerState.Error`,
   unchanged.
-- **Honors cancellation** — the partially loaded source is freed, the state returns to `Idle`, and
-  `CancellationException` propagates.
+- **Honors cancellation** — when the calling coroutine is cancelled, or a newer `prepare`, `unload()` or
+  `release()` replaces the load, the partially loaded source is freed, the state returns to `Idle` (or to what
+  replaced it), and `CancellationException` propagates. A `CancellationException` the engine throws on its own
+  while the load is still wanted (a timeout inside the engine, say) is a failure like any other: `Error` carrying
+  that exception, and `prepare` returns normally.
 - **A newer `prepare` replaces this one** — the older load is cancelled and fully unwound before the
   newer one starts; the replaced call returns normally without writing any state.
 - **Frees the previous source first, whatever state it left the player in** (including `Error`), so a source that failed during playback is released before the next load.
@@ -278,7 +281,7 @@ The platform seam. It holds no state machine of its own.
 | Member | Contract |
 |---|---|
 | `fun setListener(listener: VideoPlaybackEngineListener?)` | Installs, replaces, or (with `null`) detaches the event sink. |
-| `suspend fun load(source: VideoSource)` | Loads and suspends until playable. **Throws to report failure**, leaving nothing playable. Honors cancellation, leaving nothing loaded. Works again after `release()`. Never called while another `load` still runs. |
+| `suspend fun load(source: VideoSource)` | Loads and suspends until playable. **Throws to report failure**, leaving nothing playable. Honors cancellation, leaving nothing loaded. A `CancellationException` thrown from `load` while the player still wants the load is reported as a failure (`Error`), not as a cancellation. Works again after `release()`. Never called while another `load` still runs. |
 | `fun start()` / `fun pause()` | Start or suspend output. Tolerate the wrong platform state. |
 | `fun seekTo(positionMs: Long)` | Move the playhead. Always in `0..Long.MAX_VALUE / 1_000_000` (about 292 years); also clamped to `0..durationMs` while the duration is known. While it is unknown (`0`) a relative `seekForward` / `seekBackward` arrives as `position ± amount`, so a target past the real end can arrive: clamp it to the end as the platform defines it, or ignore it, never throw. |
 | `fun setSpeed(speed: Float)` | Set the rate; already clamped. |
@@ -297,7 +300,7 @@ public interface VideoPlaybackEngineListener {
 }
 ```
 
-Failures while loading are thrown from `load` instead. Only `load` reports failure by throwing. If another method throws anyway, the player still settles: `prepare` ends in `Error`, `release()` disposes the engine and resets to `Idle`, `unload()` resets to `Idle`; the last two then rethrow the engine's exception. An engine must not call the listener after
+Failures while loading are thrown from `load` instead. Only `load` reports failure by throwing. If another method throws anyway, the player still settles: `prepare` ends in `Error`, `release()` disposes the engine and resets to `Idle`, `unload()` resets to `Idle`; the last two then rethrow the engine's exception. Any other method that throws breaks this contract: the exception reaches the caller of the player method and that transition may be left half applied. A reading that throws during a position poll, which has no caller, settles the player on `Error` carrying it. An engine must not call the listener after
 `release()`, including callbacks already queued on a platform thread. The player drops reports that
 arrive when no source is loaded, so a late one cannot resurrect a state. It also drops every report of a source it has since told the engine to drop (an `unload`, a `release`, or the start of a newer `prepare`), including one the engine made while that `release()` was running, so a report of the old source can never become the next `prepare`'s outcome. A call already running on another thread must have returned before `release()` returns.
 

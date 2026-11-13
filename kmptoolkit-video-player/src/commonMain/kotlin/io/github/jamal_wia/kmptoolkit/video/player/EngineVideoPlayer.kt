@@ -578,7 +578,7 @@ internal class EngineVideoPlayer(
         val target: Long = if (relative && duration <= 0L) {
             positionMs.coerceIn(0L, MAX_ENGINE_POSITION_MS)
         } else {
-            positionMs.coerceIn(0L, maxOf(0L, duration))
+            positionMs.coerceIn(0L, minOf(maxOf(0L, duration), MAX_ENGINE_POSITION_MS))
         }
         engine.seekTo(target)
         // A seek onto the end does not make an earlier completion stale; a seek anywhere else does.
@@ -612,12 +612,19 @@ internal class EngineVideoPlayer(
         preparingBuffering = false
     }
 
-    /** Runs the engine's load, returning its failure instead of throwing it. Cancellation still throws. */
+    /**
+     * Runs the engine's load, returning its failure instead of throwing it. A cancellation of the load itself still
+     * throws; a [CancellationException] the engine throws while the load is still wanted is the engine's failure.
+     */
     private suspend fun loadCatching(source: VideoSource): Throwable? = try {
         engine.load(source)
         null
     } catch (cancellation: CancellationException) {
-        throw cancellation
+        // Ours: the caller went away, or a newer prepare/unload/release cancelled this load (load.job is a child of
+        // the caller's job and the parent of this context). Otherwise the engine reported a failure in a cancellation's
+        // clothes (its own timeout, say): a failure like any other.
+        if (!currentCoroutineContext().isActive) throw cancellation
+        cancellation
     } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
         // Deliberately broad: an engine reports every load failure by throwing, and
         // VideoPlayerState.Error hands that Throwable to the consumer unchanged.
@@ -699,9 +706,21 @@ internal class EngineVideoPlayer(
         if (released || poller == null || positionJob !== poller) return
         val current: VideoPlayerState = _stateFlow.value
         if (current !is VideoPlayerState.Playing) return
-        val duration: Long = freshDuration(current.duration)
-        val position: Long = shownPosition(engine.positionMs(), duration)
-        val buffered: Long = engine.bufferedPositionMs().coerceAtLeast(0L)
+        val duration: Long
+        val position: Long
+        val buffered: Long
+        try {
+            duration = freshDuration(current.duration)
+            position = shownPosition(engine.positionMs(), duration)
+            buffered = engine.bufferedPositionMs().coerceAtLeast(0L)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (@Suppress("TooGenericExceptionCaught") cause: Throwable) {
+            // A tick has no caller to receive this: left to the scope's handler it would end the poll silently or
+            // crash the thread. A reading that throws breaks the engine contract; settle on Error instead.
+            failedLocked(cause)
+            return
+        }
         val refreshed: VideoPlayerState.Playing = current.copy(duration = duration, currentPosition = position)
         // The flows first and the state last, like every transition: a collector on an immediate
         // dispatcher that pauses or rewinds from inside the state write must not be overwritten by

@@ -77,7 +77,9 @@ public interface VideoPlayer : AutoCloseable {
      * Loads [source], suspending until it is playable or has failed. Discards any previous source and
      * resets the playhead to `0`; keeps speed, volume, mute and repeat mode. Settles on
      * [VideoPlayerState.Ready] or [VideoPlayerState.Error] — **does not throw on failure**. Honors
-     * cancellation. A newer call replaces this one. After [release]: sets
+     * cancellation. A [kotlinx.coroutines.CancellationException] the engine throws on its own while the
+     * load is still wanted (a timeout inside the engine, say) is a failure like any other: `Error`
+     * carrying that exception, and this call returns normally. A newer call replaces this one. After [release]: sets
      * `Error(VideoPlayerReleasedException)` and loads nothing.
      */
     public suspend fun prepare(source: VideoSource)
