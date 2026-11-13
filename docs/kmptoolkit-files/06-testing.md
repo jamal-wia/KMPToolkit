@@ -107,6 +107,7 @@ the exception as `cause`); an `Error` propagates.
 `operations` is the log of every low-level operation attempted, in order, including failed ones:
 
 ```kotlin
+files.createDirectory("/d")
 files.writeAtomically("/d/f", bytes)
 assertEquals(
     listOf(CreateNew, Write, Sync, Close, Rename),
@@ -117,6 +118,7 @@ assertEquals(
 ### Crash and power-loss simulation
 
 ```kotlin
+files.createFile("/d/f", "old".encodeToByteArray())
 files.crashAfter(FakeOperation.Rename)
 assertFailsWith<SimulatedCrash> { files.writeAtomically("/d/f", bytes) }
 
