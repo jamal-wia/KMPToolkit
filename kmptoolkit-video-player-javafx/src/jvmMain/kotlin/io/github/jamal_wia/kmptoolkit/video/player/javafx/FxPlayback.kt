@@ -620,9 +620,12 @@ internal class FxPlayback private constructor(
         private const val PULSE_SLACK_NANOS: Long = 4_000_000L
 
         /**
-         * Opens [uri] and suspends until JavaFX reports it ready. `Media(uri)` probes the source and
-         * may block on the network, so it runs on the IO dispatcher; everything else runs on the FX
-         * thread. On failure or cancellation the half-built playback is disposed before this throws.
+         * Opens [uri] and suspends until JavaFX reports it ready. `backend.probe(uri)` (`Media(uri)` for
+         * JavaFX) probes the source and may block on the network, so it runs on the IO dispatcher;
+         * everything else runs on the FX thread. On failure or cancellation the half-built playback is
+         * disposed before this throws.
+         *
+         * [backend]: the engine always passes its own; the default exists for direct test callers.
          *
          * [onCreated] runs on the FX thread as soon as the player exists, before it is ready, so the
          * caller can route settings to it from then on.
