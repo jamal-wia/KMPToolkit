@@ -15,17 +15,18 @@ internal object TestClip {
     const val DURATION_MS: Long = 3_000L
 
     /**
-     * The audio-only clip (1 s of silence, no video track) for tests that churn many players: a player
-     * without a video track never gets a CoreVideo display link, so it cannot hit the OpenJFX macOS
-     * dispose race (see `plans/javafx-native-crash-advice.md`).
+     * The churn clip: 3 s of silent AAC in an `.m4a`, audio only and as long as [ASSET]. On macOS it stays on the
+     * AVFoundation backend like the video clip (JavaFX hands WAV to GStreamer instead), but a player without a
+     * video track never gets a CoreVideo display link, so it cannot hit the OpenJFX dispose race (see
+     * `docs/kmptoolkit-video-player-javafx/05-platform-notes.md`, section "Known issue").
      */
-    const val AUDIO_ASSET: String = "silence-8khz-1s.wav"
+    const val AUDIO_ASSET: String = "silence-aac-3s.m4a"
 
     /** A copy on disk, for [io.github.jamal_wia.kmptoolkit.video.player.VideoSource.File]. */
     fun copyToTempFile(): File = copyAssetToTempFile(ASSET, "kmptoolkit-clip", ".mp4")
 
     /** A copy of [AUDIO_ASSET] on disk. */
-    fun copyAudioToTempFile(): File = copyAssetToTempFile(AUDIO_ASSET, "kmptoolkit-audio", ".wav")
+    fun copyAudioToTempFile(): File = copyAssetToTempFile(AUDIO_ASSET, "kmptoolkit-audio", ".m4a")
 
     private fun copyAssetToTempFile(asset: String, prefix: String, suffix: String): File {
         val file: File = File.createTempFile(prefix, suffix).apply { deleteOnExit() }
@@ -60,7 +61,7 @@ internal const val HS_ERR_DIR_PROPERTY: String = "kmptoolkit.test.hsErrDir"
 /**
  * JVM flags for a child JVM a test starts, mirroring the test task's own: a native crash inside
  * OpenJFX's macOS media backend then ends the child with SIGKILL (no macOS crash dialog) and leaves
- * its `hs_err` log under the build directory. See `plans/javafx-native-crash-advice.md`.
+ * its `hs_err` log under the build directory. See `docs/kmptoolkit-video-player-javafx/05-platform-notes.md`, section "Known issue".
  */
 internal fun childJvmCrashGuardArgs(hsErrDir: String? = System.getProperty(HS_ERR_DIR_PROPERTY)): List<String> {
     val dir: String = hsErrDir ?: return emptyList()
