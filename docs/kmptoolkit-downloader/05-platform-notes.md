@@ -75,7 +75,10 @@ surviving marker would read as a complete resource. A plain file
 is moved into place by an atomic rename that replaces the old file, on both platforms, so a
 committed resource never goes missing while it is replaced. A directory found at a plain-file resource's path (an
 archive unit of the same id, or a stray one) reads as unavailable and is moved into the trash by the commit, the same
-way a replaced archive tree is. The lock is per process: a
+way a replaced archive tree is. The two platforms read a path that is neither a regular file nor a directory
+differently: Android's availability check is `File.isFile`, which is false for a FIFO, a socket or a device node,
+while iOS reads anything that exists and is not a directory as available (no download produces such a node).
+The lock is per process: a
 `BackgroundResourceDownloader` that commits from a separate Android process is not covered by it. The hash a transfer must have (`beginTempFile`) is a one-line file at
 `<base>/tmp/expect/<unit.id>.sha256`, keyed by id alone so a free-form `tempExtension` cannot make two
 units share or miss a record; it is written to `<base>/tmp/expect-staged/<unit.id>.sha256` and flushed to

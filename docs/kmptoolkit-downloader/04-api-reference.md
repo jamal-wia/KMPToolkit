@@ -218,6 +218,13 @@ object behind `url` at resolve time. `toString` omits the URL's query and fragme
 | `getResourceSize` | `fun getResourceSize(unit: DownloadUnit): Long` |
 | `deleteResource` | `fun deleteResource(unit: DownloadUnit)` |
 
+`isResourceAvailable` reads a plain-file unit as available when its path holds a file; a symbolic link to a file
+counts, a directory or a dangling link does not. Android tests `File.isFile`, so a FIFO, a socket or a device node
+reads as unavailable; iOS tests that the path exists and is not a directory, so one of those reads as available
+(no download produces such a node). `getResourceSize` does not consult availability: it totals a directory found
+at a plain-file unit's path, which reads as unavailable, the same way it totals an archive tree whose marker is
+missing.
+
 `TempFileState`: `sealed interface` — `None` (no file, or an empty one), `Partial` (an unfinished
 transfer, resumed from `getTempFileSize`), `Complete` (marked by `markTempFileComplete`; the only
 state committed without a transfer). `markTempFileComplete` is atomic, idempotent once complete (also when

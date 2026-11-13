@@ -25,8 +25,11 @@ public interface DownloaderStorage {
     }
 
     /**
-     * True when [unit]'s resource is present AND complete: a plain file must exist (a symbolic link to one counts; a directory at that path does not), a directory
-     * resource must contain its [ResourceFormat.ZipArchive.availabilityMarker], so an extraction
+     * True when [unit]'s resource is present AND complete. A plain-file resource must exist as a file: a
+     * symbolic link to one counts, while a directory or a dangling link at that path does not. Android reads
+     * this as `File.isFile`, so a FIFO, a socket or a device node does not count there; iOS reads any existing
+     * path that is not a directory as available, so it counts one of those (no download produces such a node).
+     * A directory resource must contain its [ResourceFormat.ZipArchive.availabilityMarker], so an extraction
      * interrupted halfway does not read as available.
      */
     public fun isResourceAvailable(unit: DownloadUnit): Boolean
@@ -194,7 +197,11 @@ public interface DownloaderStorage {
      */
     public suspend fun commitResource(unit: DownloadUnit)
 
-    /** Bytes [unit] occupies on disk (summed recursively for a directory), or 0 when absent. */
+    /**
+     * Bytes [unit] occupies on disk (summed recursively for a directory), or 0 when absent. It does not
+     * consult [isResourceAvailable]: a directory at a plain-file unit's path, which reads as unavailable, is
+     * still totalled, as is an archive tree whose marker is missing.
+     */
     public fun getResourceSize(unit: DownloadUnit): Long
 
     /**

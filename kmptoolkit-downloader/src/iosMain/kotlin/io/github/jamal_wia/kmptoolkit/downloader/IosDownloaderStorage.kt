@@ -857,7 +857,12 @@ internal class IosDownloaderStorage(
         }
     }
 
-    private fun moveFile(tempFilePath: String, destinationPath: String, unit: DownloadUnit, onDetached: (String) -> Unit) {
+    private fun moveFile(
+        tempFilePath: String,
+        destinationPath: String,
+        unit: DownloadUnit,
+        onDetached: (String) -> Unit,
+    ) {
         val parentDir: String = destinationPath.substringBeforeLast('/')
         NSFileManager.defaultManager.createDirectoryAtPath(
             path = parentDir,
@@ -883,6 +888,10 @@ internal class IosDownloaderStorage(
                 "The downloaded file at $tempFilePath vanished before it could be moved into place"
             }
             // A real directory never gets here: it was moved into the trash above, so this removes a file or a link.
+            // That holds under the per-id lock only. Two units with DIFFERENT ids that share one relativePath are
+            // not serialized by it: a tree committed by the other unit between the check above and the rename makes
+            // the rename fail and would then be removed here in place. Such units are outside the identity rule
+            // (DownloaderStorage requires one relativePath per resource), so this is documented, not guarded.
             NSFileManager.defaultManager.removeItemAtPath(destinationPath, error = null)
             // Fallback: copy + delete. A failed copy must not delete the only copy of the download.
             val copied: Boolean = NSFileManager.defaultManager
