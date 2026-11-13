@@ -185,6 +185,10 @@ decoder writes straight into memory without a render-and-read-back step.
   200 ms, and no sooner than 300 ms after a seek made meanwhile (a rate change within about 100 ms of a
   native seek can freeze the playhead too); the reported time of a loop's second cycle can hold still for
   about 300 ms and then catch up.
+  A speed given to a playing clip within about 300 ms of a native seek (`replay()` or `seekTo()` while
+  playing, or a `stop()` followed by `play()`) is not written at once, because on macOS that can leave the
+  player `Playing` with its playhead standing at the seek position for good: the native player keeps its old
+  speed until the playhead has moved on for about 200 ms, and then takes the new one.
   A rate that is not finite and positive, or a NaN volume, is ignored at the engine (the player never
   passes one).
 - **Buffering** is reported from JavaFX's `STALLED` status; the buffered position comes from
