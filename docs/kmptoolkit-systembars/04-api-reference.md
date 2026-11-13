@@ -379,7 +379,14 @@ public fun createScreenWakeLockController(activityAccess: ActivityAccess): Scree
 
 // iOS
 public fun createScreenWakeLockController(): ScreenWakeLockController
+
+// Desktop (jvm)
+public fun createScreenWakeLockController(): ScreenWakeLockController
 ```
+
+The desktop controller is a no-op: `setKeepScreenOn` accepts any value, any number of times, from any
+thread, and changes nothing. A caller that keeps the screen on for playback still compiles and runs on
+desktop, and the display follows the user's own power settings.
 
 The Android implementation tracks the currently resumed activity, the same way
 `createSystemBarsController` does — including the choice between the two overloads, and for the same

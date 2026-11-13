@@ -14,6 +14,7 @@ make the differences go away, and a few of them are visible from your code.
 | Hide the navigation bar | Yes | No such bar — the axis drives `prefersHomeIndicatorAutoHidden` instead | **No** — no such bar |
 | `HiddenBarBehavior` | Yes | **No** — a hidden status bar simply stays hidden | **No** |
 | How it is applied | Pushed onto the window's insets controller | Pulled by UIKit from a view controller | Nowhere — every platform call is a no-op |
+| Screen wake lock (`ScreenWakeLockController`) | Yes — `FLAG_KEEP_SCREEN_ON` | Yes — `idleTimerDisabled` | **No** — `setKeepScreenOn` is a no-op |
 
 Axes a platform cannot honour are still tracked, still visible on `config`, and simply have no
 effect there. Nothing throws and nothing warns: an app sharing one configuration across platforms is
@@ -23,6 +24,11 @@ Desktop is the limit case of that rule rather than an exception to it. The targe
 tree shared with desktop compiles at all — see [`docs/01-architecture.md`](../01-architecture.md) —
 and everything above the final platform push behaves identically: overrides layer, release restores
 what was underneath, and `config` always holds the configuration the tree asked for.
+
+One thing desktop does need from the host: `DialogWindowSystemBarsEffect` collects the controller's
+configuration through `collectAsStateWithLifecycle`, which needs a `Dispatchers.Main`. A Compose
+Desktop app has one through `kotlinx-coroutines-swing`; a composition on a plain JVM without it
+fails with `IllegalStateException`.
 
 ## Permissions
 
@@ -288,6 +294,13 @@ dispatches to the main queue when it is called from anywhere else, and calls thr
 is already there, so you never have to think about it.
 
 ## `ScreenWakeLockController`
+
+### Desktop (`jvm`)
+
+A no-op. Keeping a desktop display awake means talking to the host OS power manager, a different API
+per platform and none of them reachable from plain JVM Compose, so `createScreenWakeLockController()`
+on this target returns a controller whose `setKeepScreenOn` does nothing, whatever it is given. The
+display follows the user's own power settings.
 
 ### Android
 
