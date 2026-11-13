@@ -368,6 +368,13 @@ internal class AndroidPermissionController(
      */
     private var staleDialog: CompletableDeferred<Unit>? = null
 
+    /**
+     * Whether a request already waited the full [staleDialogTimeout] on the current [staleDialog]: the
+     * requests after it fail at once instead of waiting again, and the dialog stays recorded until the
+     * host is done with it, so no request launches while it is up. Guarded like [staleDialog].
+     */
+    private var staleDialogGaveUp: Boolean = false
+
     /** Permissions already reported as undeclared, so a status observed on every resume warns once. */
     private val reportedUndeclared: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
@@ -634,12 +641,12 @@ internal class AndroidPermissionController(
         val dialog: RuntimeRule.Dialog = ruleOf(permission) as RuntimeRule.Dialog
         return when (dialog.grantOf(answers)) {
             Grant.Full -> {
-                clearFlags(permission)
+                clearFlagsGranted(permission, strings, answers)
                 PermissionStatus.Granted
             }
 
             Grant.Limited -> {
-                clearFlags(permission)
+                clearFlagsGranted(permission, strings, answers)
                 PermissionStatus.Limited
             }
 
@@ -661,13 +668,15 @@ internal class AndroidPermissionController(
      * Opens [access]'s screen and suspends until the user is back in the app, then re-reads it.
      *
      * Already granted, or not available: nothing is opened. A screen that could not be opened returns
-     * the status unchanged, at once.
+     * the status unchanged, at once. Behind a cancelled caller's dialog that is still up it waits for
+     * that dialog first, like any request, so Settings never opens over it.
      */
     private suspend fun requestSpecialAccess(access: AndroidPermission.SpecialAccess, waits: CallWaits): PermissionStatus {
         val current: PermissionStatus = specialAccesses.status(access)
         if (current !is PermissionStatus.Denied) return current
         val candidates: List<Intent> = specialAccesses.candidates(access)
         if (candidates.isEmpty()) return current
+        if (!awaitStaleDialog("The settings screen for $access")) return current
         awaitLaunchableOnce(waits)
         val returned: Boolean = openAndAwaitReturn(SystemScreenRequest(candidates, context, PermissionScreen(access)), access)
         return if (returned) specialAccesses.status(access) else current
@@ -855,7 +864,10 @@ internal class AndroidPermissionController(
         } finally {
             result.cancel() // a late delivery, or a still-queued launch, now sees a finished request
             // A caller cancelled with its dialog still up: the next request has to wait for that dialog.
-            if (!settled.isCompleted) staleDialog = settled
+            if (!settled.isCompleted) {
+                staleDialog = settled
+                staleDialogGaveUp = false
+            }
         }
     }
 
@@ -881,7 +893,8 @@ internal class AndroidPermissionController(
      * Cancelling the waiting caller ends the wait at once.
      *
      * @return `false` when the dialog was still up at the timeout: the request then fails like a refused
-     *   launch (nothing shown, status unchanged). The wait is not repeated for later requests.
+     *   launch (nothing shown, status unchanged). The wait is not repeated: while that dialog is still up,
+     *   later requests fail at once, so the host never sees a launch with a dialog pending.
      */
     private suspend fun awaitStaleDialog(what: String): Boolean {
         val stale: CompletableDeferred<Unit> = staleDialog ?: return true
@@ -889,12 +902,13 @@ internal class AndroidPermissionController(
             staleDialog = null
             return true
         }
-        val resolved: Unit? = withTimeoutOrNull(staleDialogTimeout) { stale.await() }
-        staleDialog = null
+        val resolved: Unit? = if (staleDialogGaveUp) null else withTimeoutOrNull(staleDialogTimeout) { stale.await() }
         if (resolved == null) {
+            staleDialogGaveUp = true
             logger.w { "$what could not be shown: an earlier cancelled request's dialog is still on screen" }
             return false
         }
+        staleDialog = null
         return true
     }
 
@@ -965,14 +979,15 @@ internal class AndroidPermissionController(
         val androidPermissions: List<String> = declared(permission, rule.androidPermissions)
         if (androidPermissions.isEmpty()) return PermissionStatus.Unavailable
 
-        when (rule.grantOf(androidPermissions.associateWith(::isGranted))) {
+        val grants: Map<String, Boolean> = androidPermissions.associateWith(::isGranted)
+        when (rule.grantOf(grants)) {
             Grant.Full -> {
-                clearFlags(permission)
+                clearFlagsGranted(permission, androidPermissions, grants)
                 return PermissionStatus.Granted
             }
 
             Grant.Limited -> {
-                clearFlags(permission)
+                clearFlagsGranted(permission, androidPermissions, grants)
                 return PermissionStatus.Limited
             }
 
@@ -1013,10 +1028,13 @@ internal class AndroidPermissionController(
      */
     private fun coveredBy(permission: Permission, strings: List<String>): List<Pair<Permission, List<String>>> =
         MIRRORABLE_ENTRIES.mapNotNull { entry: Permission ->
-            if (entry == permission || entry.statusSource() != entry || entry.isScanWithoutDisavowal()) return@mapNotNull null
+            if (entry == permission || entry.statusSource() != entry) return@mapNotNull null
             val rule: RuntimeRule.Dialog = ruleOf(entry) as? RuntimeRule.Dialog ?: return@mapNotNull null
             val entryStrings: List<String> = declaredQuietly(rule.androidPermissions)
-            if (entryStrings.isNotEmpty() && strings.containsAll(entryStrings)) entry to entryStrings else null
+            if (entryStrings.isEmpty() || !strings.containsAll(entryStrings)) return@mapNotNull null
+            // Last, because it reads the manifest: an entry that shares no string is never asked.
+            if (entry.isScanWithoutDisavowal()) return@mapNotNull null
+            entry to entryStrings
         }
 
     /** After a refusal of [permission] through [strings]: the same refusal, as the other entries read it. */
@@ -1024,6 +1042,19 @@ internal class AndroidPermissionController(
         for ((entry: Permission, entryStrings: List<String>) in coveredBy(permission, strings)) {
             val rule: RuntimeRule.Dialog = ruleOf(entry) as RuntimeRule.Dialog
             if (rule.grantOf(answers.filterKeys { it in entryStrings }) == Grant.None) markAsked(entry)
+        }
+    }
+
+    /**
+     * [permission] is granted (or limited) through [strings]: clears its flags and those of every entry
+     * [coveredBy] shares them with whose own grant over [grants] holds, the mirror of [mirrorAsked]. An
+     * entry that is not granted keeps its flags, so a write-only grant never clears the full calendar.
+     */
+    private suspend fun clearFlagsGranted(permission: Permission, strings: List<String>, grants: Map<String, Boolean>) {
+        clearFlags(permission)
+        for ((entry: Permission, entryStrings: List<String>) in coveredBy(permission, strings)) {
+            val rule: RuntimeRule.Dialog = ruleOf(entry) as RuntimeRule.Dialog
+            if (rule.grantOf(grants.filterKeys { it in entryStrings }) != Grant.None) clearFlags(entry)
         }
     }
 

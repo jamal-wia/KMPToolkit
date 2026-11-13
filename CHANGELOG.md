@@ -171,6 +171,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `Application` instead of registering a new lifecycle callback each.
 - `kmptoolkit-permission` (Android): a refusal flag the storage failed to clear when the permission was granted no
   longer turns a later system reset into `PermanentlyDenied`.
+- `kmptoolkit-permission` (Android): a refusal learned through an entry that asks Android for the same permission string
+  (`PhotoLibrary` and `AudioLibrary` below API 33, `Calendar` and `CalendarWriteOnly`) is now cleared for that entry too
+  when the permission is granted, so a later system reset (an auto-reset of an unused app) no longer reads
+  `PermanentlyDenied` for it and the request shows its dialog.
+- `kmptoolkit-permission` (Android): after a cancelled request's dialog stayed up past the 30 second wait, later
+  requests no longer launch on the host while that dialog is still pending (a host of your own that keeps one
+  callback slot could otherwise deliver the old answer to the new request); they fail at once like a refused launch.
+- `kmptoolkit-permission` (Android): a special-access request made while a cancelled request's permission dialog is
+  still up now waits for that dialog (at most 30 seconds) instead of opening its Settings screen over it.
 - `kmptoolkit-permission` (Android): the default host no longer leaves a request code in the activity's result registry
   (and its saved state) for every finished dialog.
 - `kmptoolkit-video-player-javafx`: on macOS a speed given to a playing player right after a seek (`seekTo()`,
