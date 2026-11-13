@@ -42,6 +42,14 @@ internal object NotifierLongHorizon {
         59.seconds, 61.seconds, 5.minutes, 9.minutes + 59.seconds, 10.minutes, 10.minutes + 1.seconds,
         10.minutes + 30.seconds, 11.minutes, 11.minutes + 1.seconds, 1.days - 1.milliseconds, 1.days, 3.days,
     )
+    /** Quiet stretches before the first probe frame: a short pause, a long one, and just inside the horizon. */
+    private val LEAD_TICKS: List<Duration> = listOf(1.seconds, 61.seconds, 5.minutes, 9.minutes + 50.seconds)
+
+    /** Quiet stretches before the second probe frame, straddling the ten minute horizon and the eleven minute band end. */
+    private val PROBE_TICKS: List<Duration> = listOf(
+        8.minutes, 9.minutes, 9.minutes + 59.seconds, 10.minutes, 10.minutes + 30.seconds, 11.minutes,
+        11.minutes + 1.seconds, 15.minutes, 20.minutes,
+    )
     private val STATUSES: List<PermissionStatus> = listOf(
         PermissionStatus.Granted,
         PermissionStatus.Limited,
@@ -103,9 +111,41 @@ internal object NotifierLongHorizon {
             if (log.size > 40) log.removeFirst()
         }
 
+        var currentStep = 0
+
+        fun advance(requested: Duration) {
+            var by: Duration = requested
+            if (now + by > TOTAL) by = TOTAL - now
+            clock += by
+            now += by
+            note("+${by.inWholeMilliseconds}ms")
+        }
+
+        suspend fun postFrame(id: String, frame: LocalNotification) {
+            val where = "seed $seed step $currentStep virtual ${now.inWholeMinutes} min"
+            val result: NotificationResult = notifier.post(id, frame)
+            note("post($id,${frame.title}/${frame.body}/${frame.channel.id},${frame.progress})=${result::class.simpleName}")
+            val context = "$where. Last steps: ${log.joinToString("; ")}"
+            when {
+                host.permissionGate && !status.isUsable -> {
+                    assertEquals(NotificationResult.PermissionDenied, result, "$context: permission is not usable")
+                    tally.denied++
+                }
+
+                host.hasAppSwitch && !enabled -> {
+                    assertEquals(NotificationResult.NotificationsDisabled, result, "$context: app switch is off")
+                    tally.disabled++
+                }
+
+                else -> judge(frame, id, result, baselines, now, tally, context)
+            }
+            if (result == NotificationResult.Posted) tray[id] = frame.title to frame.body
+        }
+
         repeat(steps) { step: Int ->
+            currentStep = step
             val where = "seed $seed step $step virtual ${now.inWholeMinutes} min"
-            when (random.nextInt(16)) {
+            when (random.nextInt(18)) {
                 0 -> {
                     val id: String = IDS.random(random)
                     notifier.cancel(id)
@@ -138,12 +178,27 @@ internal object NotifierLongHorizon {
                     note("switch=$enabled")
                 }
 
-                4, 5, 6 -> {
-                    var by: Duration = TICKS.random(random)
-                    if (now + by > TOTAL) by = TOTAL - now
-                    clock += by
-                    now += by
-                    note("+${by.inWholeMilliseconds}ms")
+                4, 5, 6 -> advance(TICKS.random(random))
+
+                7, 8 -> {
+                    // A scripted probe of the abandoned-run horizon on an id that has a baseline: first a frame inside
+                    // the same bucket after a short or long quiet stretch (a suppressed frame is a sign of life), then
+                    // another after a stretch around ten minutes, repeating the very same frame both times.
+                    val id: String? = IDS.filter { it in baselines && it in lastLook }.randomOrNull(random)
+                    if (id != null) {
+                        val base: Baseline = baselines.getValue(id)
+                        val look: Triple<String, String, Int> = lastLook.getValue(id)
+                        val sameBucket = LocalNotification(
+                            title = look.first,
+                            body = look.second,
+                            channel = CHANNELS[look.third],
+                            progress = NotificationProgress.Determinate(base.bucket + random.nextInt(0, BUCKET)),
+                        )
+                        advance(LEAD_TICKS.random(random))
+                        postFrame(id, sameBucket)
+                        advance(PROBE_TICKS.random(random))
+                        postFrame(id, sameBucket)
+                    }
                 }
 
                 else -> {
@@ -162,29 +217,15 @@ internal object NotifierLongHorizon {
                     val look: Triple<String, String, Int> = lastLook[id]?.takeIf { random.nextInt(10) < 8 }
                         ?: Triple("t${random.nextInt(2)}", "b${random.nextInt(2)}", if (random.nextInt(8) == 0) 1 else 0)
                     lastLook[id] = look
-                    val frame = LocalNotification(
-                        title = look.first,
-                        body = look.second,
-                        channel = CHANNELS[look.third],
-                        progress = progress,
+                    postFrame(
+                        id,
+                        LocalNotification(
+                            title = look.first,
+                            body = look.second,
+                            channel = CHANNELS[look.third],
+                            progress = progress,
+                        ),
                     )
-                    val result: NotificationResult = notifier.post(id, frame)
-                    note("post($id,${frame.title}/${frame.body}/${frame.channel.id},$progress)=${result::class.simpleName}")
-                    val context = "$where. Last steps: ${log.joinToString("; ")}"
-                    when {
-                        host.permissionGate && !status.isUsable -> {
-                            assertEquals(NotificationResult.PermissionDenied, result, "$context: permission is not usable")
-                            tally.denied++
-                        }
-
-                        host.hasAppSwitch && !enabled -> {
-                            assertEquals(NotificationResult.NotificationsDisabled, result, "$context: app switch is off")
-                            tally.disabled++
-                        }
-
-                        else -> judge(frame, id, result, baselines, now, tally, context)
-                    }
-                    if (result == NotificationResult.Posted) tray[id] = frame.title to frame.body
                 }
             }
             val actual: Map<String, Pair<String, String>> = host.shown(IDS)
