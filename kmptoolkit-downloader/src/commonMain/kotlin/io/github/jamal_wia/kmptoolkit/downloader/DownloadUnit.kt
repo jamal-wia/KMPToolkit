@@ -98,6 +98,9 @@ public interface DownloadUnit {
     /**
      * Which group this unit's notification and aggregate progress are filed under. A group may span
      * several units (a model plus a companion file it needs), and a unit belongs to exactly one.
+     *
+     * When the group's own initialiser lists this unit (an enum entry naming a data object), declare this as a
+     * getter; a stored value read during the group's initialisation is null.
      */
     public val group: ResourceGroup
 }

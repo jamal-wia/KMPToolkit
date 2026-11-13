@@ -226,7 +226,9 @@ archive's size itself, or give the unit a `sha256` it trusts, which is checked b
 
 An archive that cannot be laid out on the file system as delivered fails the commit with `ResourceIntegrityException` on both
 platforms, and its temp file is deleted (one fresh download, then `DownloadError.Corrupted`): one name that is a file in one
-entry and a directory in another (`a` and `a/`, or `a` and `a/b.txt`), a name or path longer than the volume allows, and two
+entry and a directory in another (`a` and `a/`, or `a` and `a/b.txt`), a name or path longer than the volume allows (on Android
+more than 4,095 bytes, on iOS more than 1,023, counted in UTF-8 with the extraction directory; refused before anything of
+the entry is created), and two
 entries that differ only in case or Unicode normalization on a volume that treats them as one name (APFS on iOS, whose
 volume is case-insensitive by default; an Android device's `filesDir` is case-sensitive, so both are extracted there). The
 same entry name twice is not a conflict: the later bytes win, as in every unzip. The availability marker must be a regular

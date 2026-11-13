@@ -130,6 +130,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
+- `kmptoolkit-downloader`: an archive entry with thousands of path segments no longer exhausts memory or stalls in
+  directory creation: a path longer than the platform allows fails the commit with `ResourceIntegrityException`
+  before anything is created.
 - `kmptoolkit-logging` (Android): the Android log sink no longer loses the stack trace of a cause chain with an
   `UnknownHostException` beyond the 64th link and no longer hands a cyclic cause chain to `android.util.Log`, which
   looped forever. The chain is now walked to its end with an identity-based visited set; a chain that holds an

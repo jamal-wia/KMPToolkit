@@ -653,7 +653,8 @@ internal class AndroidDownloaderStorage(
     /**
      * Extracts [tempFile] into [targetDir]. Every entry is extracted or the call fails: an archive that cannot be
      * read as delivered (a cut or corrupt entry, a size or CRC-32 mismatch, an unsupported method, an encrypted
-     * entry, a name that leaves [targetDir] or holds a NUL) throws [ResourceIntegrityException]. Only the READ side
+     * entry, a name that leaves [targetDir] or holds a NUL, a path longer than [MAX_ENTRY_PATH_BYTES] bytes) throws
+     * [ResourceIntegrityException]. Only the READ side
      * is classified that way; a failure to write (a full disk) stays the plain [IOException] it is.
      */
     private fun extractZip(unit: DownloadUnit, tempFile: File, targetDir: String) {
@@ -676,6 +677,15 @@ internal class AndroidDownloaderStorage(
                 // canonicalPath would throw a plain IOException for a NUL, which is not a storage failure.
                 if (entryName.indexOf('\u0000') >= 0) {
                     throw ResourceIntegrityException("Archive of $unit has an entry name with a NUL character")
+                }
+                // Before anything touches the file system: canonicalFile, the layout check and mkdirs each walk
+                // the whole path, and a name of tens of thousands of segments would spend minutes or the heap on
+                // a path no file system holds. A name that climbs out (null) still fails in requireInside below.
+                val resolved: List<String>? = resolveEntrySegments(entryName)
+                if (resolved != null && entryPathBytes(dirPath, resolved) > MAX_ENTRY_PATH_BYTES) {
+                    throw ResourceIntegrityException(
+                        "Archive of $unit cannot be extracted: '${shortEntryName(entryName)}' is longer than this file system allows",
+                    )
                 }
                 // The canonical file, so `a/../x` is written as `x` (the lexical result) and a climbing name fails.
                 val output: File = File(dir, entryName).canonicalFile
@@ -768,6 +778,9 @@ internal class AndroidDownloaderStorage(
     }
 
     private companion object {
+        /** The longest path, in UTF-8 bytes, an entry may get: PATH_MAX (4096) less the terminating NUL. */
+        const val MAX_ENTRY_PATH_BYTES: Int = 4095
+
         /** How often deleteResource retries moving a present tree aside before it deletes it in place. */
         const val MAX_DETACH_ATTEMPTS: Int = 3
 
