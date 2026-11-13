@@ -153,6 +153,9 @@ class VideoPlayerLifecycleChaosFuzzD1R10AdversarialTest {
         val scope: CoroutineScope = CoroutineScope(dispatcher + CoroutineExceptionHandler { _, e -> escaped += e })
         val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(positionUpdateIntervalMs = 100L, minPlaybackSpeed = 0.25f, maxPlaybackSpeed = 3f), dispatcher)
         val jobs: MutableList<Job> = mutableListOf()
+
+        /** Prepares the script cancelled while they were still running: they must end cancelled, all others normally. */
+        val cancelledWhileActive: MutableSet<Job> = mutableSetOf()
         val emitted: MutableList<VideoPlayerState> = mutableListOf()
         val trace: MutableList<String> = mutableListOf()
         val collector: Job = CoroutineScope(Dispatchers.Unconfined).launch(start = CoroutineStart.UNDISPATCHED) {
@@ -306,6 +309,7 @@ class VideoPlayerLifecycleChaosFuzzD1R10AdversarialTest {
         val active: List<Job> = h.jobs.filter { it.isActive }
         val target: Job? = if (m != null) m.pending?.job else if (active.isNotEmpty() && r.nextInt(4) > 0) active[r.nextInt(active.size)] else h.jobs.takeIf { it.isNotEmpty() }?.let { it[r.nextInt(it.size)] }
         if (target != null) cover(if (target.isActive) "cancel/active-prepare" else "cancel/finished-prepare")
+        if (target != null && target.isActive) h.cancelledWhileActive += target
         target?.cancel()
         if (m != null && m.pending != null) { m.kind = Kind.IDLE; m.pending = null; m.sourceReset(); m.releases++; m.holds = false }
     }
@@ -401,6 +405,12 @@ class VideoPlayerLifecycleChaosFuzzD1R10AdversarialTest {
         if (h.emittedAtRelease < 0) h.emittedAtRelease = h.emitted.size
         h.player.release()
         h.dispatcher.drain()
+        // 04, prepare: a cancelled caller sees the CancellationException; a replaced, unloaded or released one returns normally.
+        h.jobs.forEach { job: Job ->
+            if (job in h.cancelledWhileActive && !job.isCancelled) fail("a prepare cancelled by its caller did not end cancelled: $job; $where")
+            if (job !in h.cancelledWhileActive && job.isCancelled) fail("a prepare nobody cancelled ended cancelled (it must return normally): $job; $where")
+            if (!job.isCompleted) fail("a prepare never finished: $job; $where")
+        }
         h.jobs.forEach { it.cancel() }
         h.dispatcher.drain()
         h.dispatcher.advance(1_000L)
