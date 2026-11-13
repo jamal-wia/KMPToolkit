@@ -77,8 +77,11 @@ platform. Concurrent writers of one path each succeed and the last rename wins.
 
 `readBytes(path, maxBytes)` returns the whole file or a typed failure. A file larger than `maxBytes`
 — judged by its size before reading, or by what reading found if it grew — is `TooLarge` and is not
-returned in part. A device, pipe or socket is `Unsupported` and is never opened. `maxBytes` must be
-between 0 and `FileAccess.MAX_READ_BYTES`, or `IllegalArgumentException`.
+returned in part. A device, pipe or socket is `Unsupported` and is never opened. The kind is checked
+before the open, so a pipe that replaces the regular file between the check and the open is opened
+by the blocking open, and the call then blocks the calling I/O thread until a writer appears (a race
+the engines cannot close). `maxBytes` must be between 0 and `FileAccess.MAX_READ_BYTES`, or
+`IllegalArgumentException`.
 
 ## Read-modify-write with `PathLocks`
 
@@ -133,8 +136,12 @@ suspend fun cleanUp(files: FileAccess, directory: String): Int =
 `sweep` deletes only regular files and symbolic links directly in the directory (never recurses,
 never deletes a directory) whose last modification is **more than** `olderThanMillis` before now.
 Entries without a known time and entries dated in the future are kept. It returns how many it
-deleted. The age is what keeps it from deleting the temporary file of a write in flight: pick an age
-longer than your longest write. Run it at startup and when you open a directory.
+deleted. The kind is checked before the remove, so an empty directory that replaces an aged matching
+file between the check and the remove is removed (a race the engines cannot close). A path below a
+regular file (`f/x`, `f` a regular file) is `NotADirectory(f/x)`, naming the path given; every other
+function treats such a path as absent. The age is what keeps it from deleting the temporary file of
+a write in flight: pick an age longer than your longest write. Run it at startup and when you open
+a directory.
 
 ## Recursive delete and tree size
 

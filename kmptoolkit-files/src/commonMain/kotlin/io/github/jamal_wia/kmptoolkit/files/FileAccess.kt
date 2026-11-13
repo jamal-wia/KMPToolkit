@@ -27,7 +27,9 @@ public interface FileAccess {
 
     /**
      * The names of the entries of [directory], sorted by [String.compareTo], without `.` and `..`.
-     * An absent directory is `Success(emptyList())`; a non-directory is [FileError.NotADirectory].
+     * An absent directory is `Success(emptyList())`; a non-directory is [FileError.NotADirectory]. A path below a
+     * regular file (`f/x`, `f` a regular file) is `NotADirectory(f/x)`, naming the path given; every other function
+     * treats such a path as absent.
      */
     public fun list(directory: String): FileResult<List<String>>
 
@@ -47,6 +49,9 @@ public interface FileAccess {
      * A file larger than [maxBytes], judged by its size before reading or by what reading found, is
      * [FileError.TooLarge] and is not returned in part. Absent: [FileError.NotFound]; a directory:
      * [FileError.IsADirectory]; a device, pipe or socket: [FileError.Unsupported] (it is never opened).
+     * The kind is checked before the open, so a pipe that replaces the regular file between the check and the open is
+     * opened by the blocking open, and the call then blocks the calling I/O thread until a writer appears (a race the
+     * engines cannot close).
      * @throws IllegalArgumentException when [maxBytes] is negative or above [MAX_READ_BYTES].
      */
     public fun readBytes(path: String, maxBytes: Long): FileResult<ByteArray>
@@ -123,8 +128,11 @@ public interface FileAccess {
     /**
      * Deletes the regular files and symbolic links directly in [directory] whose name satisfies [match] and whose
      * last modification is more than [olderThanMillis] before now (entries without a known time, and entries dated
-     * in the future, are kept). Never recurses, never deletes a directory. Returns how many were deleted; an absent
-     * directory is `Success(0)`. Exceptions thrown by [match] propagate.
+     * in the future, are kept). Never recurses, never deletes a directory, except that an empty directory that replaces
+     * an aged matching file between the check and the remove is removed (a race the engines cannot close). Returns how
+     * many were deleted; an absent directory is `Success(0)`. A path below a regular file (`f/x`, `f` a regular file)
+     * is `NotADirectory(f/x)`, naming the path given; every other function treats such a path as absent. Exceptions
+     * thrown by [match] propagate.
      * @throws IllegalArgumentException when [olderThanMillis] is negative.
      */
     public fun sweep(
