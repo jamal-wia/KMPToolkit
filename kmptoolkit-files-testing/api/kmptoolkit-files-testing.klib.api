@@ -144,6 +144,7 @@ final class io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract { //
     final fun deleteOfAnAbsentPathIsSuccess() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteOfAnAbsentPathIsSuccess|deleteOfAnAbsentPathIsSuccess(){}[0]
     final fun deleteRecursivelyByConcurrentDeletersAllSucceed() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteRecursivelyByConcurrentDeletersAllSucceed|deleteRecursivelyByConcurrentDeletersAllSucceed(){}[0]
     final fun deleteRecursivelyDoesNotFollowSymbolicLinks() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteRecursivelyDoesNotFollowSymbolicLinks|deleteRecursivelyDoesNotFollowSymbolicLinks(){}[0]
+    final fun deleteRecursivelyOfALinkToADirectoryRemovesOnlyTheLink() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteRecursivelyOfALinkToADirectoryRemovesOnlyTheLink|deleteRecursivelyOfALinkToADirectoryRemovesOnlyTheLink(){}[0]
     final fun deleteRecursivelyOfAnAbsentPathIsSuccess() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteRecursivelyOfAnAbsentPathIsSuccess|deleteRecursivelyOfAnAbsentPathIsSuccess(){}[0]
     final fun deleteRecursivelyRemovesAFullTree() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteRecursivelyRemovesAFullTree|deleteRecursivelyRemovesAFullTree(){}[0]
     final fun deleteRecursivelyStopsWhenCancelled() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteRecursivelyStopsWhenCancelled|deleteRecursivelyStopsWhenCancelled(){}[0]
@@ -166,6 +167,8 @@ final class io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract { //
     final fun moveReplacesTheTargetWithTheSourceContent() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.moveReplacesTheTargetWithTheSourceContent|moveReplacesTheTargetWithTheSourceContent(){}[0]
     final fun moveWithAMissingParentIsNotFound() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.moveWithAMissingParentIsNotFound|moveWithAMissingParentIsNotFound(){}[0]
     final fun moveWithFailNeverReplaces() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.moveWithFailNeverReplaces|moveWithFailNeverReplaces(){}[0]
+    final fun moveWithFailOfADirectoryOrALinkIsUnsupported() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.moveWithFailOfADirectoryOrALinkIsUnsupported|moveWithFailOfADirectoryOrALinkIsUnsupported(){}[0]
+    final fun readBytesFollowsSymbolicLinks() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.readBytesFollowsSymbolicLinks|readBytesFollowsSymbolicLinks(){}[0]
     final fun readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead|readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead(){}[0]
     final fun readBytesOfADirectoryIsADirectory() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.readBytesOfADirectoryIsADirectory|readBytesOfADirectoryIsADirectory(){}[0]
     final fun readBytesOfAnAbsentFileIsNotFound() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.readBytesOfAnAbsentFileIsNotFound|readBytesOfAnAbsentFileIsNotFound(){}[0]
@@ -196,6 +199,7 @@ final class io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract { //
     final fun writeAtomicallyReplacesTheWholeContent() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyReplacesTheWholeContent|writeAtomicallyReplacesTheWholeContent(){}[0]
     final fun writeAtomicallyWithACustomTempPrefixLeavesNothing() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyWithACustomTempPrefixLeavesNothing|writeAtomicallyWithACustomTempPrefixLeavesNothing(){}[0]
     final fun writeAtomicallyWithAMissingParentIsNotFound() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyWithAMissingParentIsNotFound|writeAtomicallyWithAMissingParentIsNotFound(){}[0]
+    final fun writeAtomicallyWithFailRefusesADanglingLink() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyWithFailRefusesADanglingLink|writeAtomicallyWithFailRefusesADanglingLink(){}[0]
     final fun writeAtomicallyWithFailRefusesAnExistingTarget() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyWithFailRefusesAnExistingTarget|writeAtomicallyWithFailRefusesAnExistingTarget(){}[0]
 }
 

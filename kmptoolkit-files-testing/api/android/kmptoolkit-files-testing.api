@@ -119,6 +119,7 @@ public final class io/github/jamal_wia/kmptoolkit/files/testing/FileAccessContra
 	public final fun deleteOfAnAbsentPathIsSuccess ()V
 	public final fun deleteRecursivelyByConcurrentDeletersAllSucceed ()V
 	public final fun deleteRecursivelyDoesNotFollowSymbolicLinks ()V
+	public final fun deleteRecursivelyOfALinkToADirectoryRemovesOnlyTheLink ()V
 	public final fun deleteRecursivelyOfAnAbsentPathIsSuccess ()V
 	public final fun deleteRecursivelyRemovesAFullTree ()V
 	public final fun deleteRecursivelyStopsWhenCancelled ()V
@@ -141,6 +142,8 @@ public final class io/github/jamal_wia/kmptoolkit/files/testing/FileAccessContra
 	public final fun moveReplacesTheTargetWithTheSourceContent ()V
 	public final fun moveWithAMissingParentIsNotFound ()V
 	public final fun moveWithFailNeverReplaces ()V
+	public final fun moveWithFailOfADirectoryOrALinkIsUnsupported ()V
+	public final fun readBytesFollowsSymbolicLinks ()V
 	public final fun readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead ()V
 	public final fun readBytesOfADirectoryIsADirectory ()V
 	public final fun readBytesOfAnAbsentFileIsNotFound ()V
@@ -171,6 +174,7 @@ public final class io/github/jamal_wia/kmptoolkit/files/testing/FileAccessContra
 	public final fun writeAtomicallyReplacesTheWholeContent ()V
 	public final fun writeAtomicallyWithACustomTempPrefixLeavesNothing ()V
 	public final fun writeAtomicallyWithAMissingParentIsNotFound ()V
+	public final fun writeAtomicallyWithFailRefusesADanglingLink ()V
 	public final fun writeAtomicallyWithFailRefusesAnExistingTarget ()V
 }
 

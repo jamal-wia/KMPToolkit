@@ -216,6 +216,36 @@ class ScriptedOpsEngineTest {
     }
 
     @Test
+    fun `extended length and device namespace paths are InvalidPath for every function and reach no ops`() {
+        val spellings: List<String> = listOf(
+            "\\\\?\\C:\\d\\f",
+            "//?/c:/D/F",
+            "\\\\?\\UNC\\srv\\sh\\f",
+            "\\\\.\\C:\\x",
+            "\\\\.\\pipe\\x",
+        )
+        for (path: String in spellings) {
+            val ops: ScriptedOps = ScriptedOps(windowsPaths = true)
+            val files: FileAccess = engine(ops)
+            val invalid: FileError = FileError.InvalidPath(path)
+            assertEquals(null, files.metadata(path), path)
+            assertEquals(false, files.exists(path), path)
+            assertEquals(null, files.freeSpaceBytes(path), path)
+            assertEquals(invalid, files.list(path).errorOrNull(), "list $path")
+            assertEquals(invalid, files.createDirectories(path).errorOrNull(), "createDirectories $path")
+            assertEquals(invalid, files.readBytes(path, 10L).errorOrNull(), "readBytes $path")
+            assertEquals(invalid, files.writeAtomically(path, ByteArray(1)).errorOrNull(), "writeAtomically $path")
+            assertEquals(invalid, files.delete(path).errorOrNull(), "delete $path")
+            assertEquals(invalid, files.deleteRecursively(path).errorOrNull(), "deleteRecursively $path")
+            assertEquals(invalid, files.treeSize(path).errorOrNull(), "treeSize $path")
+            assertEquals(invalid, files.sweep(path, 0L) { true }.errorOrNull(), "sweep $path")
+            assertEquals(invalid, files.move(path, "C:\\d\\g").errorOrNull(), "move from $path")
+            assertEquals(invalid, files.move("C:\\d\\g", path).errorOrNull(), "move to $path")
+            assertTrue(ops.touched.isEmpty() && ops.created.isEmpty() && ops.removed.isEmpty(), "ops saw a call for $path: ${ops.touched}")
+        }
+    }
+
+    @Test
     fun `the config prefix names the temp file when the options name none`() {
         val ops: ScriptedOps = ScriptedOps()
         FileEngine(ops, FileAccessConfig("cfg-")).writeAtomically("/data/f", ByteArray(1))

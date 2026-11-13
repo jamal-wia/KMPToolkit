@@ -42,10 +42,11 @@ assertEquals("Ada", store.loadName())
 
 It models inodes (a rename carries content and sync state; hard links share them), symbolic links,
 per-file synced content and per-directory synced entries — enough to simulate a power loss. Names over
-255 UTF-8 bytes are `NameTooLong`, as on ext4. `FakeFileAccess(caseSensitive = false)` models a
+255 UTF-8 bytes are `NameTooLong` in every lookup, as on ext4. `FakeFileAccess(caseSensitive = false)` models a
 case-insensitive volume: `/d/A` and `/d/a` are one entry and the spelling of creation is listed. Names are
-folded with one fixed rule (NFC, lowercase, uppercase, lowercase, NFC) that does not depend on the host, so a
-name with a backslash stays a different name from its prefix on a Windows test host too.
+folded with one fixed rule (NFD, lowercase, uppercase, lowercase, NFC) that does not depend on the host, so a
+name with a backslash stays a different name from its prefix on a Windows test host too. The rule folds slightly
+more than APFS or NTFS (for example dotless `ı` and `I` are one name), never less.
 
 ### Seeding
 
@@ -58,6 +59,9 @@ name with a backslash stays a different name from its prefix on a Windows test h
 | `markAllDurable()` | makes the current state the durable baseline; call it after seeding through `FileAccess` calls |
 
 Seeded entries "count as durable": a simulated power loss keeps them.
+
+A seeded path segment over 255 UTF-8 bytes throws `IllegalArgumentException` (the entry would be unreachable, every
+lookup of it being `NameTooLong`), and so does `setLastModified` of a path that does not exist.
 
 ### The clock, space and links
 
@@ -187,10 +191,11 @@ class MyDecoratorContractTest {
 check. Each check is also a public function (`writeAtomicallyReplacesTheWholeContent()`,
 `deleteRecursivelyDoesNotFollowSymbolicLinks()`, …) so a runner can report them one by one. The
 checks cover metadata kinds and links, `list`, `createDirectories` (including concurrent creators, and `durable = true` giving the same results),
-`readBytes` limits, `InvalidPath` for a relative, empty or NUL-containing path on every function (so a decorator
+`readBytes` limits (and `readBytes` through links: a file, a directory, a dangling link), `InvalidPath` for a relative, empty or NUL-containing path on every function (so a decorator
 that resolves relative paths against a base fails), every `writeAtomically` outcome (replace, empty content, missing parent, directory
-target, `Fail`, links, temp directory, no leftover, concurrent writers), `move`, `delete`,
-`deleteRecursively` (including concurrent deleters and cancellation), `treeSize`, `sweep` (age, cancellation, old symbolic links),
+target, `Fail` (including over a dangling link), links, temp directory, no leftover, concurrent writers), `move` (including
+`Fail` of a directory or a link, and which path an error names), `delete`,
+`deleteRecursively` (including concurrent deleters, cancellation and a link to a directory as the root), `treeSize`, `sweep` (age, cancellation, old symbolic links),
 `freeSpaceBytes`, `exists` and `withIo`. The two `withIo` checks verify the extension, which no implementation can
 override, not the implementation under test.
 

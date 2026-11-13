@@ -39,6 +39,13 @@ internal class FileEngine(
     private fun isValid(path: String): Boolean {
         if (path.isEmpty() || path.indexOf('\u0000') >= 0 || !rules.isAbsolute(path)) return false
         if (ops.windowsPaths) {
+            // The extended-length (\\?\) and device (\\.\) namespaces bypass the name rules below: never accepted,
+            // whatever the JDK's own parser does with them.
+            if (path.length >= 4 && rules.isSeparator(path[0]) && rules.isSeparator(path[1]) &&
+                (path[2] == '?' || path[2] == '.') && rules.isSeparator(path[3])
+            ) {
+                return false
+            }
             for (segment: String in rules.parse(path).segments) {
                 if (segment == "." || segment == "..") continue
                 if (segment.endsWith('.') || segment.endsWith(' ') || FileNames.isWindowsReserved(segment)) return false
@@ -373,10 +380,22 @@ internal class FileEngine(
                 if (e.error is FileError.CrossDevice && options.acrossVolumes && source.kind == FileKind.RegularFile) {
                     copyAcrossVolumes(from, to, options, cancellation)
                 } else {
-                    FileResult.Failure(e.error)
+                    FileResult.Failure(moveError(e.error, from, to))
                 }
             }
         }
+    }
+
+    /**
+     * The path a failed [move] names: [to] when the destination is the offender (an existing entry of the wrong kind,
+     * or a missing parent while [from] still exists), [from] when [from] itself is absent. Every platform's ops label
+     * a rename failure with `from`, so the engine relabels here.
+     */
+    private fun moveError(error: FileError, from: String, to: String): FileError = when (error) {
+        is FileError.AlreadyExists, is FileError.IsADirectory,
+        is FileError.NotADirectory, is FileError.DirectoryNotEmpty -> error.withPath(to)
+        is FileError.NotFound -> if (metadataOrNull(from, false) != null) error.withPath(to) else error.withPath(from)
+        else -> error
     }
 
     private fun copyAcrossVolumes(
@@ -491,7 +510,13 @@ internal class FileEngine(
                 frame.listed = true
                 for (name: String in names) stack.addLast(Frame(rules.join(frame.path, name), false))
             }
-            if (metadataOrNull(path, false) == null) {
+            // A root that cannot be examined is not "nothing left": report the error, never Success.
+            val left: FileMetadata? = try {
+                ops.metadata(path, false)
+            } catch (e: FileOpException) {
+                return FileResult.Failure(firstError ?: e.error)
+            }
+            if (left == null) {
                 FileResult.Success(Unit)
             } else {
                 FileResult.Failure(firstError ?: FileError.DirectoryNotEmpty(path))

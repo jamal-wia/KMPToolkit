@@ -81,6 +81,11 @@ public interface FileAccess {
      * Errors: [from] absent [FileError.NotFound]; a directory at [to] [FileError.IsADirectory]; a directory [from]
      * across volumes [FileError.CrossDevice]; a directory or symbolic link [from] with [ExistingFile.Fail] [FileError.Unsupported] (a hard link
      * would follow the link on some platforms, and no atomic no-replace rename of a directory exists).
+     * The error's path is [to] for [FileError.AlreadyExists], [FileError.IsADirectory], [FileError.NotADirectory] and
+     * [FileError.DirectoryNotEmpty], and for [FileError.NotFound] while [from] still exists (a missing parent of [to]);
+     * it is [from] for [FileError.NotFound] of an absent [from] and for [FileError.Unsupported] of a directory or link
+     * [from]. With [MoveOptions.createParentDirectories], a failure to create the parent names the level, as
+     * [FileAccess.createDirectories] does. Other errors name the path the platform reports.
      */
     public fun move(
         from: String,
@@ -98,7 +103,8 @@ public interface FileAccess {
     /**
      * Removes [path] and everything under it without following any symbolic link. An entry that disappears during
      * the walk counts as removed, so concurrent deletes of one tree all succeed. Keeps going past entries it cannot
-     * remove and then reports the first error; Success means nothing is left at [path]. Checks [cancellation] before
+     * remove and then reports the first error; Success means nothing is left at [path] (a path that cannot be
+     * examined is reported with that error). Checks [cancellation] before
      * every entry and stops with [FileError.Cancelled], leaving the rest in place. Iterative: no depth limit.
      * Links present during the walk are never followed; a concurrent replacement of a directory by a link while the
      * walk is inside it is not defended against.

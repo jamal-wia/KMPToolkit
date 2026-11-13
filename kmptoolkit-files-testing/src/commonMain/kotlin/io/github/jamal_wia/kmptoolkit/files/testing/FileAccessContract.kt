@@ -88,6 +88,7 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         metadataDoesNotFollowLinksByDefault()
         metadataFollowLinksReportsTheTarget()
         metadataOfADanglingLinkIsNullWhenFollowing()
+        readBytesFollowsSymbolicLinks()
         listIsSortedWithoutDotEntries()
         listOfAnAbsentDirectoryIsEmpty()
         listOfAFileIsNotADirectory()
@@ -105,6 +106,7 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         writeAtomicallyCreatesParentDirectoriesWhenAsked()
         writeAtomicallyOverADirectoryIsADirectory()
         writeAtomicallyWithFailRefusesAnExistingTarget()
+        writeAtomicallyWithFailRefusesADanglingLink()
         writeAtomicallyLeavesNoTemporaryFile()
         writeAtomicallyReplacesASymbolicLinkNotItsTarget()
         writeAtomicallyHonoursTheTempDirectoryAndLeavesItClean()
@@ -114,6 +116,7 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload()
         moveReplacesTheTargetWithTheSourceContent()
         moveWithFailNeverReplaces()
+        moveWithFailOfADirectoryOrALinkIsUnsupported()
         moveOfAMissingSourceIsNotFound()
         moveOverADirectoryIsADirectory()
         moveCreatesParentDirectoriesWhenAsked()
@@ -127,6 +130,7 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         deleteRecursivelyRemovesAFullTree()
         deleteRecursivelyOfAnAbsentPathIsSuccess()
         deleteRecursivelyDoesNotFollowSymbolicLinks()
+        deleteRecursivelyOfALinkToADirectoryRemovesOnlyTheLink()
         deleteRecursivelyByConcurrentDeletersAllSucceed()
         deleteRecursivelyStopsWhenCancelled()
         treeSizeSumsTheRegularFiles()
@@ -163,13 +167,14 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(files.metadata(p("absent")) == null, "an absent path has no metadata")
     }
 
-    /** A symbolic link reports [FileKind.SymbolicLink] by default and is never followed. */
+    /** A symbolic link reports [FileKind.SymbolicLink] by default and is never followed; its own size is 0, not its target's. */
     public fun metadataDoesNotFollowLinksByDefault(): Unit = scenario("metadataDoesNotFollowLinksByDefault") {
         val link: (String, String) -> Unit = linkMaker() ?: return@scenario
         write("target", "t")
         link(p("link"), p("target"))
         expect(files.metadata(p("link"))?.kind == FileKind.SymbolicLink, "the default does not follow a link")
         expect(files.metadata(p("link"), followLinks = false)?.kind == FileKind.SymbolicLink, "followLinks = false does not follow")
+        expect(files.metadata(p("link"))?.sizeBytes == 0L, "a link reports size 0, not its target's, was ${files.metadata(p("link"))?.sizeBytes}")
     }
 
     /** With `followLinks = true` a link reports its target. */
@@ -184,13 +189,32 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(files.metadata(p("l2"), followLinks = true)?.kind == FileKind.Directory, "a followed link reports its directory target")
     }
 
-    /** A dangling link is `null` when followed and still a link otherwise. */
+    /** A dangling link is `null` when followed and still a link (of size 0) otherwise. */
     public fun metadataOfADanglingLinkIsNullWhenFollowing(): Unit = scenario("metadataOfADanglingLinkIsNullWhenFollowing") {
         val link: (String, String) -> Unit = linkMaker() ?: return@scenario
         link(p("dangling"), p("nothing-here"))
         expect(files.metadata(p("dangling"), followLinks = true) == null, "a dangling link followed has no metadata")
         expect(files.metadata(p("dangling"))?.kind == FileKind.SymbolicLink, "a dangling link itself is a SymbolicLink")
+        expect(files.metadata(p("dangling"))?.sizeBytes == 0L, "a dangling link reports size 0, was ${files.metadata(p("dangling"))?.sizeBytes}")
         expect(!files.exists(p("dangling")), "exists follows links, so a dangling link does not exist")
+    }
+
+    /**
+     * `readBytes` follows symbolic links: a link to a file reads the file's bytes, a link to a directory is
+     * [FileError.IsADirectory], a dangling link is [FileError.NotFound].
+     *
+     * @since 5.0.0
+     */
+    public fun readBytesFollowsSymbolicLinks(): Unit = scenario("readBytesFollowsSymbolicLinks") {
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        write("target", "payload")
+        mkdir("dir")
+        link(p("to-file"), p("target"))
+        link(p("to-dir"), p("dir"))
+        link(p("dangling"), p("nothing-here"))
+        expect(text("to-file") == "payload", "a link to a file reads the file's bytes, was ${text("to-file")}")
+        failure<FileError.IsADirectory>(files.readBytes(p("to-dir"), 100L), "readBytes of a link to a directory")
+        failure<FileError.NotFound>(files.readBytes(p("dangling"), 100L), "readBytes of a dangling link")
     }
 
     // ---- list and createDirectories ---------------------------------------------------------------
@@ -347,6 +371,24 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(names(root) == listOf("d"), "no temporary file is left, was ${names(root)}")
     }
 
+    /**
+     * [ExistingFile.Fail] over a dangling symbolic link is [FileError.AlreadyExists]: the link stays a link, its target
+     * stays absent and no temporary file is left (needs a link maker).
+     *
+     * @since 5.0.0
+     */
+    public fun writeAtomicallyWithFailRefusesADanglingLink(): Unit = scenario("writeAtomicallyWithFailRefusesADanglingLink") {
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        link(p("dangling"), p("nothing-here"))
+        failure<FileError.AlreadyExists>(
+            files.writeAtomically(p("dangling"), "new".encodeToByteArray(), WriteOptions(existing = ExistingFile.Fail)),
+            "writeAtomically with Fail over a dangling link",
+        )
+        expect(files.metadata(p("dangling"))?.kind == FileKind.SymbolicLink, "the path is still a SymbolicLink")
+        expect(files.metadata(p("nothing-here")) == null, "the link's target is still absent")
+        expect(names(root) == listOf("dangling"), "no temporary file is left, was ${names(root)}")
+    }
+
     /** [ExistingFile.Fail] refuses an existing target and leaves it and the directory unchanged; on an absent one it writes. */
     public fun writeAtomicallyWithFailRefusesAnExistingTarget(): Unit = scenario("writeAtomicallyWithFailRefusesAnExistingTarget") {
         write("f", "old")
@@ -486,17 +528,19 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(names(root) == listOf("b", "c"), "no temporary file is left, was ${names(root)}")
     }
 
-    /** An absent source is [FileError.NotFound]. */
+    /** An absent source is [FileError.NotFound], and the error names the source. */
     public fun moveOfAMissingSourceIsNotFound(): Unit = scenario("moveOfAMissingSourceIsNotFound") {
-        failure<FileError.NotFound>(files.move(p("absent"), p("target")), "move of an absent source")
+        val error: FileError.NotFound = failure<FileError.NotFound>(files.move(p("absent"), p("target")), "move of an absent source")
+        expect(error.path == p("absent"), "the error names the absent source, was ${error.path}")
         expect(files.metadata(p("target")) == null, "nothing was created")
     }
 
-    /** A directory at the target is [FileError.IsADirectory] and is never replaced. */
+    /** A directory at the target is [FileError.IsADirectory] naming the target, and is never replaced. */
     public fun moveOverADirectoryIsADirectory(): Unit = scenario("moveOverADirectoryIsADirectory") {
         write("a", "A")
         mkdir("d")
-        failure<FileError.IsADirectory>(files.move(p("a"), p("d")), "move over a directory")
+        val error: FileError.IsADirectory = failure<FileError.IsADirectory>(files.move(p("a"), p("d")), "move over a directory")
+        expect(error.path == p("d"), "the error names the target directory, was ${error.path}")
         expect(text("a") == "A" && files.metadata(p("d"))?.kind == FileKind.Directory, "both are untouched")
     }
 
@@ -507,12 +551,37 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(text("x", "y", "f") == "A" && files.metadata(p("a")) == null, "the file moved into the new directories")
     }
 
-    /** Without it a missing parent is [FileError.NotFound] and the source stays. */
+    /** Without it a missing parent is [FileError.NotFound] naming the target and the source stays. */
     public fun moveWithAMissingParentIsNotFound(): Unit = scenario("moveWithAMissingParentIsNotFound") {
         write("a", "A")
-        failure<FileError.NotFound>(files.move(p("a"), p("nope", "f")), "move into a missing directory")
+        val error: FileError.NotFound = failure<FileError.NotFound>(files.move(p("a"), p("nope", "f")), "move into a missing directory")
+        expect(error.path == p("nope", "f"), "the error names the target while the source exists, was ${error.path}")
         expect(text("a") == "A", "the source is untouched")
         expect(files.metadata(p("nope")) == null, "no directory was created")
+    }
+
+    /**
+     * [ExistingFile.Fail] of a directory or a symbolic link is [FileError.Unsupported] naming the source, and changes
+     * nothing (the link check needs a link maker).
+     *
+     * @since 5.0.0
+     */
+    public fun moveWithFailOfADirectoryOrALinkIsUnsupported(): Unit = scenario("moveWithFailOfADirectoryOrALinkIsUnsupported") {
+        val fail: MoveOptions = MoveOptions(existing = ExistingFile.Fail)
+        mkdir("d")
+        write("d${separator}inner", "x")
+        val directoryError: FileError.Unsupported = failure<FileError.Unsupported>(files.move(p("d"), p("e"), fail), "move with Fail of a directory")
+        expect(directoryError.path == p("d"), "the error names the directory, was ${directoryError.path}")
+        expect(files.metadata(p("d"))?.kind == FileKind.Directory && text("d", "inner") == "x", "the directory and its content stay")
+        expect(files.metadata(p("e")) == null, "the target name stays absent")
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        write("target", "t")
+        link(p("link"), p("target"))
+        val linkError: FileError.Unsupported = failure<FileError.Unsupported>(files.move(p("link"), p("moved"), fail), "move with Fail of a link")
+        expect(linkError.path == p("link"), "the error names the link, was ${linkError.path}")
+        expect(files.metadata(p("link"))?.kind == FileKind.SymbolicLink, "the link is still a link")
+        expect(files.metadata(p("moved")) == null, "the target name stays absent")
+        expect(text("target") == "t", "the link's target is unchanged")
     }
 
     /** Links are moved as links: the link moves and its target stays. */
@@ -610,6 +679,23 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(files.metadata(p("tree")) == null, "the tree is gone")
         expect(text("outside", "keep") == "precious", "what the links pointed at is untouched")
     }
+
+    /**
+     * `deleteRecursively` of a symbolic link to a directory removes only the link: the directory it points at keeps
+     * its content (needs a link maker).
+     *
+     * @since 5.0.0
+     */
+    public fun deleteRecursivelyOfALinkToADirectoryRemovesOnlyTheLink(): Unit =
+        scenario("deleteRecursivelyOfALinkToADirectoryRemovesOnlyTheLink") {
+            val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+            mkdir("outside")
+            write("outside${separator}keep", "precious")
+            link(p("link"), p("outside"))
+            ok(files.deleteRecursively(p("link")), "deleteRecursively of a link to a directory")
+            expect(files.metadata(p("link")) == null, "the link is gone")
+            expect(text("outside", "keep") == "precious", "what the link pointed at is untouched, was ${text("outside", "keep")}")
+        }
 
     /** Concurrent deletes of one tree all succeed. */
     public fun deleteRecursivelyByConcurrentDeletersAllSucceed(): Unit = scenario("deleteRecursivelyByConcurrentDeletersAllSucceed") {

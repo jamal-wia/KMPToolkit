@@ -32,13 +32,14 @@ public object Paths {
     /**
      * Resolves `.`, `..` and repeated separators and drops a trailing separator. `..` above a root stays at the
      * root; leading `..` of a relative path are kept; an empty result is ".". Windows: accepts both separators,
-     * writes `\`. Lexical: does not know about symbolic links.
+     * writes `\`. Never changes whether a path is absolute or rooted: a relative Windows result whose first segment
+     * looks like a drive (`C:`) keeps a leading `.\`. Lexical: does not know about symbolic links.
      */
     public fun normalizeLexically(path: String): String = rules.normalizeLexically(path)
 
     /**
      * `normalizeLexically(join(base, relative))` when that stays inside [base], else `null` (absolute, NUL, or
-     * escaping [relative]).
+     * escaping [relative]; also null when the result would climb above a relative base, `..` past it).
      */
     public fun resolveInside(base: String, relative: String): String? = rules.resolveInside(base, relative)
 }
