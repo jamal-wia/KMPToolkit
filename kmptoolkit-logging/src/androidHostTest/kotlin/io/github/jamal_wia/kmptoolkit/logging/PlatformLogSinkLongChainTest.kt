@@ -75,6 +75,13 @@ class PlatformLogSinkLongChainTest {
     }
 
     @Test
+    fun `control an UnknownHostException at link 64 the last link the old bounded walk saw is rendered by the sink`() {
+        val item: ShadowLog.LogItem = logOnce(chainOf(63, UnknownHostException("h64")))
+        assertNull(item.throwable)
+        assertTrue(item.msg.contains("UnknownHostException: h64"), item.msg)
+    }
+
+    @Test
     fun `an UnknownHostException at link 65 is rendered by the sink and not left to the platform to swallow`() {
         val item: ShadowLog.LogItem = logOnce(chainOf(64, UnknownHostException("h65")))
         assertNull(item.throwable, "the chain has an UnknownHostException at link 65: the platform renders it as an empty string")
