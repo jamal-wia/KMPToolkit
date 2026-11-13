@@ -168,7 +168,8 @@ class RecorderFakeVersusRealR10Test {
                 }
                 else -> error("unknown step $step")
             }
-            fixture.engine.failures.clear()
+            // a scripted failure belongs to the step that follows it, and is gone after that step
+            if (!step.startsWith("fail:")) fixture.engine.failures.clear()
             runCurrent()
             log += "$step => $outcome | ${describe(fixture.recorder.state.value)} | elapsed=${fixture.recorder.elapsed.value} | deleted=${fixture.fileSystem.deletedPaths.map(::norm)}"
         }
@@ -211,7 +212,7 @@ class RecorderFakeVersusRealR10Test {
                 }
                 else -> error("unknown step $step")
             }
-            fake.failNextOperationWith = null
+            if (!step.startsWith("fail:")) fake.failNextOperationWith = null
             log += "$step => $outcome | ${describe(fake.state.value)} | elapsed=${fake.elapsed.value} | deleted=${fake.deletedPaths.map(::norm)}"
         }
         log += "history=" + history.map(::describe)

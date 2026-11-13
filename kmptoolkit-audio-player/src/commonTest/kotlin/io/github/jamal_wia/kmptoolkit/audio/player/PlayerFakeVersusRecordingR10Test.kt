@@ -64,6 +64,8 @@ class PlayerFakeVersusRecordingR10Test {
         listOf("prepare", "play", "engine:fail", "release", "play"),
         listOf("prepare", "speed:0", "speed:-1", "speed:NaN", "speed:Infinity", "play"),
         listOf("prepare", "play", "seek:10000", "adv:100", "seek:0", "adv:100"),
+        listOf("prepare", "seek:5000", "fwd:9223372036854775807", "back:9223372036854775807", "fwd:9223372036854775807"),
+        listOf("prepare", "play", "adv:3000", "back:-9223372036854775808", "fwd:-9223372036854775808"),
         listOf("prepare:zero", "fwd", "back", "seek:0", "play", "adv:100"),
     )
 
