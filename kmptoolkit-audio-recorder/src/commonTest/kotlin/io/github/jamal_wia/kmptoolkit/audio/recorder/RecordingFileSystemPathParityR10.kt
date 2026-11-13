@@ -6,8 +6,7 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder
  * Android and the iOS implementation are both held to. `resolve` joins "with the platform separator" and the
  * testing docs promise that a trailing or repeated separator of the directory is dropped, "as the real recorder
  * does"; `parentOf` answers the directory part or null if there is none. Each implementation calls [observe]
- * from its own platform test and compares with [EXPECTED]. Only the Android half is in the repository: the iOS
- * implementation does not meet the table (suspect R10-01).
+ * from its own platform test and compares with [EXPECTED].
  */
 internal object RecordingFileSystemPathParityR10 {
 

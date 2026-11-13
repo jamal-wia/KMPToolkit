@@ -397,7 +397,7 @@ public class FakeAudioRecorder(
     private fun generatePath(): String {
         val storage: RecordingStorage = config.storage
         sequence++
-        // The real join (File(directory, name) on Android, URLByAppendingPathComponent on iOS) drops a
+        // The real join (File(directory, name) on Android, a plain string join on iOS) drops a
         // trailing separator and collapses repeated ones, so a consumer test comparing paths sees the same.
         val joined: String = directory.replace(Regex("/{2,}"), "/").trimEnd('/')
         return "$joined/${storage.fileNamePrefix}_$sequence.${config.format.extension}"

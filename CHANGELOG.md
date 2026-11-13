@@ -149,6 +149,10 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   supersedes the parked row before that retry succeeds still withdraws it, as the conflict policy says.
 - `kmptoolkit-audio-recorder` (iOS): deleting a recording no longer removes a directory tree that replaced the output
   file.
+- `kmptoolkit-audio-recorder` (iOS): a generated path no longer keeps a repeated or several trailing separators of
+  `RecordingStorage.directoryPath`, and a file name is no longer returned in decomposed Unicode form instead of the form
+  the caller wrote, so a path is the same string as on Android (`FakeAudioRecorder` already did this). The directory
+  part of the root `/` is none, not `/..`.
 - `kmptoolkit-audio-recorder`: a recording the system ends (storage low, an interruption, a silenced input) no longer
   ends as `Interrupted` for a file that was deleted or replaced by a directory meanwhile; it fails as
   `Failed(RecordingLost(reason, cause), outputPath)` and keeps the path, as `stop()` does for the same situation.
