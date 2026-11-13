@@ -245,7 +245,8 @@ the matching `VideoControlsLabels` field (`null` → role only).
 - Drag: moves the handle only; `onScrub(position)` during the drag, then `onScrub(null)` and
   **one** `onSeek(position)` when the finger lifts. `onScrub(null)` without a seek when cancelled —
   by the platform, or because the bar stops being draggable mid-drag (`enabled` turns `false`,
-  `durationMs` drops to `0`, as on a failure or a new source preparing) or leaves the composition.
+  `durationMs` drops to `0`, as on a failure or a new source preparing) or leaves the composition, or the
+  bar's layout direction or thumb size changes.
   The handle then returns to `positionMs`; nothing stays frozen at the finger's last position.
 - Tap: `onSeek(tapped position)`.
 - While dragging, `positionMs` changes are ignored. After a seek, the handle stays at the target

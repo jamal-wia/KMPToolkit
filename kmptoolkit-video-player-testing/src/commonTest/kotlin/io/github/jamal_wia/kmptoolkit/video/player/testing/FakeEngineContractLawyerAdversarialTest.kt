@@ -23,13 +23,26 @@ class FakeEngineContractLawyerAdversarialTest {
 
     private val source: VideoSource = VideoSource.Asset("clip.mp4")
 
+    private val players: MutableList<VideoPlayer> = mutableListOf()
+
+    // A player left Playing keeps its position poll alive, and runTest drains that poll forever once an assertion
+    // has failed: releasing every player on every exit path turns that hang into the red it hides.
+    private fun runPlayerTest(body: suspend TestScope.() -> Unit): kotlinx.coroutines.test.TestResult = runTest {
+        try {
+            body()
+        } finally {
+            players.forEach { it.release() }
+            players.clear()
+        }
+    }
+
     private fun TestScope.newPlayer(engine: FakeVideoPlaybackEngine): VideoPlayer = createVideoPlayer(
         engine = engine,
         coroutineContext = StandardTestDispatcher(testScheduler),
-    )
+    ).also { players += it }
 
     @Test
-    fun `the documented counts hold across unload cancelled load and release`() = runTest {
+    fun `the documented counts hold across unload cancelled load and release`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine().apply { suspendLoads = true }
         val player: VideoPlayer = newPlayer(engine)
         val loading = launch { player.prepare(source) }
@@ -58,7 +71,7 @@ class FakeEngineContractLawyerAdversarialTest {
     }
 
     @Test
-    fun `the documented position poll example reads the fake's playhead and buffer`() = runTest {
+    fun `the documented position poll example reads the fake's playhead and buffer`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine()
         val player: VideoPlayer = newPlayer(engine)
         player.prepare(source)
@@ -72,7 +85,7 @@ class FakeEngineContractLawyerAdversarialTest {
     }
 
     @Test
-    fun `a completion reported on an idle or released player changes nothing`() = runTest {
+    fun `a completion reported on an idle or released player changes nothing`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine()
         val player: VideoPlayer = newPlayer(engine)
         engine.completePlayback()
@@ -95,7 +108,7 @@ class FakeEngineContractLawyerAdversarialTest {
     }
 
     @Test
-    fun `a looping fake never completes and a stall reported while preparing is shown with ready`() = runTest {
+    fun `a looping fake never completes and a stall reported while preparing is shown with ready`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine().apply { suspendLoads = true }
         val player: VideoPlayer = newPlayer(engine)
         player.setRepeatMode(RepeatMode.One)
@@ -118,7 +131,7 @@ class FakeEngineContractLawyerAdversarialTest {
     }
 
     @Test
-    fun `a sticky load failure stays until cleared and a second finish or fail is harmless`() = runTest {
+    fun `a sticky load failure stays until cleared and a second finish or fail is harmless`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine().apply { loadFailure = IllegalStateException("403") }
         val player: VideoPlayer = newPlayer(engine)
         repeat(3) {
