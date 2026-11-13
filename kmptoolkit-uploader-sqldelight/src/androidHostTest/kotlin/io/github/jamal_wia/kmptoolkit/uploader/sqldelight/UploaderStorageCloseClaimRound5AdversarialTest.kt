@@ -43,6 +43,7 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class UploaderStorageCloseClaimRound5AdversarialTest {
+    private val seed: Long = testSeed(20261113L)
 
     private val storages: MutableList<UploaderStorage> = mutableListOf()
     private val engines: MutableList<UploaderEngine> = mutableListOf()
@@ -90,6 +91,7 @@ class UploaderStorageCloseClaimRound5AdversarialTest {
     }
 
     private fun open(): UploaderStorage {
+        // timing-hygiene-ignore: TH3 name a unique database file name, not a scenario choice
         val name = "adv.a1r5.${Random.nextLong(0L, Long.MAX_VALUE)}"
         files += name
         return createUploaderStorage(application(), UploaderDatabaseConfig(name)).also { storages += it }
@@ -129,7 +131,7 @@ class UploaderStorageCloseClaimRound5AdversarialTest {
             val first: UploaderEngine = engineOver(storage, handler)
             val ids: List<String> = List(100) { first.enqueue(handler, "u$it")!! }
             first.start()
-            delay(Random.nextLong(0, 25))
+            delay(Random(seed + iteration).nextLong(0, 25))
             first.close()
             // A claim the closed engine releases after the replacement's first pass already skipped the row as in
             // flight under an unexpired lease wakes the replacement at once (close KDoc, D-31). The default heartbeat
@@ -146,7 +148,7 @@ class UploaderStorageCloseClaimRound5AdversarialTest {
             val launched: Set<String> = launchedIds()
             val stranded: List<String> = ids.filter { it !in launched }
             claimedWithoutLaunch += stranded.size
-            assertEquals(emptyList(), stranded, "iteration $iteration: ${stranded.size} owed items were never started by either engine")
+            assertEquals(emptyList(), stranded, "iteration $iteration: ${stranded.size} owed items were never started by either engine (seed=$seed)")
             second.close()
         }
     }

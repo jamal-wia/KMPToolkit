@@ -52,6 +52,13 @@ import kotlinx.coroutines.withTimeout
  * settle, rule P3's lease token), plus rows an earlier version wrote.
  */
 internal class BossRound1SqliteChecks {
+    /**
+     * The seed of the random delays of the race round (a delay per round is drawn from `Random(SEED + round)`). It is
+     * a constant because common test code has no system properties; to explore another interleaving edit it. Every
+     * assertion message of the race quotes it.
+     */
+    private val seed: Long = 20261113L
+
 
     private val marker2: String = "﷐kmp2﷑"
 
@@ -121,6 +128,7 @@ internal class BossRound1SqliteChecks {
      * for the replacement engine, which settles it once, and nothing is launched twice.
      */
     suspend fun escapedUploadSettlesOnceWhileCloseRacesNearLongMax() {
+        // timing-hygiene-ignore: TH3 name a unique database file name, not a scenario choice
         val name = "boss1-race-${Random.nextLong().toString(16)}"
         val storage: UploaderStorage = createFileUploaderStorage(name)
         val clock = MutableUploaderClock(Long.MAX_VALUE - 500L)
@@ -136,19 +144,19 @@ internal class BossRound1SqliteChecks {
                     UploaderEngineRegistry.register(first)
                     assertEquals(id, real(10_000) { first.enqueue(handler, "payload-$round", tag = "\u0000tag-$round") })
                     real(10_000) { first.drain() }
-                    assertEquals(1, transport.launches(id), "round $round: setup launch")
+                    assertEquals(1, transport.launches(id), "round $round: setup launch (seed=$seed)")
                     val claimed: UploaderItem = assertNotNull(storage.store.getById(id))
-                    assertEquals(UploaderItemState.IN_FLIGHT, claimed.state, "round $round")
-                    assertEquals(Long.MAX_VALUE, claimed.leaseUntilEpochMillis, "round $round: the lease saturates")
+                    assertEquals(UploaderItemState.IN_FLIGHT, claimed.state, "round $round (seed=$seed)")
+                    assertEquals(Long.MAX_VALUE, claimed.leaseUntilEpochMillis, "round $round: the lease saturates (seed=$seed)")
 
                     val landed: Boolean = real(20_000) {
                         coroutineScope {
                             val report = async(Dispatchers.Default) {
-                                if (round % 2 == 0) delay(Random.nextLong(0, 3))
+                                if (round % 2 == 0) delay(Random(seed + round).nextLong(0, 3))
                                 UploadGateway.complete(id, UploadResult.Completed(200), engineWait = Duration.ZERO)
                             }
                             val closer = async(Dispatchers.Default) {
-                                if (round % 2 == 1) delay(Random.nextLong(0, 3))
+                                if (round % 2 == 1) delay(Random(seed + round).nextLong(0, 3))
                                 first.close()
                                 true
                             }
@@ -158,28 +166,28 @@ internal class BossRound1SqliteChecks {
                     }
                     val after: UploaderItem? = storage.store.getById(id)
                     if (after == null) {
-                        assertTrue(landed, "round $round: the row is gone but the report said not landed")
+                        assertTrue(landed, "round $round: the row is gone but the report said not landed (seed=$seed)")
                     } else {
-                        assertEquals(UploaderItemState.IN_FLIGHT, after.state, "round $round: a report that did not land changed the row")
-                        assertEquals(claimed.claim, after.claim, "round $round")
+                        assertEquals(UploaderItemState.IN_FLIGHT, after.state, "round $round: a report that did not land changed the row (seed=$seed)")
+                        assertEquals(claimed.claim, after.claim, "round $round (seed=$seed)")
                         val second: UploaderEngine = engineOver(storage.store, storage, handler, clock, scope2, emptyList<String>().iterator())
                         UploaderEngineRegistry.register(second)
                         real(10_000) { second.drain() }
-                        assertEquals(1, transport.launches(id), "round $round: the replacement re-launched under a live lease")
-                        assertTrue(real(10_000) { UploadGateway.complete(id, UploadResult.Completed(200), engineWait = Duration.ZERO) }, "round $round")
+                        assertEquals(1, transport.launches(id), "round $round: the replacement re-launched under a live lease (seed=$seed)")
+                        assertTrue(real(10_000) { UploadGateway.complete(id, UploadResult.Completed(200), engineWait = Duration.ZERO) }, "round $round (seed=$seed)")
                         second.close()
                     }
-                    assertNull(storage.store.getById(id), "round $round: the delivery never committed")
+                    assertNull(storage.store.getById(id), "round $round: the delivery never committed (seed=$seed)")
                     val settles: Int = handler.settled.value.count { it.first == "payload-$round" }
-                    assertTrue(settles <= 1, "round $round: onSettled ran $settles times for one delivery")
-                    assertEquals(1, transport.launches(id), "round $round: launched twice")
+                    assertTrue(settles <= 1, "round $round: onSettled ran $settles times for one delivery (seed=$seed)")
+                    assertEquals(1, transport.launches(id), "round $round: launched twice (seed=$seed)")
                 } finally {
                     scope1.cancel()
                     scope2.cancel()
                     UploaderEngineRegistry.current?.let { UploaderEngineRegistry.unregister(it) }
                 }
             }
-            assertEquals(emptyList(), storage.store.getAllActive(), "the queue is not empty after every round settled")
+            assertEquals(emptyList(), storage.store.getAllActive(), "the queue is not empty after every round settled (seed=$seed)")
         } finally {
             storage.close()
             deleteDatabaseFile(name)
@@ -217,6 +225,7 @@ internal class BossRound1SqliteChecks {
      * after its replacement claimed the same row at a saturated lease, and must leave that claim alone.
      */
     suspend fun lateReleaseSparesTheReplacementAtLongMaxWithAnEscapedId() {
+        // timing-hygiene-ignore: TH3 name a unique database file name, not a scenario choice
         val name = "boss1-p3-${Random.nextLong().toString(16)}"
         val storage: UploaderStorage = createFileUploaderStorage(name)
         val clock = MutableUploaderClock(Long.MAX_VALUE - 500L)
@@ -273,6 +282,7 @@ internal class BossRound1SqliteChecks {
 
     /** D-23: the gateway leaves a plain handler's in-flight item exactly as it is, also when its id is stored escaped. */
     suspend fun gatewayLeavesAnEscapedPlainItemUntouched() {
+        // timing-hygiene-ignore: TH3 name a unique database file name, not a scenario choice
         val name = "boss1-plain-${Random.nextLong().toString(16)}"
         val storage: UploaderStorage = createFileUploaderStorage(name)
         val clock = MutableUploaderClock(1_000_000L)
