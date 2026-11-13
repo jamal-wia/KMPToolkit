@@ -136,7 +136,8 @@ it there — which is why the Android factory takes a `KeyValueStorage`.
   disagree.
 - Entries that ask Android for the same permission string (or a subset of it) share what was learned: a
   refusal for good through `PhotoLibrary` reads as one through `AudioLibrary` below API 33, and through
-  `Calendar` as one through `CalendarWriteOnly`. The reverse direction is not mirrored (the full calendar
+  `Calendar` as one through `CalendarWriteOnly`, and the flags are cleared for those entries too when the
+  permission is granted. The reverse direction is not mirrored (the full calendar
   can still show a dialog for the read string), and neither is a partial answer. A `Runtime(name)` you
   build for a string a catalog entry already covers keeps its own flags, so ask through one of the two.
   `observe` follows the same model: a request through one of these entries re-reads every observer of

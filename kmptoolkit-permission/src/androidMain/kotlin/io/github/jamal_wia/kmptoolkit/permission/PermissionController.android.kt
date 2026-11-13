@@ -634,12 +634,12 @@ internal class AndroidPermissionController(
         val dialog: RuntimeRule.Dialog = ruleOf(permission) as RuntimeRule.Dialog
         return when (dialog.grantOf(answers)) {
             Grant.Full -> {
-                clearFlags(permission)
+                clearFlagsGranted(permission, strings, answers)
                 PermissionStatus.Granted
             }
 
             Grant.Limited -> {
-                clearFlags(permission)
+                clearFlagsGranted(permission, strings, answers)
                 PermissionStatus.Limited
             }
 
@@ -965,14 +965,15 @@ internal class AndroidPermissionController(
         val androidPermissions: List<String> = declared(permission, rule.androidPermissions)
         if (androidPermissions.isEmpty()) return PermissionStatus.Unavailable
 
-        when (rule.grantOf(androidPermissions.associateWith(::isGranted))) {
+        val grants: Map<String, Boolean> = androidPermissions.associateWith(::isGranted)
+        when (rule.grantOf(grants)) {
             Grant.Full -> {
-                clearFlags(permission)
+                clearFlagsGranted(permission, androidPermissions, grants)
                 return PermissionStatus.Granted
             }
 
             Grant.Limited -> {
-                clearFlags(permission)
+                clearFlagsGranted(permission, androidPermissions, grants)
                 return PermissionStatus.Limited
             }
 
@@ -1013,10 +1014,13 @@ internal class AndroidPermissionController(
      */
     private fun coveredBy(permission: Permission, strings: List<String>): List<Pair<Permission, List<String>>> =
         MIRRORABLE_ENTRIES.mapNotNull { entry: Permission ->
-            if (entry == permission || entry.statusSource() != entry || entry.isScanWithoutDisavowal()) return@mapNotNull null
+            if (entry == permission || entry.statusSource() != entry) return@mapNotNull null
             val rule: RuntimeRule.Dialog = ruleOf(entry) as? RuntimeRule.Dialog ?: return@mapNotNull null
             val entryStrings: List<String> = declaredQuietly(rule.androidPermissions)
-            if (entryStrings.isNotEmpty() && strings.containsAll(entryStrings)) entry to entryStrings else null
+            if (entryStrings.isEmpty() || !strings.containsAll(entryStrings)) return@mapNotNull null
+            // Last, because it reads the manifest: an entry that shares no string is never asked.
+            if (entry.isScanWithoutDisavowal()) return@mapNotNull null
+            entry to entryStrings
         }
 
     /** After a refusal of [permission] through [strings]: the same refusal, as the other entries read it. */
@@ -1024,6 +1028,19 @@ internal class AndroidPermissionController(
         for ((entry: Permission, entryStrings: List<String>) in coveredBy(permission, strings)) {
             val rule: RuntimeRule.Dialog = ruleOf(entry) as RuntimeRule.Dialog
             if (rule.grantOf(answers.filterKeys { it in entryStrings }) == Grant.None) markAsked(entry)
+        }
+    }
+
+    /**
+     * [permission] is granted (or limited) through [strings]: clears its flags and those of every entry
+     * [coveredBy] shares them with whose own grant over [grants] holds, the mirror of [mirrorAsked]. An
+     * entry that is not granted keeps its flags, so a write-only grant never clears the full calendar.
+     */
+    private suspend fun clearFlagsGranted(permission: Permission, strings: List<String>, grants: Map<String, Boolean>) {
+        clearFlags(permission)
+        for ((entry: Permission, entryStrings: List<String>) in coveredBy(permission, strings)) {
+            val rule: RuntimeRule.Dialog = ruleOf(entry) as RuntimeRule.Dialog
+            if (rule.grantOf(grants.filterKeys { it in entryStrings }) != Grant.None) clearFlags(entry)
         }
     }
 
