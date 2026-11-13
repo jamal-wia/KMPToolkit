@@ -177,8 +177,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `seekForward()`/`seekBackward()` or `replay()` while playing, `stop()` followed by `play()`, or playing a completed
   clip) could leave the player `Playing` with its playhead standing still for good. Such a speed is now held back
   until at least 300 ms after the seek and the playhead has moved on, so it takes effect up to about half a second
-  later. This includes a speed given soon after a resume (or a first play) and then a seek, and a speed given right
-  after the wrap of a looping clip (which restarts with a native seek), which used to be written at once.
+  later (longer when the speed in use is below 1x: about 0.7 s from 0.5x, about 1.1 s from 0.25x). This includes a
+  speed given soon after a resume (or a first play) and then a seek, and a speed given right after the wrap of a
+  looping clip (which restarts with a native seek), which used to be written at once.
 
 ## [4.0.0]
 
