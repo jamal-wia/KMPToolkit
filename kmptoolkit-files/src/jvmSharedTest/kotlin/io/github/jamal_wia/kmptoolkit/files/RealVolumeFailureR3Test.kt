@@ -76,6 +76,32 @@ class RealVolumeFailureR3Test {
         }
     }
 
+    /**
+     * Loads and initializes every class next to [anchor] (its class directory or jar). With the descriptor table full
+     * the class loader cannot open a class file it has not read yet, so a class first needed under EMFILE fails with
+     * `NoClassDefFoundError` and the failure sticks to the JVM; run alone, nothing else has loaded the classes.
+     */
+    private fun preloadClassesOf(anchor: Class<*>) {
+        val root: File = File(anchor.protectionDomain.codeSource.location.toURI())
+        val names: List<String> =
+            if (root.isDirectory) {
+                root.walkTopDown().filter { it.isFile && it.name.endsWith(".class") }
+                    .map { it.relativeTo(root).invariantSeparatorsPath.removeSuffix(".class").replace('/', '.') }.toList()
+            } else {
+                java.util.jar.JarFile(root).use { jar ->
+                    jar.entries().asSequence().map { it.name }.filter { it.endsWith(".class") && !it.startsWith("META-INF") }
+                        .map { it.removeSuffix(".class").replace('/', '.') }.toList()
+                }
+            }
+        for (name: String in names) {
+            try {
+                Class.forName(name, true, anchor.classLoader)
+            } catch (_: Throwable) {
+                // A class that cannot initialize here is not one this test needs.
+            }
+        }
+    }
+
     private fun error(result: FileResult<*>): FileError = assertNotNull(result.errorOrNull(), "expected a failure but got $result")
 
     private fun temps(directory: File): List<String> = directory.list().orEmpty().filter { FileNames.isTempName(it) }
@@ -148,6 +174,8 @@ class RealVolumeFailureR3Test {
 
     @Test
     fun `an exhausted descriptor table makes the calls fail typed and nothing breaks afterwards`() {
+        preloadClassesOf(FileAccess::class.java)
+        preloadClassesOf(RealVolumeFailureR3Test::class.java)
         val root: File = Files.createTempDirectory("kmptoolkit-emfile-r3").toFile()
         try {
             File(root, "d").mkdir()
