@@ -34,7 +34,54 @@ class TimingHygieneScannerTest {
     fun `comment import and package lines and trailing comments are skipped`() {
         assertEquals(
             emptyList(),
-            rules(test, "// Thread.sleep(5)", "/* System.nanoTime() */", " * Random.nextInt()", "import java.lang.Thread.sleep(", "val x = 1 // Thread.sleep(5)"),
+            rules(test, "// Thread.sleep(5)", "/* System.nanoTime() */", " * Random.nextInt()", "import java.lang.Thread.sleep", "val x = 1 // Thread.sleep(5)"),
+        )
+    }
+
+    @Test
+    fun `a statically imported sleep call is caught in a file that imports it`() {
+        assertEquals(listOf("TH1"), rules(test, "import java.lang.Thread.sleep", "fun f() {", "    sleep(50)", "}"))
+        assertEquals(listOf("TH1"), rules(test, "import java.lang.Thread.*", "sleep(50)"))
+        assertEquals(emptyList(), rules(test, "fun f() { sleep(50) }"))
+        assertEquals(emptyList(), rules(test, "import java.lang.Thread.sleep", "fun f() { fake.sleep(50); mysleep(5) }"))
+    }
+
+    @Test
+    fun `a statically imported TimeUnit constant sleep is caught`() {
+        assertEquals(listOf("TH1"), rules(test, "import java.util.concurrent.TimeUnit.MILLISECONDS", "MILLISECONDS.sleep(50)"))
+        assertEquals(listOf("TH1"), rules(test, "SECONDS.sleep(1)"))
+        assertEquals(listOf("TH1"), rules(test, "import java.util.concurrent.locks.LockSupport.parkNanos", "parkNanos(100)"))
+        assertEquals(emptyList(), rules(test, "val x = MILLISECONDS.toNanos(5)"))
+    }
+
+    @Test
+    fun `TH2 flags method references and measure helpers`() {
+        val samples: List<String> = listOf(
+            "val f: () -> Long = System::nanoTime",
+            "val f = System::currentTimeMillis",
+            "val ms = measureTimeMillis { work() }",
+            "val ns = measureNanoTime { work() }",
+            "val d = measureTime { work() }",
+            "val (v, d) = measureTimedValue { work() }",
+        )
+        for (sample in samples) assertEquals(listOf("TH2"), rules(test, sample), sample)
+        assertEquals(emptyList(), rules(test, "val n = System::getProperty", "val m = measureTimeouts()"))
+    }
+
+    @Test
+    fun `TH3 flags respelled unseeded forms`() {
+        val samples: List<String> = listOf(
+            "val r = java.util.Random()",
+            "val r = Random()",
+            "val r = SecureRandom()",
+            "list.shuffle()",
+            "Collections.shuffle(list)",
+            "val e = list.randomOrNull()",
+        )
+        for (sample in samples) assertEquals(listOf("TH3"), rules(test, sample), sample)
+        assertEquals(
+            emptyList(),
+            rules(test, "val r = Random(seed)", "list.shuffle(r)", "Collections.shuffle(list, r)", "Collections.shuffle(f(a, b), r)", "list.randomOrNull(r)", "val r = java.util.Random(7)"),
         )
     }
 
@@ -179,25 +226,85 @@ class TimingHygieneScannerTest {
 
     // ---- TH6 ----
 
+    private fun th6Lines(vararg lines: String): List<Int> =
+        TimingHygieneScanner.scan(test, lines.joinToString("\n")).filter { it.rule == "TH6" }.map { it.line }
+
     @Test
     fun `TH6 flags a level outside the allowed list`() {
         assertEquals(listOf("TH6"), rules(test, "@Config(sdk = [36])"))
         assertEquals(listOf("TH6"), rules(test, "@Config(sdk = [34, 21], shadows = [X::class])"))
-        assertEquals(emptyList(), rules(test, "@Config(sdk = [34])", "@Config(sdk = [24, 26, 29, 31, 33, 35])", "@Config(shadows = [X::class])"))
+        assertEquals(emptyList(), rules(test, "@Config(sdk = [34])"))
+        assertEquals(emptyList(), rules(test, "@Config(sdk = [27])"))
+        assertEquals(emptyList(), rules(test, "@Config(sdk = [24, 26, 29, 31, 33, 35])"))
+        assertEquals(emptyList(), rules(test, "@Config(shadows = [X::class])"))
     }
 
     @Test
     fun `TH6 flags more than six levels on one annotation`() {
-        assertEquals(listOf("TH6"), rules(test, "@Config(sdk = [24, 25, 26, 28, 29, 30, 31])"))
-        assertEquals(emptyList(), rules(test, "@Config(sdk = [24, 25, 26, 28, 29, 30])"))
+        assertEquals(listOf("TH6"), rules(test, "@Config(sdk = [24, 25, 26, 27, 28, 29, 30])"))
+        assertEquals(emptyList(), rules(test, "@Config(sdk = [24, 25, 26, 27, 28, 29])"))
     }
 
     @Test
-    fun `TH6 cannot be suppressed`() {
+    fun `TH6 flags minSdk and maxSdk unless both are literals of at most six allowed levels`() {
+        assertEquals(listOf("TH6"), rules(test, "@Config(minSdk = 29, maxSdk = 35)"))
+        assertEquals(listOf("TH6"), rules(test, "@Config(minSdk = 24)"))
+        assertEquals(listOf("TH6"), rules(test, "@Config(maxSdk = 30)"))
+        assertEquals(listOf("TH6"), rules(test, "@Config(minSdk = Build.VERSION_CODES.Q, maxSdk = 35)"))
+        assertEquals(listOf("TH6"), rules(test, "@Config(minSdk = 35, maxSdk = 36)"))
+        assertEquals(listOf("TH6"), rules(test, "@Config(minSdk = 35, maxSdk = 24)"))
+        assertEquals(emptyList(), rules(test, "@Config(minSdk = 30, maxSdk = 35)", "@Config(minSdk = 33, maxSdk = 33)"))
+    }
+
+    @Test
+    fun `TH6 flags a non literal level`() {
+        assertEquals(listOf("TH6"), rules(test, "@Config(sdk = [Build.VERSION_CODES.R])"))
+        assertEquals(listOf("TH6"), rules(test, "@Config(sdk = [EFFECT_SDK], application = Application::class)"))
+        assertEquals(listOf("TH6"), rules(test, "@Config(sdk = [34, SOME_LEVEL])"))
+    }
+
+    @Test
+    fun `TH6 joins a multi line annotation`() {
         assertEquals(
-            listOf("TH-SUPPRESSION", "TH6"),
-            rules(test, "// timing-hygiene-ignore: TH6 bound x y", "@Config(sdk = [36])"),
+            listOf(2),
+            th6Lines("class A", "@Config(", "    sdk = [36],", "    shadows = [X::class],", ")", "class B"),
         )
+        assertEquals(emptyList(), th6Lines("@Config(", "    sdk = [34],", "    shadows = [X::class],", ")"))
+        assertEquals(listOf(1), th6Lines("@Config(", "    minSdk = 24,", ")"))
+    }
+
+    @Test
+    fun `TH6 unions the levels of class and method annotations once per file`() {
+        val hits: List<Int> = th6Lines(
+            "@Config(sdk = [24, 25, 26, 27])",
+            "class A {",
+            "    @Config(sdk = [28, 29, 30])",
+            "    fun a() {}",
+            "    @Config(sdk = [31])",
+            "    fun b() {}",
+            "}",
+        )
+        assertEquals(listOf(3), hits)
+        assertEquals(
+            emptyList(),
+            th6Lines("@Config(sdk = [24, 25])", "class A {", "    @Config(sdk = [25, 26, 27, 28])", "    fun a() {}", "}"),
+        )
+    }
+
+    @Test
+    fun `TH6 ignores a commented annotation`() {
+        assertEquals(emptyList(), rules(test, "// @Config(sdk = [36])", " * @Config(minSdk = 24)"))
+    }
+
+    @Test
+    fun `TH6 has no suppression category at all`() {
+        for (category in listOf("bound", "inject", "poll", "producer", "name", "host", "private-dir", "create", "measure")) {
+            assertEquals(
+                listOf("TH-SUPPRESSION", "TH6"),
+                rules(test, "// timing-hygiene-ignore: TH6 $category x y", "@Config(sdk = [36])"),
+                category,
+            )
+        }
     }
 
     // ---- suppression mechanics ----
@@ -260,6 +367,18 @@ class TimingHygieneScannerTest {
     }
 
     @Test
+    fun `a poll-helper file must not contain a test`() {
+        assertEquals(
+            listOf("TH-SUPPRESSION", "TH-SUPPRESSION", "TH1"),
+            rules(test, poll, "@Test", "fun t() {}", "// timing-hygiene-ignore: TH1 poll bounded", "Thread.sleep(5)"),
+        )
+        assertEquals(
+            listOf("TH-SUPPRESSION", "TH-SUPPRESSION"),
+            rules(test, poll, "@Test", "fun t() {}", "// timing-hygiene-ignore: TH1 poll bounded", "val x = 1"),
+        )
+    }
+
+    @Test
     fun `the file marker alone suppresses nothing`() {
         assertEquals(listOf("TH1"), rules(test, poll, "Thread.sleep(5)"))
     }
@@ -319,7 +438,9 @@ class TimingHygieneScannerTest {
     @Test
     fun `ratchet reads only the modules own lines`() {
         assertEquals(emptyList(), problems("m", "other/src/$test:TH1:4", test, "val x = 1"))
-        assertEquals(1, problems("m", "mm/src/$test:TH1:4\nm/src/$test:TH1:1", test, "val x = 1").size)
+        val found: List<String> = problems("m", "mm/src/$test:TH1:4\nm/src/$test:TH1:1", test, "val x = 1")
+        assertEquals(1, found.size)
+        assertTrue(found.single().startsWith("m/src/$test:TH1:") && "mm/src" !in found.single(), found.single())
     }
 
     @Test
@@ -338,16 +459,39 @@ class TimingHygieneScannerTest {
         assertEquals(emptyList(), bad)
         assertEquals(mapOf("m/src/commonTest/kotlin/A.kt:TH1" to 3, "m/src/commonTest/kotlin/B.kt:TH2" to 1), ok)
         val (_: Map<String, Int>, broken: List<String>) = TimingHygieneScanner.parseBaseline(
-            "m/src/a.kt:TH1:0\nm/src/a.kt:TH7:1\nnonsense\nm/src/a.kt:TH1:x\nm/src/b.kt:TH1:1\nm/src/b.kt:TH1:2",
+            "m/src/a.kt:TH1:0\nm/src/a.kt:TH7:1\nnonsense\nm/src/a.kt:TH1:x\nm/src/b.kt:TH1:1\nm/src/b.kt:TH1:2\nm/a.kt:TH1:1",
         )
-        assertEquals(5, broken.size)
+        assertEquals(
+            listOf(
+                "baseline line 1 is malformed: 'm/src/a.kt:TH1:0'",
+                "baseline line 2 is malformed: 'm/src/a.kt:TH7:1'",
+                "baseline line 3 is malformed: 'nonsense'",
+                "baseline line 4 is malformed: 'm/src/a.kt:TH1:x'",
+                "baseline line 6 repeats 'm/src/b.kt:TH1'",
+                "baseline line 7 is malformed: 'm/a.kt:TH1:1'",
+            ),
+            broken,
+        )
     }
 
     @Test
-    fun `baseline lines round trip through counts`() {
-        val hits: List<TimingHygieneViolation> =
+    fun `baseline lines round trip through counts and parsing across files`() {
+        val hitsB: List<TimingHygieneViolation> =
             TimingHygieneScanner.scan(jvmTest, "Thread.sleep(1)\nThread.sleep(2)\nval n = System.nanoTime()")
-        val lines: List<String> = TimingHygieneScanner.baselineLines(TimingHygieneScanner.counts("m", hits))
-        assertEquals(listOf("m/src/$jvmTest:TH1:2", "m/src/$jvmTest:TH2:1"), lines)
+        val hitsA: List<TimingHygieneViolation> = TimingHygieneScanner.scan("androidHostTest/kotlin/a/Z.kt", "val d = Random.nextInt()")
+        val counts: Map<String, Int> =
+            TimingHygieneScanner.counts("m", hitsB.map { it.copy(file = "jvmTest/kotlin/p/B.kt") } + hitsA)
+        val lines: List<String> = TimingHygieneScanner.baselineLines(counts)
+        assertEquals(
+            listOf(
+                "m/src/androidHostTest/kotlin/a/Z.kt:TH3:1",
+                "m/src/jvmTest/kotlin/p/B.kt:TH1:2",
+                "m/src/jvmTest/kotlin/p/B.kt:TH2:1",
+            ),
+            lines,
+        )
+        val (parsed: Map<String, Int>, bad: List<String>) = TimingHygieneScanner.parseBaseline(lines.joinToString("\n"))
+        assertEquals(emptyList(), bad)
+        assertEquals(counts, parsed)
     }
 }

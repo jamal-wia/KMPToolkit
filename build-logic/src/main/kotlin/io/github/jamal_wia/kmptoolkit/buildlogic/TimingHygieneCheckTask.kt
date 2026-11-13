@@ -98,7 +98,7 @@ internal fun Project.registerTimingHygieneCheck() {
                 include("*Test/kotlin/**/*.kt")
             },
         )
-        baseline.set(rootProject.layout.projectDirectory.file("build-logic/timing-hygiene-baseline.txt"))
+        baseline.set(isolated.rootProject.projectDirectory.file("build-logic/timing-hygiene-baseline.txt"))
         projectPath.set(path)
         modulePath.set(module)
         report.set(layout.buildDirectory.file("reports/timing-hygiene/report.txt"))

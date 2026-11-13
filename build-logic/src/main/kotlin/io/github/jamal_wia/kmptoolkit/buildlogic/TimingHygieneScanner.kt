@@ -54,16 +54,27 @@ internal data class TimingHygieneViolation(
  *
  * Only source sets whose folder name ends in `Test` are scanned (this includes test-only mains
  * under them). Rules, one hit per line:
- *  - TH1: `Thread.sleep(`, `TimeUnit.<X>.sleep(`, `LockSupport.parkNanos(`; in native test source
- *    sets (`ios*`, `apple*`, `macos*`, `native*`, ...) also `usleep(` and `sleep(`.
- *  - TH2: `System.currentTimeMillis()`, `System.nanoTime()`, `TimeSource.Monotonic`,
- *    `Clock.System.now()`, `NSDate()`, `CFAbsoluteTimeGetCurrent`.
- *  - TH3: `Random.next*`, `Random.Default`, `ThreadLocalRandom`, `Math.random(`, `.shuffled()` and
- *    `.random()` without an argument, `UUID.randomUUID(`.
+ *  - TH1: `Thread.sleep(`, `TimeUnit.<X>.sleep(`, a statically imported `<UNIT>.sleep(`,
+ *    `LockSupport.parkNanos(` (also bare); a bare `sleep(` in a file that imports
+ *    `java.lang.Thread.sleep` (or `Thread.*`); in native test source sets (`ios*`, `apple*`,
+ *    `macos*`, `native*`, ...) also `usleep(` and `sleep(`.
+ *  - TH2: `System.currentTimeMillis()`, `System.nanoTime()` (also as the method references
+ *    `System::nanoTime` and `System::currentTimeMillis`), `measureTimeMillis`, `measureNanoTime`,
+ *    `measureTime`, `measureTimedValue`, `TimeSource.Monotonic`, `Clock.System.now()`, `NSDate()`,
+ *    `CFAbsoluteTimeGetCurrent`.
+ *  - TH3: `Random.next*`, `Random.Default`, a no-argument `Random()`, `SecureRandom(`,
+ *    `ThreadLocalRandom`, `Math.random(`, `.shuffled()`, `.shuffle()` and `.random()` /
+ *    `.randomOrNull()` without an argument, `Collections.shuffle(list)` with one argument,
+ *    `UUID.randomUUID(`.
  *  - TH4: `"java.io.tmpdir"`, `NSTemporaryDirectory(`.
  *  - TH5: `System.getenv(`; in native test source sets also `getenv(`.
- *  - TH6: `@Config(sdk = [...])` with a literal level outside [ALLOWED_SDK_LEVELS] or with more
- *    than [MAX_SDK_LEVELS] literal levels (single-line annotations only).
+ *  - TH6 (ruling R-8, per test class): every `@Config(` annotation of a file, joined across lines
+ *    up to its closing parenthesis, is a hit when its `sdk = [...]` holds a level outside
+ *    [ALLOWED_SDK_LEVELS], more than [MAX_SDK_LEVELS] levels, or an element that is not an integer
+ *    literal (`Build.VERSION_CODES.X`, `intArrayOf(`); when it uses `minSdk` / `maxSdk` without
+ *    BOTH bounds being integer literals of a range of at most [MAX_SDK_LEVELS] allowed levels
+ *    (a bare `minSdk` runs every level up to the target); and, once per file, when the union of
+ *    the literal levels of all its annotations (class plus methods) exceeds [MAX_SDK_LEVELS].
  *
  * Comment-only lines and `import` / `package` lines are skipped, and a trailing `// ...` comment is
  * not scanned.
@@ -83,7 +94,7 @@ internal object TimingHygieneScanner {
     const val SUPPRESSION_RULE: String = "TH-SUPPRESSION"
 
     /** The Robolectric levels the suite already loads (ruling R-8); a level outside the list needs its own ruling. */
-    val ALLOWED_SDK_LEVELS: Set<Int> = setOf(24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35)
+    val ALLOWED_SDK_LEVELS: Set<Int> = setOf(24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35)
 
     /** At most this many levels on one `@Config(sdk = [...])` (ruling R-8). */
     const val MAX_SDK_LEVELS: Int = 6
@@ -99,20 +110,31 @@ internal object TimingHygieneScanner {
         "TH5" to setOf("host"),
     )
 
-    private val th1: Regex = Regex("""\bThread\.sleep\(|\bTimeUnit\.\w+\.sleep\(|\bLockSupport\.parkNanos\(""")
+    private val th1: Regex = Regex(
+        """\bThread\.sleep\(|\bTimeUnit\.\w+\.sleep\(|\bLockSupport\.parkNanos\(|""" +
+            """\b(NANOSECONDS|MICROSECONDS|MILLISECONDS|SECONDS|MINUTES|HOURS|DAYS)\.sleep\(|(?<![\w.])parkNanos\(""",
+    )
+    private val th1StaticSleep: Regex = Regex("""(?<![\w.])sleep\(""")
+    private val threadSleepImport: Regex = Regex("""^\s*import\s+java\.lang\.Thread\.(sleep|\*)\s*$""")
     private val th1Native: Regex = Regex("""(?<![\w])(usleep|sleep)\(""")
     private val th2: Regex = Regex(
         """\bSystem\.currentTimeMillis\(\)|\bSystem\.nanoTime\(\)|\bTimeSource\.Monotonic\b|""" +
-            """\bClock\.System\.now\(\)|\bNSDate\(\)|\bCFAbsoluteTimeGetCurrent\b""",
+            """\bClock\.System\.now\(\)|\bNSDate\(\)|\bCFAbsoluteTimeGetCurrent\b|""" +
+            """\bSystem::(nanoTime|currentTimeMillis)\b|\bmeasure(TimeMillis|NanoTime|Time|TimedValue)\b""",
     )
     private val th3: Regex = Regex(
         """\bRandom\.(next\w*|Default)\b|\bThreadLocalRandom\b|\bMath\.random\(|\.shuffled\(\s*\)|""" +
-            """\.random\(\s*\)|\bUUID\.randomUUID\(""",
+            """\.random(OrNull)?\(\s*\)|\bUUID\.randomUUID\(|(?<![\w.])Random\(\s*\)|\.Random\(\s*\)|""" +
+            """\bSecureRandom\(|\.shuffle\(\s*\)|\bCollections\.shuffle\((?:[^,()]|\([^()]*\))*\)""",
     )
     private val th4: Regex = Regex(""""java\.io\.tmpdir"|\bNSTemporaryDirectory\(""")
     private val th5: Regex = Regex("""\bSystem\.getenv\(""")
     private val th5Native: Regex = Regex("""(?<![\w])getenv\(""")
-    private val configSdk: Regex = Regex("""@Config\([^)]*?\bsdk\s*=\s*\[([^\]]*)]""")
+    private val configStart: Regex = Regex("""@Config\(""")
+    private val configSdk: Regex = Regex("""\bsdk\s*=\s*\[([^\]]*)]""")
+    private val configMin: Regex = Regex("""\bminSdk\s*=\s*([^,)\s]+)""")
+    private val configMax: Regex = Regex("""\bmaxSdk\s*=\s*([^,)\s]+)""")
+    private val testAnnotation: Regex = Regex("""^\s*@(org\.junit\.(jupiter\.api\.)?|kotlin\.test\.)?Test\b""")
 
     private val lineIgnore: Regex = Regex("""^\s*//\s*timing-hygiene-ignore:(.*)$""")
     private val trailingIgnore: Regex = Regex("""\S.*//\s*timing-hygiene-ignore:""")
@@ -158,6 +180,10 @@ internal object TimingHygieneScanner {
                     relativePath, index + 1, SUPPRESSION_RULE,
                     "timing-hygiene-file: poll-helper needs a reason after it",
                 )
+                lines.any { testAnnotation.containsMatchIn(it) } -> found += TimingHygieneViolation(
+                    relativePath, index + 1, SUPPRESSION_RULE,
+                    "a poll-helper file must not contain a @Test; put the helper in its own file",
+                )
                 else -> pollHelper = true
             }
         }
@@ -198,23 +224,87 @@ internal object TimingHygieneScanner {
             }
         }
 
-        lines.forEachIndexed { index, rawLine ->
-            if (declarationOnly.containsMatchIn(rawLine) || commentOnly.containsMatchIn(rawLine)) return@forEachIndexed
-            val line: String = rawLine.replace(trailingComment, "")
+        val staticSleep: Boolean = lines.any { threadSleepImport.containsMatchIn(it) }
+        val codeLines: List<String> = lines.map { raw ->
+            if (declarationOnly.containsMatchIn(raw) || commentOnly.containsMatchIn(raw)) "" else raw.replace(trailingComment, "")
+        }
+        lines.forEachIndexed { index, _ ->
+            val line: String = codeLines[index]
+            if (line.isEmpty()) return@forEachIndexed
             fun hit(rule: TimingHygieneRule) {
                 if (rule.id in allowed[index]) return
                 found += TimingHygieneViolation(relativePath, index + 1, rule.id, rule.advice)
             }
-            if (th1.containsMatchIn(line) || (native && th1Native.containsMatchIn(line))) hit(TimingHygieneRule.TH1)
+            if (th1.containsMatchIn(line) || (native && th1Native.containsMatchIn(line)) ||
+                (staticSleep && th1StaticSleep.containsMatchIn(line))
+            ) {
+                hit(TimingHygieneRule.TH1)
+            }
             if (th2.containsMatchIn(line)) hit(TimingHygieneRule.TH2)
             if (th3.containsMatchIn(line)) hit(TimingHygieneRule.TH3)
             if (th4.containsMatchIn(line)) hit(TimingHygieneRule.TH4)
             if (th5.containsMatchIn(line) || (native && th5Native.containsMatchIn(line))) hit(TimingHygieneRule.TH5)
-            val levels: List<Int> = configSdk.find(line)?.groupValues?.get(1)
-                ?.split(',')?.mapNotNull { it.trim().toIntOrNull() }.orEmpty()
-            if (levels.any { it !in ALLOWED_SDK_LEVELS } || levels.size > MAX_SDK_LEVELS) hit(TimingHygieneRule.TH6)
+        }
+        for (lineIndex in sdkHits(codeLines)) {
+            found += TimingHygieneViolation(relativePath, lineIndex + 1, TimingHygieneRule.TH6.id, TimingHygieneRule.TH6.advice)
         }
         return found.sortedBy { it.line }
+    }
+
+    /** The levels `minSdk..maxSdk` span when both are integer literals of a sane range, else null. */
+    private fun literalRange(min: String?, max: String?): IntRange? {
+        val low: Int = min?.toIntOrNull() ?: return null
+        val high: Int = max?.toIntOrNull() ?: return null
+        return if (low <= high) low..high else null
+    }
+
+    /** Zero-based line numbers of the TH6 hits of one file; [codeLines] has comments blanked out. */
+    private fun sdkHits(codeLines: List<String>): List<Int> {
+        val hits: MutableList<Int> = mutableListOf()
+        val union: MutableSet<Int> = linkedSetOf()
+        var firstOverflow: Int? = null
+        codeLines.forEachIndexed { index, line ->
+            val start: MatchResult = configStart.find(line) ?: return@forEachIndexed
+            // Join the annotation up to its balancing parenthesis (at most 15 lines).
+            val text: StringBuilder = StringBuilder()
+            var depth: Int = 0
+            loop@ for (j in index until minOf(codeLines.size, index + 15)) {
+                val from: Int = if (j == index) start.range.last else 0
+                for (c in codeLines[j].substring(from)) {
+                    text.append(c)
+                    if (c == '(') depth++
+                    if (c == ')') {
+                        depth--
+                        if (depth == 0) break@loop
+                    }
+                }
+                text.append(' ')
+            }
+            val body: String = text.toString()
+            var bad: Boolean = false
+            val levels: MutableList<Int> = mutableListOf()
+            configSdk.find(body)?.let { m ->
+                val items: List<String> = m.groupValues[1].split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                for (item in items) {
+                    val level: Int? = item.toIntOrNull()
+                    if (level == null) bad = true else levels += level
+                }
+                if (items.size > MAX_SDK_LEVELS) bad = true
+            }
+            val min: String? = configMin.find(body)?.groupValues?.get(1)
+            val max: String? = configMax.find(body)?.groupValues?.get(1)
+            if (min != null || max != null) {
+                val range: IntRange? = literalRange(min, max)
+                if (range == null || range.count() > MAX_SDK_LEVELS) bad = true else levels += range.toList()
+            }
+            if (levels.any { it !in ALLOWED_SDK_LEVELS }) bad = true
+            if (bad) hits += index
+            union += levels
+            if (firstOverflow == null && union.size > MAX_SDK_LEVELS) firstOverflow = index
+        }
+        val overflow: Int? = firstOverflow
+        if (overflow != null && overflow !in hits) hits += overflow
+        return hits.sorted()
     }
 
     /** The baseline key of one counted hit: `<path relative to the repository>:<rule>`. */

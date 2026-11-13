@@ -110,12 +110,12 @@ where the value is produced or from protocol events, not by reading shared state
 
 | Rule | Forbids | Suppression category (line above) |
 |---|---|---|
-| TH1 | `Thread.sleep(`, `TimeUnit.<X>.sleep(`, `LockSupport.parkNanos(`; in iOS test source sets `usleep(` and `sleep(` | `inject` (latency a fake peer injects), `poll` (inside a bounded polling helper; the file carries `// timing-hygiene-file: poll-helper <reason>`) |
-| TH2 | `System.currentTimeMillis()`, `System.nanoTime()`, `TimeSource.Monotonic`, `Clock.System.now()`, `NSDate()`, `CFAbsoluteTimeGetCurrent` | `bound` (hang bound or deadline only), `measure R-<n>` (a measured quantity under a named ruling), `producer` (timestamp taken where the value is produced) |
-| TH3 | `Random.next*`, `Random.Default`, `ThreadLocalRandom`, `Math.random(`, `.shuffled()` and `.random()` without a `Random`, `UUID.randomUUID(` | `name` (a unique name, never a behavioural choice) |
+| TH1 | `Thread.sleep(`, `TimeUnit.<X>.sleep(`, a statically imported `<UNIT>.sleep(` or `sleep(`, `LockSupport.parkNanos(`; in iOS test source sets `usleep(` and `sleep(` | `inject` (latency a fake peer injects), `poll` (inside a bounded polling helper; the file carries `// timing-hygiene-file: poll-helper <reason>` and contains no `@Test`) |
+| TH2 | `System.currentTimeMillis()`, `System.nanoTime()` (also as `System::nanoTime`), `measureTimeMillis`, `measureNanoTime`, `measureTime`, `measureTimedValue`, `TimeSource.Monotonic`, `Clock.System.now()`, `NSDate()`, `CFAbsoluteTimeGetCurrent` | `bound` (hang bound or deadline only), `measure R-<n>` (a measured quantity under a named ruling), `producer` (timestamp taken where the value is produced) |
+| TH3 | `Random.next*`, `Random.Default`, `ThreadLocalRandom`, `Math.random(`, a no-argument `Random()`, `SecureRandom(`, `.shuffled()`, `.shuffle()`, `.random()` and `.randomOrNull()` without a `Random`, `Collections.shuffle(list)`, `UUID.randomUUID(` | `name` (a unique name, never a behavioural choice) |
 | TH4 | `"java.io.tmpdir"`, `NSTemporaryDirectory(` | `private-dir` (the build-provided per-task directory, never listed or counted as a whole), `create` (only to create the test's own directory) |
 | TH5 | `System.getenv(`; in iOS test source sets `getenv(` | `host` (a host fact, for example restoring `TZ`) |
-| TH6 | `@Config(sdk = [...])` with a level outside 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, or more than six levels on one annotation | none: extending it needs a ruling and its own heap |
+| TH6 | per test class (ruling R-8): an `@Config(` (also over several lines) with a level outside 24 to 35, more than six levels, a level that is not an integer literal, or `minSdk` / `maxSdk` that are not both literals of at most six levels; and a file whose `@Config` levels (class plus methods) add up to more than six | none: extending it needs a ruling and its own heap |
 
 A legitimate case says so, with the category and a reason, alone on the line directly above the hit (a
 suppression without a category or a reason fails the task; stacked comments cover several rules):
@@ -129,8 +129,17 @@ The hits that existed when the scan landed are recorded in `build-logic/timing-h
 line `<module>/src/<path>:<rule>:<count>` per file and rule. It is a ratchet: a count above its line (a
 new hit) fails, and a count below it (the file improved) also fails until the line is lowered or removed
 in the same commit, so the baseline can only shrink. Never raise a line and never regenerate the file
-wholesale; each module writes its current counts, in the same format, to
+wholesale; a renamed or moved file moves its line with the same count in the same commit, which is the only
+allowed added line; each module writes its current counts, in the same format, to
 `<module>/build/reports/timing-hygiene/report.txt`, which is the quickest way to read the new number.
+
+A count baseline cannot see a swap: removing one baselined construct and adding another of the same rule
+in the same file leaves the count equal. So a change to a baselined file must not add any construct from
+the table even when its count is unchanged, and a reviewer reads the added lines of every touched baselined
+file. To check the baseline itself: `git diff <base>... -- build-logic/timing-hygiene-baseline.txt | grep
+'^+[^+#]'`; every printed line must pair with a removed line of the same file and an equal or higher count.
+Review checklist beyond the scan: a `delay(` on a real dispatcher (`runBlocking`, `Dispatchers.IO`) and a
+busy spin (`Thread.yield()`, `Thread.onSpinWait()`) used as a wait are not flagged and are rejected in review.
 
 The scan is lexical and per line: it cannot see a wait hidden behind a helper, a delay on a real
 dispatcher (`delay` is not flagged), or a literal level passed through a constant. It stops new flaky tests;

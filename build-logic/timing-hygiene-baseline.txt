@@ -1,6 +1,7 @@
 # Ratchet baseline of checkTimingHygiene: <module>/src/<path>:<rule>:<count>, one line per file and rule.
 # A count may only go down: a new hit fails the build, and so does a file that improved until its line is lowered here.
 # Never raise a line; fix the test or suppress the hit with a reason (CONTRIBUTING.md, "Timing and determinism in tests").
+# A renamed or moved file moves its line in the same commit with the same count; that is the only allowed '+' line.
 kmptoolkit-activity/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/activity/LifecycleActivityTrackerAdversarialTest.kt:TH1:1
 kmptoolkit-activity/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/activity/LifecycleActivityTrackerAdversarialTest.kt:TH2:4
 kmptoolkit-activity/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/activity/LifecycleActivityTrackerHandleRetentionTest.kt:TH1:1
@@ -36,6 +37,7 @@ kmptoolkit-audio-recorder/src/androidHostTest/kotlin/io/github/jamal_wia/kmptool
 kmptoolkit-audio-recorder/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderApiMatrixTest.kt:TH2:1
 kmptoolkit-audio-recorder/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderEndToEndTest.kt:TH2:2
 kmptoolkit-audio-recorder/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderEnvironmentProbeR8Test.kt:TH2:1
+kmptoolkit-audio-recorder/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderEnvironmentProbeR8Test.kt:TH6:1
 kmptoolkit-audio-recorder/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderReachabilityTest.kt:TH1:1
 kmptoolkit-audio-recorder/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderRealStackLitterTest.kt:TH2:2
 kmptoolkit-audio-recorder/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderRegistryStormTest.kt:TH1:6
@@ -92,6 +94,7 @@ kmptoolkit-files/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/files/Windows
 kmptoolkit-files/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/files/WindowsRenameRetryTest.kt:TH1:1
 kmptoolkit-flashlight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/flashlight/AndroidFlashlightTest.kt:TH1:2
 kmptoolkit-flashlight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/flashlight/AndroidFlashlightTest.kt:TH2:2
+kmptoolkit-haptics/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/haptics/SystemVibratorPortTest.kt:TH6:4
 kmptoolkit-hardware-keys/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/hardwarekeys/DialogWindowInstallationRetentionTest.kt:TH1:1
 kmptoolkit-hijri/src/iosTest/kotlin/io/github/jamal_wia/kmptoolkit/hijri/HijriDateTestFixtures.ios.kt:TH5:1
 kmptoolkit-language/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/language/AppLanguageHolderConcurrencyJvmTest.kt:TH1:1
@@ -120,7 +123,6 @@ kmptoolkit-notification/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolki
 kmptoolkit-notification/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/notification/AndroidNotifierSoakAdversarialTest.kt:TH1:1
 kmptoolkit-notification/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/notification/AndroidNotifierStalledPlatformCallAdversarialTest.kt:TH1:2
 kmptoolkit-notification/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/notification/AndroidNotifierTrayOracleStormAdversarialTest.kt:TH1:2
-kmptoolkit-notification/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/notification/NotificationApiBorderAdversarialTest.kt:TH6:1
 kmptoolkit-notification/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/notification/NotificationGateFlapStormAdversarialTest.kt:TH1:1
 kmptoolkit-notification/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/notification/NotificationScaleAndSoakAdversarialTest.kt:TH5:1
 kmptoolkit-notification/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/notification/NotificationWallClockIndependenceAdversarialTest.kt:TH1:2
@@ -131,6 +133,7 @@ kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/
 kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/AndroidPermissionControllerAdversarialTest.kt:TH2:6
 kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/AndroidPermissionControllerStormTest.kt:TH1:1
 kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/AndroidPermissionControllerStormTest.kt:TH2:4
+kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/AndroidRolesAndAdminsTest.kt:TH6:1
 kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/BoundedResourcesRound11Test.kt:TH1:1
 kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/ControllerCollectableTest.kt:TH1:1
 kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/ControllerHostSoakTest.kt:TH1:1
@@ -150,6 +153,7 @@ kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/
 kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/PermissionRequestFlowCancelStormTest.kt:TH2:2
 kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/PermissionRequestFlowRationaleStormTest.kt:TH2:2
 kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/PermissionRequestFlowStormTest.kt:TH2:2
+kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/SpecialAccessScreenLaunchTest.kt:TH6:1
 kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/StaleDialogStarvationTest.kt:TH2:2
 kmptoolkit-permission/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/permission/WrongThreadStormRound9Test.kt:TH1:1
 kmptoolkit-scheduler/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/scheduler/AlarmReceiverPendingResultAdversarialTest.kt:TH1:2
@@ -169,6 +173,7 @@ kmptoolkit-scheduler/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/s
 kmptoolkit-scheduler/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/scheduler/AndroidAlarmSchedulerRearmChaosAdversarialTest.kt:TH2:4
 kmptoolkit-scheduler/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/scheduler/AndroidAlarmSchedulerSoakAdversarialTest.kt:TH5:1
 kmptoolkit-scheduler/src/iosTest/kotlin/io/github/jamal_wia/kmptoolkit/scheduler/IosAlarmSchedulerRequestContentAdversarialTest.kt:TH2:1
+kmptoolkit-storage/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/storage/AndroidKeystoreKeySourceRaceTest.kt:TH3:1
 kmptoolkit-storage/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/storage/AndroidSecureStorageRound4Test.kt:TH3:1
 kmptoolkit-storage/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/storage/AndroidStorageAdversarialTest.kt:TH3:1
 kmptoolkit-storage/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/storage/AndroidStorageContractRound4Test.kt:TH3:1
@@ -184,9 +189,9 @@ kmptoolkit-systembars/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/
 kmptoolkit-systembars/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/systembars/WakeLockStarvationTest.kt:TH1:1
 kmptoolkit-systembars/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/systembars/WakeLockSubscriptionsTest.kt:TH1:1
 kmptoolkit-systembars/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/systembars/WakeLockWindowsThreadsStormTest.kt:TH2:2
+kmptoolkit-systembars/src/commonTest/kotlin/io/github/jamal_wia/kmptoolkit/systembars/PeriodicSampleGateTest.kt:TH3:1
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/ProtocolModelHarnessRound7.kt:TH2:2
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/ProtocolModelHarnessRound7.kt:TH3:1
-kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/ProtocolModelHarnessRound7.kt:TH4:1
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/Rows400CompatRound10AdversarialTest.kt:TH3:1
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/Rows400MarkerRound10AdversarialTest.kt:TH3:1
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/SqlStrongStoreProbeRound4AdversarialTest.kt:TH3:1
@@ -198,7 +203,6 @@ kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/km
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderEngineSoakRound8AdversarialTest.kt:TH2:9
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderEngineSoakRound8AdversarialTest.kt:TH3:1
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderEngineSoakRound8AdversarialTest.kt:TH5:2
-kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderProtocolRandomModelRound7AdversarialTest.kt:TH2:2
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderProtocolRandomModelRound7AdversarialTest.kt:TH3:1
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderStorageCancelledCallerRound5AdversarialTest.kt:TH3:2
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderStorageClaimReleaseRound6AdversarialTest.kt:TH3:1
@@ -207,7 +211,7 @@ kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/km
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderStorageClosedRound4AdversarialTest.kt:TH3:1
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderStorageResourcesRound4AdversarialTest.kt:TH3:1
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderStorageRestartAdversarialTest.kt:TH3:1
-kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderStorageStormRound3AdversarialTest.kt:TH3:4
+kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderStorageStormRound3AdversarialTest.kt:TH3:5
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderStorageTransactionChaosRound5AdversarialTest.kt:TH3:5
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderStorageUpgradeRound4AdversarialTest.kt:TH3:1
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/UploaderStorageUpgradeRound8AdversarialTest.kt:TH2:1
@@ -224,7 +228,7 @@ kmptoolkit-uploader-testing/src/commonTest/kotlin/io/github/jamal_wia/kmptoolkit
 kmptoolkit-uploader-testing/src/commonTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/testing/FakeUploaderScaleRound8SuspectTest.kt:TH2:1
 kmptoolkit-uploader-testing/src/commonTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/testing/FakeUploaderTest.kt:TH2:1
 kmptoolkit-uploader-testing/src/commonTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/testing/InMemoryStoreCancellationRound6AdversarialTest.kt:TH2:1
-kmptoolkit-uploader-testing/src/commonTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderEngineStormRound3ConcurrencyAdversarialTest.kt:TH3:2
+kmptoolkit-uploader-testing/src/commonTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderEngineStormRound3ConcurrencyAdversarialTest.kt:TH3:3
 kmptoolkit-uploader-testing/src/commonTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderEngineWithdrawalStormRound5AdversarialTest.kt:TH2:1
 kmptoolkit-uploader-testing/src/commonTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderEngineWithdrawalStormRound5AdversarialTest.kt:TH3:2
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/LocaleAndZoneRound9AdversarialTest.kt:TH2:1
@@ -272,6 +276,7 @@ kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/up
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeChurnAdversarialTest.kt:TH2:1
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeSchedulerLifecycleAdversarialTest.kt:TH1:2
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeSchedulerLifecycleAdversarialTest.kt:TH2:5
+kmptoolkit-uploader/src/commonTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/RetryArithmeticRound7AdversarialTest.kt:TH3:1
 kmptoolkit-uploader/src/iosTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/BackgroundUploadTransportTest.kt:TH4:3
 kmptoolkit-uploader/src/iosTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/IosCancelLaunchStormRound5AdversarialTest.kt:TH3:2
 kmptoolkit-uploader/src/iosTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/IosCancelLaunchStormRound5AdversarialTest.kt:TH4:1
@@ -387,6 +392,9 @@ kmptoolkit-video-player-javafx/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit
 kmptoolkit-video-player-javafx/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxSoakAndMisuseR8AdversarialTest.kt:TH2:6
 kmptoolkit-video-player-javafx/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxSoakAndMisuseR8AdversarialTest.kt:TH4:1
 kmptoolkit-video-player-javafx/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxSoakAndMisuseR8AdversarialTest.kt:TH5:2
+kmptoolkit-video-player-javafx/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxSpeedAfterSeekFreezeAdversarialTest.kt:TH1:6
+kmptoolkit-video-player-javafx/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxSpeedAfterSeekFreezeAdversarialTest.kt:TH2:2
+kmptoolkit-video-player-javafx/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxSpeedAfterSeekFreezeAdversarialTest.kt:TH5:1
 kmptoolkit-video-player-javafx/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxSpeedAndSeekOrderR7AdversarialTest.kt:TH1:11
 kmptoolkit-video-player-javafx/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxSpeedAndSeekOrderR7AdversarialTest.kt:TH2:12
 kmptoolkit-video-player-javafx/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxSpeedAndSeekOrderR7AdversarialTest.kt:TH5:1
@@ -431,7 +439,7 @@ kmptoolkit-video-player-testing/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolki
 kmptoolkit-video-player-testing/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/testing/VideoPlayerStateMachineModelR10AdversarialTest.kt:TH5:2
 kmptoolkit-video-player-vlcj/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/vlcj/VlcjBufferingEventsR10AdversarialTest.kt:TH1:1
 kmptoolkit-video-player-vlcj/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/vlcj/VlcjContentionContractAdversarialTest.kt:TH1:3
-kmptoolkit-video-player-vlcj/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/vlcj/VlcjContentionContractAdversarialTest.kt:TH2:12
+kmptoolkit-video-player-vlcj/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/vlcj/VlcjContentionContractAdversarialTest.kt:TH2:13
 kmptoolkit-video-player-vlcj/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/vlcj/VlcjEnvironmentR10AdversarialTest.kt:TH1:2
 kmptoolkit-video-player-vlcj/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/vlcj/VlcjEnvironmentR10AdversarialTest.kt:TH4:1
 kmptoolkit-video-player-vlcj/src/jvmTest/kotlin/io/github/jamal_wia/kmptoolkit/video/player/vlcj/VlcjEventOrderDifferentialR10AdversarialTest.kt:TH5:1
