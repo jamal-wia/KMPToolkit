@@ -42,7 +42,7 @@ class JavaFxFxThreadNudgeR8FixerTest {
     private fun nativePlayer(e: JavaFxVideoEngine): MediaPlayer {
         val activePlayback = JavaFxVideoEngine::class.java.getDeclaredMethod("activePlayback").apply { isAccessible = true }
         val pb: Any = checkNotNull(activePlayback.invoke(e)) { "no playback" }
-        return pb.javaClass.getDeclaredField("player").apply { isAccessible = true }.get(pb) as MediaPlayer
+        return (pb.javaClass.getDeclaredField("native").apply { isAccessible = true }.get(pb) as JavaFxNativePlayer).mediaPlayer
     }
 
     private fun onFxThread(block: () -> Unit) {
