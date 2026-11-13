@@ -220,7 +220,7 @@ request queue meanwhile. Cancel pending requests (or the scope that runs them) b
   delegations, the timer and app-state notifications that drive that wait, the location and Bluetooth
   delegates, the real `Info.plist` lookup, the `canOpenURL` check before opening settings and
   `openURL`, the choice between EventKit's split (iOS 17+) and legacy requests and the matching
-  purpose-string keys (whose iOS 15/16 branch no simulator test reaches), and the real prompt of every
+  purpose-string keys (whose iOS 15/16 branch the current iOS 17+ simulator runtime never reaches), and the real prompt of every
   entry.
 - **`kmptoolkit-permission-testing`**: the fixture's own contract, including each place it claims to
   model the OS.

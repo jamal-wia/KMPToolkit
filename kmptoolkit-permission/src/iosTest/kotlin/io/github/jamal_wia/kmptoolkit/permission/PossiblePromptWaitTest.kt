@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 
 class PossiblePromptWaitTest {
 
+    private val events: MutableList<String> = mutableListOf()
     private val delivered: MutableList<String> = mutableListOf()
     private var releases: Int = 0
     private var fallbackCalls: Int = 0
@@ -14,8 +15,14 @@ class PossiblePromptWaitTest {
             fallbackCalls++
             FALLBACK
         },
-        release = { releases++ },
-        deliver = { value: String -> delivered += value },
+        release = {
+            releases++
+            events += "release"
+        },
+        deliver = { value: String ->
+            delivered += value
+            events += "deliver:$value"
+        },
     )
 
     @Test
@@ -28,6 +35,7 @@ class PossiblePromptWaitTest {
         wait.onCancelled()
         assertEquals(listOf("first"), delivered)
         assertEquals(1, releases)
+        assertEquals(listOf("release", "deliver:first"), events)
     }
 
     @Test
