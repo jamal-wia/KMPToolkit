@@ -203,7 +203,9 @@ Practical consequences:
   `Notifier.cancel` with the id of a pending alarm discards that alarm (`post` replaces it with an
   immediate notification, `cancel` removes it), and an alarm that fires replaces a notification the
   notifier is showing under the same id. Give alarms and notifications distinct ids. Android keeps the
-  two apart, so the collision exists only on iOS.
+  two apart, so the collision exists only on iOS, provided the handler posts its reminder tagged, as
+  [`02-getting-started.md`](02-getting-started.md#3-write-a-handler-android) does: an untagged `notify`
+  under `id.hashCode()` is the key the notifier's 2.x migration sweep removes.
 - `Exact` on iOS means "the OS accepted the request for that instant" — it is not the same
   guarantee as an Android exact alarm, because it is a presentation, not an execution.
 
