@@ -685,7 +685,8 @@ internal class AndroidDownloaderStorage(
             var entry: ZipEntry? = readingArchive(unit) { zipStream.nextEntry }
             while (entry != null) {
                 val entryName: String = entry.name
-                // canonicalPath would throw a plain IOException for a NUL, which is not a storage failure.
+                // A NUL would reach the file system inside a segment, and FileOutputStream rejects such a path with a plain
+                // FileNotFoundException, which is not a storage failure but the archive's fault.
                 if (entryName.indexOf('\u0000') >= 0) {
                     throw ResourceIntegrityException("Archive of $unit has an entry name with a NUL character")
                 }

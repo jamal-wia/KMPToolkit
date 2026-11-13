@@ -1089,7 +1089,7 @@ internal class IosDownloaderStorage(
                         throw IllegalStateException("Failed to write $outputPath")
                     }
                 }
-                logger.d { "Extracted: $fileName" }
+                logger.d { "Extracted: ${shortEntryName(fileName)}" }
             }
         } finally {
             fclose(zipFile)
