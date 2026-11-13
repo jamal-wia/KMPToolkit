@@ -58,6 +58,13 @@ class UploaderConcurrencyStormRound3AdversarialTest {
     private val journalRoot: File get() = File(context.noBackupFilesDir, "kmptoolkit-uploader")
     private val outcomesDir: File get() = File(journalRoot, "outcomes")
 
+    /** The seed of every random choice of this class; override with `-Dkmptoolkit.test.seed=<long>`. Default 0. */
+    private val seed: Long = System.getProperty("kmptoolkit.test.seed")?.toLongOrNull() ?: 0L
+    private val serverJitter: Random = Random(seed)
+
+    /** A seeded delay in `[0, bound)` for the peer's answer latency; connections draw from one locked generator. */
+    private fun answerDelayMillis(bound: Long): Long = synchronized(serverJitter) { serverJitter.nextLong(0, bound) }
+
     @BeforeTest
     fun clean() {
         journalRoot.deleteRecursively()
@@ -198,6 +205,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
     // R3-01: eight jobs for one item all upload (unique work cannot be assumed across a stop): one delivery, one settle.
     @Test
     fun `eight concurrent jobs for one item deliver once and settle once`() {
+        // timing-hygiene-ignore: TH1 inject the peer holds each answer, so the jobs overlap
         serve(beforeAnswer = { Thread.sleep(40L) })
         val store = TestUploaderStore()
         val handler = StormHandler()
@@ -213,6 +221,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
     // R3-02: eight jobs all get a 500 for the same attempt: one charge, one settle.
     @Test
     fun `eight concurrent jobs that all got a 500 charge the attempt once`() {
+        // timing-hygiene-ignore: TH1 inject the peer holds each answer, so the jobs overlap
         serve(beforeAnswer = { Thread.sleep(40L) }, raw = { INTERNAL_ERROR })
         val store = TestUploaderStore()
         val handler = StormHandler()
@@ -265,11 +274,12 @@ class UploaderConcurrencyStormRound3AdversarialTest {
     // R3-08: stop storm at random moments with a store whose commit yields, then one clean job.
     @Test
     fun `random stops of many jobs never lose the delivery and never run onSettled twice`() {
-        serve(beforeAnswer = { Thread.sleep(Random.nextLong(0, 40)) })
+        // timing-hygiene-ignore: TH1 inject a seeded answer latency of the peer
+        serve(beforeAnswer = { Thread.sleep(answerDelayMillis(40)) })
         val store = YieldingStore(TestUploaderStore())
         val handler = StormHandler()
         startEngine(store, handler)
-        val random = Random(7)
+        val random = Random(seed + 7)
         runBlocking {
             withTimeout(60_000L) {
                 repeat(10) {
@@ -282,10 +292,10 @@ class UploaderConcurrencyStormRound3AdversarialTest {
         }
         val last = runBlocking { withTimeout(20_000L) { worker("item-1").doWork() } }
         assertIs<ListenableWorker.Result.Success>(last)
-        assertNull(store.find("item-1"), "delivered")
-        assertTrue(handler.delivered.get() >= 1)
-        assertTrue(handler.settled.get() <= 1, "onSettled at most once, was ${handler.settled.get()}")
-        assertTrue(journalFiles().isEmpty(), "no entry left: ${journalFiles()}")
+        assertNull(store.find("item-1"), "delivered (seed=$seed)")
+        assertTrue(handler.delivered.get() >= 1, "delivered at least once (seed=$seed)")
+        assertTrue(handler.settled.get() <= 1, "onSettled at most once, was ${handler.settled.get()} (seed=$seed)")
+        assertTrue(journalFiles().isEmpty(), "no entry left: ${journalFiles()} (seed=$seed)")
     }
 
     // R3-09: many items, cooperative progress hooks that never return: every job still settles within the bound.
@@ -310,6 +320,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
     // W1 (D-59, P10): eight jobs for one item in one process run one after the other: the file is uploaded once.
     @Test
     fun `eight concurrent jobs for one item upload it once`() {
+        // timing-hygiene-ignore: TH1 inject the peer holds each answer, so the jobs overlap
         serve(beforeAnswer = { Thread.sleep(40L) })
         val store = TestUploaderStore()
         val handler = StormHandler()
@@ -348,21 +359,36 @@ class UploaderConcurrencyStormRound3AdversarialTest {
         serve()
         val count: Int = Runtime.getRuntime().availableProcessors() + 2
         val ids = (1..count).map { "b-$it" }
+        // Each hook blocks its thread on a gate that opens only after every settlement: a settlement that waited for
+        // a hook (or an upload starved of threads by the hooks) would hang the 25 s bound below instead of passing slowly.
+        val hookGate = java.util.concurrent.CountDownLatch(1)
+        val hooksEntered = AtomicInteger(0)
         val handler = StormHandler(
             fields = { listOf(UploadField.File("f", "f.bin", "application/octet-stream", file(300_000).path)) },
-            onProgress = { Thread.sleep(5_000L) },
+            onProgress = {
+                hooksEntered.incrementAndGet()
+                hookGate.await(60, java.util.concurrent.TimeUnit.SECONDS)
+            },
         )
         startEngine(TestUploaderStore(), handler, ids)
-        val startedAt = System.nanoTime()
-        val delivered = runBlocking {
-            withContext(Dispatchers.IO) {
-                val jobs = ids.map { id -> async(Dispatchers.IO) { uploads.async { worker(id).doWork() }.await() } }
-                withTimeout(25_000L) { jobs.awaitAll() }
+        try {
+            // timing-hygiene-ignore: TH2 measure R-9 the library's 2 s progress flush window, a private constant the test cannot move
+            val startedAt: Long = System.nanoTime()
+            val delivered = runBlocking {
+                withContext(Dispatchers.IO) {
+                    val jobs = ids.map { id -> async(Dispatchers.IO) { uploads.async { worker(id).doWork() }.await() } }
+                    withTimeout(25_000L) { jobs.awaitAll() }
+                }
             }
+            // timing-hygiene-ignore: TH2 measure R-9 the library's 2 s progress flush window, a private constant the test cannot move
+            val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000L
+            val blocked: Int = hooksEntered.get()
+            delivered.forEach { assertIs<ListenableWorker.Result.Success>(it) }
+            assertTrue(blocked >= 1, "no progress hook ran, so the case is vacuous ($count items)")
+            assertTrue(tookMillis < 4_000L, "a progress hook must not hold up settlements: took $tookMillis ms for $count items (flush window 2 s)")
+        } finally {
+            hookGate.countDown()
         }
-        val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000L
-        delivered.forEach { assertIs<ListenableWorker.Result.Success>(it) }
-        assertTrue(tookMillis < 4_000L, "a progress hook must not hold up settlements: took $tookMillis ms for $count items")
     }
 
     // R3-22: another job settled the item between this job's preparation and the start of its transfer.
@@ -413,6 +439,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
                         while (!socket.isClosed) {
                             out.write('X'.code)
                             out.flush()
+                            // timing-hygiene-ignore: TH1 inject the peer drips one byte per 100 ms
                             Thread.sleep(100L)
                         }
                     }
@@ -421,6 +448,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
             }
         }
         val request = UploadRequest(url = "http://127.0.0.1:${server.localPort}/u", fields = emptyList())
+        // timing-hygiene-ignore: TH2 measure R-9 the watchdog's own deadline (about 2 x 400 ms plus one 250 ms poll), real sockets: no virtual form
         val startedAt = System.nanoTime()
         val outcomes: List<MultipartOutcome> = runBlocking {
             withTimeout(20_000L) {
@@ -435,6 +463,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
                 }.awaitAll()
             }
         }
+        // timing-hygiene-ignore: TH2 measure R-9 the watchdog's own deadline (about 2 x 400 ms plus one 250 ms poll), real sockets: no virtual form
         val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000L
         outcomes.forEach { assertIs<UploadResult.TransportFailure>(it.result) }
         assertTrue(tookMillis < 5_000L, "watchdog bound is about 2 x 400 ms plus polling; took $tookMillis ms")
@@ -445,7 +474,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
     fun `cancelled waiters leave no entry in the item lock table`() {
         runBlocking {
             withTimeout(30_000L) {
-                val random = Random(11)
+                val random = Random(seed + 11)
                 val jobs = (1..400).map { index ->
                     uploads.launch { OutcomeReplayLocks.withItem("lock-${index % 7}") { delay(3L) } }
                 }
@@ -454,7 +483,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
                 jobs.forEach { it.join() }
             }
         }
-        assertEquals(0, OutcomeReplayLocks.activeKeys, "lock table must be empty when nobody holds or waits")
+        assertEquals(0, OutcomeReplayLocks.activeKeys, "lock table must be empty when nobody holds or waits (seed=$seed)")
     }
 
     // R3-14: the creation sweep and one job per item race over thirty journaled answers.
@@ -489,9 +518,10 @@ class UploaderConcurrencyStormRound3AdversarialTest {
     // R3-15: five items, three jobs each, random stops, a store whose commit fails or leaks its own cancellation at random.
     @Test
     fun `random stops and a flaky store over five items end with every item delivered and nothing left`() {
-        serve(beforeAnswer = { Thread.sleep(Random.nextLong(0, 30)) })
+        // timing-hygiene-ignore: TH1 inject a seeded answer latency of the peer
+        serve(beforeAnswer = { Thread.sleep(answerDelayMillis(30)) })
         val ids = (1..5).map { "fl-$it" }
-        val random = Random(23)
+        val random = Random(seed + 23)
         val store = FlakyStore(TestUploaderStore(), random)
         val handler = StormHandler()
         startEngine(store, handler, ids)
@@ -511,9 +541,9 @@ class UploaderConcurrencyStormRound3AdversarialTest {
                 }
             }
         }
-        ids.forEach { assertNull(store.inner.find(it), "$it delivered") }
-        assertTrue(handler.settled.get() <= ids.size, "onSettled at most once per item, was ${handler.settled.get()}")
-        assertTrue(journalFiles().isEmpty(), "no entry left: ${journalFiles()}")
+        ids.forEach { assertNull(store.inner.find(it), "$it delivered (seed=$seed)") }
+        assertTrue(handler.settled.get() <= ids.size, "onSettled at most once per item, was ${handler.settled.get()} (seed=$seed)")
+        assertTrue(journalFiles().isEmpty(), "no entry left: ${journalFiles()} (seed=$seed)")
     }
 
     /** A journal storage in memory, so the interleaving of two writers is exactly the one the test spells out. */
@@ -573,6 +603,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
                         while (!socket.isClosed) {
                             out.write('X'.code)
                             out.flush()
+                            // timing-hygiene-ignore: TH1 inject the peer drips one byte per 100 ms
                             Thread.sleep(100L)
                         }
                     }
@@ -587,6 +618,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
     fun `many connections with dripped headers all end within the watchdog bound`() {
         sleepyDrip()
         val request = UploadRequest(url = "http://127.0.0.1:${server.localPort}/u", fields = emptyList())
+        // timing-hygiene-ignore: TH2 measure R-9 the watchdog's own deadline with a second peer type (sleepyDrip), real sockets: no virtual form
         val startedAt = System.nanoTime()
         runBlocking {
             withTimeout(20_000L) {
@@ -599,8 +631,9 @@ class UploaderConcurrencyStormRound3AdversarialTest {
                 }.awaitAll()
             }
         }
+        // timing-hygiene-ignore: TH2 measure R-9 the watchdog's own deadline with a second peer type (sleepyDrip), real sockets: no virtual form
         val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000L
-        assertTrue(tookMillis < 5_000L, "took $tookMillis ms")
+        assertTrue(tookMillis < 5_000L, "took $tookMillis ms; the watchdog bound is about 2 x 400 ms plus polling")
     }
 
 
@@ -638,9 +671,11 @@ class UploaderConcurrencyStormRound3AdversarialTest {
         val engineA = startEngine(backing, first)
         val jobs = (1..6).map { uploads.async { worker("item-1", engineWaitMillis = 20_000L).doWork() } }
         runBlocking { withTimeout(10_000L) { while (connections.get() < 1) delay(10L) } }
+        val waitersBefore: Int = engineWaiters()
         UploaderEngineRegistry.unregister(engineA as DefaultUploaderEngine)
         release.countDown()
-        runBlocking { delay(300L) }
+        // The jobs holding the answer meet "no engine registered" before the second engine appears.
+        awaitCondition(10_000L, "a job holding the answer to wait for an engine") { engineWaiters() > waitersBefore }
         val second = StormHandler()
         val engineB = testEngine(LockedStore(backing), listOf(second), scope)
         engines += engineB
@@ -657,6 +692,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
     // R3-19: registry churn while eight jobs settle.
     @Test
     fun `registry churn while eight jobs settle loses nothing`() {
+        // timing-hygiene-ignore: TH1 inject the peer holds each answer, so the jobs overlap
         serve(beforeAnswer = { Thread.sleep(30L) })
         val backing = TestUploaderStore()
         val handler = StormHandler()
@@ -664,8 +700,10 @@ class UploaderConcurrencyStormRound3AdversarialTest {
         val churn = thread(isDaemon = true) {
             repeat(300) {
                 UploaderEngineRegistry.unregister(engine as DefaultUploaderEngine)
+                // timing-hygiene-ignore: TH1 inject the pacing of the registry churn
                 Thread.sleep(2L)
                 UploaderEngineRegistry.register(engine)
+                // timing-hygiene-ignore: TH1 inject the pacing of the registry churn
                 Thread.sleep(2L)
             }
         }
@@ -688,7 +726,8 @@ class UploaderConcurrencyStormRound3AdversarialTest {
         runBlocking { withTimeout(20_000L) { ids.take(5).forEach { worker(it).doWork() } } }
         val before: Int = Thread.getAllStackTraces().size
         runBlocking { withTimeout(60_000L) { ids.drop(5).forEach { assertIs<ListenableWorker.Result.Success>(worker(it).doWork()) } } }
-        runBlocking { delay(1_500L) }
+        // The pools wind down after the last job: poll until the count settles (the assertion below still decides).
+        pollUntil(10_000L) { Thread.getAllStackTraces().size - before < 20 }
         val after: Int = Thread.getAllStackTraces().size
         assertTrue(after - before < 20, "threads grew from $before to $after over 55 jobs")
         assertEquals(60, handler.delivered.get())
@@ -705,13 +744,19 @@ class UploaderConcurrencyStormRound3AdversarialTest {
                         readRequest(socket)
                         val out = socket.getOutputStream()
                         out.write("HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n".encodeToByteArray())
-                        while (!socket.isClosed) { out.write('b'.code); out.flush(); Thread.sleep(100L) }
+                        while (!socket.isClosed) {
+                            out.write('b'.code)
+                            out.flush()
+                            // timing-hygiene-ignore: TH1 inject the peer drips one byte per 100 ms
+                            Thread.sleep(100L)
+                        }
                     }
                     runCatching { socket.close() }
                 }
             }
         }
         val request = UploadRequest(url = "http://127.0.0.1:${server.localPort}/u", fields = emptyList())
+        // timing-hygiene-ignore: TH2 measure R-9 the read-deadline contract on a dripping body (watchdog 500 ms), real sockets: no virtual form
         val startedAt = System.nanoTime()
         val outcomes: List<MultipartOutcome> = runBlocking {
             withTimeout(20_000L) {
@@ -724,6 +769,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
                 }.awaitAll()
             }
         }
+        // timing-hygiene-ignore: TH2 measure R-9 the read-deadline contract on a dripping body (watchdog 500 ms), real sockets: no virtual form
         val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000L
         outcomes.forEach {
             assertEquals(UploadResult.Completed(200), it.result)
