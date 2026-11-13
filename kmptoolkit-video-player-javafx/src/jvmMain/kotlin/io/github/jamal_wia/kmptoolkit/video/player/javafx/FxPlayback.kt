@@ -145,11 +145,12 @@ internal class FxPlayback private constructor(
 
     /**
      * When the rate property was last written while the native player was not playing ([System.nanoTime]), or null when
-     * it has not been: the paused write of [setSpeed], the held speed [pause] and the end of the source write after
-     * their pause(), and the write of [giveNudge] on a player that was paused again. A play() issued within
-     * [IDLE_RATE_GAP_NANOS] of such a write can freeze the playhead on macOS, so every [start] that resumes waits out
-     * the rest of the gap first (see [start]). Only a write that changes the value is stamped: the property forwards
-     * nothing otherwise.
+     * it has not been: the paused write of [setSpeed], the held speed [pause] writes after its pause(), the speed [pause]
+     * flushes from a cancelled delayed play, the held speed the end of the source writes after its pause(), the write of
+     * [giveNudge] on a player that was paused again, and the return to 1.0 of [deferRate] when JavaFX delivers a loop wrap
+     * after a pause(). A play() issued within [IDLE_RATE_GAP_NANOS] of such a write can freeze the playhead on macOS, so
+     * every [start] that resumes waits out the rest of the gap first (see [start]). Only a write that changes the value
+     * is stamped: the property forwards nothing otherwise.
      */
     private var idleRateWriteNanos: Long? = null
 
@@ -402,9 +403,10 @@ internal class FxPlayback private constructor(
         playIssued = false
         playGeneration++
         delayedPlayPending = false
-        // A speed that waits ([deferredRate]) survives the pause, but the movement counted for it does not: the count
-        // begins again from the first reading after the next play(), or the movement counted before the pause would
-        // complete the wait on that reading and the speed would be written right after the play (W-PLAY).
+        // A speed that waits ([deferredRate]) survives the pause (the next start() takes any speed but 1), but the
+        // movement counted for it does not: the count begins again from the first PLAYING reading after the next start(),
+        // or the movement counted before the pause would complete the wait on that reading and the speed would be written
+        // right after the play (W-PLAY).
         deferredGauge.reset()
         native.pause()
         // A1: the held speed is written after the pause, never before it. OpenJFX forwards a rate change and a pause()
@@ -587,7 +589,8 @@ internal class FxPlayback private constructor(
         // S19: JavaFX reports the status of a pause late, and a reading it published before can still tick: after pause()
         // (or the end of a clip) the status may read PLAYING for a while. A write now would be a rate written while not
         // playing that nothing stamps, and a play() right after it would start inside the idle gap. The speed stays
-        // deferred instead: start() takes it from [deferredRate] and gives it on its own path.
+        // deferred instead: a start() that resumes at a speed other than 1 takes it from [deferredRate] and gives it on its
+        // own path; a speed of 1 stays here and is given once the playhead has moved after the play.
         if (native.status != NativeStatus.PLAYING || !playIssued) return
         if (isBefore(deferredNotBeforeNanos)) return
         val position: Double = native.currentTimeMs

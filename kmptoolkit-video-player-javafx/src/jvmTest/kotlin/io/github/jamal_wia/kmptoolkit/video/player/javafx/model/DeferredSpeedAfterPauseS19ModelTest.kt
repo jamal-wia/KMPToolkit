@@ -85,6 +85,7 @@ class DeferredSpeedAfterPauseS19ModelTest {
                         val after: List<NativeCallEntry> = native.writes(pausedAt, 2.0)
                         engine.start()
                         advanceBy(600)
+                        assertEquals(2.0, composed.hazards.effectiveRate, "the speed that waited reached the decoder after the resume\n${native.log.tail()}")
                         if (after.isNotEmpty()) {
                             findings += "pause at +$pauseOffsetMs ms: the deferred speed was written ${after.first().tMs - pausedAt} ms after the pause()\n" +
                                 native.log.toString().lines().filter { l: String -> CALL_LINE.containsMatchIn(l) }.takeLast(8).joinToString("\n")
@@ -203,9 +204,27 @@ class DeferredSpeedAfterPauseS19ModelTest {
             advanceBy(250)
             engine.start()
             val playAt: Double = nowMs()
-            advanceBy(600)
+            // The first PLAYING tick after the play: the first published change of the playhead while the status reads PLAYING.
+            // 100 steps of 1 ms see it (the status lands within about 35 ms, a sample follows within 25 ms); the rest is as before.
+            var lastReadingMs: Double = native.positionMs
+            var firstPlayingTickMs: Double = Double.NaN
+            repeat(100) {
+                advanceBy(1)
+                if (firstPlayingTickMs.isNaN() && native.status == NativeStatus.PLAYING && native.positionMs != lastReadingMs) {
+                    firstPlayingTickMs = native.positionMs
+                }
+                lastReadingMs = native.positionMs
+            }
+            advanceBy(500)
+            assertTrue(!firstPlayingTickMs.isNaN(), "no PLAYING tick within 100 ms of the play\n${native.log.tail()}")
             val inWindow: List<NativeCallEntry> = native.anyWrites(playAt, playAt + W_PLAY_MS)
             assertEquals(emptyList(), inWindow, "a rate was written within ${W_PLAY_MS.toInt()} ms of the play\n${native.log.tail()}")
+            val given: List<NativeCallEntry> = native.writes(playAt, 1.0)
+            assertEquals(1, given.size, "the speed of 1 that waited was written once after the resume\n${native.log.tail()}")
+            assertTrue(
+                given.single().positionMs - firstPlayingTickMs >= SETTLE_MOVEMENT_MS - EPSILON_MS,
+                "the speed of 1 came after ${given.single().positionMs - firstPlayingTickMs} ms of movement since the first PLAYING tick, before $SETTLE_MOVEMENT_MS ms\n${native.log.tail()}",
+            )
         }
     }
 
@@ -215,6 +234,7 @@ class DeferredSpeedAfterPauseS19ModelTest {
         const val NANOS_PER_MS: Double = 1_000_000.0
         const val IDLE_GAP_MS: Double = 200.0
         const val W_PLAY_MS: Double = 100.0
+        const val SETTLE_MOVEMENT_MS: Double = 200.0
         val CALL_LINE: Regex = Regex("^\\s*t=\\S+ (SET_RATE|PAUSE|PLAY|SEEK)\\b")
     }
 }
