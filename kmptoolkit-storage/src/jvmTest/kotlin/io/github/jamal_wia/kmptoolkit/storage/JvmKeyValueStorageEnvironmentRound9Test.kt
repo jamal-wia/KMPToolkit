@@ -5,6 +5,7 @@ import io.github.jamal_wia.kmptoolkit.files.FileError
 import io.github.jamal_wia.kmptoolkit.files.FileResult
 import io.github.jamal_wia.kmptoolkit.files.WriteOptions
 import io.github.jamal_wia.kmptoolkit.files.createFileAccess
+import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -15,6 +16,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.Assume
 
 /**
  * B round 9, Q1 on the desktop store: a full disk at every write, and the directory removed under a running store.
@@ -91,6 +93,45 @@ class JvmKeyValueStorageEnvironmentRound9Test {
             assertTrue(store.clear() is StorageResult.Success)
             assertTrue(store.put("k2", "v2") is StorageResult.Success)
             assertEquals(StorageResult.Success("v2"), store.get("k2"))
+        }
+    }
+    @Test
+    fun `a read-only directory fails writes typed keeps the old value and the next write after the restore works`() = runBlocking<Unit> {
+        withTimeout(60_000) {
+            val store: KeyValueStorage = storage(createFileAccess())
+            assertTrue(store.put("a", "1") is StorageResult.Success)
+            val restore: AutoCloseable = TestFs.makeUnwritable(directory)
+            try {
+                Assume.assumeFalse("this user can write into a read-only directory", runCatching { File(directory, "probe").createNewFile() }.getOrDefault(false))
+                val failure: StorageResult<Unit> = store.put("b", "2")
+                assertIs<StorageError.OperationFailed>(assertIs<StorageResult.Failure>(failure).error)
+                assertIs<StorageError.OperationFailed>(assertIs<StorageResult.Failure>(store.remove("a")).error)
+                assertEquals(StorageResult.Success("1"), store.get("a"))
+                assertEquals(StorageResult.Success<String?>(null), store.get("b"))
+            } finally {
+                restore.close()
+            }
+            assertEquals(emptyList(), litter())
+            assertTrue(store.put("b", "2") is StorageResult.Success)
+            assertEquals(StorageResult.Success("2"), store.get("b"))
+            assertEquals(StorageResult.Success("1"), store.get("a"))
+        }
+    }
+
+    @Test
+    fun `a directory in the way of the store file fails writes typed and clear removes an empty one`() = runBlocking<Unit> {
+        withTimeout(60_000) {
+            val store: KeyValueStorage = storage(createFileAccess())
+            assertTrue(file().mkdirs())
+            File(file(), "inner").writeText("x")
+            assertIs<StorageError.OperationFailed>(assertIs<StorageResult.Failure>(store.put("a", "1")).error)
+            assertIs<StorageError.OperationFailed>(assertIs<StorageResult.Failure>(store.clear()).error)
+            assertTrue(File(file(), "inner").exists(), "clear removed the content of a directory that is not the store file")
+            assertTrue(File(file(), "inner").delete())
+            assertTrue(store.put("a", "1") is StorageResult.Failure, "a directory is still in the way")
+            assertTrue(store.clear() is StorageResult.Success)
+            assertTrue(store.put("a", "1") is StorageResult.Success)
+            assertEquals(StorageResult.Success("1"), store.get("a"))
         }
     }
 }
