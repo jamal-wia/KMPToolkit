@@ -188,19 +188,19 @@ decoder writes straight into memory without a render-and-read-back step.
   behind its anchor) restarts the count; the speed is given on a tick of the playhead, so a little later). For that
   time the playhead advances at normal speed, then the reported time catches up; right after the speed is given, the
   reported time stood still for about a quarter of a second (0.24 to 0.32 s, estimated from the 2x line after it) in
-  all 14 resumes of the probe run before it advanced at the new speed (macOS), and the reported time right after a pause can lag the decoder by about 0.4 s; a pause
+  all 14 resumes of the probe run before it advanced at the new speed (macOS), and the reported time right after a pause can lag the decoder by about 0.4 to 0.55 s (421 to 538 ms in two probe runs); a pause
   meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait. The clock bound has a limit on
   macOS, where the decoder runs at normal speed until the speed is given while the bound allows the held speed: a
   stale reading that lags by L ms is recognised only if the fresh one follows within (L - 50) / (speed - 1) ms (for the
-  424 ms lag measured: about 374 ms at speed 2, 125 ms at speed 4, 53 ms at speed 8); a later fresh reading counts as
-  playback and the speed is given before 200 ms of playback. The fresh reading followed within 2 to 5 ms in the probe
-  runs.
+  lags of 421 to 538 ms measured in two probe runs: about 370 to 490 ms at speed 2, 125 to 165 ms at speed 4, 53 to 70 ms at speed 8); a later fresh reading counts as
+  playback and the speed is given before 200 ms of playback. The fresh reading followed the stale one within 1 to 22 ms in the probe
+  runs, well inside that limit at every speed (one resume in fourteen had no stale reading).
   A `play()` that follows a rate written while the player was not playing within about 200 ms waits for the rest of
   those 200 ms on every resume path but one (a `play()` right next to a rate write froze the playhead at a speed of 8
   in the measurements). The exception is a `play()` from within about 100 ms of the start of the clip, at a speed other
   than 1 and with no seek pending: it first seeks to where it stands and plays at once, because a native seek after the
   write clears the gap. Such a write is a `setPlaybackSpeed()` on a paused player, the held speed that a `pause()` or
-  the end of a clip writes, or a speed that a `pause()` overtook before it was given. So a `setPlaybackSpeed()`
+  the end of a clip writes, or a speed that a `pause()` overtook before it was given, or the return to normal speed at a loop wrap that JavaFX delivers after a `pause()`. So a `setPlaybackSpeed()`
   immediately followed by `play()` starts up to 200 ms late, except a play near the start. A speed given while
   that `play()` waits is held and given after the play (as a settle, about 200 ms of playback later on the plain path),
   never written in front of it; a second `play()` meanwhile does nothing (the first one plays once, at the end of the
@@ -229,7 +229,8 @@ decoder writes straight into memory without a render-and-read-back step.
   because holding it back would play the start of every such play at normal speed for half a second or more.
   This is not changed by 5.0.0.
   A rate that is not finite and positive, or a NaN volume, is ignored at the engine (the player never
-  passes one).
+  passes one). Any other speed is handed to JavaFX unchanged; JavaFX documents playback rates from 0 to 8, and what the native
+  decoder does above 8 has not been measured, so give the player a `playbackSpeedRange` within 8x if it plays through this engine.
 - **Buffering** is reported from JavaFX's `STALLED` status; the buffered position comes from
   `bufferProgressTime`, which is meaningful for progressive HTTP sources (for a local file expect it
   to cover the whole duration).

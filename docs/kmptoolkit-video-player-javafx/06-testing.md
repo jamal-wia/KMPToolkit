@@ -143,7 +143,7 @@ The hazard probes (H), about ten minutes, alone on an idle machine:
 
 `JavaFxResumeAtSpeedR5AdversarialTest` "a pause and resume at a speed of two keeps the speed" was red in four runs in ten
 before 5.0.0 (slopes 0.81 to 0.96 at a 1-minute load of 5.8 to 7.8): its window was anchored on the reported time after
-the pause, which can lag the decoder by about 0.4 s, so it opened before the speed was given. It now opens 600 ms of
+the pause, which can lag the decoder by about 0.4 to 0.55 s, so it opened before the speed was given. It now opens 600 ms of
 media after the second change of the reported time after the resume and lasts 400 ms. A red of it now is new: match it
 against its F twin (`aPauseAndResumeAtASpeedOfTwoKeepsTheSpeed`) and rerun it alone on an idle machine.
 
