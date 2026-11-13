@@ -144,7 +144,7 @@ internal class FxPlayback private constructor(
     private var failed: Boolean = false
     private var disposed: Boolean = false
 
-    /** Whether [pulse] runs. FX-thread confined, like everything here. */
+    /** Whether the native pulse runs (see [NativePlayer.startPulse]). FX-thread confined, like everything here. */
     private var pulsing: Boolean = false
 
     init {
@@ -625,7 +625,7 @@ internal class FxPlayback private constructor(
          * everything else runs on the FX thread. On failure or cancellation the half-built playback is
          * disposed before this throws.
          *
-         * [backend]: the engine always passes its own; the default exists for direct test callers.
+         * [backend]: where the player is built; the engine passes its own.
          *
          * [onCreated] runs on the FX thread as soon as the player exists, before it is ready, so the
          * caller can route settings to it from then on.
@@ -635,7 +635,7 @@ internal class FxPlayback private constructor(
             sink: Sink,
             maxFrameRate: Int,
             readyTimeoutMs: Long,
-            backend: NativeBackend = JavaFxBackend,
+            backend: NativeBackend,
             onCreated: (FxPlayback) -> Unit,
         ): FxPlayback {
             val source: NativeSource = withContext(Dispatchers.IO) { runInterruptible { backend.probe(uri) } }

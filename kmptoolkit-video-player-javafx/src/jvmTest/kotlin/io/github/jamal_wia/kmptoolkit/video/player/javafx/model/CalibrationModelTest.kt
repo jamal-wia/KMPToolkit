@@ -33,6 +33,7 @@ class CalibrationModelTest {
         val native: ScriptedNativePlayer get() = composed.player
         val hazards: HazardModel get() = composed.hazards
         val time: TimeModel get() = composed.time
+        val monitor: HazardMonitor get() = composed.monitor
     }
 
     private fun FxModelScope.loadClip(config: HazardConfig = HazardConfig(), body: Loaded.() -> Unit) {
@@ -143,44 +144,54 @@ class CalibrationModelTest {
     // ---- the loop wrap (W-WRAP) ----
 
     /**
-     * QUESTION J8-W1 (see the J8 report): on the CURRENT code the fake flags a loop wrap at a speed other than 1. At the
-     * wrap `FxPlayback.deferRate` writes the property 1.0 (the decoder already runs at 1.0 there, the loop part sets
-     * it, B8), and the hazard part counts that write as a rate change inside W-WRAP and freezes the decoder. The code is
-     * green on real media (`JavaFxLoopSpeedR5AdversarialTest`), so the model is stricter than the measured native
-     * behaviour: a write of the rate the decoder already plays at has no native effect. The advisor decides; this test
-     * pins what the composition does today, with an UNWIRED monitor, and is to be replaced by the wrap scenario of the
-     * ruling once the model is settled.
+     * W-WRAP, the wrap at a speed (ruling 1 of the J5-J8 review): looping at 2x, the time part reaches the end, the loop
+     * part sets the decoder to 1.0 (B8) and opens W-WRAP, and `FxPlayback.onEndOfMedia` writes the property 2.0 -> 1.0
+     * through `deferRate`. That write changes nothing native (the decoder already plays at 1.0), so it is no violation;
+     * the speed is given back once, after the wrap window, and the monitor is wired.
      */
     @Test
-    fun theFakeFlagsTheUnityWriteOfALoopWrapAtSpeedOnTheCurrentCode() = fxModel {
-        val scripted = ScriptedBackend(host)
-        val backend: ComposedBackend = composedBackend(scripted, watch = false)
-        val engine = JavaFxVideoEngine(runtime = {}, backend = { backend })
-        load(engine, VideoSource.Asset(TestClip.ASSET))
-        try {
-            val native: ScriptedNativePlayer = backend.last.player
-            val hazards: HazardModel = backend.last.hazards
+    fun aLoopWrapAtSpeedGivesTheSpeedBackOnlyAfterTheWrapWindow() = fxModel {
+        loadClip {
             engine.setLooping(true)
             engine.setSpeed(2f)
             advanceBy(300)
             engine.sharedPlay(2f)
-            val steps: Int = advanceUntil { backend.last.loop.cycle == 2 }
+            advanceUntil { composed.loop.cycle == 2 }
             val wrapAt: Double = host.elapsedNanos / 1_000_000.0
-            assertTrue(steps > 0, "the clip wrapped")
+            advanceBy(700)
 
-            // The composition: the time part reached the end, the loop part wrapped the playhead and told the hazard
-            // part, which opened W-WRAP before onEndOfMedia reached FxPlayback, and FxPlayback answered with deferRate.
-            assertEquals(0.0, native.positionMs, "the loop part wrapped the playhead to the start")
-            assertEquals(setOf(FragileWindow.WRAP), hazards.openWindows)
-            val violation: HazardViolation = hazards.violations.single()
-            assertEquals(FragileWindow.WRAP, violation.window)
-            assertEquals(NativeCall.SET_RATE, violation.trigger)
-            assertEquals(1.0, violation.arg, "the flagged write is the unity write of deferRate")
-            assertEquals(wrapAt, violation.tMs, "it is flagged at the instant of the wrap")
-            assertTrue(hazards.frozen, "the decoder froze: the model's own consequence of the flag")
-        } finally {
-            engine.release()
-            advanceBy(50)
+            assertFalse(hazards.frozen, native.log.tail())
+            assertEquals(2.0, hazards.effectiveRate, "the speed was given back\n${native.log}")
+            val given: NativeCallEntry = native.log.calls(NativeCall.SET_RATE).last { it.effective }
+            assertTrue(given.tMs - wrapAt >= HazardConfig.DEFAULT_WRAP_MS, "given ${given.tMs - wrapAt} ms after the wrap\n${native.log}")
+        }
+    }
+
+    /**
+     * S9 in its wrap form: the speed after a wrap waits (deferred past W-WRAP), and a seek that arrives while it waits
+     * restarts the wait (W-SEEK-RUN) instead of freezing the playhead; the speed is then given once, after the new
+     * window, and the monitor is wired.
+     */
+    @Test
+    fun aSeekWhileTheSpeedAfterALoopWrapWaitsRestartsTheWaitInsteadOfFreezingThePlayhead() = fxModel {
+        loadClip {
+            engine.setLooping(true)
+            engine.setSpeed(2f)
+            advanceBy(300)
+            engine.sharedPlay(2f)
+            advanceUntil { composed.loop.cycle == 2 }
+            advanceBy(450)
+            engine.seekTo(2_000L)
+            advanceBy(600)
+
+            assertFalse(hazards.frozen, native.log.tail())
+            assertEquals(2.0, hazards.effectiveRate, "the speed was given back\n${native.log}")
+            val seekAt: Double = native.log.calls(NativeCall.SEEK).last { it.arg == 2_000.0 }.tMs
+            val given: NativeCallEntry = native.log.calls(NativeCall.SET_RATE).last { it.effective }
+            assertTrue(
+                given.tMs - seekAt >= HazardConfig.DEFAULT_SEEK_RUN_MS,
+                "the speed came ${given.tMs - seekAt} ms after the seek\n${native.log}",
+            )
         }
     }
 
@@ -224,7 +235,7 @@ class CalibrationModelTest {
             advanceBy(2_000)
 
             assertFalse(hazards.frozen, native.log.tail())
-            assertTrue(native.positionMs >= 1_500.0, "the playhead moved for 2 s after the 300 ms window, was ${native.positionMs}")
+            assertTrue(native.positionMs >= 2_000.0, "the playhead moved for 2 s after the 300 ms window, was ${native.positionMs}")
             assertEquals(1.5, hazards.effectiveRate, "the deferred speed was given once the window closed\n${native.log}")
         }
     }
@@ -259,6 +270,88 @@ class CalibrationModelTest {
                 given.tMs - seekAt >= HazardConfig.DEFAULT_SEEK_RUN_MS,
                 "the speed came ${given.tMs - seekAt} ms after the seek\n${native.log}",
             )
+        }
+    }
+
+    // ---- twins of real-media sequences (calibration rule (a): a sequence real media runs green is green here too) ----
+
+    /**
+     * Twin (i) of `JavaFxVideoEngineTest.speedSetWhilePausedHoldsAfterResuming`: played from 2 s, paused, a speed written
+     * while paused, a seek back to 0, then `start()` (the seeked path of `start`, which plays 0 ms after the idle write).
+     * Real media is green for it, so the monitor must be too.
+     */
+    @Test
+    fun theTwinOfASpeedSetWhilePausedHoldingAfterResumingIsGreenWithTheMonitorWired() = fxModel {
+        loadClip {
+            engine.seekTo(2_000L)
+            engine.start()
+            advanceUntil { engine.positionMs() >= 2_100L }
+            engine.pause()
+            engine.setSpeed(2f)
+            engine.seekTo(0L)
+            engine.start()
+            advanceUntil { engine.positionMs() in 100L until 1_500L }
+            val from: Long = engine.positionMs()
+            advanceBy(1_000)
+            val covered: Long = engine.positionMs() - from
+
+            assertFalse(hazards.frozen, native.log.tail())
+            assertTrue(covered >= 1_500L, "covered $covered ms of media in 1 s at speed 2\n${native.log}")
+            println("STRICT[speedSetWhilePausedHoldsAfterResuming] ${monitor.strictReport()}")
+        }
+    }
+
+    /**
+     * Twin (ii) of `JavaFxLoopSpeedR5AdversarialTest` (A14): looping, `setSpeed(4f)`, `start()`, until the third cycle.
+     * The slope of the second cycle between 300 and 2300 ms of the playhead is at least 2.5, on the native positions
+     * sampled every 15 virtual ms (the real test samples `positionMs()` every 15 ms).
+     */
+    @Test
+    fun theTwinOfASpeedOfFourAcrossLoopWrapsKeepsTheSpeedInTheSecondCycle() = fxModel {
+        loadClip {
+            engine.setLooping(true)
+            engine.setSpeed(4f)
+            engine.start()
+            val cycles: MutableList<MutableList<Pair<Double, Double>>> = mutableListOf(mutableListOf())
+            var last = 0.0
+            var steps = 0
+            while (cycles.size < 3) {
+                check(steps++ < 600) { "the source wrapped only ${cycles.size - 1} times in 9 s\n${native.log}" }
+                val position: Double = time.nativePositionMs
+                if (position + 1_000.0 < last) cycles += mutableListOf<Pair<Double, Double>>()
+                last = position
+                cycles.last() += (host.elapsedNanos / 1_000_000.0) to position
+                advanceBy(15)
+            }
+            val window: List<Pair<Double, Double>> = cycles[1].filter { it.second in 300.0..2_300.0 }
+            assertTrue(window.size >= 2, "the second cycle had no samples between 300 ms and 2300 ms: ${cycles[1].size}")
+            val slope: Double = (window.last().second - window.first().second) / (window.last().first - window.first().first)
+
+            assertFalse(hazards.frozen, native.log.tail())
+            assertTrue(slope > 2.5, "the second cycle at a speed of 4 moved the playhead $slope ms per ms\n${native.log}")
+            println("STRICT[loopSpeedOfFour] slope=$slope ${monitor.strictReport()}")
+        }
+    }
+
+    /**
+     * Twin (iii), the shared player's first play at a speed (J8-F1): `start()` then `setSpeed(2f)` on a fresh clip. The
+     * decoder has not started when the speed's seek and play follow the first play, so there is no violation, and the
+     * playhead moves at 2x within a second.
+     */
+    @Test
+    fun theTwinOfTheFirstPlayOfASharedPlayerAtASpeedMovesThePlayheadAtSpeedWithNoViolation() = fxModel {
+        loadClip {
+            engine.sharedPlay(2f)
+            advanceBy(300)
+            val from: Double = native.positionMs
+            advanceBy(1_000)
+            val covered: Double = native.positionMs - from
+
+            assertFalse(hazards.frozen, native.log.tail())
+            assertEquals(emptyList(), hazards.violations.map { it.describe() })
+            assertEquals(2.0, hazards.effectiveRate, "the speed reached the decoder\n${native.log}")
+            assertTrue(covered >= 1_500.0, "covered $covered ms of media in 1 s at speed 2\n${native.log}")
+            println("STRICT[firstPlayAtSpeed] ${monitor.strictReport()}")
         }
     }
 
