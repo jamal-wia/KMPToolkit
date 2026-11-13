@@ -310,7 +310,16 @@ internal class AndroidDownloaderStorage(
         return if (target.isDirectory) {
             // A link AT the unit's path is the resource (as for isResourceAvailable); the tree walk does not follow a
             // link, not even its own start, so it starts from the resolved path. Links inside the tree add nothing.
-            treeSize(File(target.canonicalPath))
+            //
+            // A size query never throws: canonicalPath can fail with an IOException when the link is swapped or removed
+            // between isDirectory and here, or on an I/O error. The walk then starts from the plain path, which yields
+            // 0 for a path that no longer resolves (the answer for an absent resource) and the tree otherwise.
+            val start: String = try {
+                target.canonicalPath
+            } catch (e: IOException) {
+                target.path
+            }
+            treeSize(File(start))
         } else {
             target.length()
         }
@@ -676,7 +685,8 @@ internal class AndroidDownloaderStorage(
             var entry: ZipEntry? = readingArchive(unit) { zipStream.nextEntry }
             while (entry != null) {
                 val entryName: String = entry.name
-                // canonicalPath would throw a plain IOException for a NUL, which is not a storage failure.
+                // A NUL would reach the file system inside a segment, and FileOutputStream rejects such a path with a plain
+                // FileNotFoundException, which is not a storage failure but the archive's fault.
                 if (entryName.indexOf('\u0000') >= 0) {
                     throw ResourceIntegrityException("Archive of $unit has an entry name with a NUL character")
                 }

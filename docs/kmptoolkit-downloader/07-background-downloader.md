@@ -308,8 +308,8 @@ the process mid-transfer, streaming with a plain HTTP client, 1% progress thrott
 is not flooded, and marking the temp file complete on success so a transfer that finishes while the
 UI process is dead is committed — not resumed — on the next `ensureAvailable`.
 
-Imports omitted: `MutableSharedFlow`, `MutableStateFlow`, and the `filter` and `update` extensions from
-`kotlinx.coroutines.flow`.
+Imports omitted: `Flow`, `MutableSharedFlow`, `MutableStateFlow`, and the `filter` and `update` extensions from
+`kotlinx.coroutines.flow`, and `kotlinx.coroutines.delay` (used by the keep-alive snippet further down).
 
 ```kotlin
 class MyBackgroundResourceDownloader(
@@ -433,7 +433,7 @@ default, armed at subscription) would cancel a perfectly healthy task. There are
 handle it:
 
 - **Keep-alive (recommended).** While the system still lists the task
-  (`getTasksWithCompletionHandler`), re-emit the unit's *current* `Progress` about every 60
+  (`getAllTasksWithCompletionHandler`), re-emit the unit's *current* `Progress` about every 60
   seconds — the last known fraction, `0` included when nothing has arrived yet.
 
   ```kotlin
@@ -456,7 +456,7 @@ handle it:
   ```
 
   `taskIsStillListedBySystem` stands for your own check that the `URLSession` still lists the task
-  (`getAllTasks`); `60.seconds` needs `import kotlin.time.Duration.Companion.seconds`.
+  (`getAllTasksWithCompletionHandler`); `60.seconds` needs `import kotlin.time.Duration.Companion.seconds`.
 
   The flow must **deliver equal values**: a `MutableSharedFlow` does, a `StateFlow` does not (it
   conflates a repeat of the same `Progress`, the timer is never restarted, and the engine cancels a
