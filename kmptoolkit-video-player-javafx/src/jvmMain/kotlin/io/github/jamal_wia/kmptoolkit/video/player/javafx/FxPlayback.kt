@@ -109,6 +109,14 @@ internal class FxPlayback private constructor(
     private var playIssuedAtNanos: Long = 0L
 
     /**
+     * When the last native `seek()` was posted ([System.nanoTime]), or 0 when none has been. A speed given while playing
+     * within [SEEK_RATE_SETTLE_NANOS] of it is not written at once (see [setSpeed]): on macOS a rate change that close
+     * to a native seek can leave the native player PLAYING with its playhead standing at the seek target for good, and
+     * a player in that state is never kicked again.
+     */
+    private var lastNativeSeekNanos: Long = 0L
+
+    /**
      * The speed [start] has still to give after its play(): given two FX tasks later, so a speed the caller gives right
      * after [start] (the shared player gives it that way, from any thread, the FX thread included) replaces it and
      * reaches the native player once, not as a second change on top of the first. Null when nothing is pending.
@@ -225,6 +233,7 @@ internal class FxPlayback private constructor(
         if (atEnd) {
             atEnd = false
             player.seek(player.startTime)
+            lastNativeSeekNanos = System.nanoTime()
             seekedSincePlay = true
         }
         // Keeps the pulse alive until the status turns PLAYING (the listener restarts it then).
@@ -269,7 +278,10 @@ internal class FxPlayback private constructor(
         // A native seek is already posted (the caller's seek, or the restart after the end), or the playhead stands at
         // the start, where a seek to it moves nothing (the first play, a replay): a rate change right after a native
         // seek is safe and effective, so the speed is given right after play() as the old nudge, away and back.
-        if (!seekedSincePlay) player.seek(player.currentTime)
+        if (!seekedSincePlay) {
+            player.seek(player.currentTime)
+            lastNativeSeekNanos = System.nanoTime()
+        }
         player.play()
         seekedSincePlay = false
         playIssuedAtNanos = 0L
@@ -317,6 +329,7 @@ internal class FxPlayback private constructor(
             if (!disposed && ticket == latestSeek.value) {
                 atEnd = false
                 player.seek(Duration.millis(positionMs.toDouble()))
+                lastNativeSeekNanos = System.nanoTime()
                 seekedSincePlay = true
                 if (settleNudge != null) {
                     // Same as below: the playhead jumped, wait again from the new place.
@@ -351,7 +364,10 @@ internal class FxPlayback private constructor(
                 // player has been playing for a moment.
                 playIssuedAtNanos = 0L
                 if (nearStart()) {
-                    if (!seekedSincePlay) player.seek(player.currentTime)
+                    if (!seekedSincePlay) {
+                        player.seek(player.currentTime)
+                        lastNativeSeekNanos = System.nanoTime()
+                    }
                     player.play()
                     seekedSincePlay = false
                     player.rate = 1.0
@@ -361,6 +377,19 @@ internal class FxPlayback private constructor(
                     settleNotBeforeNanos = 0L
                     settleFrom = Double.NaN
                 }
+            }
+            rate != player.rate && playIssued && lastNativeSeekNanos != 0L &&
+                System.nanoTime() - lastNativeSeekNanos < SEEK_RATE_SETTLE_NANOS -> {
+                // A native seek was posted a moment ago on a player that is playing (replay() or seekTo() while
+                // Playing, or a stop() followed by a play()): a rate written now can leave the native player PLAYING
+                // with the playhead standing at the seek target for good (macOS, AVFoundation). Keep the property as
+                // it is and hand the speed to the deferred-rate machinery: it is given once the player is PLAYING,
+                // the settle time since the seek has passed and the playhead has moved on (see [applyDeferredRate]).
+                // For those few hundred milliseconds the native player keeps its old speed.
+                deferredRate = rate
+                deferredFrom = Double.NaN
+                deferredAfterWrap = false
+                deferredNotBeforeNanos = lastNativeSeekNanos + SEEK_RATE_SETTLE_NANOS
             }
             else -> {
                 if (!playIssued && player.rate != rate) idleRateWriteNanos = System.nanoTime()
@@ -600,7 +629,7 @@ internal class FxPlayback private constructor(
         /** How far the playhead must move, at normal speed, before the speed of a resume without a seek is given (see [applyResumeRate]). */
         private const val RESUME_RATE_SETTLE_MS: Double = 200.0
 
-        /** How long after a seek a deferred rate keeps waiting (see [seekTo]). */
+        /** How long after a native seek a deferred rate keeps waiting, and a speed given while playing is held back (see [seekTo], [setSpeed]). */
         private const val SEEK_RATE_SETTLE_NANOS: Long = 300_000_000L
 
         /** How long the pulse keeps copying after the picture changed while not playing (a seek). */
