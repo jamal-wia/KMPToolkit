@@ -88,7 +88,8 @@ internal class FxPlayback private constructor(
     private var playIssuedAtNanos: Long = 0L
 
     /**
-     * When the last native `seek()` was posted ([System.nanoTime]), or 0 when none has been. A speed given while playing
+     * When the last native `seek()` was posted ([System.nanoTime]), or 0 when none has been; the restart of a looping
+     * source at a wrap counts as one (see `onEndOfMedia`). A speed given while playing
      * within [SEEK_RATE_SETTLE_NANOS] of it is not written at once (see [setSpeed]): on macOS a rate change that close
      * to a native seek can leave the native player PLAYING with its playhead standing at the seek target for good, and
      * a player in that state is never kicked again.
@@ -168,6 +169,11 @@ internal class FxPlayback private constructor(
                 // dispose() can still run after it, and must then do nothing.
                 if (disposed) return
                 if (looping) {
+                    // JavaFX starts the next cycle with a native seek to the start time of its own, which this class does
+                    // not issue: stamp it, so a speed given to a player playing at 1x right after the wrap is held back like
+                    // one given after any other native seek (see [setSpeed]). The stamp lands slightly after JavaFX's seek,
+                    // which errs on the safe side.
+                    lastNativeSeekNanos = host.nanoTime()
                     // The native player starts the next cycle at normal speed (macOS), so a speed other than 1 is lost
                     // here unless it is given again.
                     deferRate(afterWrap = true)
@@ -449,6 +455,8 @@ internal class FxPlayback private constructor(
 
     /** Called on every tick of the playhead: gives the native player the deferred speed once it is safe. */
     private fun applyDeferredRate() {
+        // A tick JavaFX queued before dispose() can still arrive after it, with a late status that reads PLAYING again.
+        if (disposed) return
         val rate: Double = deferredRate ?: return
         if (native.status != NativeStatus.PLAYING) return
         if (host.nanoTime() < deferredNotBeforeNanos) return
@@ -474,6 +482,8 @@ internal class FxPlayback private constructor(
      * 100 ms of a plain play() can freeze the playhead on macOS; a fixed delay is a race with the native start-up).
      */
     private fun applyResumeRate() {
+        // See applyDeferredRate: no rate is written on a disposed player.
+        if (disposed) return
         val rate: Double = settleNudge ?: return
         if (native.status != NativeStatus.PLAYING || !playIssued) return
         if (host.nanoTime() < settleNotBeforeNanos) return
