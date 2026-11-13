@@ -26,6 +26,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  * All state is confined to the FX application thread; the public methods may be called from any
  * thread and hop there themselves. Nothing here decides whether an event still matters — [Sink]
  * does that, so a disposed playback's late events are dropped in one place.
+ *
+ * Clock convention: every stamp and deadline is a [System.nanoTime] reading, which has no zero and no sign, so "none" is
+ * a null and never 0, and two readings are only ever compared as a difference (`now - deadline < 0`), which stays right
+ * when the counter wraps.
  */
 @OptIn(ToolkitInternalApi::class)
 internal class FxPlayback private constructor(
@@ -64,9 +68,9 @@ internal class FxPlayback private constructor(
      * published (no picture yet).
      */
     private var scratch: IntArray? = null
-    private var lastSnapshotNanos: Long = 0L
+    private var lastSnapshotNanos: Long? = null
     private var awaitingPicture: Boolean = true
-    private var refreshUntilNanos: Long = 0L
+    private var refreshUntilNanos: Long? = null
     private var looping: Boolean = false
     private var atEnd: Boolean = false
 
@@ -86,20 +90,20 @@ internal class FxPlayback private constructor(
 
     /**
      * When the last [start] issued a plain play(), with no native seek before it and no rate given after it
-     * ([System.nanoTime]), or 0 when there is no such play. A speed given within [FRESH_PLAY_NANOS] of it is given the
+     * ([System.nanoTime]), or null when there is no such play. A speed given within [FRESH_PLAY_NANOS] of it is given the
      * way [start] gives a resume at a speed (see [setSpeed]).
      */
-    private var playIssuedAtNanos: Long = 0L
+    private var playIssuedAtNanos: Long? = null
 
     /**
-     * When the last native `seek()` was posted ([System.nanoTime]), or 0 when none has been; the restart of a looping
+     * When the last native `seek()` was posted ([System.nanoTime]), or null when none has been; the restart of a looping
      * source at a wrap counts as one (see `onEndOfMedia`). A speed given while playing
      * within [SEEK_RATE_SETTLE_NANOS] of it is not written at once (see [setSpeed]): on macOS a rate change that close
      * to a native seek can leave the native player PLAYING with its playhead standing at the seek target for good, and
      * a player in that state is never kicked again. Only [setSpeed] holds a speed back for the wrap; the speed a wrap
      * gives back follows [deferRate]'s own wait (W-WRAP is 100 ms), not this window.
      */
-    private var lastNativeSeekNanos: Long = 0L
+    private var lastNativeSeekNanos: Long? = null
 
     /**
      * The speed [start] has still to give after its play(): given two FX tasks later, so a speed the caller gives right
@@ -115,8 +119,8 @@ internal class FxPlayback private constructor(
      */
     private var settleNudge: Double? = null
 
-    /** [settleNudge] is not given before this ([System.nanoTime]): a seek restarts the wait (see [seekTo]). */
-    private var settleNotBeforeNanos: Long = 0L
+    /** [settleNudge] is not given before this ([System.nanoTime]), or null when it may be given at once: a seek restarts the wait (see [seekTo]). */
+    private var settleNotBeforeNanos: Long? = null
 
     /** Where the playhead stood on the first tick after [settleNudge] was set; NaN until then. */
     private var settleFrom: Double = Double.NaN
@@ -137,17 +141,17 @@ internal class FxPlayback private constructor(
     private var delayedPlayPending: Boolean = false
 
     /**
-     * When the rate property was last written while the native player was not playing ([System.nanoTime]), or 0 when
+     * When the rate property was last written while the native player was not playing ([System.nanoTime]), or null when
      * it has not been: the paused write of [setSpeed], the held speed [pause] and the end of the source write after
      * their pause(), and the write of [giveNudge] on a player that was paused again. A play() issued within
      * [IDLE_RATE_GAP_NANOS] of such a write can freeze the playhead on macOS, so every [start] that resumes waits out
      * the rest of the gap first (see [start]). Only a write that changes the value is stamped: the property forwards
      * nothing otherwise.
      */
-    private var idleRateWriteNanos: Long = 0L
+    private var idleRateWriteNanos: Long? = null
 
-    /** A deferred rate is not given before this ([System.nanoTime]): a seek restarts the wait (see [seekTo]). */
-    private var deferredNotBeforeNanos: Long = 0L
+    /** A deferred rate is not given before this ([System.nanoTime]), or null when it may be given at once: a seek restarts the wait (see [seekTo]). */
+    private var deferredNotBeforeNanos: Long? = null
 
     /**
      * The speed to give the native player after a loop wrap, while the rate property holds 1.0 until then
@@ -273,7 +277,7 @@ internal class FxPlayback private constructor(
         // C2: how much of the idle gap after a rate written while not playing is still left. A resume inside it must
         // not issue its play() yet: a play() right next to such a write is the measured freeze (see
         // [idleRateWriteNanos]). Zero or negative when there is nothing to wait for, and for a start that is not a resume.
-        val idleWait: Long = if (resuming) IDLE_RATE_GAP_NANOS - (host.nanoTime() - idleRateWriteNanos) else 0L
+        val idleWait: Long = if (resuming) idleGapLeftNanos() else 0L
         if (!resuming || rate == 1.0) {
             val hadSeek: Boolean = seekedSincePlay
             seekedSincePlay = false
@@ -283,7 +287,7 @@ internal class FxPlayback private constructor(
                 // the property (a write now would be a second idle write right in front of the play); [setSpeed]
                 // replaces the held value, and [applyResumeRate] gives it once the playhead has moved.
                 settleNudge = rate
-                settleNotBeforeNanos = 0L
+                settleNotBeforeNanos = null
                 settleFrom = Double.NaN
                 val generation: Long = ++playGeneration
                 delayedPlayPending = true
@@ -293,13 +297,13 @@ internal class FxPlayback private constructor(
                     native.play()
                     // A seek made during the wait comes before this play, like one made before the start: no fresh-play
                     // stamp, and the play has consumed the mark.
-                    playIssuedAtNanos = if (!hadSeek && !seekedSincePlay) host.nanoTime() else 0L
+                    playIssuedAtNanos = if (!hadSeek && !seekedSincePlay) host.nanoTime() else null
                     seekedSincePlay = false
                 }
                 return@post
             }
             native.play()
-            playIssuedAtNanos = if (resuming && !hadSeek) host.nanoTime() else 0L
+            playIssuedAtNanos = if (resuming && !hadSeek) host.nanoTime() else null
             return@post
         }
         deferredRate = null
@@ -310,10 +314,10 @@ internal class FxPlayback private constructor(
             // up to a whole key-frame interval earlier. Play at the speed the player stands at, and give the speed
             // as one away-and-back once the native player has been playing for a moment (see [applyResumeRate]).
             settleNudge = rate
-            settleNotBeforeNanos = 0L
+            settleNotBeforeNanos = null
             settleFrom = Double.NaN
             val generation: Long = ++playGeneration
-            val wait: Long = IDLE_RATE_GAP_NANOS - (host.nanoTime() - idleRateWriteNanos)
+            val wait: Long = idleGapLeftNanos()
             if (wait > 0L) {
                 delayedPlayPending = true
                 host.after(wait / 1_000_000.0 + 1.0) {
@@ -321,7 +325,7 @@ internal class FxPlayback private constructor(
                     delayedPlayPending = false
                     native.play()
                     // A seek made during the wait comes before this play: no fresh-play stamp, mark consumed.
-                    playIssuedAtNanos = if (seekedSincePlay) 0L else host.nanoTime()
+                    playIssuedAtNanos = if (seekedSincePlay) null else host.nanoTime()
                     seekedSincePlay = false
                 }
             } else {
@@ -343,7 +347,7 @@ internal class FxPlayback private constructor(
             // give the nudge. C3: the speed is held in [pendingNudge] meanwhile, which [setSpeed] replaces and [pause]
             // flushes (C4); the nudge keeps its shape of play first, two FX tasks later the away-and-back.
             seekedSincePlay = false
-            playIssuedAtNanos = 0L
+            playIssuedAtNanos = null
             pendingNudge = rate
             val generation: Long = ++playGeneration
             delayedPlayPending = true
@@ -363,7 +367,7 @@ internal class FxPlayback private constructor(
         }
         native.play()
         seekedSincePlay = false
-        playIssuedAtNanos = 0L
+        playIssuedAtNanos = null
         pendingNudge = rate
         // Two tasks later, not one: called on the FX thread, the shared player's setSpeed right after start() queues
         // behind a nudge posted one task later (post() runs inline only when nothing is queued), found the nudge already
@@ -448,12 +452,14 @@ internal class FxPlayback private constructor(
     fun setSpeed(speed: Float): Unit = host.post {
         if (disposed) return@post
         val rate: Double = speed.toDouble()
+        val seekAt: Long? = lastNativeSeekNanos
+        val playAt: Long? = playIssuedAtNanos
         when {
             pendingNudge != null -> pendingNudge = rate
             settleNudge != null -> settleNudge = rate
             deferredRate != null -> deferredRate = rate
-            rate != native.rate && playIssued && lastNativeSeekNanos != 0L &&
-                host.nanoTime() - lastNativeSeekNanos < SEEK_RATE_SETTLE_NANOS -> {
+            rate != native.rate && playIssued && seekAt != null &&
+                host.nanoTime() - seekAt < SEEK_RATE_SETTLE_NANOS -> {
                 // A native seek was posted a moment ago on a player that is playing (replay() or seekTo() while
                 // Playing, or a stop() followed by a play()): a rate written now can leave the native player PLAYING
                 // with the playhead standing at the seek target for good (macOS, AVFoundation). Keep the property as
@@ -465,15 +471,15 @@ internal class FxPlayback private constructor(
                 deferredRate = rate
                 deferredFrom = Double.NaN
                 deferredAfterWrap = false
-                deferredNotBeforeNanos = lastNativeSeekNanos + SEEK_RATE_SETTLE_NANOS
+                deferredNotBeforeNanos = seekAt + SEEK_RATE_SETTLE_NANOS
             }
-            rate != native.rate && rate != 1.0 && playIssued && playIssuedAtNanos != 0L &&
-                host.nanoTime() - playIssuedAtNanos < FRESH_PLAY_NANOS -> {
+            rate != native.rate && rate != 1.0 && playIssued && playAt != null &&
+                host.nanoTime() - playAt < FRESH_PLAY_NANOS -> {
                 // A play() has just been issued (the shared player gives the speed right after start(), so a
                 // speed changed while paused arrives here): a rate change right after a plain play() can freeze
                 // the playhead on macOS. Give it the way start() gives a resume at a speed, once the native
                 // player has been playing for a moment.
-                playIssuedAtNanos = 0L
+                playIssuedAtNanos = null
                 // The seek, play and rate change at once is [start]'s seeked path: safe while the native player has not
                 // started playing yet. Once its status is PLAYING (within the FRESH period the decoder often is) a seek
                 // followed by a rate change is the W-SEEK-RUN case, which can freeze the playhead: [start]'s comment says
@@ -490,7 +496,7 @@ internal class FxPlayback private constructor(
                     native.rate = rate
                 } else {
                     settleNudge = rate
-                    settleNotBeforeNanos = 0L
+                    settleNotBeforeNanos = null
                     settleFrom = Double.NaN
                 }
             }
@@ -558,7 +564,7 @@ internal class FxPlayback private constructor(
         deferredRate = rate
         deferredFrom = Double.NaN
         deferredAfterWrap = afterWrap
-        deferredNotBeforeNanos = 0L
+        deferredNotBeforeNanos = null
         native.rate = 1.0
     }
 
@@ -568,7 +574,7 @@ internal class FxPlayback private constructor(
         if (disposed) return
         val rate: Double = deferredRate ?: return
         if (native.status != NativeStatus.PLAYING) return
-        if (host.nanoTime() < deferredNotBeforeNanos) return
+        if (isBefore(deferredNotBeforeNanos)) return
         val position: Double = native.currentTimeMs
         if (position.isNaN()) return
         if (deferredAfterWrap) {
@@ -595,7 +601,7 @@ internal class FxPlayback private constructor(
         if (disposed) return
         val rate: Double = settleNudge ?: return
         if (native.status != NativeStatus.PLAYING || !playIssued) return
-        if (host.nanoTime() < settleNotBeforeNanos) return
+        if (isBefore(settleNotBeforeNanos)) return
         val position: Double = native.currentTimeMs
         if (position.isNaN()) return
         if (settleFrom.isNaN()) {
@@ -607,6 +613,15 @@ internal class FxPlayback private constructor(
         native.rate = 1.0
         native.rate = rate
     }
+
+    /** How much of the idle gap after the last rate write while not playing is left, in nanoseconds; zero or less when none is. */
+    private fun idleGapLeftNanos(): Long {
+        val writeAt: Long = idleRateWriteNanos ?: return 0L
+        return IDLE_RATE_GAP_NANOS - (host.nanoTime() - writeAt)
+    }
+
+    /** Whether [deadline] is still ahead: false for null, "no deadline". Compares as a difference, which survives a wrap. */
+    private fun isBefore(deadline: Long?): Boolean = deadline != null && host.nanoTime() - deadline < 0L
 
     /**
      * Whether the playhead stands within [NEAR_START_MS] of the start, where a native seek to it moves nothing visible
@@ -682,14 +697,16 @@ internal class FxPlayback private constructor(
             return
         }
         val playing: Boolean = native.status == NativeStatus.PLAYING && !atEnd
-        if (!playing && !awaitingPicture && now > refreshUntilNanos) {
+        val refreshUntil: Long? = refreshUntilNanos
+        if (!playing && !awaitingPicture && (refreshUntil == null || now - refreshUntil > 0L)) {
             // Nothing left to copy; start(), seekTo() and a changed picture start it again.
             stopPulse()
             return
         }
         // Pulses arrive at the display rate with jitter; without the slack a 30 fps cap on a 60 Hz
         // pulse regularly waits a third pulse and delivers ~24 fps.
-        if (now - lastSnapshotNanos < minFrameIntervalNanos - PULSE_SLACK_NANOS) return
+        val lastSnapshot: Long? = lastSnapshotNanos
+        if (lastSnapshot != null && now - lastSnapshot < minFrameIntervalNanos - PULSE_SLACK_NANOS) return
         lastSnapshotNanos = now
         snapshot()
     }

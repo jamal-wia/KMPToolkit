@@ -46,7 +46,8 @@ class StudyReminderHandler(private val context: Context) : AlarmHandler {
 
     override suspend fun onFire(alarm: ScheduledAlarm) {
         NotificationManagerCompat.from(context).notify(
-            alarm.id.hashCode(),
+            alarm.id,
+            REMINDER_NOTIFICATION_ID,
             NotificationCompat.Builder(context, alarm.notification.channelId)
                 .setSmallIcon(R.drawable.ic_reminder)
                 .setContentTitle(alarm.notification.title)
@@ -54,8 +55,19 @@ class StudyReminderHandler(private val context: Context) : AlarmHandler {
                 .build(),
         )
     }
+
+    private companion object {
+        const val REMINDER_NOTIFICATION_ID: Int = 2
+    }
 }
 ```
+
+Android keys a notification by its `(tag, id)` pair, so the handler posts the reminder with the
+alarm's id as the tag and a fixed `Int` of its own. That keeps two alarms apart however their ids
+hash, and keeps the reminder clear of any notification `kmptoolkit-notification` posts under the
+same string id (it uses the `Int` `1`), and of the untagged key its 2.x line used. Do not post it
+untagged under `alarm.id.hashCode()`: that is the key the notification module's 2.x migration sweep
+removes.
 
 Creating the notification channel, holding `POST_NOTIFICATIONS`, and building the tap intent are
 your app's job — this module has no opinion about any of them.

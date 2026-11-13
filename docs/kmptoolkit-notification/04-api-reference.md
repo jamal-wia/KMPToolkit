@@ -303,6 +303,10 @@ Throws `IllegalArgumentException` for a blank `actionBroadcastAction`, a
 `progressBucketPercent` outside `1..100`, or a negative `minProgressInterval`. `null` for the action
 derives it from the consumer's application id, so two apps never collide.
 
+`Duration.ZERO` is the knob for no throttle; an infinite value is accepted but
+suppresses every determinate frame after an id's first until a terminal frame and keeps the baselines
+of abandoned ids, so it is not a way to disable updates.
+
 Companion: `DEFAULT_PROGRESS_BUCKET_PERCENT: Int`, `DEFAULT_MIN_PROGRESS_INTERVAL: Duration`.
 
 ## `NotificationResult`

@@ -176,7 +176,9 @@ usage-description string.
   a scheduled alarm discards the alarm. Use distinct ids for notifications and alarms (for example
   `"reminder-7"` for the alarm and `"reminder-7-confirm"` for a notification about it). Android keeps
   the two apart (a notification tag and an alarm's `PendingIntent`), so code that shares an id works
-  there and loses the alarm only on iOS. The pending removal is deliberate: a request posted a moment
+  there and loses the alarm only on iOS, provided the alarm handler posts its reminder tagged, as the
+  scheduler's getting-started guide does: an untagged `notify` under `id.hashCode()` is the key this
+  notifier's 2.x migration sweep removes on the first `post` of the id and on every `cancel`. The pending removal is deliberate: a request posted a moment
   earlier may not have been presented yet, and removing it is what keeps a cancelled notification from
   appearing after `cancel` returned.
 - **`interruptionLevel` is guarded by a runtime OS-version check**, because the setter arrived in
