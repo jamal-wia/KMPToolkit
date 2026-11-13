@@ -49,10 +49,11 @@ import kotlinx.coroutines.withContext
  * inside those of a failure as `Error`), even though [stateFlow], written last, still holds the state being left
  * until that final write; and the transition stops at the first write inside which the call changed the player
  * and calls nothing more on the engine, so the call is never undone and a failure is never lost to it. What the
- * engine reported about its source (buffered position, buffering, picture size) is not undone by a transport call
- * either, so the last step of [prepare] writes those facts unless the source was dropped (its load replaced,
- * [unload], [release]); in a failure every transport call is a no-op under `Error`, so none of them cuts the
- * failure's own writes of those facts. The exceptions are the calls whose result is the point of the call:
+ * engine reported about its source is not undone by a transport call either: the last step of [prepare] still
+ * writes the buffered position and a stall kept during the load unless the source was dropped (its load replaced,
+ * [unload], [release]), and after a transport call those writes act on the state that call published; the picture
+ * size is published as soon as it is reported; in a failure every transport call is a no-op under `Error`, so none
+ * of them cuts the failure's own writes. The exceptions are the calls whose result is the point of the call:
  * [unload] and [release] reset the source flows and end in `Idle` (an [unload] leaves the state, and the flows it
  * has not reset yet, to a [prepare] a collector called from inside it), and a [prepare] that has not been replaced
  * resets them and loads. A composite call ([replay]: seek, then play) stops after its seek in that case, and
@@ -340,8 +341,14 @@ internal class EngineVideoPlayer(
                 val epoch: Long = sourceEpoch.value
                 val bufferedStood: Boolean = publish(_bufferedPositionFlow, buffered)
                 if (!isCurrent(load) || sourceEpoch.value != epoch) return@exclusive
+                if (!bufferedStood) {
+                    // A collector's call changed the transport and published its own state, which is the truth now:
+                    // the stall is written under that state, not under the Ready this step was heading for.
+                    establishing(_stateFlow.value) { publish(_isBufferingFlow, stalled) }
+                    return@exclusive
+                }
                 val bufferingStood: Boolean = publish(_isBufferingFlow, stalled)
-                if (!bufferedStood || !bufferingStood || !isCurrent(load) || sourceEpoch.value != epoch) return@exclusive
+                if (!bufferingStood || !isCurrent(load) || sourceEpoch.value != epoch) return@exclusive
                 publish(_stateFlow, ready)
             }
         }
