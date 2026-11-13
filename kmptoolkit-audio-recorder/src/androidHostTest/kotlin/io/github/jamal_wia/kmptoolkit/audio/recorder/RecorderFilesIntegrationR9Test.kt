@@ -8,6 +8,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -266,5 +269,47 @@ class RecorderFilesIntegrationR9Test {
         assertEquals(explicit, completed.path)
         assertTrue(File(completed.path).isFile)
         assertEquals(0, StrictRecorderWorld.live.get(), "every platform recorder was released")
+    }
+
+    // --- one new directory, many recorders at once ---
+
+    @Test
+    fun `eight recorders preparing in one new nested directory at once all succeed and all complete`() {
+        val directory = File(File(root, "nested"), "recordings")
+        val count = 8
+        val recorderList: List<AudioRecorder> = List(count) { newRecorder(directory) }
+        val ready = CountDownLatch(count)
+        val go = CountDownLatch(1)
+        val failures: AtomicReference<List<String>> = AtomicReference(emptyList())
+        val paths: Array<String?> = arrayOfNulls(count)
+        val threads: List<Thread> = recorderList.mapIndexed { index: Int, recorder: AudioRecorder ->
+            Thread {
+                ready.countDown()
+                go.await(10, TimeUnit.SECONDS)
+                runBlocking {
+                    withTimeout(30_000) {
+                        val prepared: RecorderResult<String> = recorder.prepare()
+                        if (prepared is RecorderResult.Success) {
+                            paths[index] = prepared.value
+                            val started: RecorderResult<Unit> = recorder.start()
+                            val stopped: RecorderResult<RecordedFile> = recorder.stop()
+                            if (!started.isSuccess || !stopped.isSuccess) {
+                                failures.updateAndGet { it + "recorder $index: start $started stop $stopped" }
+                            }
+                        } else {
+                            failures.updateAndGet { it + "recorder $index: prepare $prepared" }
+                        }
+                    }
+                }
+            }.also { it.isDaemon = true; it.start() }
+        }
+        assertTrue(ready.await(10, TimeUnit.SECONDS))
+        go.countDown()
+        threads.forEach { it.join(60_000) }
+
+        assertEquals(emptyList(), failures.get())
+        assertEquals(count, paths.filterNotNull().toSet().size, "every recorder got its own file")
+        paths.filterNotNull().forEach { path: String -> assertTrue(File(path).isFile, "missing $path") }
+        assertEquals(0, StrictRecorderWorld.live.get())
     }
 }
