@@ -24,6 +24,12 @@ import kotlinx.coroutines.withTimeout
  * contract: a playing player's playhead moves (or the player leaves Playing) within a few seconds, whatever speed was
  * given. The check is edge based (the JavaFX playhead steps in about 100 ms), never a slope. The control test leaves a
  * pause of 400 ms or more before the speed change and holds the same contract.
+ *
+ * The first three tests (replay rounds from a clip playing at 1x) are controls: they were green on the code before the
+ * fix and stay green. The reproducers are the two recorded-sequence tests (`a stop then play then speed then double
+ * replay then speed sequence ...` and `the recorded seed three call sequence ...`): the freeze needs the preceding
+ * stop, play and speed of 3.0 state, and a plain replay at 1x does not reproduce it. Both were red in 10 of 10 runs on
+ * the code before the fix.
  */
 @OptIn(ToolkitInternalApi::class)
 class JavaFxSpeedAfterSeekFreezeAdversarialTest {

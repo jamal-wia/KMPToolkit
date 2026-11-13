@@ -277,7 +277,10 @@ internal class FxPlayback private constructor(
         }
         // A native seek is already posted (the caller's seek, or the restart after the end), or the playhead stands at
         // the start, where a seek to it moves nothing (the first play, a replay): a rate change right after a native
-        // seek is safe and effective, so the speed is given right after play() as the old nudge, away and back.
+        // seek is safe and effective when it follows a play() issued after the seek, while the native player is not yet
+        // playing, so the speed is given right after play() as the old nudge, away and back. That is not the case of
+        // [setSpeed] on a player that is already playing when the seek is posted (see [lastNativeSeekNanos]): there the
+        // same rate change can freeze the playhead. Both are true for different states: do not merge the two paths.
         if (!seekedSincePlay) {
             player.seek(player.currentTime)
             lastNativeSeekNanos = System.nanoTime()
