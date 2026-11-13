@@ -414,6 +414,8 @@ class VideoPlayerLifecycleChaosFuzzD1R10AdversarialTest {
         h.jobs.forEach { it.cancel() }
         h.dispatcher.drain()
         h.dispatcher.advance(1_000L)
+        // 04, VideoPlaybackEngine.seekTo: always in 0..Long.MAX_VALUE / 1_000_000, whatever the script asked for.
+        h.fake.seekTargets.firstOrNull { it < 0L || it > Long.MAX_VALUE / 1_000_000L }?.let { fail("a seek target outside the engine's range reached the engine: $it; $where") }
         if (h.fake.disposeCount != 1) fail("disposed ${h.fake.disposeCount} times, not once; $where")
         if (h.fake.hasListener) fail("a listener is still attached; $where")
         if (h.fake.isLoadPending) fail("a load is still pending; $where")

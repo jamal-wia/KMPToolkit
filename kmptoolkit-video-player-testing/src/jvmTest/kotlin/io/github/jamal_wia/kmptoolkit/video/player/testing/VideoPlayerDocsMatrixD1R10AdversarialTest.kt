@@ -127,4 +127,84 @@ class VideoPlayerDocsMatrixD1R10AdversarialTest {
             assertEquals(0L, player.bufferedPositionFlow.value, "04: 0 after a playback failure")
         }
     }
+
+    /** An engine that throws from the calls the contract says only `load` should throw from, when told to. */
+    private class ThrowingEngine(val fake: FakeVideoPlaybackEngine) : io.github.jamal_wia.kmptoolkit.video.player.VideoPlaybackEngine by fake {
+        var throwOnSetVolume: Throwable? = null
+        var throwOnRelease: Throwable? = null
+
+        override fun setVolume(volume: Float) {
+            throwOnSetVolume?.let { throw it }
+            fake.setVolume(volume)
+        }
+
+        override fun release() {
+            fake.release()
+            throwOnRelease?.let { throw it }
+        }
+    }
+
+    private fun withThrowing(body: (ThrowingEngine, VideoPlayer) -> Unit) {
+        val engine = ThrowingEngine(FakeVideoPlaybackEngine(60_000L))
+        val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(positionUpdateIntervalMs = 100L), StandardTestDispatcher(scheduler))
+        try {
+            body(engine, player)
+        } finally {
+            engine.throwOnRelease = null
+            try { player.release() } catch (_: IllegalStateException) { /* the scripted failure of this test */ }
+        }
+    }
+
+    @Test
+    fun `04 if another method throws anyway prepare ends in Error with that Throwable and the next prepare works`() {
+        withThrowing { engine: ThrowingEngine, player: VideoPlayer ->
+            val boom = IllegalStateException("setVolume refused")
+            engine.throwOnSetVolume = boom
+            player.prepareNow()
+            val state: VideoPlayerState = player.stateFlow.value
+            assertTrue(state is VideoPlayerState.Error && state.cause === boom, "04: prepare ends in Error with the engine's own Throwable, was $state")
+            assertEquals(1, engine.fake.releaseCount, "the source of the refused setting is freed")
+
+            engine.throwOnSetVolume = null
+            player.prepareNow()
+            assertEquals(VideoPlayerState.Ready(60_000L), player.stateFlow.value, "the next prepare works")
+        }
+    }
+
+    @Test
+    fun `04 unload resets to Idle when the engine release throws then rethrows and the next prepare works`() {
+        withThrowing { engine: ThrowingEngine, player: VideoPlayer ->
+            player.prepareNow()
+            player.play()
+            val boom = IllegalStateException("release refused")
+            engine.throwOnRelease = boom
+            val thrown: Throwable? = try { player.unload(); null } catch (t: Throwable) { t }
+            assertTrue(thrown === boom, "04: unload rethrows the engine's exception, was $thrown")
+            assertEquals(VideoPlayerState.Idle, player.stateFlow.value, "04: unload resets to Idle even when the engine throws")
+            assertEquals(0L, player.playbackPositionFlow.value)
+
+            engine.throwOnRelease = null
+            player.prepareNow()
+            assertEquals(VideoPlayerState.Ready(60_000L), player.stateFlow.value, "04: the next prepare never waits on the failed unload")
+        }
+    }
+
+    @Test
+    fun `04 release disposes the engine and resets to Idle when the engine release throws then rethrows once and stays idempotent`() {
+        withThrowing { engine: ThrowingEngine, player: VideoPlayer ->
+            player.prepareNow()
+            val boom = IllegalStateException("release refused")
+            engine.throwOnRelease = boom
+            val thrown: Throwable? = try { player.release(); null } catch (t: Throwable) { t }
+            assertTrue(thrown === boom, "04: release rethrows the engine's exception, was $thrown")
+            assertEquals(1, engine.fake.disposeCount, "04: release disposes the engine however its own calls go")
+            assertEquals(VideoPlayerState.Idle, player.stateFlow.value)
+            assertTrue(!engine.fake.hasListener, "the player detached from the engine")
+
+            player.release() // idempotent: no second throw, no second dispose
+            assertEquals(1, engine.fake.disposeCount)
+            player.prepareNow()
+            assertTrue(player.stateFlow.value is VideoPlayerState.Error, "a released player reports instead of loading")
+        }
+    }
 }
