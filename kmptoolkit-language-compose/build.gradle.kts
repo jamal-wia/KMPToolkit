@@ -52,6 +52,13 @@ kotlin {
             implementation(project(":kmptoolkit-location"))
         }
 
+        iosTest.dependencies {
+            // Test scope only: the iOS half of the integration-consumer test (FullSuiteIosConsumerTest).
+            implementation(project(":kmptoolkit-logging"))
+            implementation(project(":kmptoolkit-logging-overlay"))
+            implementation(project(":kmptoolkit-systembars"))
+        }
+
         jvmTest.dependencies {
             // Test scope only: the desktop half of the integration-consumer test (FullSuiteDesktopConsumerTest).
             implementation(project(":kmptoolkit-systembars"))
