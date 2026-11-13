@@ -56,6 +56,7 @@ internal class FxModelScope internal constructor(
 ) {
 
     private val afterChecks: MutableList<Pair<String, () -> Unit>> = mutableListOf()
+    private val monitors: MutableList<HazardMonitor> = mutableListOf()
 
     /** [VirtualFxHost.onFx]. */
     fun <T> onFx(block: () -> T): T = host.onFx(block)
@@ -87,6 +88,36 @@ internal class FxModelScope internal constructor(
     fun afterModel(name: String, check: () -> Unit) {
         afterChecks += name to check
     }
+
+    /** The hazard monitors [watchHazards] and [hazardBackend] created in this block, oldest first. */
+    val hazardMonitors: List<HazardMonitor> get() = monitors.toList()
+
+    /**
+     * Puts [player] under a [HazardMonitor] (design 4.3) and wires its end-of-test check: when the block ends, the
+     * test fails if any fragile window was violated, so every model test is a hazard check, not only the one
+     * written for it. A test that provokes a violation on purpose builds its own monitor with [withHazards]
+     * instead, which is not wired.
+     */
+    fun watchHazards(
+        player: ScriptedNativePlayer,
+        config: HazardConfig = HazardConfig(),
+        mode: MonitorMode = MonitorMode.FREEZE,
+    ): HazardMonitor {
+        val monitor: HazardMonitor = player.withHazards(config, mode)
+        monitors += monitor
+        afterModel("no fragile window violated (player ${monitors.size})") { monitor.assertNoViolation() }
+        return monitor
+    }
+
+    /**
+     * Wraps [backend] so every player it creates is watched by [watchHazards] with [config] and [mode]; pass the
+     * result as the engine's backend.
+     */
+    fun hazardBackend(
+        backend: ScriptedBackend,
+        config: HazardConfig = HazardConfig(),
+        mode: MonitorMode = MonitorMode.FREEZE,
+    ): HazardBackend = HazardBackend(backend) { watchHazards(it, config, mode) }
 
     /**
      * Loads [source] into [engine] the way a caller on another thread does, driving the host until the
