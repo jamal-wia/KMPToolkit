@@ -57,6 +57,75 @@ internal object FuzzModelSupport {
 }
 
 /**
+ * Why one key of a [KnownRed] ledger is red: the fragile window the hazard monitor names (`W-PLAY`), the call it names as the
+ * offending one (`SET_RATE`), the defect class of the advisor ruling (`A` or `C` of reviews/fxport-j13a-opus.md) and the task
+ * that fixes it (`D-pi`).
+ */
+internal data class KnownRedEntry(val window: String, val trigger: String, val defectClass: String, val task: String) {
+
+    /** The text the monitor in FAIL_FAST mode puts first in a failure: `fragile window violated, W-PLAY: SET_RATE ...`. */
+    fun failFastText(): String = "fragile window violated, $window: $trigger"
+
+    /** `W-PLAY: SET_RATE (class A, task D-pi)`, for a message. */
+    fun recorded(): String = "$window: $trigger (class $defectClass, task $task)"
+}
+
+/**
+ * THE LEDGER of keys (seeds, scripts) that are red on the current production and are classified as a product defect by an
+ * advisor ruling, recorded instead of hidden or ignored (decision D-95; the J11b rule: an expected-violation mechanism never
+ * accepts a hit as permanent). A fuzzer or an exhaustive test leaves exactly [keys] out of its green run, and one test that
+ * runs (never ignored) calls [check], which replays every key and fails when
+ * - a key is green now ("remove it from KNOWN_RED in the commit that fixed it"), or
+ * - a key fails in another way than recorded (another window, another trigger, or not a window violation at all),
+ * so the ledger can only shrink on purpose. An entry joins it only with an advisor class and leaves it by turning green.
+ * It is empty when the task named in its entries merges.
+ *
+ * @param K the key of one run: a seed for the fuzzers, the script id for the exhaustive interleaving tests.
+ * @param kind what a key is called in a message (`seed`, `script`).
+ */
+internal class KnownRed<K : Any>(entries: Map<K, KnownRedEntry>, private val kind: String = "seed") {
+
+    private val entries: Map<K, KnownRedEntry> = entries.toMap()
+
+    /** Every key on the ledger. */
+    val keys: Set<K> get() = entries.keys
+
+    /** Whether [key] is on the ledger (a green run leaves it out). */
+    operator fun contains(key: K): Boolean = key in entries
+
+    /** The entry of [key], or null. */
+    operator fun get(key: K): KnownRedEntry? = entries[key]
+
+    /**
+     * Runs [run] for every key of the ledger and fails, naming every problem at once, unless each one failed exactly as
+     * recorded. [run] returns the failure text of the key's run, or null when it was green; [name] opens the message.
+     * [matches] decides whether a failure text is the recorded violation; the default reads the monitor's FAIL_FAST text.
+     */
+    fun check(
+        name: String,
+        run: (K) -> String?,
+        matches: (KnownRedEntry, String) -> Boolean = { entry: KnownRedEntry, text: String -> text.contains(entry.failFastText()) },
+    ) {
+        val problems: MutableList<String> = mutableListOf()
+        for ((key: K, entry: KnownRedEntry) in entries) {
+            val failure: String? = run(key)
+            when {
+                failure == null -> problems += "$kind $key is green now: remove it from KNOWN_RED in the commit that fixed it"
+                !matches(entry, failure) ->
+                    problems += "$kind $key fails differently than recorded (${entry.recorded()}): ${failure.lines().take(MAX_LINES_SHOWN).joinToString("\n")}"
+            }
+        }
+        if (problems.isNotEmpty()) {
+            throw AssertionError("$name: ${problems.size} of ${entries.size} KNOWN_RED entries no longer hold\n" + problems.joinToString("\n---\n"))
+        }
+    }
+
+    private companion object {
+        const val MAX_LINES_SHOWN: Int = 12
+    }
+}
+
+/**
  * `player.prepare` driven the way [FxModelScope.load] drives an engine load: the IO hop is real, the FX queue is drained
  * here. The wait is real time only as a hang bound.
  */
