@@ -27,7 +27,10 @@ import org.junit.Assume
  *  - SEEK-RUN: PLAYING for 500 ms, `seek(0)`, then a rate change 0 to 50 ms later (the D2-PF1 window);
  *  - NUDGE: PAUSED, `seek(0)`, `play()`, then `rate = 1.0; rate = r` two FX tasks later (`giveNudge`);
  *  - NEARSTART: PAUSED at 0, `seek(currentTime)`, `play()`, `rate = 1.0; rate = r` in the same FX task (`nearStart`);
- *  - CONTROL: SEEK-RUN with 400 ms between the seek and the rate change.
+ *  - CONTROL: SEEK-RUN with 400 ms between the seek and the rate change;
+ *  - FIRSTPLAY (added at the lead's order after the Opus J5-J8 review): a fresh clip, `play()`, then in the next FX task
+ *    `seek(0)`, `play()`, `rate = 1.0; rate = r` in that same task. It needs a fresh player every round, so it is the one
+ *    probe that creates a player per round (40 players, none disposed, each left paused).
  *
  * "Frozen" means: after the stimulus and a settle pause of [SETTLE_MS], status PLAYING and `currentTime` unchanged for
  * [FROZEN_BOUND_MS]. The only assertion is harness sanity (every probe reached PLAYING and moved at least once); the
@@ -41,12 +44,15 @@ class JavaFxNativeHazardCharacterizationTest {
         NUDGE("NUDGE"),
         NEARSTART("NEARSTART"),
         CONTROL("CONTROL"),
+        FIRSTPLAY("FIRSTPLAY"),
     }
 
     private enum class Outcome { MOVED, FROZEN, NOT_PLAYING }
 
     private class Subject(val probe: Probe) {
         lateinit var player: MediaPlayer
+
+        fun hasPlayer(): Boolean = ::player.isInitialized
         var replaced: Int = 0
         var reachedPlaying: Boolean = false
         val outcomes: MutableMap<Outcome, Int> = Outcome.values().associateWith { 0 }.toMutableMap()
@@ -65,7 +71,7 @@ class JavaFxNativeHazardCharacterizationTest {
         val clipUri: String = TestClip.copyToTempFile().toURI().toString()
 
         val subjects: List<Subject> = Probe.values().map { Subject(it) }
-        subjects.forEach { create(it, clipUri) }
+        subjects.filter { it.probe != Probe.FIRSTPLAY }.forEach { create(it, clipUri) }
 
         for (round: Int in 0 until ROUNDS) {
             for (subject: Subject in subjects) runRound(subject, round, clipUri)
@@ -91,12 +97,12 @@ class JavaFxNativeHazardCharacterizationTest {
 
     private fun runRound(subject: Subject, round: Int, clipUri: String) {
         val rate: Double = RATES[round % RATES.size]
-        var ready: Boolean = setup(subject)
+        var ready: Boolean = setup(subject, clipUri)
         if (!ready) {
             // A player left frozen by an earlier round that pause, seek and play cannot revive: replace it once.
             subject.setupFailures += "round $round: setup failed on the player in use, replacing it"
             replace(subject, clipUri)
-            ready = setup(subject)
+            ready = setup(subject, clipUri)
         }
         if (!ready) fail("${subject.probe.label} round $round: no PLAYING player after replacing it, the harness is broken")
         val player: MediaPlayer = subject.player
@@ -123,6 +129,15 @@ class JavaFxNativeHazardCharacterizationTest {
                     }
                 }
                 check(done.await(HANG_BOUND_MS, TimeUnit.MILLISECONDS)) { "the nudge tasks did not run" }
+            }
+            Probe.FIRSTPLAY -> {
+                fx { player.play() }
+                fx {
+                    player.seek(Duration.ZERO)
+                    player.play()
+                    player.rate = 1.0
+                    player.rate = rate
+                }
             }
             Probe.NEARSTART -> fx {
                 player.seek(player.currentTime)
@@ -151,7 +166,13 @@ class JavaFxNativeHazardCharacterizationTest {
      * Brings [subject] to the start state of its probe. Returns false when a PLAYING player does not move (a freeze
      * the previous round left behind).
      */
-    private fun setup(subject: Subject): Boolean {
+    private fun setup(subject: Subject, clipUri: String): Boolean {
+        if (subject.probe == Probe.FIRSTPLAY) {
+            // A fresh clip every round; the previous player stays paused and is never disposed (CoreVideo window).
+            if (subject.hasPlayer()) fx { subject.player.pause() }
+            create(subject, clipUri)
+            return true
+        }
         val player: MediaPlayer = subject.player
         fx { player.pause() }
         if (!awaitStatus(player, MediaPlayer.Status.PAUSED)) return false
@@ -165,7 +186,7 @@ class JavaFxNativeHazardCharacterizationTest {
                 subject.reachedPlaying = true
                 stimulusPause(PLAYED_MS)
             }
-            Probe.NUDGE, Probe.NEARSTART -> Unit
+            Probe.NUDGE, Probe.NEARSTART, Probe.FIRSTPLAY -> Unit
         }
         return true
     }
