@@ -190,7 +190,7 @@ decoder writes straight into memory without a render-and-read-back step.
   than 1 and with no seek pending: it first seeks to where it stands and plays at once, because a native seek after the
   write clears the gap. Such a write is a `setPlaybackSpeed()` on a paused player, the held speed that a `pause()` or
   the end of a clip writes, or a speed that a `pause()` overtook before it was given. So a `setPlaybackSpeed()`
-  immediately followed by `play()` starts up to 200 ms late, except that first play near the start. A speed given while
+  immediately followed by `play()` starts up to 200 ms late, except a play near the start. A speed given while
   that `play()` waits is held and given after the play (as a settle, about 200 ms of playback later on the plain path),
   never written in front of it; a second `play()` meanwhile does nothing (the first one plays once, at the end of the
   wait), a `seekTo()` meanwhile does not shorten the wait, and a `pause()` meanwhile cancels it. The held speed of a
