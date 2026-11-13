@@ -308,7 +308,9 @@ internal class AndroidDownloaderStorage(
         )
         if (!target.exists()) return 0L
         return if (target.isDirectory) {
-            treeSize(target)
+            // A link AT the unit's path is the resource (as for isResourceAvailable); the tree walk does not follow a
+            // link, not even its own start, so it starts from the resolved path. Links inside the tree add nothing.
+            treeSize(File(target.canonicalPath))
         } else {
             target.length()
         }
