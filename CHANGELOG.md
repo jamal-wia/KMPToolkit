@@ -144,6 +144,11 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   longer turns a later system reset into `PermanentlyDenied`.
 - `kmptoolkit-permission` (Android): the default host no longer leaves a request code in the activity's result registry
   (and its saved state) for every finished dialog.
+- `kmptoolkit-video-player-javafx`: on macOS a speed given to a playing player right after a seek (`seekTo()`,
+  `seekForward()`/`seekBackward()` or `replay()` while playing, `stop()` followed by `play()`, or playing a completed
+  clip) could leave the player `Playing` with its playhead standing still for good. Such a speed is now held back
+  until at least 300 ms after the seek and the playhead has moved on, so it takes effect up to about half a second
+  later.
 
 ## [4.0.0]
 
