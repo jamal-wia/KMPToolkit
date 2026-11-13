@@ -184,11 +184,17 @@ decoder writes straight into memory without a render-and-read-back step.
   (including a speed that arrives within about 600 ms of a plain `play()`: it was changed while paused or
   ready, or right after a play) plays from exactly where it was paused with no native seek, and the speed
   is given as one away-and-back once the playhead has moved about 200 ms at normal speed (counted only as far as
-  the clock allows: the first reported time after a resume can be stale, and a tick that runs ahead of the clock
-  restarts the count; the speed is given on a tick of the playhead, so a little later). For that time the playhead
-  advances at normal speed, then the reported time catches up; right after the speed is given, the reported time can
-  stand still for about 0.2 s before it advances at the new speed (macOS, in about two resumes in three in the probe
-  runs), and the reported time right after a pause can lag the decoder by about 0.4 s; a pause meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait.
+  the clock allows: the first reported time after a resume can be stale, and a tick that runs ahead of the clock (or
+  behind its anchor) restarts the count; the speed is given on a tick of the playhead, so a little later). For that
+  time the playhead advances at normal speed, then the reported time catches up; right after the speed is given, the
+  reported time can stand still for about 0.2 s before it advances at the new speed (macOS, in about two resumes in
+  three in the probe runs), and the reported time right after a pause can lag the decoder by about 0.4 s; a pause
+  meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait. The clock bound has a limit on
+  macOS, where the decoder runs at normal speed until the speed is given while the bound allows the held speed: a
+  stale reading that lags by L ms is recognised only if the fresh one follows within (L - 50) / (speed - 1) ms (for the
+  424 ms lag measured: about 374 ms at speed 2, 125 ms at speed 4, 53 ms at speed 8); a later fresh reading counts as
+  playback and the speed is given before 200 ms of playback. The fresh reading followed within 2 to 5 ms in the probe
+  runs.
   A `play()` that follows a rate written while the player was not playing within about 200 ms waits for the rest of
   those 200 ms on every resume path but one (a `play()` right next to a rate write froze the playhead at a speed of 8
   in the measurements). The exception is a `play()` from within about 100 ms of the start of the clip, at a speed other

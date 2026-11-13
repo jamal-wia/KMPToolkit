@@ -263,8 +263,8 @@ runtime requirements reach it. Both render decoded pictures into memory, which
   closed-source app.
 - **VLC 3.x must be installed** (standard locations are found on Windows, macOS and Linux) or bundled
   with the app, and its CPU architecture must match the JVM's — an Intel VLC cannot be loaded by an
-  Apple-silicon JVM. `isVlcAvailable()` checks without side effects; without VLC, `prepare` settles
-  on `Error(VlcUnavailableException)`.
+  Apple-silicon JVM. `isVlcAvailable()` checks without throwing (it loads libvlc when it finds one);
+  without VLC, `prepare` settles on `Error(VlcUnavailableException)`.
 - **Differences from Android and iOS.** No picture before the first `play()`; only the `User-Agent`
   and `Referer` headers can be sent (any other header fails the prepare with
   `IllegalArgumentException`); `bufferedPositionFlow` is the duration for local sources and the

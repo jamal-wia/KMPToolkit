@@ -173,6 +173,8 @@ class StaleFirstTickR11ModelTest {
             val playAt: Double = native.log.calls(NativeCall.PLAY).last().tMs
             val writes: List<NativeCallEntry> = native.rateWritesAfter(playAt)
             assertEquals(listOf(1.0, 2.0), writes.map { it.arg }, "one away-and-back\n${native.log}")
+            // The backward tick at +120 re-anchors, so the true earliest speed is +120 + SETTLE_MS; the bound below, counted
+            // from the first anchor at +100, is 20 ms looser than that and still red on the code that counted it as movement.
             assertTrue(
                 writes.first().tMs >= playAt + 100.0 + SETTLE_MS - EPSILON_MS,
                 "the backward tick counted as 200 ms of movement: the speed came ${writes.first().tMs - playAt} ms after the play\n${native.log}",

@@ -11,6 +11,7 @@ import org.junit.runner.RunWith
 import org.robolectric.shadows.ShadowLooper
 import kotlin.test.assertIs
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 /**
  * The ExoPlayer factory itself throws (player infrastructure, not the media source): `VideoPlayerState.Error` still
@@ -33,7 +34,18 @@ class Media3PlayerFactoryFailureIdentityTest {
         runSuspending { player.prepare(VideoSource.Remote("https://example.test/x.mp4")) }.getOrThrow()
         val state: VideoPlayerState = player.stateFlow.value
         assertIs<VideoPlayerState.Error>(state)
-        assertSame(cause, state.cause, "got ${state.cause} with cause ${state.cause.cause}, assertions: ${javaClass.desiredAssertionStatus()}")
+        // The premise of this test: with assertions off nothing recovers the stack trace of a rethrown exception, and
+        // the identity check would pass on the pre-fix engine too. Gradle runs tests with -ea; a config without it
+        // fails here.
+        assertTrue(
+            javaClass.desiredAssertionStatus(),
+            "assertions are off (no -ea): this test cannot tell the fix from the old code",
+        )
+        assertSame(
+            cause,
+            state.cause,
+            "got ${state.cause} with cause ${state.cause.cause}, assertions: ${javaClass.desiredAssertionStatus()}",
+        )
         player.release()
         ShadowLooper.idleMainLooper()
     }
