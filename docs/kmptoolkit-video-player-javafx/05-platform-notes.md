@@ -186,7 +186,8 @@ decoder writes straight into memory without a render-and-read-back step.
   native seek can freeze the playhead too); the reported time of a loop's second cycle can hold still for
   about 300 ms and then catch up.
   A speed given to a playing clip within about 300 ms of a seek (`seekTo()`, `seekForward()`/`seekBackward()` or
-  `replay()` while playing, a `stop()` followed by `play()`, or playing a completed clip) is not written at once,
+  `replay()` while playing, a `stop()` followed by `play()`, playing a completed clip, or the wrap of a looping clip,
+  which restarts with a native seek) is not written at once,
   because on macOS that can leave the player `Playing` with its playhead standing at the seek position for good;
   this also holds for a speed given soon after a resume (or a first play) and then a seek.
   On every platform the native player keeps its old speed until 300 ms after the seek and until the playhead has
