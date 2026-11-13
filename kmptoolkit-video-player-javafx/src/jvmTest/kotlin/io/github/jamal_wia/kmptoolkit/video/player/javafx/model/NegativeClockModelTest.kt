@@ -228,6 +228,29 @@ class NegativeClockModelTest {
         }
     }
 
+    /**
+     * A play that follows a native seek leaves no fresh-play stamp, so a speed given 350 ms later (outside the seek window,
+     * inside the 600 ms a stamp would hold it) is written at once, as every speed that no window holds. A "none" that reads
+     * as a stamp would hold it for the settle instead, and on a negative clock it does.
+     */
+    @Test
+    fun aSpeedGivenAfterAPlayThatFollowedASeekIsWrittenAtOnceOnEveryClock() = onEveryClock { _ ->
+        withEngine {
+            engine.seekTo(500L)
+            engine.start()
+            advanceBy(350)
+            val at: Double = nowMs()
+            engine.setSpeed(2f)
+            advanceBy(1_000)
+
+            val written: NativeCallEntry? = native.log.calls(NativeCall.SET_RATE).firstOrNull { it.effective && it.arg == 2.0 && it.tMs >= at - TIME_TOLERANCE_MS }
+            expect(written != null) { "the speed was never written after the call at $at ms\n${native.trace()}" }
+            expect(written!!.tMs - at <= PLAY_LATE_MS) { "the speed was written ${written.tMs - at} ms after the call, not at once\n${native.trace()}" }
+            assertEquals(2.0, composed.hazards.effectiveRate, "the speed never reached the decoder\n${native.trace()}")
+            assertSound("speed after a play that followed a seek")
+        }
+    }
+
     // ---- 3: the first frame and the pulse that ends ----
 
     /**
