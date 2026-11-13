@@ -245,3 +245,14 @@ real-file behaviour on every platform, the engine's crash behaviour over real fi
 gate. The `android.system.Os` ops of API 24–25 devices are not covered by any host test (a host runtime at
 SDK 24 selects the NIO ops and runs the contract as "API 24 host runtime (NIO selected)"); see
 [`05-platform-notes.md`](05-platform-notes.md#android-api-2425-the-legacy-path).
+
+One class of that suite is opt-in, because it depends on the host and on the process: `RealVolumeFailureR3Test` mounts
+disk images with `hdiutil` (macOS only) and exhausts the descriptor table of its own JVM, which a shared test worker
+would pass on to every other class running in it. It is skipped, and reported as skipped, unless the system property
+`kmptoolkit.test.hostfaults` is `true`; the build forwards it from a Gradle property:
+`./gradlew :kmptoolkit-files:jvmTest --tests '*RealVolumeFailureR3Test' -Pkmptoolkit.test.hostfaults=true` (the Android host
+task runs the same source). With the knob it checks the kernel's own errors on the real JVM file operations: a full
+volume (`ENOSPC`) gives `NoSpace`, a read-only volume (`EROFS`) gives `AccessDenied`, each with the old content intact and
+no temporary file left, and an exhausted descriptor table (`EMFILE`) gives a typed `Io` with nothing half done. The iOS
+twin for `EMFILE` (`IosDescriptorExhaustionR3Test`) is not gated: it lowers the soft limit of the simulator test process
+for the length of one test and restores it, with every descriptor closed, before any assertion runs.

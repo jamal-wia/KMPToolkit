@@ -66,16 +66,43 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-uploader`: an `IN_FLIGHT` item whose type has no registered handler is parked once its lease has
   ended, not at once while an executor may still hold the lease. An item with a failure outside its handler pending
   and an unmet constraint now arms its alarm at the failure's backoff gate.
-- `kmptoolkit-uploader` now depends on `kmptoolkit-files` (the outcome journals' writes and reads). No entry format or entry
-  name changes; existing journals are found.
+- `kmptoolkit-uploader` now depends on `kmptoolkit-files` (the outcome journals' writes and reads). The bytes of an
+  entry and the directory layout do not change, and existing journals are found.
+- `kmptoolkit-uploader` (iOS): an item id keeps its own text as the name of its temporary body and its journal entry
+  only when no other id can fold onto it (a canonical upper-case UUID, or an id without an upper-case letter that is
+  not shaped like a UUID); any other id gets a hashed body name and an escaped journal entry name (`~` marks an escape).
+  Entries that a version before 4.1.0 wrote under the id's own spelling are still read, replayed by the sweep and
+  replaced when the id writes again; a build older than 4.1.0 does not read an entry written under the new names.
 - `kmptoolkit-uploader` (iOS): journal entries are written through a sibling `outcomes-partial` directory and synced
   to disk before they replace the entry, instead of Foundation's atomic write. Entries and leftovers of earlier
   versions are read and swept as before.
 - `kmptoolkit-uploader` (Android): temporary journal files in `outcomes-partial` are named
   `.kmptoolkit-<digits>.tmp`; leftovers of either naming are swept after an hour, as before.
 - `kmptoolkit-downloader` now depends on `kmptoolkit-files` (its lock registries, the Android tree walk, the no-replace
-  rename and the SQLite sidecar names). No on-disk format, file name or directory layout changes.
+  rename and the SQLite sidecar names). The on-disk format and directory layout do not change; a unit whose id has an unpaired surrogate now
+  gets hashed file names (Android could not create files named by such an id before).
 - `kmptoolkit-audio-recorder` now depends on `kmptoolkit-files`. No file name or directory layout changes.
+- `kmptoolkit-audio-recorder`: `stop()` fails with `EngineFailure(STOP)` and the state `Failed(error, outputPath)` when the
+  output file is no longer a regular file once the encoder has finished (deleted, or replaced by a directory);
+  `Completed` never names such a path.
+- `kmptoolkit-audio-recorder`: the free space of an output path that is not an existing directory is reported as
+  unknown (so the free-space check passes) on both platforms; Android used to report the usable space of a file
+  that existed there.
+- `kmptoolkit-storage` (Android): a secure value is bound to the key name it is stored under (the key name is
+  authenticated data of the AES-GCM encryption), so a ciphertext copied to another key reads as `Undecryptable`.
+  Entries written earlier are still read, once more as unbound ones; the format on disk is unchanged, but a downgrade
+  to 4.0.0 cannot read entries written by 4.1.0.
+- `kmptoolkit-storage` (iOS): `put` of the key `AppleLanguages` on the plain store is refused with
+  `StorageError.OperationFailed(PUT)`, since `NSUserDefaults` never reads that key back; before, it answered `Success`
+  and then `null`.
+- `kmptoolkit-downloader`: the whole transfer and commit of one unit is exclusive across every engine over one base
+  directory in the process (storages from `createDownloaderStorage`): a second engine waits and then finds the
+  resource available, and a cancel on an engine that does not hold the unit's lock leaves the temp file of the transfer
+  in flight alone.
+- `kmptoolkit-downloader`: a `ZipArchive` that the file system cannot hold as delivered (a name that is both a file and
+  a directory, a name or path that is too long, two entries it stores as one) fails the commit with
+  `ResourceIntegrityException` on both platforms, and the `availabilityMarker` must be a regular file spelled exactly
+  like that.
 - `kmptoolkit-core` no longer contains `isAbsoluteFilePath` (internal API without a compatibility promise); use
   `Paths.isAbsolute` from `kmptoolkit-files`.
 - `kmptoolkit-scheduler` (Android): the saturation message and docs name a process death between arming a
