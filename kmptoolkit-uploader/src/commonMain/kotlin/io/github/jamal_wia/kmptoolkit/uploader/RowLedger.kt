@@ -31,7 +31,9 @@ import kotlinx.coroutines.withContext
  *   retry; both forget the delivered-but-unconfirmed memory, nothing else does.
  * - **P10, a fact outranks a verdict:** [park] and [recordFailure], the two verdict writers, refuse a row this process
  *   holds as delivered and run the confirming delete instead.
- * - **P1, withdrawal writes:** [withdraw] and [withdrawByTag] remove rows and return them, never touching the memory.
+ *
+ * It also serves P1 (the owner is [Withdrawals]): [withdraw] and [withdrawByTag] are the row writes of a withdrawal;
+ * they remove rows and return them, never touching the memory.
  *
  * It decides nothing about attempts or about upload cancellation: the side effects of a removal belong to
  * [Withdrawals], which the engine calls with the rows a transition returned.

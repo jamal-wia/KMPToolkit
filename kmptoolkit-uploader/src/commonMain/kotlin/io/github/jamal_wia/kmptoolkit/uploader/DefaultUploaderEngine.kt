@@ -49,7 +49,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * | Component | Owns | Rules |
  * |---|---|---|
- * | [RowLedger] | the only holder of the [UploaderStore] and the [TransactionRunner]; the only code that touches [DeliveredUnconfirmed] and [ClaimsInDoubt] | P2 (fact writes), P3, P7, P10, the row half of P1 |
+ * | [RowLedger] | the only holder of the [UploaderStore] and the [TransactionRunner]; the only code that touches [DeliveredUnconfirmed] and [ClaimsInDoubt] | P2 (fact writes), P3, P7, P10; serves P1 (the row writes) |
  * | [Withdrawals] | the side effects of a removed row; the only caller of `UploadTransport.cancel` | P1 order, P8 |
  * | [AttemptRegistry] | the attempts the drain runs and their handshake with a withdrawal | none of its own (serves P1, P2) |
  * | [AttemptRunner] | one admitted attempt: the handler run, the upload hand-off (the engine's only launch of an upload), the decision what an answer means; decides, never writes | P4, P5 |
