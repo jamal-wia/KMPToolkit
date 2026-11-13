@@ -222,6 +222,14 @@ internal class StatusModel(
         setStatus(NativeStatus.DISPOSED)
     }
 
+    /**
+     * Sets the status without any of the guards of [issue], [dispose] and the failure path, and delivers the status
+     * event of a changed value. The seam of the stall and dispose parts (B10, B12): a part decides when the native side
+     * moves the status on its own (STALLED, a late PLAYING over DISPOSED); this model only keeps the value and tells
+     * the parts and the listener.
+     */
+    fun force(new: NativeStatus) = setStatus(new)
+
     private fun land(target: NativeStatus) {
         if (isDisposed || status == NativeStatus.HALTED) return
         if (!isReady) {

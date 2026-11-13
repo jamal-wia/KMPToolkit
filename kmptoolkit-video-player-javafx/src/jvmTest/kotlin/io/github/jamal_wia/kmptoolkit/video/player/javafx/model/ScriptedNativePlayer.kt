@@ -134,6 +134,13 @@ internal class ScriptedNativePlayer(
     fun failAt(delayMs: Double, cause: Throwable, via: FailureVia = FailureVia.BOTH) = state.failAt(delayMs, cause, via)
 
     /**
+     * Sets the status as the native side does on its own, with no command and no guard: STALLED (B10), a late PLAYING
+     * or PAUSED over DISPOSED (B12). Not a native call, so it is not logged. The parts' `onStatusChange` runs, then the
+     * status event is delivered; the same value is no change.
+     */
+    fun forceStatus(new: NativeStatus) = state.force(new)
+
+    /**
      * Delivers `onEndOfMedia` to the listener the way JavaFX's handler would: not at all after `clearEndOfMedia`,
      * unless [ignoreClearedHandler] says a queued handler call survives (B12). For the time, loop and dispose parts.
      */
