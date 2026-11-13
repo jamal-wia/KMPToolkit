@@ -23,6 +23,18 @@ public data class AppLanguage(
 
 No display name, no flag, no fixed language list. See [`01-overview.md`](01-overview.md#what-this-module-deliberately-does-not-carry).
 
+### `AppLanguage(code)` and `isRightToLeft`
+
+```kotlin
+public fun AppLanguage(code: String): AppLanguage
+public fun isRightToLeft(code: String): Boolean
+```
+
+| Function | Contract |
+|---|---|
+| `AppLanguage(code)` | An `AppLanguage` whose direction is derived: `AppLanguage(code = code, isLtr = !isRightToLeft(code))`. `code` is never `null`: "follow the device" is `AppLanguage.System`, which has no direction of its own to derive. The two-argument constructor still exists and wins for a language the derivation gets wrong for your purposes. An underscore is read as a hyphen, and the code is kept as given |
+| `isRightToLeft(code)` | Whether `code` names a language written right-to-left. An explicit script subtag (the four-letter subtag right after the language and its optional three-letter extlangs; a four-letter subtag inside a `-u-` extension or after `-x-` is not a script) decides on its own, so `az-Arab` is right-to-left where `az` is not. With no script subtag, the primary language subtag decides, by its default script. It knows twelve right-to-left scripts, `Arab`, `Aran` (Nastaliq), `Hebr`, `Thaa`, `Syrc`, `Nkoo`, `Adlm`, `Mand`, `Samr`, `Rohg`, `Yezi` and `Mend`, and the languages that default to one of them, including the legacy codes `iw` (Hebrew) and `ji` (Yiddish) next to `he` and `yi`. Anything it does not recognise, and an empty `code`, is reported left-to-right. Underscores are read as hyphens |
+
 ## `AppLanguageCatalog`
 
 ```kotlin
