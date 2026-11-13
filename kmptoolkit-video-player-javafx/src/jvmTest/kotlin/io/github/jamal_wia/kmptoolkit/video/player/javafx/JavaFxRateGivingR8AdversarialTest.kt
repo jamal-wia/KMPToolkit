@@ -11,6 +11,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.runBlocking
@@ -59,9 +61,10 @@ class JavaFxRateGivingR8AdversarialTest {
         return (f.get(pb) as JavaFxNativePlayer).mediaPlayer
     }
 
-    private fun longField(e: JavaFxVideoEngine, name: String): Long {
+    /** Reads a clock stamp of `FxPlayback` (`Long?`, null = none since D-r8); the cast is unsafe on purpose: a type change must throw, never read as null. */
+    private fun longField(e: JavaFxVideoEngine, name: String): Long? {
         val pb: Any = playback(e)
-        return pb.javaClass.getDeclaredField(name).apply { isAccessible = true }.getLong(pb)
+        return pb.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(pb) as Long?
     }
 
     private fun record(e: JavaFxVideoEngine): MutableList<RateEvent> {
@@ -145,13 +148,13 @@ class JavaFxRateGivingR8AdversarialTest {
 
     /** Waits for the loop wrap's native-seek stamp (D-b: `onEndOfMedia` stamps `lastNativeSeekNanos`); a 1x start from a loaded clip issues no seek before it. */
     private fun awaitWrapStamp(e: JavaFxVideoEngine): Long {
-        var stamp = 0L
+        var stamp: Long? = null
         await(15_000L, "the loop wrap stamped as a native seek (lastNativeSeekNanos, D-b M2)") {
             flushFx(e)
             stamp = longField(e, "lastNativeSeekNanos")
-            stamp != 0L
+            stamp != null
         }
-        return stamp
+        return checkNotNull(stamp)
     }
 
     /**
@@ -240,11 +243,11 @@ class JavaFxRateGivingR8AdversarialTest {
         val e: JavaFxVideoEngine = loaded()
         e.start()
         flushFx(e)
-        assertTrue(longField(e, "playIssuedAtNanos") != 0L, "a plain play leaves the fresh-play mark")
+        assertNotNull(longField(e, "playIssuedAtNanos"), "a plain play leaves the fresh-play mark")
         sleep(200L)
         e.setSpeed(2f)
         flushFx(e)
-        assertEquals(0L, longField(e, "playIssuedAtNanos"), "a speed 200 ms after the play is inside the fresh window")
+        assertNull(longField(e, "playIssuedAtNanos"), "a speed 200 ms after the play is inside the fresh window")
     }
 
     @Test
@@ -253,7 +256,7 @@ class JavaFxRateGivingR8AdversarialTest {
         e.seekTo(500L)
         e.start()
         flushFx(e)
-        assertEquals(0L, longField(e, "playIssuedAtNanos"), "a seek was posted before this play")
+        assertNull(longField(e, "playIssuedAtNanos"), "a seek was posted before this play")
     }
 
     // The native currentTime does not always read a seek that was just posted (it read 0.0 right after seek(2000) in a
