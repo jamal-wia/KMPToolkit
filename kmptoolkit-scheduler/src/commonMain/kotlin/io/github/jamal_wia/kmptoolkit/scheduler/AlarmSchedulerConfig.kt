@@ -1,12 +1,14 @@
 package io.github.jamal_wia.kmptoolkit.scheduler
 
 /**
- * The identifiers this module puts into platform artifacts on your behalf.
+ * These are the identifiers this module writes into a platform artifact that you may change. The five
+ * reserved `kmptoolkit_alarm_*` intent extras (named below) are fixed names the module owns and are not
+ * configurable.
  *
- * Every one of them ends up somewhere a consumer can observe — an intent's data URI, an iOS
- * `userInfo` dictionary — so none of them is hardcoded to a name this library invented. The
- * defaults are derived from your own application id (Android) or are the conventional key names,
- * and you can replace any of them without touching the rest.
+ * Each of the three ends up somewhere a consumer can observe — an intent's data URI, an iOS
+ * `userInfo` dictionary — so none of them is hardcoded. The defaults are derived from your own
+ * application id (Android) or are the conventional key names, and you can replace any of them
+ * without touching the rest.
  *
  * There is no iOS background-task identifier here because this module never registers one: iOS
  * scheduling goes through `UNUserNotificationCenter`, which needs no `BGTaskScheduler`

@@ -129,7 +129,7 @@ coroutine at a time; that ordering is up to the caller.
 download, a notification the user swiped away: the library is never told about a swipe) leaves its
 bar position behind. The notifier forgets such a position by itself once the id has been quiet, meaning
 no frame for it was posted or suppressed by coalescing, for far longer than any sensible rate limit (the larger of 120 times `minProgressInterval` and ten
-minutes), so an app that posts under a fresh id per run does not accumulate state. The only visible
+minutes), so an app that posts under a fresh id per run does not accumulate state. That horizon is a band, not an instant: the notifier looks for quiet ids at most once per tenth of the horizon, and only when a frame arrives, so a position is certainly still there while the id has been quiet for the horizon or less, certainly gone once it has been quiet for the horizon plus a tenth of it, and may go at any moment in between. At the default `minProgressInterval` of 500 ms the horizon is ten minutes, so a position is forgotten somewhere between ten and eleven minutes of quiet. The only visible
 effect is that a very late frame for a forgotten id is posted, like the first frame of any run. A run that keeps posting, even frames that are all suppressed inside one bucket, is never forgotten, however long it lasts: the frame last shown stays the one a later frame is judged against, and the one a refused frame falls back to.
 
 **Do not build your own throttle on top.** A caller that only posts every 5% just gets a coarser bar;
