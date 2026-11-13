@@ -34,7 +34,7 @@ internal fun runChildRetryingKnownCrash(
     val knownCrashes: MutableList<String> = mutableListOf()
     for (attempt: Int in 1..maxAttempts) {
         val process: Process = ProcessBuilder(
-            listOf(java) + childJvmCrashGuardArgs(hsErrDir) + forwardedTestKnobs() + listOf("-cp", System.getProperty("java.class.path"), mainClass) + args,
+            listOf(java) + forwardedTestKnobs() + childJvmCrashGuardArgs(hsErrDir) + listOf("-cp", System.getProperty("java.class.path"), mainClass) + args,
         ).redirectErrorStream(true).start()
         val output = StringBuilder()
         val reader = Thread { process.inputStream.bufferedReader().forEachLine { output.appendLine(it) } }.apply { isDaemon = true; start() }
