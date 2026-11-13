@@ -251,6 +251,7 @@ public enum class CrashKind {
 /**
  * One low-level operation a [FakeFileAccess] was asked to perform.
  *
+ * @property operation which low-level operation was attempted; it is recorded whether the attempt succeeded or failed.
  * @property path the path the operation names. For [FakeOperation.Rename] the source; for [FakeOperation.Link] the new
  *   name; for the operations on an open file ([FakeOperation.Write], [FakeOperation.Sync], [FakeOperation.Close]) the
  *   path it was created at.

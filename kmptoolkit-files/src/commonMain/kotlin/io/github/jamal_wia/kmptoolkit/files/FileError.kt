@@ -59,7 +59,12 @@ public sealed interface FileError {
             get() = null
     }
 
-    /** Anything else. [platformCode] is the errno (or Win32 code) when known. */
+    /**
+     * Anything else. [platformCode] is the errno (or Win32 code) when known.
+     *
+     * @property cause the exception behind the failure, kept for diagnostics; `null` when the failure came from a
+     *   status code with no exception (an errno, or a refusal the library itself decided).
+     */
     public data class Io(
         override val path: String?,
         public val platformCode: Int? = null,
