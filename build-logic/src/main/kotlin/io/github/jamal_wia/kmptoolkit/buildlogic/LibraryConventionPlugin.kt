@@ -34,7 +34,8 @@ import org.jetbrains.kotlin.gradle.dsl.abi.ExperimentalAbiValidation
  *
  * Every module also gets `checkPathHygiene`, attached to `check`: a lexical scan of its sources for
  * file-separator and POSIX assumptions that break on Windows — see [registerPathHygieneCheck] and
- * [PathHygieneScanner].
+ * [PathHygieneScanner]. Likewise `checkTimingHygiene` ([registerTimingHygieneCheck]) keeps new sleeps,
+ * wall-clock reads and unseeded randomness out of test sources, against a ratchet baseline.
  *
  * `namespace` also stays in each module's own build file (`kotlin { android { namespace = … } }`):
  * it is not mechanically derivable from the Gradle path, and guessing wrong produces a
@@ -50,6 +51,7 @@ class LibraryConventionPlugin : Plugin<Project> {
 
             shortenWindowsTestTmpDir()
             registerPathHygieneCheck()
+            registerTimingHygieneCheck()
 
             extensions.configure<KotlinMultiplatformExtension> {
                 explicitApi()

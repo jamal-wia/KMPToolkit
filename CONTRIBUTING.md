@@ -94,6 +94,50 @@ The only complete check is to run the tests on Windows (`jvmTest testAndroidHost
 The scanner's own unit tests live in `build-logic` and run through `./gradlew checkBuildLogic`, which
 `./gradlew check` and `./gradlew build` include.
 
+## Timing and determinism in tests
+
+A test must give the same result on a loaded machine as on an idle one. Wait on what the code under
+test produces (a latch, a `CompletableDeferred`, a flow value, an idle signal, a barrier after the last
+request), never on elapsed time; use virtual time (`runTest`, an injected clock) for anything the library
+times, keep real time to a hang bound that fails with its own message, draw every random choice from
+`Random(seed)` with a fixed default seed and print the seed in the failure message, keep files in a
+directory the test creates and deletes, and read no environment variable (knobs are system properties
+forwarded from a Gradle property). Real media, sockets and WorkManager are measured from timestamps taken
+where the value is produced or from protocol events, not by reading shared state after a sleep.
+
+`./gradlew build` enforces the mechanical part: every module registers `checkTimingHygiene` (attached to
+`check`), a lexical scan of `src/*Test/kotlin` that fails with `file:line` and the rule id:
+
+| Rule | Forbids | Suppression category (line above) |
+|---|---|---|
+| TH1 | `Thread.sleep(`, `TimeUnit.<X>.sleep(`, `LockSupport.parkNanos(`; in iOS test source sets `usleep(` and `sleep(` | `inject` (latency a fake peer injects), `poll` (inside a bounded polling helper; the file carries `// timing-hygiene-file: poll-helper <reason>`) |
+| TH2 | `System.currentTimeMillis()`, `System.nanoTime()`, `TimeSource.Monotonic`, `Clock.System.now()`, `NSDate()`, `CFAbsoluteTimeGetCurrent` | `bound` (hang bound or deadline only), `measure R-<n>` (a measured quantity under a named ruling), `producer` (timestamp taken where the value is produced) |
+| TH3 | `Random.next*`, `Random.Default`, `ThreadLocalRandom`, `Math.random(`, `.shuffled()` and `.random()` without a `Random`, `UUID.randomUUID(` | `name` (a unique name, never a behavioural choice) |
+| TH4 | `"java.io.tmpdir"`, `NSTemporaryDirectory(` | `private-dir` (the build-provided per-task directory, never listed or counted as a whole), `create` (only to create the test's own directory) |
+| TH5 | `System.getenv(`; in iOS test source sets `getenv(` | `host` (a host fact, for example restoring `TZ`) |
+| TH6 | `@Config(sdk = [...])` with a level outside 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, or more than six levels on one annotation | none: extending it needs a ruling and its own heap |
+
+A legitimate case says so, with the category and a reason, alone on the line directly above the hit (a
+suppression without a category or a reason fails the task; stacked comments cover several rules):
+
+```kotlin
+// timing-hygiene-ignore: TH1 inject the fake server delays its reply to model a slow peer
+Thread.sleep(50)
+```
+
+The hits that existed when the scan landed are recorded in `build-logic/timing-hygiene-baseline.txt`, one
+line `<module>/src/<path>:<rule>:<count>` per file and rule. It is a ratchet: a count above its line (a
+new hit) fails, and a count below it (the file improved) also fails until the line is lowered or removed
+in the same commit, so the baseline can only shrink. Never raise a line and never regenerate the file
+wholesale; each module writes its current counts, in the same format, to
+`<module>/build/reports/timing-hygiene/report.txt`, which is the quickest way to read the new number.
+
+The scan is lexical and per line: it cannot see a wait hidden behind a helper, a delay on a real
+dispatcher (`delay` is not flagged), or a literal level passed through a constant. It stops new flaky tests;
+it does not prove a test deterministic. Before committing a new or changed test, run the class repeatedly
+alone and under CPU load; a single failure means the test is not ready. The scanner's unit tests run
+through `./gradlew checkBuildLogic`, like those of the path-hygiene scan.
+
 ## Code style
 
 SOLID / KISS / YAGNI, composition over inheritance, immutability by default, explicit type
