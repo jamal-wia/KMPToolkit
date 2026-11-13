@@ -172,7 +172,7 @@ class WorkManagerClassicPlainHandlerAdversarialTest {
         val rows = TestUploaderStore()
         val handler = PlainHandler(createWorkManagerUploadTransport(context, config)) { attempts ->
             // Hold `execute` open until the first job has its answer and has had time to reach its settle.
-            // timing-hygiene-ignore: TH1 inject the handler's execute stays open longer than the job needs to reach its settle
+            // timing-hygiene-ignore: TH1 inject a precondition made by latency: the job must be suspended in its settle before execute returns; not observable without a production seam
             if (attempts == 0) withContext(Dispatchers.IO) { answered.await(5, TimeUnit.SECONDS); Thread.sleep(700) }
         }
         val started: UploaderEngine = startEngine(rows, handler)
@@ -194,7 +194,7 @@ class WorkManagerClassicPlainHandlerAdversarialTest {
         val counting = CountingTransport(createWorkManagerUploadTransport(context, config))
         val handler = PlainHandler(counting) { attempts ->
             // The retry has handed off; its claim is written only after this returns.
-            // timing-hygiene-ignore: TH1 inject the handler's execute stays open while the retry's claim is not yet written
+            // timing-hygiene-ignore: TH1 inject a precondition made by latency: the retry's hand-off must be counted while its claim is not yet written; not observable without a production seam
             if (attempts == 1) withContext(Dispatchers.IO) { Thread.sleep(700) }
         }
         // The first job is held inside its settlement commit until the retry's hand-off was counted.

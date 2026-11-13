@@ -37,6 +37,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.runner.RunWith
 
 /**
@@ -197,13 +198,13 @@ class UploadHandlerWorkerChaosAdversarialTest {
         return started
     }
 
-    private fun worker(id: String = "item-1", engineWaitMillis: Long = 100L): androidx.work.testing.TestListenableWorkerBuilder<UploadHandlerWorker> =
+    private fun worker(id: String = "item-1", engineWaitMillis: Long = 100L, readTimeoutMillis: Int = 5_000): androidx.work.testing.TestListenableWorkerBuilder<UploadHandlerWorker> =
         TestListenableWorkerBuilder<UploadHandlerWorker>(context).setInputData(
             workDataOf(
                 UploadHandlerWorker.ITEM_ID_KEY to id,
                 UploadHandlerWorker.ENGINE_WAIT_MILLIS_KEY to engineWaitMillis,
                 UploadHandlerWorker.CONNECT_TIMEOUT_MILLIS_KEY to 5_000,
-                UploadHandlerWorker.READ_TIMEOUT_MILLIS_KEY to 5_000,
+                UploadHandlerWorker.READ_TIMEOUT_MILLIS_KEY to readTimeoutMillis,
             ),
         )
 
@@ -222,6 +223,22 @@ class UploadHandlerWorkerChaosAdversarialTest {
         frames.any { it.className.contains("performMultipart") || it.methodName.contains("writeMultipartBody") } &&
             frames.any { it.methodName.contains("socketWrite") || it.className.contains("NioSocketImpl") }
     }.keys.map { it.name }
+
+    /**
+     * Waits until the same thread is seen in the body's socket write on five consecutive polls. A write that still
+     * makes progress passes through file-read frames between chunks, so a streak means the write is stalled, not
+     * merely in progress.
+     */
+    private fun awaitStalledBodyWrite(what: String) {
+        var last: String? = null
+        var streak = 0
+        awaitTrue(what) {
+            val now: String? = threadsBlockedWritingBody().minOrNull()
+            streak = if (now != null && now == last) streak + 1 else if (now != null) 1 else 0
+            last = now
+            streak >= 5
+        }
+    }
 
     /** Names of the threads inside the multipart upload that wait for the answer, in a socket read. */
     private fun threadsWaitingForAnswer(): List<String> = Thread.getAllStackTraces().filterValues { frames ->
@@ -363,7 +380,7 @@ class UploadHandlerWorkerChaosAdversarialTest {
         startEngine(backing, handler)
         val running: Deferred<ListenableWorker.Result> = uploads.async { worker().build().doWork() }
         assertTrue(accepted.await(10, TimeUnit.SECONDS))
-        awaitTrue("the send buffers to fill and the body write to block") { threadsBlockedWritingBody().isNotEmpty() }
+        awaitStalledBodyWrite("the send buffers to fill and the body write to stall")
 
         running.cancel()
         val ended: Boolean = runBlocking { withTimeout(10_000L) { running.join(); true } }
@@ -532,21 +549,24 @@ class UploadHandlerWorkerChaosAdversarialTest {
     fun `a job cancelled while the server never answers is freed promptly, not after the read timeout`() {
         val reached = CountDownLatch(1)
         val hold = CountDownLatch(1)
-        serve(raw = CREATED, beforeAnswer = { reached.countDown(); hold.await(20, TimeUnit.SECONDS) })
+        serve(raw = CREATED, beforeAnswer = { reached.countDown(); hold.await(60, TimeUnit.SECONDS) })
         val backing = TestUploaderStore()
         val handler = ChaosHandler()
         startEngine(backing, handler)
-        val running: Deferred<ListenableWorker.Result> = uploads.async { worker().build().doWork() }
+        // The read timeout is 60 s, 20 times the bound below: a job that waited for the answer instead of for its
+        // cancellation would still be running when the bound passes. The bound is a hang bound with its own message.
+        val running: Deferred<ListenableWorker.Result> = uploads.async { worker(readTimeoutMillis = 60_000).build().doWork() }
         assertTrue(reached.await(10, TimeUnit.SECONDS), "the request was fully sent")
         awaitTrue("the job to wait for the answer") { threadsWaitingForAnswer().isNotEmpty() }
 
-        val cancelledAt: Long = System.nanoTime()
         running.cancel()
-        runBlocking { withTimeout(12_000L) { running.join() } }
-        val tookMillis: Long = (System.nanoTime() - cancelledAt) / 1_000_000
-        hold.countDown()
+        val ended: Boolean = try {
+            runBlocking { withTimeoutOrNull(3_000L) { running.join(); true } } ?: false
+        } finally {
+            hold.countDown()
+        }
 
-        assertTrue(tookMillis < 3_000, "the cancelled job lingered $tookMillis ms waiting for an answer (read timeout 5000 ms)")
+        assertTrue(ended, "the cancelled job lingered over 3000 ms waiting for an answer (read timeout 60000 ms; the peer never answers)")
         assertEquals(0, handler.delivered.size)
         assertTrue(journalFiles().isEmpty())
     }
@@ -603,17 +623,26 @@ class UploadHandlerWorkerChaosAdversarialTest {
             tempFiles += it
         }
         val backing = TestUploaderStore()
+        // The hook never returns: it is suspended from its entry until its coroutine is cancelled. (The transport
+        // joins the progress forwarder for at most its 2 s flush window and then cancels the hook BEFORE the settle,
+        // so the hook is gone at delivery: the proof is the bound below, not an overlap of hook and settlement.)
+        val hookEntered = AtomicInteger(0)
         val handler = ChaosHandler(
             fields = { listOf(UploadField.File("f", "p.bin", "application/octet-stream", file.path)) },
-            onProgress = { kotlinx.coroutines.awaitCancellation() },
+            onProgress = {
+                hookEntered.incrementAndGet()
+                kotlinx.coroutines.awaitCancellation()
+            },
         )
         startEngine(backing, handler)
         val running: Deferred<ListenableWorker.Result> = uploads.async { worker().build().doWork() }
 
-        pollUntil(15_000L) { handler.delivered.size >= 1 }
+        // 5 s is the bound the test always had (the flush window is 2 s): a hang bound; the assertions below decide.
+        pollUntil(5_000L) { handler.delivered.size >= 1 }
         val result: ListenableWorker.Result? = if (running.isCompleted) runBlocking { withTimeout(10_000L) { running.await() } } else null
 
         assertEquals(1, handler.delivered.size, "the answer arrived, but the settlement waits on the hook (job result $result)")
+        assertTrue(hookEntered.get() >= 1, "no progress hook ran, so the case is vacuous")
     }
 
     private companion object {

@@ -8,11 +8,13 @@ import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlin.time.Duration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -76,9 +78,11 @@ class UploaderDrainWorkerAdversarialTest {
 
     @Test
     fun `with no engine the worker asks for a retry after its engine wait`() {
+        // timing-hygiene-ignore: TH2 measure R-9 guard of the honoured engine wait: the rejected alternative is the 5 s default, a constant the test cannot move
         val started: Long = System.nanoTime()
         val result = worker(engineWaitMillis = 300, drainBudgetMillis = 5_000).runToEnd()
         assertEquals(ListenableWorker.Result.retry(), result)
+        // timing-hygiene-ignore: TH2 measure R-9 guard of the honoured engine wait (margin 13x over the nominal 300 ms)
         assertTrue((System.nanoTime() - started) / 1_000_000 < 4_000, "the worker waited longer than its engine wait")
     }
 
@@ -89,9 +93,10 @@ class UploaderDrainWorkerAdversarialTest {
         val engine = engineOver(store, handler)
         runBlocking { engine.enqueue(handler, "owed-from-the-last-process") }
 
+        val waitersBefore: Int = engineWaiters()
         val pending = worker(engineWaitMillis = 5_000, drainBudgetMillis = 10_000).startWork()
-        // timing-hygiene-ignore: TH1 inject the application bootstrap is late: the OS started the worker first
-        Thread.sleep(300)
+        // The OS got there first: the worker is inside the registry's wait for an engine before the bootstrap runs.
+        awaitCondition(10_000L, "the worker to wait for an engine") { engineWaiters() > waitersBefore }
         engine.start()
         UploaderEngineRegistry.register(engine)
 
@@ -182,14 +187,16 @@ class UploaderDrainWorkerAdversarialTest {
         runBlocking { engine.enqueue(handler, "stranded") } // still persists: the store is independent
         assertEquals(1, store.items.size)
 
-        val started: Long = System.nanoTime()
-        val result = worker(engineWaitMillis = 300, drainBudgetMillis = 6_000).runToEnd()
-        val elapsedMillis: Long = (System.nanoTime() - started) / 1_000_000
+        // The drain budget is 200 times the bound below: a worker that waited on the dead engine would still be
+        // running when the bound passes. The bound (3000 ms) is a hang bound with its own message.
+        val pending = worker(engineWaitMillis = 300, drainBudgetMillis = 600_000).startWork()
+        val result: ListenableWorker.Result = try {
+            pending.get(3_000, TimeUnit.MILLISECONDS)
+        } catch (e: TimeoutException) {
+            pending.cancel(true)
+            fail("the worker sat over 3000 ms on an engine that cannot drain (drain budget 600000 ms) instead of treating it as absent")
+        }
 
         assertEquals(ListenableWorker.Result.retry(), result)
-        assertTrue(
-            elapsedMillis < 3_000,
-            "the worker sat ${elapsedMillis}ms on an engine that cannot drain (drain budget 6000ms) instead of treating it as absent",
-        )
     }
 }

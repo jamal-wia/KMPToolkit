@@ -2,6 +2,7 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
 import androidx.work.WorkManager
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Polling interval of [awaitCondition]; a poll, never a wait for an absence. */
 private const val POLL_MILLIS: Long = 10L
@@ -70,4 +71,14 @@ internal fun awaitWorkQuiescent(
     check(opened) {
         "timed out after $timeoutMillis ms waiting for $what; work of tag $tag: ${describeWork(workManager, tag)}; ${describe()}"
     }
+}
+
+/**
+ * Coroutines waiting in `UploaderEngineRegistry.await` for an engine: the collectors of its private slot. Read by
+ * reflection so no production seam is needed; a renamed field fails loudly with `NoSuchFieldException` and never
+ * passes. Compare with a value read before the waiter is started (other tests' waiters end on their own).
+ */
+internal fun engineWaiters(): Int {
+    val field: java.lang.reflect.Field = UploaderEngineRegistry::class.java.getDeclaredField("slot").apply { isAccessible = true }
+    return (field.get(null) as MutableStateFlow<*>).subscriptionCount.value
 }

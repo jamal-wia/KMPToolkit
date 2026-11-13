@@ -359,22 +359,31 @@ class UploaderConcurrencyStormRound3AdversarialTest {
         serve()
         val count: Int = Runtime.getRuntime().availableProcessors() + 2
         val ids = (1..count).map { "b-$it" }
+        // Each hook blocks its thread on a gate that opens only after every settlement: a settlement that waited for
+        // a hook (or an upload starved of threads by the hooks) would hang the 25 s bound below instead of passing slowly.
+        val hookGate = java.util.concurrent.CountDownLatch(1)
+        val hooksEntered = AtomicInteger(0)
         val handler = StormHandler(
             fields = { listOf(UploadField.File("f", "f.bin", "application/octet-stream", file(300_000).path)) },
-            // timing-hygiene-ignore: TH1 inject a progress hook that blocks its thread
-            onProgress = { Thread.sleep(5_000L) },
+            onProgress = {
+                hooksEntered.incrementAndGet()
+                hookGate.await(60, java.util.concurrent.TimeUnit.SECONDS)
+            },
         )
         startEngine(TestUploaderStore(), handler, ids)
-        val startedAt = System.nanoTime()
-        val delivered = runBlocking {
-            withContext(Dispatchers.IO) {
-                val jobs = ids.map { id -> async(Dispatchers.IO) { uploads.async { worker(id).doWork() }.await() } }
-                withTimeout(25_000L) { jobs.awaitAll() }
+        try {
+            val delivered = runBlocking {
+                withContext(Dispatchers.IO) {
+                    val jobs = ids.map { id -> async(Dispatchers.IO) { uploads.async { worker(id).doWork() }.await() } }
+                    withTimeout(25_000L) { jobs.awaitAll() }
+                }
             }
+            val blocked: Int = hooksEntered.get()
+            delivered.forEach { assertIs<ListenableWorker.Result.Success>(it) }
+            assertTrue(blocked >= 1, "no progress hook ran, so the case is vacuous ($count items)")
+        } finally {
+            hookGate.countDown()
         }
-        val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000L
-        delivered.forEach { assertIs<ListenableWorker.Result.Success>(it) }
-        assertTrue(tookMillis < 4_000L, "a progress hook must not hold up settlements: took $tookMillis ms for $count items")
     }
 
     // R3-22: another job settled the item between this job's preparation and the start of its transfer.
@@ -434,6 +443,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
             }
         }
         val request = UploadRequest(url = "http://127.0.0.1:${server.localPort}/u", fields = emptyList())
+        // timing-hygiene-ignore: TH2 measure R-9 the watchdog's own deadline (about 2 x 400 ms plus one 250 ms poll), real sockets: no virtual form
         val startedAt = System.nanoTime()
         val outcomes: List<MultipartOutcome> = runBlocking {
             withTimeout(20_000L) {
@@ -448,6 +458,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
                 }.awaitAll()
             }
         }
+        // timing-hygiene-ignore: TH2 measure R-9 the watchdog's own deadline (about 2 x 400 ms plus one 250 ms poll), real sockets: no virtual form
         val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000L
         outcomes.forEach { assertIs<UploadResult.TransportFailure>(it.result) }
         assertTrue(tookMillis < 5_000L, "watchdog bound is about 2 x 400 ms plus polling; took $tookMillis ms")
@@ -602,6 +613,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
     fun `many connections with dripped headers all end within the watchdog bound`() {
         sleepyDrip()
         val request = UploadRequest(url = "http://127.0.0.1:${server.localPort}/u", fields = emptyList())
+        // timing-hygiene-ignore: TH2 measure R-9 the watchdog's own deadline with a second peer type (sleepyDrip), real sockets: no virtual form
         val startedAt = System.nanoTime()
         runBlocking {
             withTimeout(20_000L) {
@@ -614,8 +626,9 @@ class UploaderConcurrencyStormRound3AdversarialTest {
                 }.awaitAll()
             }
         }
+        // timing-hygiene-ignore: TH2 measure R-9 the watchdog's own deadline with a second peer type (sleepyDrip), real sockets: no virtual form
         val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000L
-        assertTrue(tookMillis < 5_000L, "took $tookMillis ms")
+        assertTrue(tookMillis < 5_000L, "took $tookMillis ms; the watchdog bound is about 2 x 400 ms plus polling")
     }
 
 
@@ -653,11 +666,11 @@ class UploaderConcurrencyStormRound3AdversarialTest {
         val engineA = startEngine(backing, first)
         val jobs = (1..6).map { uploads.async { worker("item-1", engineWaitMillis = 20_000L).doWork() } }
         runBlocking { withTimeout(10_000L) { while (connections.get() < 1) delay(10L) } }
+        val waitersBefore: Int = engineWaiters()
         UploaderEngineRegistry.unregister(engineA as DefaultUploaderEngine)
         release.countDown()
-        // ORDER kept as a real-time gap: the jobs must meet "no engine registered" before the second engine appears;
-        // no event of the jobs tells that they got there (T6b: needs a production seam or an advisor ruling).
-        runBlocking { delay(300L) }
+        // The jobs holding the answer meet "no engine registered" before the second engine appears.
+        awaitCondition(10_000L, "a job holding the answer to wait for an engine") { engineWaiters() > waitersBefore }
         val second = StormHandler()
         val engineB = testEngine(LockedStore(backing), listOf(second), scope)
         engines += engineB
@@ -738,6 +751,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
             }
         }
         val request = UploadRequest(url = "http://127.0.0.1:${server.localPort}/u", fields = emptyList())
+        // timing-hygiene-ignore: TH2 measure R-9 the read-deadline contract on a dripping body (watchdog 500 ms), real sockets: no virtual form
         val startedAt = System.nanoTime()
         val outcomes: List<MultipartOutcome> = runBlocking {
             withTimeout(20_000L) {
@@ -750,6 +764,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
                 }.awaitAll()
             }
         }
+        // timing-hygiene-ignore: TH2 measure R-9 the read-deadline contract on a dripping body (watchdog 500 ms), real sockets: no virtual form
         val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000L
         outcomes.forEach {
             assertEquals(UploadResult.Completed(200), it.result)

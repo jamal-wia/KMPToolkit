@@ -237,12 +237,11 @@ kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/up
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/OutcomeJournalChurnAdversarialTest.kt:TH2:1
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/RegressTraceDifferentialAdversarialTest.kt:TH5:3
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/StorageEnvironmentRound9AdversarialTest.kt:TH1:2
-kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploadHandlerWorkerChaosAdversarialTest.kt:TH2:4
+kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploadHandlerWorkerChaosAdversarialTest.kt:TH2:2
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploadOutcomeJournalWorkerTest.kt:TH2:3
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploadResponseCaptureTest.kt:TH1:1
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploadResponseCaptureTest.kt:TH2:2
-kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploaderConcurrencyStormRound3AdversarialTest.kt:TH2:15
-kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploaderDrainWorkerAdversarialTest.kt:TH2:4
+kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploaderConcurrencyStormRound3AdversarialTest.kt:TH2:7
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploaderEngineCollectionRound4AdversarialTest.kt:TH1:2
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploaderLifecycleChaosRound2AdversarialTest.kt:TH2:1
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploaderRound4ProtocolAdversarialTest.kt:TH2:1
