@@ -184,9 +184,18 @@ decoder writes straight into memory without a render-and-read-back step.
   is given as one away-and-back once the playhead has moved about 200 ms at normal speed (on a tick of the
   playhead, so a little later). For that time the playhead advances at normal speed, then the reported time
   catches up; a pause meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait.
-  A `play()` that follows a speed written while paused within about 200 ms waits for the rest of those
-  200 ms (a `play()` right next to a rate write froze the playhead at a speed of 8 in the measurements), so
-  a `setPlaybackSpeed()` immediately followed by `play()` starts up to 200 ms late.
+  A `play()` that follows a rate written while the player was not playing within about 200 ms waits for the rest of
+  those 200 ms on every resume path but one (a `play()` right next to a rate write froze the playhead at a speed of 8
+  in the measurements). The exception is a `play()` from within about 100 ms of the start of the clip, at a speed other
+  than 1 and with no seek pending: it first seeks to where it stands and plays at once, because a native seek after the
+  write clears the gap. Such a write is a `setPlaybackSpeed()` on a paused player, the held speed that a `pause()` or
+  the end of a clip writes, or a speed that a `pause()` overtook before it was given. So a `setPlaybackSpeed()`
+  immediately followed by `play()` starts up to 200 ms late, except that first play near the start. A speed given while
+  that `play()` waits is held and given after the play (as a settle, about 200 ms of playback later on the plain path),
+  never written in front of it; a second `play()` meanwhile does nothing (the first one plays once, at the end of the
+  wait), a `seekTo()` meanwhile does not shorten the wait, and a `pause()` meanwhile cancels it. The held speed of a
+  `pause()` or of the end of a clip is written after the native pause, never on the decoder that still runs, so it is
+  a write on a player that is not playing and the next `play()` waits out its 200 ms too.
   After a loop wrap the speed is given again as one change once the playhead has wrapped and moved about
   200 ms, and no sooner than 300 ms after a seek made meanwhile (a rate change within about 100 ms of a
   native seek can freeze the playhead too); the reported time of a loop's second cycle can hold still for

@@ -197,6 +197,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   looping clip (which restarts with a native seek), which used to be written at once.
 - `kmptoolkit-video-player-javafx`: on macOS a speed changed shortly after a play near the start of a clip, once the
   clip has started playing, can no longer freeze the playhead; for that moment the speed arrives after about 200 ms of playback.
+- `kmptoolkit-video-player-javafx`: a `play()` that follows a speed written while the player was not playing within
+  about 200 ms now waits for the rest of those 200 ms on every resume path but one, not only on a resume away from the
+  start (the exception is a `play()` from within about 100 ms of the start at a speed other than 1 with no seek
+  pending, which seeks to where it stands and plays at once), and a speed given while it waits is held and given after
+  the play. The held speed that `pause()`, `stop()` or the end of a clip writes is written after the native pause
+  instead of before it, while the decoder still ran, and a second `play()` while the first one waits no longer plays at
+  once inside that gap. A `seekTo()` during that wait no longer leaves a later resume giving the speed right after its
+  play. A `play()` right next to a speed change can start up to 200 ms late.
 
 ## [4.0.0]
 

@@ -77,7 +77,11 @@ internal class FxPlayback private constructor(
      */
     private var playIssued: Boolean = false
 
-    /** Whether a native seek has been posted since the last [start]'s play() (see [start]). */
+    /**
+     * Whether a native seek has been posted since the last [start]'s play() (see [start]). A play that [start] delays
+     * consumes a seek made during its wait, as a play issued at once consumes one made before it: the delayed play clears
+     * the mark, or a later resume would take the seek path with no native seek behind it.
+     */
     private var seekedSincePlay: Boolean = false
 
     /**
@@ -117,10 +121,29 @@ internal class FxPlayback private constructor(
     /** Where the playhead stood on the first tick after [settleNudge] was set; NaN until then. */
     private var settleFrom: Double = Double.NaN
 
-    /** Counts the plain resumes and pauses: a play() [start] delayed (see [idleRateWriteNanos]) runs only if it is still the newest. */
+    /**
+     * Counts the resumes that may delay their play() and the pauses: a play() [start] delayed to wait out the idle gap
+     * (see [idleRateWriteNanos]) runs only if it is still the newest, so a [pause] or a later [start] that came while it
+     * waited cancels it by bumping the counter. Every delayed play() of [start] (the settle path, the plain path and the
+     * seek path) takes its generation from here.
+     */
     private var playGeneration: Long = 0L
 
-    /** When the rate property was last written while not playing ([System.nanoTime]), or 0: see [IDLE_RATE_GAP_NANOS]. */
+    /**
+     * True from the moment [start] schedules a delayed `native.play()` (a resume inside the idle gap, see
+     * [idleRateWriteNanos], or the settle path's own wait) until that play is issued or [pause] or the end of the media
+     * cancels it. A second [start] in that time must not issue a play of its own: see the guard at its top.
+     */
+    private var delayedPlayPending: Boolean = false
+
+    /**
+     * When the rate property was last written while the native player was not playing ([System.nanoTime]), or 0 when
+     * it has not been: the paused write of [setSpeed], the held speed [pause] and the end of the source write after
+     * their pause(), and the write of [giveNudge] on a player that was paused again. A play() issued within
+     * [IDLE_RATE_GAP_NANOS] of such a write can freeze the playhead on macOS, so every [start] that resumes waits out
+     * the rest of the gap first (see [start]). Only a write that changes the value is stamped: the property forwards
+     * nothing otherwise.
+     */
     private var idleRateWriteNanos: Long = 0L
 
     /** A deferred rate is not given before this ([System.nanoTime]): a seek restarts the wait (see [seekTo]). */
@@ -182,13 +205,21 @@ internal class FxPlayback private constructor(
                 }
                 atEnd = true
                 playIssued = false
-                settleNudge?.let { native.rate = it }
-                settleNudge = null
+                delayedPlayPending = false
                 // JavaFX leaves its status at PLAYING after the last cycle ends. The player reports
                 // Completed, and a seek from there reports Paused — so JavaFX must be paused too, or a
                 // seek would resume playback on a backend that honours the status, and the pulse
                 // would keep copying frames of a picture that does not move.
                 native.pause()
+                // A2: the held speed is written after the pause, never before it. OpenJFX forwards a rate change and
+                // a pause() synchronously and in order, so a write ahead of the pause() lands on a decoder that is
+                // still running (a play of this clip may be only milliseconds old), the shape no probe has measured.
+                // After the pause() it is a write on a player that is not playing, which is stamped like any other.
+                settleNudge?.let {
+                    if (native.rate != it) idleRateWriteNanos = host.nanoTime()
+                    native.rate = it
+                }
+                settleNudge = null
                 reportTimes()
                 sink.onCompleted()
             }
@@ -223,6 +254,11 @@ internal class FxPlayback private constructor(
 
     fun start(): Unit = host.post {
         if (disposed) return@post
+        // A start while the delayed play of an earlier start still waits is not a resume (the earlier one already issued
+        // it), so it would take the plain path below and call play() at once: right next to the rate write the wait
+        // stays clear of, the measured freeze, and then the delayed play again. The earlier start owns the play; a speed
+        // given meanwhile is held by [setSpeed] (C3), so nothing is left for this call to do.
+        if (playIssued && delayedPlayPending) return@post
         if (atEnd) {
             atEnd = false
             native.seek(native.startTimeMs)
@@ -234,10 +270,35 @@ internal class FxPlayback private constructor(
         val rate: Double = deferredRate ?: native.rate
         val resuming: Boolean = !playIssued
         playIssued = true
+        // C2: how much of the idle gap after a rate written while not playing is still left. A resume inside it must
+        // not issue its play() yet: a play() right next to such a write is the measured freeze (see
+        // [idleRateWriteNanos]). Zero or negative when there is nothing to wait for, and for a start that is not a resume.
+        val idleWait: Long = if (resuming) IDLE_RATE_GAP_NANOS - (host.nanoTime() - idleRateWriteNanos) else 0L
         if (!resuming || rate == 1.0) {
             val hadSeek: Boolean = seekedSincePlay
-            native.play()
             seekedSincePlay = false
+            if (idleWait > 0L) {
+                // C2: the plain resume waits out the rest of the gap, as the settle path below does, and only the newest
+                // resume plays. C3: the speed that arrives while it waits is held in [settleNudge] and never written to
+                // the property (a write now would be a second idle write right in front of the play); [setSpeed]
+                // replaces the held value, and [applyResumeRate] gives it once the playhead has moved.
+                settleNudge = rate
+                settleNotBeforeNanos = 0L
+                settleFrom = Double.NaN
+                val generation: Long = ++playGeneration
+                delayedPlayPending = true
+                host.after(idleWait / 1_000_000.0 + 1.0) {
+                    if (disposed || !playIssued || generation != playGeneration) return@after
+                    delayedPlayPending = false
+                    native.play()
+                    // A seek made during the wait comes before this play, like one made before the start: no fresh-play
+                    // stamp, and the play has consumed the mark.
+                    playIssuedAtNanos = if (!hadSeek && !seekedSincePlay) host.nanoTime() else 0L
+                    seekedSincePlay = false
+                }
+                return@post
+            }
+            native.play()
             playIssuedAtNanos = if (resuming && !hadSeek) host.nanoTime() else 0L
             return@post
         }
@@ -254,10 +315,14 @@ internal class FxPlayback private constructor(
             val generation: Long = ++playGeneration
             val wait: Long = IDLE_RATE_GAP_NANOS - (host.nanoTime() - idleRateWriteNanos)
             if (wait > 0L) {
+                delayedPlayPending = true
                 host.after(wait / 1_000_000.0 + 1.0) {
                     if (disposed || !playIssued || generation != playGeneration) return@after
+                    delayedPlayPending = false
                     native.play()
-                    playIssuedAtNanos = host.nanoTime()
+                    // A seek made during the wait comes before this play: no fresh-play stamp, mark consumed.
+                    playIssuedAtNanos = if (seekedSincePlay) 0L else host.nanoTime()
+                    seekedSincePlay = false
                 }
             } else {
                 native.play()
@@ -271,6 +336,27 @@ internal class FxPlayback private constructor(
         // playing, so the speed is given right after play() as the old nudge, away and back. That is not the case of
         // [setSpeed] on a player that is already playing when the seek is posted (see [lastNativeSeekNanos]): there the
         // same rate change can freeze the playhead. Both are true for different states: do not merge the two paths.
+        if (idleWait > 0L && seekedSincePlay) {
+            // C2 on the seek path: it waits whenever a seek is pending, whatever the order of that seek and the idle write
+            // (a stop's seek after the pause flush and the replay's own seek wait too). That errs on the safe side of the
+            // model's reading that a seek after the write clears the gap. Wait out the rest of the gap, then play and
+            // give the nudge. C3: the speed is held in [pendingNudge] meanwhile, which [setSpeed] replaces and [pause]
+            // flushes (C4); the nudge keeps its shape of play first, two FX tasks later the away-and-back.
+            seekedSincePlay = false
+            playIssuedAtNanos = 0L
+            pendingNudge = rate
+            val generation: Long = ++playGeneration
+            delayedPlayPending = true
+            host.after(idleWait / 1_000_000.0 + 1.0) {
+                if (disposed || !playIssued || generation != playGeneration) return@after
+                delayedPlayPending = false
+                native.play()
+                // A seek made during the wait comes before this play: the play has consumed the mark.
+                seekedSincePlay = false
+                host.postLater { host.postLater { giveNudge() } }
+            }
+            return@post
+        }
         if (!seekedSincePlay) {
             native.seek(native.currentTimeMs)
             lastNativeSeekNanos = host.nanoTime()
@@ -293,6 +379,9 @@ internal class FxPlayback private constructor(
         if (disposed) return
         if (!playIssued) {
             // Paused again meanwhile: the property only keeps the speed for the next start.
+            // C1: that is a write on a player that is not playing, so it is stamped like any other: without the stamp
+            // the next start would play right next to it, inside the idle gap, and nothing would wait.
+            if (native.rate != rate) idleRateWriteNanos = host.nanoTime()
             native.rate = rate
             return
         }
@@ -304,12 +393,26 @@ internal class FxPlayback private constructor(
         if (disposed) return@post
         playIssued = false
         playGeneration++
+        delayedPlayPending = false
+        native.pause()
+        // A1: the held speed is written after the pause, never before it. OpenJFX forwards a rate change and a pause()
+        // synchronously and in order, so a write ahead of the pause() lands on a decoder that is still running (the
+        // play of W-PLAY or the seek of W-SEEK-RUN may be only milliseconds old), the shape no probe has measured.
+        // After the pause() it is the write on a player that is not playing that this method always stamped it as,
+        // and the idle gap of the next start (C2) keeps that write away from the next play().
         settleNudge?.let {
             if (native.rate != it) idleRateWriteNanos = host.nanoTime()
             native.rate = it
         }
         settleNudge = null
-        native.pause()
+        // C4: a speed held for a delayed seek-path play that this pause cancelled would stay in [pendingNudge] for
+        // good: the next speeds would be swallowed into it (see [setSpeed]) and the next start would never give them.
+        // Flush it the way [giveNudge] does on a player that is paused again, stamped, and clear it.
+        pendingNudge?.let {
+            if (native.rate != it) idleRateWriteNanos = host.nanoTime()
+            native.rate = it
+        }
+        pendingNudge = null
     }
 
     fun seekTo(positionMs: Long) {
