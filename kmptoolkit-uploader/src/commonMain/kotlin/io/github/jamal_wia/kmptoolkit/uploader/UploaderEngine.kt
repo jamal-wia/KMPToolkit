@@ -95,7 +95,9 @@ public interface UploaderEngine : Uploader {
      *   about the effect: it landed, or it is no longer owed. A superseded executor that delivered
      *   has still delivered, and re-handing the item would send it twice. The row is deleted. If that
      *   delete fails the call throws, and this process still remembers the delivery: the row is deleted at a later
-     *   pass, by this engine or one built to replace it, and never handed out again. Calling `settle` again is
+     *   pass, by this engine or one built to replace it, and never handed out again; while the row is in flight that
+     *   pass comes once its lease has ended (until then the item counts as owed and blocks its ordering channel, as
+     *   any in-flight item does), and a row in any other state is retried at the next pass. Calling `settle` again is
      *   harmless. A later `Park` or `Failed` does not override a delivery this process still holds: the row is
      *   deleted and that verdict is not applied. A verdict that came **first** does not hide it either: the drain
      *   retries the delete of a parked row this process holds as delivered, just as for an active one. (A `KEEP` or

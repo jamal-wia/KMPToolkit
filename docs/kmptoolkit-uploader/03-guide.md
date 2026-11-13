@@ -244,7 +244,9 @@ engine.settle(itemId, claim, SettleResult.Delivered)
 ```
 
 A `Delivered` or `Drop` whose delete fails throws, and this process still remembers it: the row is deleted
-at a later pass, by this engine or one built to replace it, and never handed out again. Calling `settle`
+at a later pass, by this engine or one built to replace it, and never handed out again; while the row is in
+flight that pass comes once its lease has ended (until then the item counts as owed and blocks its ordering
+channel, as any in-flight item does), and a row in any other state is retried at the next pass. Calling `settle`
 again is harmless. A later `Park` or `Failed` does not override a delivery the process still holds: the row
 is deleted and that verdict is not applied (`settle` returns normally, an upload's `onSettled` does not run).
 The reverse order is covered too: a verdict that parked the row first does not hide the delivery, and the
