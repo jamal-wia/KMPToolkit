@@ -121,8 +121,8 @@ What breaks delivery entirely:
 
 When a `schedule` replaces an alarm, the new alarm is armed first and the old one is cancelled
 after. If `AlarmManager` refuses that cancel (a `SecurityException` or `IllegalStateException`,
-logged), `schedule` still reports the new alarm, and the old one stays armed and may fire once more.
-`cancel(id)` is the same: a refusal is logged and the alarm may stay armed. A process death in the
+logged under the tag `KmpToolkitScheduler`), `schedule` still reports the new alarm, and the old one stays armed and may fire once more.
+`cancel(id)` is the same: a refusal is logged (same tag) and the alarm may stay armed. A process death in the
 one-call window between arming the new alarm and retiring the old one has the same result: the old
 alarm stays armed and may fire once more, and the next successful `schedule` or `cancel` of the id
 retires it.
