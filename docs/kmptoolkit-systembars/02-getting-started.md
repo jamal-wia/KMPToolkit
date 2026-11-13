@@ -96,7 +96,7 @@ fun AppTheme(controller: SystemBarsController, darkTheme: Boolean, content: @Com
             if (darkTheme) SystemBarsConfig.ForDarkBackground else SystemBarsConfig.ForLightBackground,
         )
     }
-    MaterialTheme(colorScheme = if (darkTheme) darkColors else lightColors, content = content)
+    MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme(), content = content)
 }
 ```
 

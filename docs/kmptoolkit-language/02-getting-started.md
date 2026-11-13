@@ -93,7 +93,9 @@ class MyApplication : Application() {
 ```kotlin
 class MainActivity : ComponentActivity() {
     override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(localizedContext(newBase, currentLanguage()))
+        // `application` is not set yet inside attachBaseContext; the application context already is.
+        val app: MyApplication = newBase.applicationContext as MyApplication
+        super.attachBaseContext(localizedContext(newBase, app.language.language))
     }
 }
 ```

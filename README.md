@@ -90,9 +90,14 @@ order.
 Add the BOM to align every module on one version, then pull in only what you use:
 
 ```kotlin
-dependencies {
-    implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-    implementation("io.github.jamal-wia:kmptoolkit-logging")
+// build.gradle.kts of your shared module
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-logging")
+        }
+    }
 }
 ```
 

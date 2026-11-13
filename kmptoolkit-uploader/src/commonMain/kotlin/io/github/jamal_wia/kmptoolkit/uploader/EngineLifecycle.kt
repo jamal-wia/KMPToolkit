@@ -71,7 +71,8 @@ internal class EngineLifecycle(
     /**
      * One-shot backoff alarm. Written by every drain pass: the engine's own loop and, inside the P11 residual (a manual
      * drain() on a started engine), a manual one, so two passes can race here and the later write wins. The gate that
-     * loses is retried at the next heartbeat. Deliberately unguarded.
+     * loses is retried at the next heartbeat; the race can also leave a second alarm job, whose only effect is one
+     * extra conflated trigger. Deliberately unguarded.
      */
     private var alarmJob: Job? = null
 

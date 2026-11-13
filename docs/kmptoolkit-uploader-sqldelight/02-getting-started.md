@@ -12,7 +12,7 @@ go.
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
             implementation("io.github.jamal-wia:kmptoolkit-uploader")
             implementation("io.github.jamal-wia:kmptoolkit-uploader-sqldelight")
         }

@@ -8,7 +8,7 @@ With the BOM (see [`00-getting-started.md`](../00-getting-started.md) for how it
 
 ```kotlin
 commonMain.dependencies {
-    implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+    implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
     implementation("io.github.jamal-wia:kmptoolkit-hijri")
 }
 ```

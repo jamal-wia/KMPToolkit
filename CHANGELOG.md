@@ -130,6 +130,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
+- `kmptoolkit-logging` (iOS): the iOS log sink writes an event's line and its stack trace in one step under a
+  lock shared by every instance, so loggers on several threads no longer glue lines together or separate a trace
+  from its event.
 - `kmptoolkit-downloader`: an archive entry with thousands of path segments no longer exhausts memory or stalls in
   directory creation: a path longer than the platform allows fails the commit with `ResourceIntegrityException`
   before anything is created.

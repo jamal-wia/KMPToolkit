@@ -17,7 +17,7 @@ public data class AppLanguage(
 
 | Member | Contract |
 |---|---|
-| `code` | BCP-47 / ISO language tag (`"en"`, `"ar"`, `"pt-BR"`, …), or `null` for [`System`](#system). An underscore is read as a hyphen (`ar_EG` is `ar-EG`), for direction, matching and the platform locale alike; the code itself is kept as given |
+| `code` | BCP-47 / ISO language tag (`"en"`, `"ar"`, `"pt-BR"`, …), or `null` for `System` (the last row of this table). An underscore is read as a hyphen (`ar_EG` is `ar-EG`), for direction, matching and the platform locale alike; the code itself is kept as given |
 | `isLtr` | `false` only for a right-to-left language, including regional languages whose default script is right-to-left (`arz`, `ary`, `apc`, `azb`, `pnb`, `skr`, `mzn`, `glk`, `lrc`, `bgn`, `rhg`, ...). Meaningless when `code` is `null` |
 | `System` | Follows the device's own language. `isLtr` on this instance is a placeholder (`true`), never meant to be read — see [`03-guide.md`](03-guide.md#resolving-follow-system) |
 

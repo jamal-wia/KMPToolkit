@@ -17,7 +17,8 @@ import kotlinx.coroutines.test.runTest
 
 /**
  * Boss round 5 of unit A1, the two bounds fixed in D-85, attacked on a STARTED engine (the earlier tests drove the
- * re-check cadence with manual drains only):
+ * re-check cadence with manual drains only). The clauses below are described as they hold for prompt drain calls and
+ * as they stood when this round was written; the current text is the P10 and P11 KDoc of `DefaultUploaderEngine`:
  * - M1: a parked held row that read absent once is rescued within two heartbeat intervals of the last re-check (P10
  *   KDoc). The heartbeat is the engine's own monotonic delay, the cadence reads the wall clock: the tests set the wall
  *   clock each tick reads, so "a tick that falls just short of one interval" is a value, not a race.

@@ -57,6 +57,10 @@ val location: LocationProvider = createLocationProvider(context = applicationCon
 val location: LocationProvider = createLocationProvider()
 ```
 
+Both factories are platform functions, declared in the Android and iOS source sets; there is no common
+`createLocationProvider`. Create the provider in platform code and hand the `LocationProvider` to shared
+code (a constructor parameter, your DI graph, or an `expect fun` of your own).
+
 Both accept an optional `config: LocationProviderConfig` and `logger: Logger` — defaults are fine to
 start with. On Android, if your app already creates an `ActivityAccess` (from `kmptoolkit-activity`),
 use `createLocationProviderWithLauncher(context, SystemScreenLauncher.callerTask(activityAccess))`
