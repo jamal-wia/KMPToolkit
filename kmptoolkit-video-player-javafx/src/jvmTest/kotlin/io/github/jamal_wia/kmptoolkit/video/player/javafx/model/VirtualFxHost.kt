@@ -123,6 +123,16 @@ internal class VirtualFxHost(
         enqueue((delayMillis * NANOS_PER_MILLI).toLong() + jitterNanos, block)
     }
 
+    /**
+     * [after] without the jitter, and without drawing from the seeded sequence: for a timer that IS a pulse (the picture
+     * part's), which the real FX thread fires on the exact pulse instant and which is scheduled from a nominal grid, so a
+     * late fire would put the next grid point in the past. The other timers keep the jitter of [after].
+     */
+    fun afterExact(delayMillis: Double, block: () -> Unit) {
+        require(delayMillis >= 0.0 && delayMillis.isFinite()) { "delayMillis must be finite and not negative, was $delayMillis ($this)" }
+        enqueue((delayMillis * NANOS_PER_MILLI).toLong(), block)
+    }
+
     override fun hasExitedNow(): Boolean = false
 
     /**

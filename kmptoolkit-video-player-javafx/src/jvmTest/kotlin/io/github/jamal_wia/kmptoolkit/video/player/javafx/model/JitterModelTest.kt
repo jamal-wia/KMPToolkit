@@ -79,7 +79,9 @@ class JitterModelTest {
                             3 -> engine.setSpeed(SPEEDS[rnd.nextInt(SPEEDS.size)])
                             else -> engine.start()
                         }
-                        advanceBy(rnd.nextLong(0L, 400L))
+                        // A gap wider than every fragile window (idle 200 ms, seek 300 ms): the sweep is about the jitter, not about
+                        // the call orders the hazard model flags without it (Q-J9-1).
+                        advanceBy(rnd.nextLong(MIN_GAP_MS, MAX_GAP_MS))
                     }
                     backend.last.monitor.assertNoViolation()
                 }
@@ -96,6 +98,8 @@ class JitterModelTest {
         const val SWEEP_BASE_SEED: Long = 20261113L
         const val SWEEP_SIZE: Int = 200
         const val OPS_PER_SEED: Int = 8
+        const val MIN_GAP_MS: Long = 400L
+        const val MAX_GAP_MS: Long = 800L
         const val JITTER_MAX_MS: Double = 17.0
         const val MESSAGE_LIMIT: Int = 300
         val SPEEDS: List<Float> = listOf(0.5f, 1.5f, 2f, 3f)

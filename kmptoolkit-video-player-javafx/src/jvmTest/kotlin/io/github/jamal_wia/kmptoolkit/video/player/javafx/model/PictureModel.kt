@@ -8,7 +8,8 @@ package io.github.jamal_wia.kmptoolkit.video.player.javafx.model
  * plus n periods, rounded to the nanosecond, so the count over a window is exact and nothing drifts). `now` is the
  * host's clock. A second `startPulse()` while it runs changes nothing, and a `stopPulse()` drops the tick that was
  * queued; a restart begins a new count. The pulse is NOT tied to the player: like an `AnimationTimer` it keeps running
- * after `dispose()` until it is stopped, so a test can see a pulse that was left running.
+ * after `dispose()` until it is stopped, so a test can see a pulse that was left running. The host's `after` jitter does not apply to the pulse (it uses
+ * `afterExact`): the pulse is the instant a jittered timer is rounded to, and its grid is nominal.
  *
  * SNAPSHOT. `snapshotInto` writes the picture of the view into the caller's array only, `width * height` pixels
  * from index 0, ARGB: fully transparent (0) while the view holds no decoded picture, and opaque red afterwards
@@ -79,7 +80,8 @@ internal class PictureModel(
         val dueNanos: Long = pulseStartNanos + Math.round(tick * pulsePeriodNanos)
         // The half nanosecond keeps the host's truncation of the millisecond delay from losing one nanosecond.
         val delayMs: Double = (dueNanos - player.host.nanoTime() + 0.5) / NANOS_PER_MILLI
-        player.host.after(delayMs) {
+        // Exact, not jittered: a pulse is the instant a jittered `after` is rounded to, and its grid is nominal.
+        player.host.afterExact(delayMs) {
             if (forGeneration == generation) {
                 pulsesDelivered++
                 player.events?.onPulse(player.host.nanoTime())
