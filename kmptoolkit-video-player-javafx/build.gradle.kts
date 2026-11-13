@@ -113,14 +113,17 @@ val realMediaSoakClasses: List<String> = listOf(
     "JavaFxFxThreadCallerR7AdversarialTest",
     "JavaFxFxThreadNudgeR8FixerTest",
     "JavaFxLoopSpeedR5AdversarialTest",
+    "JavaFxOperationSequenceFuzzR6AdversarialTest",
     "JavaFxRateGivingR8AdversarialTest",
     "JavaFxResumeAtSpeedR5AdversarialTest",
     "JavaFxResumeKeepsPositionR10AdversarialTest",
     "JavaFxResumeSettlesAtSpeedR5FixerTest",
     "JavaFxSeekAtSpeedFreezeR6AdversarialTest",
+    "JavaFxSeekAtTheEndR5AdversarialTest",
     "JavaFxSpeedAfterSeekFreezeAdversarialTest",
     "JavaFxSpeedInReadyThroughCoreR6AdversarialTest",
     "JavaFxSpeedThroughCoreR6AdversarialTest",
+    "JavaFxStaleReadUnderLoadR9AdversarialTest",
 ).map { "$testPackage.$it" }
 
 // Statistical probes of the native player (40 rounds each). They test the OS against the model's assumptions, not
