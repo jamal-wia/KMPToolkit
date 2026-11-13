@@ -78,8 +78,12 @@ containment never has to engage; any other `Error` (a `StackOverflowError` from 
 say) propagates, exactly as the logger lets it. A throwable that cannot render its own stack trace (its
 `toString()` or `message` throws) does not cost the event: the record keeps its message and a
 `throwableText` that names the throwable's class and says the trace was unavailable. A throwable whose
-cause chain is too deep to render (more than 64 nested causes) is recorded as its first 64 causes,
-without stack frames.
+cause and suppressed graph is too large to render is recorded without stack frames, as its own text, its
+first 64 causes and a count of the rest. Too large means that some throwable in the graph lies more than
+64 levels below the root along its shortest path (each `cause` or suppressed exception is one level), or
+that the graph holds more than 1 024 throwables, the root included. A long cause chain that is also
+reachable by a shorter path (every cause attached to the root as a suppressed exception, say) is within
+the limit and is rendered in full.
 
 Each call returns a new instance; all of them feed the same buffer. Install it **alongside**
 `platformLogSink()`, not instead of it:
