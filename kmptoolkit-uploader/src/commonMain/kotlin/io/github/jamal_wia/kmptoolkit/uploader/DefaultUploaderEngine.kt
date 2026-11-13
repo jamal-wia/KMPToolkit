@@ -51,7 +51,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * |---|---|---|
  * | [RowLedger] | the only holder of the [UploaderStore] and the [TransactionRunner]; the only code that touches [DeliveredUnconfirmed] and [ClaimsInDoubt] | P2 (fact writes), P3, P7, P10; serves P1 (the row writes) |
  * | [Withdrawals] | the side effects of a removed row; the only caller of `UploadTransport.cancel` | P1 order, P8 |
- * | [AttemptRegistry] | the attempts the drain runs and their handshake with a withdrawal | none of its own (serves P1, P2) |
+ * | [AttemptRegistry] | the attempts the drain runs and their handshake with a withdrawal | P11 (serves P1, P2) |
  * | [AttemptRunner] | one admitted attempt: the handler run, the upload hand-off (the engine's only launch of an upload), the decision what an answer means; decides, never writes | P4, P5 |
  * | [SettleDesk] | `settle` and its commit, the upload settle path and journal entry points, the worker-side preparation, classification and the handler's hooks, the transports' small reads | verdict staleness, D-21 |
  * | [EngineLifecycle] | scope and job, `start` and `close`, the drain loop's channel, the alarm, the stop job of a manual drain, the registry entry, the release wake | P6, D-31 |
@@ -63,10 +63,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  * own `execute` launches the classic path's transport itself; that is the handler's code, not the engine's.)
  *
  * Owner of each rule, exactly one: P1 [Withdrawals], P2 [RowLedger], P3 [RowLedger], P4 [AttemptRunner], P5
- * [AttemptRunner], P6 [EngineLifecycle], P7 [RowLedger], P8 [Withdrawals], P9 [DrainCall], P10 [RowLedger]. A component
- * that is not the owner only calls it, supplies the state it reads, or carries the rule's comment at one more call site:
- * the ledger's row writes behind P1, [EngineLifecycle.isClosed] behind P4, the one turn check of this class's pass for
- * P9, the worker-side preparation of [SettleDesk] for P5, and [AttemptRunner] choosing which answers are facts for P2.
+ * [AttemptRunner], P6 [EngineLifecycle], P7 [RowLedger], P8 [Withdrawals], P9 [DrainCall], P10 [RowLedger], P11
+ * [AttemptRegistry]. A component that is not the owner only calls it, supplies the state it reads, or carries the
+ * rule's comment at one more call site: the ledger's row writes behind P1, [EngineLifecycle.isClosed] behind P4, the
+ * one turn check of this class's pass for P9, the one skip of this class's pass for P11, the worker-side preparation
+ * of [SettleDesk] for P5, and [AttemptRunner] choosing which answers are facts for P2.
  *
  * ## Cancellation, close and claims
  *
@@ -157,6 +158,16 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   disarmed: the memory dies with the process), and `settle` triggers a pass even when its delete throws.
  *   *Pinned by:* EngineBossRound4SuspectsAdversarialTest (bv4-S3a, S3b), EngineSplit1P10AdversarialTest and
  *   EngineSplit1HeldRescueAdversarialTest (a verdict that came first).
+ * - **P11, One attempt per item.** The engine never starts an attempt for an item while it is still running one for
+ *   that item, whichever pass asks: a `drain()` called from inside the attempt (a handler, an upload preparation), two
+ *   manual calls, or a manual call next to the engine's own loop. [AttemptRegistry.runUnlessMoved] registers an attempt
+ *   only when none is registered for the id, in one atomic step, and answers [Admission.BUSY] otherwise; the pass that
+ *   asked skips the item in [drainPass] without using its turn (P9), arming a gate or counting it as work, and the
+ *   pass that owns the attempt sweeps again after it ends. So the registry holds at most one entry per id and a
+ *   withdrawal (P1, P2) always finds the attempt that is running. It does not make an overlapping `drain()` safe for
+ *   everything else: a manual `drain()` on a started engine still breaks single-flight, and two engines over one store
+ *   stay the P6 residual.
+ *   *Pinned by:* RegressReentrantDrainAdversarialTest and RegressReentrancyAdversarialTest.
  */
 internal class DefaultUploaderEngine(
     store: UploaderStore,
@@ -485,9 +496,12 @@ internal class DefaultUploaderEngine(
                     continue
                 }
                 try {
-                    val ran: Boolean = attemptRegistry.runUnlessMoved(item) { attempt -> attemptRunner.executeItem(item, handler, attempt) }
+                    val admission: Admission = attemptRegistry.runUnlessMoved(item) { attempt -> attemptRunner.executeItem(item, handler, attempt) }
+                    // P11: another pass is running this item's attempt. This one skips it without spending the turn,
+                    // arming a gate or counting it as work; the pass that owns the attempt sweeps again after it ends.
+                    if (admission == Admission.BUSY) continue
                     outsideFailures.update { it - item.id }
-                    if (ran) {
+                    if (admission == Admission.RAN) {
                         call.spendTurn(item.id)
                     } else if (call.skippedAsMovedBefore(item.id)) {
                         // Skipped as "moved" twice in one call although nothing else changed it: the store's point

@@ -20,9 +20,25 @@ internal class RunningAttempt(val job: Job, val attempts: Int) {
     val withdrawn: MutableStateFlow<Boolean> = MutableStateFlow(false)
 }
 
+/** What [AttemptRegistry.runUnlessMoved] did with the attempt it was asked to run. */
+internal enum class Admission {
+    /** The attempt was admitted and ran to its end (a withdrawn attempt included: its row is gone). */
+    RAN,
+
+    /** The item moved since the pass read it; the attempt never began. */
+    MOVED,
+
+    /** The engine is already running an attempt for this item (rule P11); the attempt never began. */
+    BUSY,
+}
+
 /**
  * The attempts the drain is running right now, by item id: the handshake between a running attempt and a withdrawal
- * (rules P1 and P2 of [DefaultUploaderEngine]). Holds no store: a re-read of the row goes through the [RowLedger].
+ * (rules P1 and P2 of [DefaultUploaderEngine]), and the owner of rule P11, **one attempt per item**: the engine never
+ * starts an attempt for an item while it is still running one for that item, whichever pass asks (a `drain()` called
+ * from inside the attempt, two manual calls, a manual call next to the engine's own loop). The registry holds at most
+ * one entry per id, so a withdrawal always finds the attempt that is running. Holds no store: a re-read of the row
+ * goes through the [RowLedger].
  */
 internal class AttemptRegistry(
     private val ledger: RowLedger,
@@ -68,18 +84,32 @@ internal class AttemptRegistry(
      * withdrawal removes the row first and looks for a registered attempt second, so one of the two always sees
      * the other and no attempt of a removed item begins after the withdrawal returned. A withdrawn attempt
      * records nothing: its row is gone, or a transaction that rolled the withdrawal back restored it unspent.
+     *
+     * Rule P11: the registration inserts only when no attempt is registered for the item, in one atomic step. When one
+     * is, the answer is [Admission.BUSY] at once: nothing is registered, re-read or started, and the pass that asked
+     * leaves the item to the pass that runs it, which sweeps again after the attempt ends.
      */
-    suspend fun runUnlessMoved(item: UploaderItem, block: suspend (RunningAttempt) -> Unit): Boolean {
+    suspend fun runUnlessMoved(item: UploaderItem, block: suspend (RunningAttempt) -> Unit): Admission {
         return coroutineScope {
             lateinit var entry: RunningAttempt
             // Lazy, so `entry` is assigned before the block can run.
             val attempt: Deferred<Unit> = async(start = CoroutineStart.LAZY) { block(entry) }
             entry = RunningAttempt(attempt, item.attempts)
-            running.update { it + (item.id to entry) }
+            var registered = false
+            running.update { map ->
+                registered = item.id !in map
+                if (registered) map + (item.id to entry) else map
+            }
+            if (!registered) {
+                // A lazy child that never started would keep this scope waiting for it.
+                attempt.cancel()
+                logger.i { "Attempt of ${item.logName} not started — the engine is already running one for it." }
+                return@coroutineScope Admission.BUSY
+            }
             try {
                 if (ledger.get(item.id) != item) {
                     logger.i { "Attempt of ${item.logName} skipped — the item moved since this pass read it." }
-                    return@coroutineScope false
+                    return@coroutineScope Admission.MOVED
                 }
                 try {
                     attempt.await()
@@ -88,11 +118,11 @@ internal class AttemptRegistry(
                     currentCoroutineContext().ensureActive()
                     if (entry.withdrawn.value) {
                         logger.i { "Attempt of ${item.logName} stopped — the item was withdrawn." }
-                        return@coroutineScope true
+                        return@coroutineScope Admission.RAN
                     }
                     throw e // a leaked cancellation: the drain's catch handles it as before
                 }
-                true
+                Admission.RAN
             } finally {
                 running.update { map -> if (map[item.id] === entry) map - item.id else map }
                 // A lazy child that never started would keep this scope waiting for it.

@@ -416,6 +416,8 @@ delay that doubles on every consecutive failure, at most `heartbeatInterval`. A 
 
 `drain()` exists too, but calling it on a started engine breaks single-flight. It is for tests and
 diagnostics. On a closed engine it does nothing.
+An item whose attempt the engine is running is never started again by another pass, so a `drain()` called from inside
+a handler's attempt does not run that item twice. It still breaks single-flight for everything else: use `trigger()`.
 
 ## Shutting down
 

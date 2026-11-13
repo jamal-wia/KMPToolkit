@@ -93,6 +93,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
+- `kmptoolkit-uploader`: a `drain()` called from inside a handler's attempt, or overlapping another pass of the same
+  engine, no longer starts that item a second time or loses the running attempt's withdrawal handle.
 - `kmptoolkit-downloader` (Android): the resource-size walk no longer follows a symbolic link inside a resource
   directory: a link counted its target's size, and a link cycle recursed until the stack overflowed. Recursive deletes,
   which already removed a link as a link, now share the same walk.
