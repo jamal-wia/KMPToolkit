@@ -177,7 +177,8 @@ internal class RowLedger(
      * returned `null` is kept in a per-ledger set and is not read again while [recheckAbsent] is `false` (the engine
      * passes `true` once per heartbeat interval, measured from its last re-check), so a withdrawn row, or another live
      * store's row, costs a read per heartbeat instead of one per pass for the life of the process, and a row that comes
-     * back after it read absent is seen within two heartbeat intervals of the last re-check. A read that finds a row
+     * back after it read absent is seen at the next re-check (the bound, and how a busy drain call delays it, are in rule
+     * P10 of DefaultUploaderEngine). A read that finds a row
      * takes the id out of the set; a read that fails never puts it in (it is tried again at the next call); the set is
      * cut to the ids still remembered at every call, so it is bounded by [DeliveredUnconfirmed]. A new ledger starts
      * empty, so an engine built to replace another reads everything at its first sweep. An entry whose row is gone (a
