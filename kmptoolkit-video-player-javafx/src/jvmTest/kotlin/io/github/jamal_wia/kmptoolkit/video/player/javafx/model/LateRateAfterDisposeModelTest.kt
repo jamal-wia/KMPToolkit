@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
  * class as the races `FxPlayback.dispose` already guards against.
  *
  * Each scenario leaves one speed pending, disposes the playback, lets the late PLAYING land, and then delivers two ticks
- * of the playhead (the second one 500 ms of media after the first, so the pending speed is due). The contract: not one
+ * of the playhead (the second one 500 ms of media and 500 ms of wall time after the first, so the pending speed is due). The contract: not one
  * rate write is attempted after the late status landed. The log records an attempt on a disposed player too (as a
  * write with no effect), so the check is on the attempt, not on the decoder. The control is the same two ticks on a
  * playback that was NOT disposed: the speed is written there, which proves the ticks are enough to give it.
@@ -44,10 +44,11 @@ class LateRateAfterDisposeModelTest {
         }
     }
 
-    /** Two ticks of the playhead, the second one [MOVE_MS] of media after the first: what a pending speed waits for. */
+    /** Two ticks of the playhead, the second one [MOVE_MS] of media and [MOVE_MS] of wall time after the first: what a pending speed waits for. */
     private fun FxModelScope.tickTwice(native: ScriptedNativePlayer) {
         val events: NativeEvents = checkNotNull(native.events) { "the player has no listener ($host)" }
         onFx { events.onCurrentTime() }
+        advanceBy(MOVE_MS.toLong())
         native.positionMs += MOVE_MS
         onFx { events.onCurrentTime() }
     }
