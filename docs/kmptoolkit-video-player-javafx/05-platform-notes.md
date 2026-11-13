@@ -183,8 +183,9 @@ decoder writes straight into memory without a render-and-read-back step.
   and the playhead is further on, a resume at a speed other than 1
   (including a speed that arrives within about 600 ms of a plain `play()`: it was changed while paused or
   ready, or right after a play) plays from exactly where it was paused with no native seek, and the speed
-  is given as one away-and-back once the playhead has moved about 200 ms at normal speed (on a tick of the
-  playhead, so a little later). For that time the playhead advances at normal speed, then the reported time
+  is given as one away-and-back once the playhead has moved about 200 ms at normal speed (counted only as far as
+  the clock allows: the first reported time after a resume can be stale, and a tick that runs ahead of the clock
+  restarts the count; the speed is given on a tick of the playhead, so a little later). For that time the playhead advances at normal speed, then the reported time
   catches up; a pause meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait.
   A `play()` that follows a rate written while the player was not playing within about 200 ms waits for the rest of
   those 200 ms on every resume path but one (a `play()` right next to a rate write froze the playhead at a speed of 8
