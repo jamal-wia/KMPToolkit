@@ -104,6 +104,7 @@ class FifoR2Test {
     fun `list and createDirectories treat a pipe as a non-directory`() = withFifo { _: File, fifo: String ->
         assertEquals(FileResult.Failure(FileError.NotADirectory(fifo)), files.list(fifo))
         assertEquals(FileResult.Failure(FileError.NotADirectory(fifo)), files.createDirectories(fifo))
+        // path-hygiene-ignore: PH1 a child below a FIFO is spelled with the host separator on purpose: the entry under a non-directory is the case under test (the test is POSIX-only, a FIFO cannot exist on Windows)
         val below: FileResult<Unit> = files.createDirectories(fifo + File.separator + "child")
         assertTrue(below is FileResult.Failure && below.error is FileError.NotADirectory, "below a pipe: $below")
         assertEquals(FileKind.Other, files.metadata(fifo, false)?.kind)

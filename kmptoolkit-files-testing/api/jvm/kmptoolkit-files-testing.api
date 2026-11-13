@@ -109,6 +109,7 @@ public final class io/github/jamal_wia/kmptoolkit/files/testing/FakeOperationRec
 
 public final class io/github/jamal_wia/kmptoolkit/files/testing/FileAccessContract {
 	public fun <init> (Lkotlin/jvm/functions/Function0;)V
+	public final fun aTrailingSeparatorNamesTheEntryItself ()V
 	public final fun concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload ()V
 	public final fun createDirectoriesByConcurrentCreatorsAllSucceed ()V
 	public final fun createDirectoriesCreatesParentsAndIsIdempotent ()V

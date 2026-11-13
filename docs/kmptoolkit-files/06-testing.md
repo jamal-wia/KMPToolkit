@@ -42,7 +42,7 @@ assertEquals("Ada", store.loadName())
 
 It models inodes (a rename carries content and sync state; hard links share them), symbolic links,
 per-file synced content and per-directory synced entries — enough to simulate a power loss. Names over
-255 UTF-8 bytes are `NameTooLong` in every lookup, as on ext4. `FakeFileAccess(caseSensitive = false)` models a
+255 UTF-8 bytes are `NameTooLong` in every lookup, as on ext4. This is stricter than APFS (255 characters) and NTFS (255 UTF-16 code units) on purpose: a name the fake accepts works everywhere. Code that relies on a longer UTF-8 name on iOS or Windows must be tested on that platform. `FakeFileAccess(caseSensitive = false)` models a
 case-insensitive volume: `/d/A` and `/d/a` are one entry and the spelling of creation is listed. Names are
 folded with one fixed rule (NFD, lowercase, uppercase, lowercase, NFC) that does not depend on the host, so a
 name with a backslash stays a different name from its prefix on a Windows test host too. The rule folds slightly
@@ -195,7 +195,7 @@ checks cover metadata kinds and links, `list`, `createDirectories` (including co
 that resolves relative paths against a base fails), every `writeAtomically` outcome (replace, empty content, missing parent, directory
 target, `Fail` (including over a dangling link), links, temp directory, no leftover, concurrent writers), `move` (including
 `Fail` of a directory or a link, and which path an error names), `delete`,
-`deleteRecursively` (including concurrent deleters, cancellation and a link to a directory as the root), `treeSize`, `sweep` (age, cancellation, old symbolic links),
+`deleteRecursively` (including concurrent deleters, cancellation and a link to a directory as the root), trailing separators (`aTrailingSeparatorNamesTheEntryItself`: a path with a trailing separator names the entry itself, links included), `treeSize`, `sweep` (age, cancellation, old symbolic links),
 `freeSpaceBytes`, `exists` and `withIo`. The two `withIo` checks verify the extension, which no implementation can
 override, not the implementation under test.
 

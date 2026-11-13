@@ -11,6 +11,7 @@ import kotlin.test.assertTrue
 
 /** Round 1 of the breaker for unit G: hostile Windows spellings through the public API. Does nothing on a POSIX host. */
 class WindowsHostileR1Test {
+    // path-hygiene-ignore: PH1 the separator is read only to detect a Windows host, where the hostile-name attacks of this class run; it is never joined into a path
     private val windows: Boolean = File.separatorChar == '\\'
     private lateinit var root: String
     private val fs: FileAccess = createFileAccess()

@@ -46,6 +46,14 @@ internal sealed class PathRules(val separator: Char) {
         return path.substring(0, parentEnd)
     }
 
+    /** [path] without trailing separators; a root keeps its own (`/`, `C:\`). */
+    fun withoutTrailingSeparators(path: String): String {
+        val keep: Int = maxOf(rootLength(path), 1)
+        var end: Int = path.length
+        while (end > keep && isSeparator(path[end - 1])) end--
+        return if (end == path.length) path else path.substring(0, end)
+    }
+
     fun normalizeLexically(path: String): String {
         val parsed: ParsedPath = parse(path)
         val kept: MutableList<String> = mutableListOf()
