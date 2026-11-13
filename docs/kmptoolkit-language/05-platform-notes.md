@@ -99,12 +99,15 @@ configuration delivery, `attachBaseContext` gets the first frame after a recreat
 called by the framework *before* your own code has necessarily run for this launch (a cold start
 racing `Application.onCreate()` against the first `Activity.attachBaseContext()`, or a process
 restarted by the OS after being killed in the background), so the base `Context` an `Activity`
-starts with can still reflect the device's language for that first frame.
+starts with can still reflect the device's language for that first frame. `MyApplication.language` below
+is the `AppLanguageHolder` property of [getting started, step 4](02-getting-started.md#4-create-the-holder).
 
 ```kotlin
 class MainActivity : ComponentActivity() {
     override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(localizedContext(newBase, currentLanguage()))
+        // `application` is not set yet inside attachBaseContext; the application context already is.
+        val app: MyApplication = newBase.applicationContext as MyApplication
+        super.attachBaseContext(localizedContext(newBase, app.language.language))
     }
 }
 ```

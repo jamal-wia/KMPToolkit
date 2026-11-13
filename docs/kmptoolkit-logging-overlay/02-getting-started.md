@@ -11,7 +11,7 @@ shipping this in a release build.
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
             implementation("io.github.jamal-wia:kmptoolkit-logging-overlay")
         }
     }
@@ -36,6 +36,8 @@ val overlayState = LogOverlayState()
 ## 3. Install its sink into your logger factory
 
 ```kotlin
+import io.github.jamal_wia.kmptoolkit.logging.LogLevel
+import io.github.jamal_wia.kmptoolkit.logging.LoggerFactory
 import io.github.jamal_wia.kmptoolkit.logging.createLoggerFactory
 import io.github.jamal_wia.kmptoolkit.logging.platformLogSink
 
@@ -56,6 +58,10 @@ not detect it for you, on purpose.
 Nothing at a call site changes. Code that already does this keeps doing it:
 
 ```kotlin
+import io.github.jamal_wia.kmptoolkit.logging.Logger
+import io.github.jamal_wia.kmptoolkit.logging.LoggerFactory
+import io.github.jamal_wia.kmptoolkit.logging.i
+
 class SyncEngine(loggerFactory: LoggerFactory) {
     private val log: Logger = loggerFactory.logger("Sync")
 
