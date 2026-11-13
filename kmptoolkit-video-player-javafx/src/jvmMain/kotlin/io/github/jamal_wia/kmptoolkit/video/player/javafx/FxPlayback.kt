@@ -5,6 +5,7 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoFrame
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
+import kotlin.math.max
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -122,8 +123,14 @@ internal class FxPlayback private constructor(
     /** [settleNudge] is not given before this ([System.nanoTime]), or null when it may be given at once: a seek restarts the wait (see [seekTo]). */
     private var settleNotBeforeNanos: Long? = null
 
-    /** Where the playhead stood on the first tick after [settleNudge] was set; NaN until then. */
+    /**
+     * Where the playhead stood at the anchor of the settle: the first tick after [settleNudge] was set, or a later tick
+     * that did not move the way the clock allows (see [applyResumeRate]); NaN until the first tick.
+     */
     private var settleFrom: Double = Double.NaN
+
+    /** When [settleFrom] was taken ([System.nanoTime] of the host); meaningful only while [settleFrom] is not NaN. */
+    private var settleFromNanos: Long = 0L
 
     /**
      * Counts the resumes that may delay their play() and the pauses: a play() [start] delayed to wait out the idle gap
@@ -289,6 +296,7 @@ internal class FxPlayback private constructor(
                 settleNudge = rate
                 settleNotBeforeNanos = null
                 settleFrom = Double.NaN
+                settleFromNanos = 0L
                 val generation: Long = ++playGeneration
                 delayedPlayPending = true
                 host.after(idleWait / 1_000_000.0 + 1.0) {
@@ -316,6 +324,7 @@ internal class FxPlayback private constructor(
             settleNudge = rate
             settleNotBeforeNanos = null
             settleFrom = Double.NaN
+            settleFromNanos = 0L
             val generation: Long = ++playGeneration
             val wait: Long = idleGapLeftNanos()
             if (wait > 0L) {
@@ -434,6 +443,7 @@ internal class FxPlayback private constructor(
                 if (settleNudge != null) {
                     // Same as below: the playhead jumped, wait again from the new place.
                     settleFrom = Double.NaN
+                    settleFromNanos = 0L
                     settleNotBeforeNanos = host.nanoTime() + SEEK_RATE_SETTLE_NANOS
                 }
                 if (deferredRate != null) {
@@ -498,6 +508,7 @@ internal class FxPlayback private constructor(
                     settleNudge = rate
                     settleNotBeforeNanos = null
                     settleFrom = Double.NaN
+                    settleFromNanos = 0L
                 }
             }
             else -> {
@@ -595,6 +606,18 @@ internal class FxPlayback private constructor(
      * Called on every tick of the playhead: gives the native player the speed of a resume without a native seek, as one
      * away-and-back, once the playhead has moved [RESUME_RATE_SETTLE_MS] at normal speed (a rate change within about
      * 100 ms of a plain play() can freeze the playhead on macOS; a fixed delay is a race with the native start-up).
+     *
+     * The movement is counted only as far as the clock allows. The first time JavaFX reports after a resume can be stale
+     * (the value from before the pause, measured up to 424 ms behind the decoder), followed within a few milliseconds by
+     * a fresh one; taken as two ticks of one playhead the pair is a jump of hundreds of milliseconds that happened in
+     * almost no time, which would give the speed about 0.17 s after the play(), inside the native start-up that the wait
+     * exists to avoid. Until the speed is given the decoder runs no faster than the rate it was started at: normal speed
+     * on macOS, where play() ignores the rate property, and at most the property's rate elsewhere. A tick that reports
+     * the playhead behind its anchor, or ahead of the anchor by more than the wall time since the anchor times
+     * `max(1.0, rate)` plus [RESUME_RATE_CLOCK_SLACK_MS], is not movement of the playhead: it becomes the new anchor
+     * (position and time) and the wait starts again from it. The factor keeps a decoder that really runs at a held speed
+     * from being re-anchored for good, and true playback never exceeds the bound, so the re-anchoring stops after the
+     * stale ticks.
      */
     private fun applyResumeRate() {
         // See applyDeferredRate: no rate is written on a disposed player.
@@ -604,11 +627,20 @@ internal class FxPlayback private constructor(
         if (isBefore(settleNotBeforeNanos)) return
         val position: Double = native.currentTimeMs
         if (position.isNaN()) return
+        val nowNanos: Long = host.nanoTime()
         if (settleFrom.isNaN()) {
             settleFrom = position
+            settleFromNanos = nowNanos
             return
         }
-        if (abs(position - settleFrom) < RESUME_RATE_SETTLE_MS) return
+        val movedMs: Double = position - settleFrom
+        val elapsedMs: Double = (nowNanos - settleFromNanos) / 1_000_000.0
+        if (movedMs < 0.0 || movedMs > elapsedMs * max(1.0, native.rate) + RESUME_RATE_CLOCK_SLACK_MS) {
+            settleFrom = position
+            settleFromNanos = nowNanos
+            return
+        }
+        if (movedMs < RESUME_RATE_SETTLE_MS) return
         settleNudge = null
         native.rate = 1.0
         native.rate = rate
@@ -747,6 +779,13 @@ internal class FxPlayback private constructor(
 
         /** How far the playhead must move, at normal speed, before the speed of a resume without a seek is given (see [applyResumeRate]). */
         private const val RESUME_RATE_SETTLE_MS: Double = 200.0
+
+        /**
+         * How far a tick may run ahead of the clock before it is taken as a stale-to-fresh jump of the reported time
+         * and not as playback (see [applyResumeRate]): above the 17 ms jitter of an FX pulse, far below the 424 ms jump
+         * measured after a resume.
+         */
+        private const val RESUME_RATE_CLOCK_SLACK_MS: Double = 50.0
 
         /** How long after a native seek a deferred rate keeps waiting, and a speed given while playing is held back (see [seekTo], [setSpeed]). */
         private const val SEEK_RATE_SETTLE_NANOS: Long = 300_000_000L
