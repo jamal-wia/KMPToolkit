@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.video.player.javafx
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javafx.application.Platform
 import javafx.beans.value.ChangeListener
 import javafx.beans.value.ObservableValue
@@ -21,7 +22,7 @@ import org.junit.Assume
  * `giveNudge` path and the `nearStart` path of `FxPlayback` write a rate right after a native seek on a player that
  * is not running?
  *
- * Four probes of 40 rounds each, one real video `MediaPlayer` per probe (never disposed per round: a video player
+ * Five probes of 40 rounds each, one real video `MediaPlayer` per probe (never disposed per round: a video player
  * disposed while its CoreVideo display link starts can kill the JVM, see docs/kmptoolkit-video-player-javafx/05-platform-notes.md,
  * "Known issue"), rounds interleaved SEEK-RUN, NUDGE, NEARSTART, CONTROL so that drift of the machine hits all four alike:
  *  - SEEK-RUN: PLAYING for 500 ms, `seek(0)`, then a rate change 0 to 50 ms later (the D2-PF1 window);
@@ -41,18 +42,25 @@ import org.junit.Assume
  * well outside the window (so the probe's power is shown), run by two further tests of this class:
  *  - W-PLAY: a plain `play()` (rate property 1.0, no seek since the last play, except a rewind when the playhead is past
  *    [RESEEK_FROM_MS] so that no wrap falls in the window), then a rate write 0 to 150 ms later (the model's window: 100 ms);
- *    CONTROL gap 500 ms;
+ *    CONTROL gap 500 ms. This is not the shape the window was found with (round 5: `play()` and the away-and-back in the
+ *    same FX task, with the property at the speed); a 0/40 here says nothing about that shape;
  *  - W-IDLE: a rate write on the PAUSED player, then `play()` 0 to 300 ms later (the idle gap, the model's window: 200 ms);
  *    CONTROL gap 600 ms;
  *  - W-WRAP: PLAYING at 1.0 and seeked to [WRAP_LEAD_MS] before the end of the looping clip; a rate write 0 to 150 ms after
  *    the playhead wraps (the model's window: 100 ms); CONTROL gap 400 ms;
  *  - B4: the rate property holds `r` (written while paused, [QUIET_MS] before the play), then a plain `play()`; the speed
  *    of the playhead over [SLOPE_WINDOW_MS] decides whether the decoder runs at 1.0 (the model's B4) or at `r`; its
- *    CONTROL writes `r` on a player that has played for [PLAYED_MS] (the decoder must then run at `r`, which shows that
- *    the slope separates the two). Here `frozen` is a slope of 0.1 or less, and `HAZARD-B4` lists the other outcomes.
+ *    CONTROL writes `r` on a player that has played for [PLAYED_MS] (away from a loop wrap the decoder then runs at `r`,
+ *    which shows that the slope separates the two; a round whose measuring span holds a wrap is reported as WRAPPED and not
+ *    counted, because at a wrap the decoder restarts at 1.0, B8, and the published time holds about 300 ms). A wrap is a
+ *    decrease of `currentTime` or an `onEndOfMedia`, watched from the same FX task as the `play()` (B4) or the rate write
+ *    (B4-CONTROL) until the slope window ends; the B4-CONTROL setup rewinds to 0 every round, B4 keeps its plain play.
+ *    Here `frozen` is a slope of 0.1 or less in a round without a wrap; it is not the H0 freeze measure, and `HAZARD-B4`
+ *    lists the other outcomes with `wrapped=k`.
  * Added after the first results showed no freeze in W-PLAY and W-IDLE at all (the original finding, round 5 of D2, was
  * a rate written together with `play()` and the idle gap found at a speed of 8): W-PLAY-NEAR (the W-PLAY stimulus with the
- * gap spread over 0 to 20 ms only, CONTROL gap 500 ms like W-PLAY) and W-IDLE-8X (the W-IDLE stimulus at a speed of 8 with
+ * gap spread over 0 to 20 ms only, CONTROL gap 500 ms like W-PLAY; like W-PLAY it is not the shape the window was found
+ * with, and a 0/40 here says nothing about that shape) and W-IDLE-8X (the W-IDLE stimulus at a speed of 8 with
  * the gap spread over 0 to 100 ms, CONTROL gap 600 ms at a speed of 8).
  * W-WRAP at speed (a rate write at a wrap while already running at a speed) is not probed: the A14c verdict (D-97) found
  * no defect, and the ruling made it optional.
@@ -78,7 +86,41 @@ class JavaFxNativeHazardCharacterizationTest {
         B4_CONTROL("B4-CONTROL"),
     }
 
-    private enum class Outcome { MOVED, FROZEN, NOT_PLAYING, ONE_X, AT_RATE, OTHER_SLOPE }
+    private enum class Outcome { MOVED, FROZEN, NOT_PLAYING, ONE_X, AT_RATE, OTHER_SLOPE, WRAPPED }
+
+    /**
+     * Watches one player for a loop wrap, a `currentTime` decrease or an `onEndOfMedia`, from [arm] until [disarm]. Both
+     * run on the FX thread (inside `fx {}`), as do the callbacks; [wrapped] may be read from any thread.
+     */
+    private class WrapDetector(private val player: MediaPlayer) {
+        private val sawWrap = AtomicBoolean(false)
+
+        @Volatile
+        var posAtArmMs: Double = -1.0
+            private set
+        private var last: Double = -1.0
+        private val listener: ChangeListener<Duration> = object : ChangeListener<Duration> {
+            override fun changed(observable: ObservableValue<out Duration>, old: Duration?, new: Duration?) {
+                val now: Double = new?.toMillis() ?: return
+                if (last >= 0.0 && now < last) sawWrap.set(true)
+                last = now
+            }
+        }
+
+        fun arm() {
+            posAtArmMs = player.currentTime.toMillis()
+            last = posAtArmMs
+            player.currentTimeProperty().addListener(listener)
+            player.onEndOfMedia = Runnable { sawWrap.set(true) }
+        }
+
+        fun disarm() {
+            player.currentTimeProperty().removeListener(listener)
+            player.onEndOfMedia = null
+        }
+
+        fun wrapped(): Boolean = sawWrap.get()
+    }
 
     private class Subject(val probe: Probe) {
         lateinit var player: MediaPlayer
@@ -144,7 +186,8 @@ class JavaFxNativeHazardCharacterizationTest {
                 println(
                     "HAZARD-B4 ${subject.probe.label} decoderAt1x=${subject.outcomes.getValue(Outcome.ONE_X)} " +
                         "decoderAtRate=${subject.outcomes.getValue(Outcome.AT_RATE)} " +
-                        "otherSlope=${subject.outcomes.getValue(Outcome.OTHER_SLOPE)}",
+                        "otherSlope=${subject.outcomes.getValue(Outcome.OTHER_SLOPE)} " +
+                        "wrapped=${subject.outcomes.getValue(Outcome.WRAPPED)}",
                 )
                 subject.slopes.forEach { println("HAZARD-SLOPE ${subject.probe.label} $it") }
             }
@@ -272,6 +315,7 @@ class JavaFxNativeHazardCharacterizationTest {
         val gapMs: Long = windowGapMs(probe, round)
         var note: String = ""
         var outcome: Outcome? = null
+        var detector: WrapDetector? = null
 
         when (probe) {
             Probe.W_PLAY, Probe.W_PLAY_CONTROL, Probe.W_PLAY_NEAR -> {
@@ -310,12 +354,21 @@ class JavaFxNativeHazardCharacterizationTest {
                 }
             }
             Probe.B4, Probe.B4_CONTROL -> {
-                fx { player.play() }
+                // The wrap detector is armed in the same FX task as the play (B4) or the rate write (B4-CONTROL).
+                val armed = WrapDetector(player)
+                detector = armed
+                fx {
+                    if (probe == Probe.B4) armed.arm()
+                    player.play()
+                }
                 if (!awaitStatus(player, MediaPlayer.Status.PLAYING) || !awaitMoving(player)) {
                     outcome = if (fx { player.status } == MediaPlayer.Status.PLAYING) Outcome.FROZEN else Outcome.NOT_PLAYING
                 } else if (probe == Probe.B4_CONTROL) {
                     stimulusPause(PLAYED_MS)
-                    fx { player.rate = rate }
+                    fx {
+                        armed.arm()
+                        player.rate = rate
+                    }
                 }
             }
             else -> error("${probe.label} is not a window probe")
@@ -325,12 +378,17 @@ class JavaFxNativeHazardCharacterizationTest {
             if (probe == Probe.B4 || probe == Probe.B4_CONTROL) {
                 stimulusPause(SETTLE_MS)
                 val slope: Double = measureSlope(player)
-                outcome = classifySlope(slope, rate)
-                subject.slopes += "round=$round rate=$rate slope=${"%.3f".format(slope)} outcome=$outcome"
+                val armed: WrapDetector = checkNotNull(detector) { "${probe.label} round $round: no wrap detector" }
+                val sawWrap: Boolean = armed.wrapped()
+                outcome = if (sawWrap) Outcome.WRAPPED else classifySlope(slope, rate)
+                val posLabel: String = if (probe == Probe.B4) "posAtPlay" else "posAtWrite"
+                subject.slopes += "round=$round rate=$rate $posLabel=${"%.0f".format(armed.posAtArmMs)} wrapped=$sawWrap " +
+                    "slope=${"%.3f".format(slope)} outcome=$outcome"
             } else {
                 outcome = observe(player)
             }
         }
+        detector?.let { fx { it.disarm() } }
         subject.outcomes[outcome] = subject.outcomes.getValue(outcome) + 1
         if (outcome != Outcome.NOT_PLAYING) subject.reachedPlaying = true
         if (outcome == Outcome.FROZEN) {
@@ -388,7 +446,11 @@ class JavaFxNativeHazardCharacterizationTest {
                 stimulusPause(QUIET_MS)
             }
             Probe.B4_CONTROL -> {
-                fx { player.rate = 1.0 }
+                // Rewound every round so that the write, 500 ms into playing, is far from a loop wrap (except at 3x).
+                fx {
+                    player.rate = 1.0
+                    player.seek(Duration.ZERO)
+                }
                 stimulusPause(QUIET_MS)
             }
             else -> Unit
