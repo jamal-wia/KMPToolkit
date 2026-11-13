@@ -42,9 +42,27 @@ kotlin {
             // kmptoolkit-systembars/build.gradle.kts for why this is a host-test dependency.
             implementation(project.dependencies.platform(libs.androidx.compose.bom))
             implementation(libs.androidx.compose.ui.test.manifest)
+
+            // Test scope only (nothing reaches the published POM): the integration-consumer test
+            // (FullSuiteConsumerTest) uses every F-unit module together, the way one app would.
+            implementation(project(":kmptoolkit-logging"))
+            implementation(project(":kmptoolkit-logging-overlay"))
+            implementation(project(":kmptoolkit-systembars"))
+            implementation(project(":kmptoolkit-hardware-keys"))
+            implementation(project(":kmptoolkit-location"))
+        }
+
+        iosTest.dependencies {
+            // Test scope only: the iOS half of the integration-consumer test (FullSuiteIosConsumerTest).
+            implementation(project(":kmptoolkit-logging"))
+            implementation(project(":kmptoolkit-logging-overlay"))
+            implementation(project(":kmptoolkit-systembars"))
         }
 
         jvmTest.dependencies {
+            // Test scope only: the desktop half of the integration-consumer test (FullSuiteDesktopConsumerTest).
+            implementation(project(":kmptoolkit-systembars"))
+            implementation(project(":kmptoolkit-hardware-keys"))
             implementation(libs.compose.ui.test)
             // The Skia runtime runComposeUiTest renders through on desktop. Test-only, and for the
             // machine running the tests — nothing here reaches a published artifact.
