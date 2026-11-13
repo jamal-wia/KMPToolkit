@@ -185,8 +185,10 @@ decoder writes straight into memory without a render-and-read-back step.
   ready, or right after a play) plays from exactly where it was paused with no native seek, and the speed
   is given as one away-and-back once the playhead has moved about 200 ms at normal speed (counted only as far as
   the clock allows: the first reported time after a resume can be stale, and a tick that runs ahead of the clock
-  restarts the count; the speed is given on a tick of the playhead, so a little later). For that time the playhead advances at normal speed, then the reported time
-  catches up; a pause meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait.
+  restarts the count; the speed is given on a tick of the playhead, so a little later). For that time the playhead
+  advances at normal speed, then the reported time catches up; right after the speed is given, the reported time can
+  stand still for about 0.2 s before it advances at the new speed (macOS, in about two resumes in three in the probe
+  runs), and the reported time right after a pause can lag the decoder by about 0.4 s; a pause meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait.
   A `play()` that follows a rate written while the player was not playing within about 200 ms waits for the rest of
   those 200 ms on every resume path but one (a `play()` right next to a rate write froze the playhead at a speed of 8
   in the measurements). The exception is a `play()` from within about 100 ms of the start of the clip, at a speed other
