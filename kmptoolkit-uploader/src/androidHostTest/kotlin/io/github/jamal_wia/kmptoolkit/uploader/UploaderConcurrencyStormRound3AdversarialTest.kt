@@ -372,15 +372,20 @@ class UploaderConcurrencyStormRound3AdversarialTest {
         )
         startEngine(TestUploaderStore(), handler, ids)
         try {
+            // timing-hygiene-ignore: TH2 measure R-9 the library's 2 s progress flush window, a private constant the test cannot move
+            val startedAt: Long = System.nanoTime()
             val delivered = runBlocking {
                 withContext(Dispatchers.IO) {
                     val jobs = ids.map { id -> async(Dispatchers.IO) { uploads.async { worker(id).doWork() }.await() } }
                     withTimeout(25_000L) { jobs.awaitAll() }
                 }
             }
+            // timing-hygiene-ignore: TH2 measure R-9 the library's 2 s progress flush window, a private constant the test cannot move
+            val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000L
             val blocked: Int = hooksEntered.get()
             delivered.forEach { assertIs<ListenableWorker.Result.Success>(it) }
             assertTrue(blocked >= 1, "no progress hook ran, so the case is vacuous ($count items)")
+            assertTrue(tookMillis < 4_000L, "a progress hook must not hold up settlements: took $tookMillis ms for $count items (flush window 2 s)")
         } finally {
             hookGate.countDown()
         }

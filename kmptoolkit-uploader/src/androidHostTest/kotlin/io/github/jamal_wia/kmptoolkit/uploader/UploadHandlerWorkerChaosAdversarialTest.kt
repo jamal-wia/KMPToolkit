@@ -654,7 +654,8 @@ class UploadHandlerWorkerChaosAdversarialTest {
         startEngine(backing, handler)
         val running: Deferred<ListenableWorker.Result> = uploads.async { worker().build().doWork() }
 
-        // 5 s is the bound the test always had (the flush window is 2 s): a hang bound; the assertions below decide.
+        // A measurement of the library's 2 s flush window (R-9, 5 s as the test always had): a never-returning hook
+        // must not hold the settle for 5 s or more; it cannot tell 2 s from 4 s. The assertions below decide.
         pollUntil(5_000L) { handler.delivered.size >= 1 }
         val result: ListenableWorker.Result? = if (running.isCompleted) runBlocking { withTimeout(10_000L) { running.await() } } else null
 
