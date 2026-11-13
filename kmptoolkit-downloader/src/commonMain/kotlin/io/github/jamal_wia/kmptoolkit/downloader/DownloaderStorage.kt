@@ -149,7 +149,7 @@ public interface DownloaderStorage {
      * [unit] left behind, unless a commit of [unit] is running in this process (the removal never
      * waits for it; the next call or the next commit reclaims the staging). A custom storage that
      * extracts archives through a staging area should do the same, or an interrupted extraction of
-     * a unit that is then dropped stays on disk. They also sweep `tmp/trash/`, where a detached
+     * a unit that is then dropped stays on disk. They also sweep `tmp/kmptoolkit-internal/trash/`, where a detached
      * extraction tree lands before its delete, so a tree whose delete a process kill or an I/O error
      * cut short is reclaimed by the next call for any unit; nothing ever commits from that directory,
      * so the sweep needs no lock. A symbolic link standing in place of that directory is removed as a
