@@ -9,6 +9,32 @@ import kotlin.math.floor
 import kotlin.random.Random
 
 /**
+ * When the `LOAD` profile of [TimeScript] reads the native playhead for a sample (B3).
+ *
+ * JavaFX reads it when the publication RUNS: `MediaPlayer.MediaTimerTask.run` posts `updateTime()` to the FX thread every
+ * 100 ms, and `updateTime` calls `jfxPlayer.getPresentationTime()` on the FX thread when the runnable runs
+ * (OpenJFX 27.0.1, `MediaPlayer.java` lines 2847-2862 and 1771-1783; `seek` does not touch `currentTime`). A publication
+ * that waits on a busy FX thread therefore carries the playhead of the moment it is published, and a publication queued
+ * ahead of a seek block runs ahead of it and carries the old position.
+ */
+internal enum class SampleRead {
+    /**
+     * The playhead is read when the sample is TAKEN and published after its delay, so a value read before a seek can land
+     * after the seek has run, up to the longest delay later. JavaFX cannot do that; the option stands in for a native seek
+     * latency of up to the longest delay, which no backend has shown. The default, and what every test before
+     * [AT_PUBLISH] was written against.
+     */
+    AT_TICK,
+
+    /**
+     * The playhead is read when the publication RUNS, as `MediaPlayer.updateTime` does. A tick schedules a publication
+     * after the seeded delay; publications run in the order they were posted (the run time is the later of the previous
+     * publication's run time and the tick plus the delay, as an FX queue is FIFO). Drops are unchanged.
+     */
+    AT_PUBLISH,
+}
+
+/**
  * How the native playhead is sampled and published (B3) and where a seek lands (B5). One per [TimeModel]; take a
  * [copy] when more than one model is built from one script.
  *
@@ -45,6 +71,7 @@ internal class TimeScript {
         val minDelayMs: Double,
         val maxDelayMs: Double,
         val dropFraction: Double,
+        val read: SampleRead,
     ) {
         val random: Random = Random(seed)
     }
@@ -52,21 +79,28 @@ internal class TimeScript {
     /** Whether [load] was switched on. */
     val isLoaded: Boolean get() = loadProfile != null
 
+    /** When a sample reads the playhead: the [load] profile's choice, [SampleRead.AT_TICK] without a profile. */
+    val sampleRead: SampleRead get() = loadProfile?.read ?: SampleRead.AT_TICK
+
     /**
      * B3, the `LOAD` profile of a busy machine: every sample waits a seeded delay in [minDelayMs] until
      * [maxDelayMs] (replacing [publishDelayMs]) and a seeded [dropFraction] of the samples is never published.
-     * Delays differ per sample, so a later sample can land before an earlier one.
+     * Delays differ per sample; with [SampleRead.AT_TICK] (the default) a later sample can land before an earlier one.
+     * [read] says when the playhead is read: at the tick (the default, unchanged) or when the publication runs, as JavaFX
+     * does ([SampleRead.AT_PUBLISH]; see there for the source lines). A twin of a real-media assertion that reads the
+     * engine uses AT_PUBLISH; AT_TICK stays as the stress profile.
      */
     fun load(
         seed: Long = VirtualFxHost.defaultSeed(),
         minDelayMs: Double = LOAD_MIN_DELAY_MS,
         maxDelayMs: Double = LOAD_MAX_DELAY_MS,
         dropFraction: Double = LOAD_DROP_FRACTION,
+        read: SampleRead = SampleRead.AT_TICK,
     ): TimeScript = apply {
         require(minDelayMs >= 0.0 && minDelayMs.isFinite()) { "minDelayMs must be finite and not negative, was $minDelayMs" }
         require(maxDelayMs >= minDelayMs && maxDelayMs.isFinite()) { "maxDelayMs must be finite and at least minDelayMs, was $maxDelayMs" }
         require(dropFraction in 0.0..1.0) { "dropFraction must be within 0 and 1, was $dropFraction" }
-        loadProfile = LoadProfile(seed, minDelayMs, maxDelayMs, dropFraction)
+        loadProfile = LoadProfile(seed, minDelayMs, maxDelayMs, dropFraction, read)
     }
 
     /** The wait of the next sample in milliseconds, or null when the profile drops it. Draws from the seed. */
@@ -86,7 +120,7 @@ internal class TimeScript {
             sampleIntervalMs = source.sampleIntervalMs
             publishDelayMs = source.publishDelayMs
             nearStartMs = source.nearStartMs
-            source.loadProfile?.let { p -> load(seed ?: p.seed, p.minDelayMs, p.maxDelayMs, p.dropFraction) }
+            source.loadProfile?.let { p -> load(seed ?: p.seed, p.minDelayMs, p.maxDelayMs, p.dropFraction, p.read) }
         }
     }
 
@@ -183,6 +217,33 @@ internal class TimeModel(
     /** How many samples the `LOAD` profile dropped. */
     var samplesDropped: Int = 0
         private set
+
+    /** One publication of a [SampleRead.AT_PUBLISH] sample that ran: when it was posted, its seeded delay, when it ran. */
+    class Publication(
+        val index: Int,
+        val tickMs: Double,
+        val delayMs: Double,
+        val runMs: Double,
+        val value: Double,
+    )
+
+    private val publicationLog: MutableList<Publication> = mutableListOf()
+
+    // The nominal run time of the newest publication posted, in host nanoseconds; the next one never runs before it.
+    private var lastPublicationDueNanos: Long = 0L
+    private var publicationsPosted: Int = 0
+    private val postedPublications: ArrayDeque<PostedPublication> = ArrayDeque()
+
+    /**
+     * When the oldest [SampleRead.AT_PUBLISH] publication still waiting is due, in host nanoseconds elapsed (the nominal
+     * time; a jittered host fires it later), or null when none waits. A test that calls the engine from a
+     * [VirtualFxHost.beforeEachTask] hook while this equals `host.elapsedNanos` queues its call BEHIND that publication,
+     * as a call made while the FX thread is busy publishing is.
+     */
+    val nextPublicationDueNanos: Long? get() = postedPublications.firstOrNull()?.dueNanos
+
+    /** The [SampleRead.AT_PUBLISH] publications that ran so far, in the order they ran; empty under AT_TICK. */
+    val publications: List<Publication> get() = publicationLog.toList()
 
     /** How many times the end of the source was reached (a loop wrap is not an end). */
     var endsReached: Int = 0
@@ -310,8 +371,37 @@ internal class TimeModel(
             samplesDropped++
             return
         }
-        host.after(delayMs) { publish(value) }
+        if (script.sampleRead == SampleRead.AT_PUBLISH) postPublication(delayMs) else host.after(delayMs) { publish(value) }
     }
+
+    /**
+     * [SampleRead.AT_PUBLISH]: the publication waits the seeded [delayMs], but never runs before the publication posted
+     * ahead of it (an FX queue is FIFO), and reads the native playhead when it runs, as `MediaPlayer.updateTime` does
+     * (OpenJFX `MediaPlayer.java` 1771-1783). A publication queued ahead of a seek block still runs first and carries the
+     * old position (the hazard `Session.seeksInFlight` guards); one that runs after the seek block reads the new one.
+     */
+    private fun postPublication(delayMs: Double) {
+        val tickNanos: Long = host.elapsedNanos
+        val wait: Long = lastPublicationDueNanos - tickNanos
+        var runDelayMs: Double = delayMs
+        if ((runDelayMs * NANOS_PER_MILLI).toLong() < wait) {
+            runDelayMs = wait / NANOS_PER_MILLI
+            // A double does not always give back the whole nanoseconds; the run must not fall a nanosecond short of the previous one.
+            while ((runDelayMs * NANOS_PER_MILLI).toLong() < wait) runDelayMs = Math.nextUp(runDelayMs)
+        }
+        lastPublicationDueNanos = tickNanos + (runDelayMs * NANOS_PER_MILLI).toLong()
+        postedPublications += PostedPublication(publicationsPosted++, tickNanos / NANOS_PER_MILLI, delayMs, lastPublicationDueNanos)
+        // Each timer runs the OLDEST publication still waiting, so even a host whose jitter makes a later timer fire first
+        // keeps the posting order; no timer fires before its own nominal time, and the nominal times never decrease.
+        host.after(runDelayMs) {
+            val posted: PostedPublication = postedPublications.removeFirst()
+            val value: Double = nativePositionMs
+            publicationLog += Publication(posted.index, posted.tickMs, posted.delayMs, host.elapsedNanos / NANOS_PER_MILLI, value)
+            publish(value)
+        }
+    }
+
+    private class PostedPublication(val index: Int, val tickMs: Double, val delayMs: Double, val dueNanos: Long)
 
     private fun publish(value: Double) {
         if (stopped || value == player.positionMs) return
