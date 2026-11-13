@@ -192,7 +192,7 @@ decoder writes straight into memory without a render-and-read-back step.
   meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait. The clock bound has a limit on
   macOS, where the decoder runs at normal speed until the speed is given while the bound allows the held speed: a
   stale reading that lags by L ms is recognised only if the fresh one follows within (L - 50) / (speed - 1) ms (for the
-  lags of 421 to 538 ms measured in two probe runs: about 370 to 490 ms at speed 2, 125 to 165 ms at speed 4, 53 to 70 ms at speed 8); a later fresh reading counts as
+  lags of 421 to 538 ms measured in two probe runs: about 371 to 488 ms at speed 2, 124 to 163 ms at speed 4, 53 to 70 ms at speed 8); a later fresh reading counts as
   playback and the speed is given before 200 ms of playback. The fresh reading followed the stale one within 1 to 22 ms in the probe
   runs, well inside that limit at every speed (one resume in fourteen had no stale reading).
   A `play()` that follows a rate written while the player was not playing within about 200 ms waits for the rest of
