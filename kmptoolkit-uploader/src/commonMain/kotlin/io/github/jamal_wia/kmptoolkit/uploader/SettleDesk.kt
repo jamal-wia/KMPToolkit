@@ -26,8 +26,9 @@ import kotlinx.coroutines.withContext
  *   and [RowLedger.recordFailure] refuse it.
  * - **D-21.** The commit of a settled upload runs under `NonCancellable`; `classify`, `onDelivered` and `onSettled`
  *   stay cancellable (they are feature code).
- * - **P5, worker side.** A throw or an answer from `prepareUpload` that arrives after the worker's cancellation
- *   charges nothing and applies no Drop or Park (the drain-side call site is [AttemptRunner]).
+ *
+ * It carries P5 at its second call site, the worker side (the owner is [AttemptRunner]): a throw or an answer from
+ * `prepareUpload` that arrives after the worker's cancellation charges nothing and applies no Drop or Park.
  *
  * Holds no store and no transport: a row is read, parked, confirmed and charged through the [RowLedger] and
  * [AttemptRunner.recordRetry].
