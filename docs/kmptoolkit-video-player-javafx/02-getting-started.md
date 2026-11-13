@@ -125,7 +125,8 @@ scope.launch {
 ```
 
 `VideoSource.Asset` on desktop is a **classpath resource path** — a file under
-`src/jvmMain/resources/videos/intro.mp4` (or `src/main/resources/`) is `"videos/intro.mp4"`.
+`src/jvmMain/resources/videos/intro.mp4` (or the same path under `src/desktopMain/resources/` when the target is
+named `desktop`, `src/main/resources/` in a plain JVM project) is `"videos/intro.mp4"`.
 
 Release the player when the screen goes away (`player.release()`), as on every platform.
 

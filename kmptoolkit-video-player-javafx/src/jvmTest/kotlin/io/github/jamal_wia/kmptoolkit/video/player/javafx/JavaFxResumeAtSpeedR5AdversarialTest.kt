@@ -63,6 +63,9 @@ class JavaFxResumeAtSpeedR5AdversarialTest {
      * The speed is measured once the resume has settled (the playhead 600 ms past where it paused, D-16): a
      * window that starts at the first move after the resume can read a held or catching-up playhead as JavaFX
      * reports it, not the speed. The jump lands before paused + 600.
+     *
+     * D-155: the window is anchored at the second change of the reported time after the resume, not at the reading
+     * after the pause, which can be stale; see the comment at the window.
      */
     @Test
     fun `a pause and resume at a speed of two keeps the speed`() {
@@ -76,12 +79,24 @@ class JavaFxResumeAtSpeedR5AdversarialTest {
             Thread.sleep(300L)
             val paused: Long = engine.positionMs()
             engine.start()
+            // D-155: the reading after a pause can be stale (about 420 ms behind the decoder on macOS), and so can the
+            // first one after the resume. The window is anchored at the second change of the reported time after the
+            // resume, a reading the clock vouches for, and starts 600 ms of media later, past the speed being given and
+            // the short hold that follows it. 400 ms, not 600: the 3 s clip must not end inside the window.
             awaitTrue(message = { "the playhead never moved on after the resume: ${engine.positionMs()} from $paused" }) {
-                engine.positionMs() > paused + 600L
+                engine.positionMs() != paused
+            }
+            val firstChange: Long = engine.positionMs()
+            awaitTrue(message = { "the playhead never moved on after the resume: ${engine.positionMs()} from $paused" }) {
+                engine.positionMs() != firstChange
+            }
+            val resumedFrom: Long = engine.positionMs()
+            awaitTrue(message = { "the playhead never moved on after the resume: ${engine.positionMs()} from $resumedFrom" }) {
+                engine.positionMs() > resumedFrom + 600L
             }
             val first: Long = engine.positionMs()
             val begin: Long = System.nanoTime()
-            Thread.sleep(600L)
+            Thread.sleep(400L)
             // Both edges of the window are timed at a change of the reported playhead (JavaFX publishes it about
             // every 100 ms, so a window ending at an arbitrary instant reads up to one step short: 1.49 at 400 ms
             // for a correct engine). D-22, plans/s6-slope-window-advice.md.

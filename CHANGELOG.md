@@ -239,6 +239,20 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   instead of before it, while the decoder still ran, and a second `play()` while the first one waits no longer plays at
   once inside that gap. A `seekTo()` during that wait no longer leaves a later resume giving the speed right after its
   play. A `play()` right next to a speed change can start up to 200 ms late.
+- `kmptoolkit-video-player-javafx`: on macOS a resume at a speed other than 1 with no seek pending no longer gives the
+  speed about 0.17 s after `play()` when the first reported time after the resume is stale; the speed is given once
+  the playhead has really moved about 200 ms, as documented.
+
+### Known issues
+
+- `kmptoolkit-video-player-javafx`: on macOS, releasing a player of a video source, or preparing a new source on it,
+  right after `play()`, `seekTo()` or a resume can crash the JVM inside CoreVideo (an OpenJFX defect in
+  `AVFMediaPlayer`, not catchable from Java). Debounce rapid source switches; see `05-platform-notes.md`.
+- `kmptoolkit-video-player-javafx`: a `stop()` or `seekTo()` in the instant between JavaFX reaching the end of a clip
+  and delivering that end can still be followed by `Completed`.
+- `kmptoolkit-video-player-javafx`: on macOS a speed written right after the engine's own seek to the start (a first
+  play at a speed, or a resume within about 100 ms of the start) left the playhead standing still once in 120 probe
+  rounds.
 
 ## [4.0.0]
 

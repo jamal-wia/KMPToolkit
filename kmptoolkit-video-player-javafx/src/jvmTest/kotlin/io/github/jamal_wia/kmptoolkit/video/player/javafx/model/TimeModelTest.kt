@@ -1060,4 +1060,110 @@ class TimeModelTest {
         // 50 ready + 500 + the 2000 ms left after the seek to the key frame at 1000: the end is at t=2550
         assertTrue(events.events.single { it.name == "endOfMedia" }.tMs == 2_550.0, "events: ${events.events}")
     }
+
+    // -- the stale first publication after a resume (D2 r11, opt-in) --
+
+    private fun staleScript(lagMs: Double = 60.0, freshAfterMs: Double = 3.0): TimeScript =
+        TimeScript().also { it.staleFirstPublicationAfterPlay = TimeScript.StaleFirstPublication(lagMs, freshAfterMs) }
+
+    @Test
+    fun theFirstTickAfterAPlayPublishesAStaleValueAndAFreshOneFollows() = fxModel {
+        val rig: Rig = readyRig(staleScript(lagMs = 60.0, freshAfterMs = 3.0))
+        rig.onFx { rig.player.play() }
+
+        rig.advance(100) // t=150: the first tick, native 100, stale 40
+        assertEquals(40.0, rig.player.currentTimeMs)
+        rig.advance(3) // t=153: the fresh sample
+        assertEquals(103.0, rig.player.currentTimeMs)
+        assertEquals(listOf(150.0, 153.0), rig.tickTimes())
+        rig.advance(97) // t=250: the next ordinary tick, native 200
+        assertEquals(200.0, rig.player.currentTimeMs)
+        assertEquals(listOf(150.0, 153.0, 250.0), rig.tickTimes())
+    }
+
+    @Test
+    fun aStaleValueBelowZeroIsZeroAndPublishesNothingNewButTheFreshOneStillFollows() = fxModel {
+        val rig: Rig = readyRig(staleScript(lagMs = 424.0, freshAfterMs = 3.0))
+        rig.onFx { rig.player.play() }
+
+        rig.advance(100)
+        assertEquals(0.0, rig.player.currentTimeMs)
+        assertEquals(emptyList(), rig.tickTimes())
+        rig.advance(3)
+        assertEquals(103.0, rig.player.currentTimeMs)
+        assertEquals(listOf(153.0), rig.tickTimes())
+    }
+
+    @Test
+    fun theStaleFirstPublicationIsOffByDefault() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+
+        rig.advance(100)
+        assertEquals(100.0, rig.player.currentTimeMs)
+        assertEquals(listOf(150.0), rig.tickTimes())
+        assertEquals(null, TimeScript().staleFirstPublicationAfterPlay)
+    }
+
+    @Test
+    fun everyResumeOfAPausedPlayerGetsItsOwnStaleFirstPublicationAndPlayingOnDoesNot() = fxModel {
+        val rig: Rig = readyRig(staleScript(lagMs = 60.0, freshAfterMs = 3.0))
+        rig.onFx { rig.player.play() }
+        rig.advance(400) // t=450, native 400: the first resume's pair is long past
+        rig.onFx { rig.player.pause() }
+        rig.advance(500)
+        rig.events.clear()
+        val resumedAt: Double = rig.now()
+        rig.onFx { rig.player.play() }
+
+        rig.advance(100)
+        assertEquals(440.0, rig.player.currentTimeMs, "stale: the decoder stood at 400 and ran 100 ms, less the lag of 60")
+        rig.advance(3)
+        assertEquals(503.0, rig.player.currentTimeMs)
+        assertEquals(listOf(resumedAt + 100.0, resumedAt + 103.0), rig.tickTimes())
+        rig.advance(97)
+        assertEquals(600.0, rig.player.currentTimeMs)
+        rig.advance(100)
+        assertEquals(700.0, rig.player.currentTimeMs, "the tick after the pair is ordinary again")
+    }
+
+    @Test
+    fun ticksInsideTheWaitForTheFreshSampleFindTheStaleValueStanding() = fxModel {
+        val rig: Rig = readyRig(staleScript(lagMs = 60.0, freshAfterMs = 150.0))
+        rig.onFx { rig.player.play() }
+
+        rig.advance(100) // t=150: the stale value, native 100 less 60
+        assertEquals(40.0, rig.player.currentTimeMs)
+        rig.advance(99) // t=249: the tick at 250 has not come yet
+        rig.advance(1) // t=250: a tick inside the wait (the fresh sample is due at 300) publishes nothing
+        assertEquals(40.0, rig.player.currentTimeMs)
+        assertEquals(listOf(150.0), rig.tickTimes())
+        rig.advance(50) // t=300: the fresh sample, native 250
+        assertEquals(250.0, rig.player.currentTimeMs)
+        assertEquals(listOf(150.0, 300.0), rig.tickTimes())
+        rig.advance(50) // t=350: an ordinary tick again, native 300
+        assertEquals(300.0, rig.player.currentTimeMs)
+    }
+
+    @Test
+    fun aSeekSampleDoesNotUseUpTheStaleFirstPublication() = fxModel {
+        val rig: Rig = readyRig(staleScript(lagMs = 60.0, freshAfterMs = 3.0))
+        rig.onFx { rig.player.play() }
+        rig.advance(10)
+        rig.onFx { rig.player.seek(2_000.0) }
+        rig.advance(1)
+        assertEquals(2_000.0, rig.player.currentTimeMs, "the seek's own sample is ordinary")
+        rig.advance(89) // the first tick after the play, at t=150: native 2000 + 99 less 60
+        assertEquals(2_030.0, rig.player.currentTimeMs, "the first tick still carries the stale value: native 2090 less 60")
+    }
+
+    @Test
+    fun theStaleFirstPublicationIsCopiedAndValidated() {
+        val copy: TimeScript = staleScript(lagMs = 70.0, freshAfterMs = 4.0).copy()
+        assertEquals(70.0, copy.staleFirstPublicationAfterPlay?.lagMs)
+        assertEquals(4.0, copy.staleFirstPublicationAfterPlay?.freshAfterMs)
+        assertFailsWith<IllegalArgumentException> { TimeScript.StaleFirstPublication(-1.0, 3.0) }
+        assertFailsWith<IllegalArgumentException> { TimeScript.StaleFirstPublication(10.0, 0.0) }
+        assertFailsWith<IllegalArgumentException> { TimeScript.StaleFirstPublication(Double.NaN, 3.0) }
+    }
 }

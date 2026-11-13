@@ -16,8 +16,10 @@ with `java.io.FileNotFoundException` before VLC is involved; a file VLC cannot d
 
 On desktop an asset is a **classpath resource**: `VideoSource.Asset("video/intro.mp4")` looks up
 `video/intro.mp4` (a leading `/` is ignored) through the thread's context class loader, falling back
-to the library's own. Put the file under `src/desktopMain/resources/` (or `src/jvmMain/resources/`)
-and it is on the classpath.
+to the library's own. Put the file under
+the resources folder of the source set that builds the desktop app (`src/jvmMain/resources/`, or
+`src/desktopMain/resources/` when the target is named `desktop`, `src/main/resources/` in a plain JVM project) and it
+is on the classpath.
 
 An asset path that names a directory is not checked up front: VLC is asked to open it and the
 prepare fails with `VlcPlaybackException` (no playable track).

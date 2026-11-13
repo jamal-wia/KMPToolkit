@@ -162,8 +162,10 @@ decoder writes straight into memory without a render-and-read-back step.
 - **Playback speed.** On macOS, `MediaPlayer.play()` and the start of the next cycle of a looping
   source begin at normal speed whatever rate JavaFX holds, so a speed set while paused, or one set
   before a loop wraps, would be lost. A rate change right after a plain `play()` can freeze the playhead
-  for good (about one resume in four in the measurements), while one right after a native seek did not in
-  any run, and one after the playhead had moved on for a while did not either. A native seek is no cure for a resume
+  for good (about one resume in four in the measurements), while one right after a native seek followed by
+  `play()`, before the native player reports playing, froze it once in 120 probe rounds, one right after a native
+  seek on a player that is already playing can freeze it too (both below), and one after the playhead had moved on
+  for a while did not in any run. A native seek is no cure for a resume
   that was paused part-way through a key-frame interval, though: it lands on the key frame at or before
   the position, so the clip would resume from there. So the engine gives the speed to a resume in one of
   two ways. When a native seek is already pending (the caller's own `seekTo`, or the restart after the
@@ -181,9 +183,12 @@ decoder writes straight into memory without a render-and-read-back step.
   and the playhead is further on, a resume at a speed other than 1
   (including a speed that arrives within about 600 ms of a plain `play()`: it was changed while paused or
   ready, or right after a play) plays from exactly where it was paused with no native seek, and the speed
-  is given as one away-and-back once the playhead has moved about 200 ms at normal speed (on a tick of the
-  playhead, so a little later). For that time the playhead advances at normal speed, then the reported time
-  catches up; a pause meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait.
+  is given as one away-and-back once the playhead has moved about 200 ms at normal speed (counted only as far as
+  the clock allows: the first reported time after a resume can be stale, and a tick that runs ahead of the clock
+  restarts the count; the speed is given on a tick of the playhead, so a little later). For that time the playhead
+  advances at normal speed, then the reported time catches up; right after the speed is given, the reported time can
+  stand still for about 0.2 s before it advances at the new speed (macOS, in about two resumes in three in the probe
+  runs), and the reported time right after a pause can lag the decoder by about 0.4 s; a pause meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait.
   A `play()` that follows a rate written while the player was not playing within about 200 ms waits for the rest of
   those 200 ms on every resume path but one (a `play()` right next to a rate write froze the playhead at a speed of 8
   in the measurements). The exception is a `play()` from within about 100 ms of the start of the clip, at a speed other

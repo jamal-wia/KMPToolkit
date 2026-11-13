@@ -141,11 +141,11 @@ The hazard probes (H), about ten minutes, alone on an idle machine:
 ./gradlew :kmptoolkit-video-player-javafx:jvmRealMediaTest -Pjavafx.required=true -Pkmptoolkit.test.hazards=true --tests 'io.github.jamal_wia.kmptoolkit.video.player.javafx.JavaFxNativeHazardCharacterizationTest'
 ```
 
-One red is known: `JavaFxResumeAtSpeedR5AdversarialTest` "a pause and resume at a speed of two keeps the speed" reads a
-slope below its bound of 1.5 (usually 1.2 to 1.4) in roughly one run in four on the decoder; on the J16 tip it was red in
-two of three runs (slopes 0.63 and 1.31, both with the machine loaded above 8) and green in the third at a load of 5,
-while its F twin (`aPauseAndResumeAtASpeedOfTwoKeepsTheSpeed`) is green every time. Match such a red against the twin
-and a rerun on an idle machine before treating it as new.
+`JavaFxResumeAtSpeedR5AdversarialTest` "a pause and resume at a speed of two keeps the speed" was red in four runs in ten
+before 5.0.0 (slopes 0.81 to 0.96 at a 1-minute load of 5.8 to 7.8): its window was anchored on the reported time after
+the pause, which can lag the decoder by about 0.4 s, so it opened before the speed was given. It now opens 600 ms of
+media after the second change of the reported time after the resume and lasts 400 ms. A red of it now is new: match it
+against its F twin (`aPauseAndResumeAtASpeedOfTwoKeepsTheSpeed`) and rerun it alone on an idle machine.
 
 A red in the soak is not rerun until it is green: reproduce it on the F tier first (the twin of the class asserts the
 same contract on a virtual clock), and when the F tier cannot reproduce it, treat it as a gap of the model and check it
