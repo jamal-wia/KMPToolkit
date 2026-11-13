@@ -42,14 +42,18 @@ prose because they are the ones people guess wrong:
 ## Handling errors
 
 Every operation returns a `RecorderResult`. The interesting branch is `prepare`, which is where all
-the pre-flight checks live:
+the pre-flight checks live. The permission request in the sample is app-level code
+(`permissionController` is a `PermissionController` of `kmptoolkit-permission`, or any flow of your
+own); the recorder itself does not depend on that module:
 
 ```kotlin
 when (val result = recorder.prepare()) {
     is RecorderResult.Success -> recorder.start()
     is RecorderResult.Failure -> when (val error = result.error) {
         RecorderError.PermissionDenied ->
-            permissionRequester.request(Permission.RecordAudio)      // then prepare again
+            if (permissionController.request(CommonPermission.Microphone).isGranted) {
+                recorder.prepare()                                    // the grant came through: prepare again
+            }
 
         is RecorderError.InsufficientStorage ->
             showMessage(freeUpSpace(needed = error.requiredBytes))
