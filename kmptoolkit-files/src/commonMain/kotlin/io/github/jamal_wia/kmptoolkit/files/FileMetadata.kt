@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.files
 /**
  * What an entry is. [sizeBytes] is the file's length for [FileKind.RegularFile] and 0 for every other kind.
  *
+ * @property kind what the entry is; never `null`, an entry the platform cannot classify is [FileKind.Other].
  * @property lastModifiedMillis Epoch milliseconds, or `null` when the platform cannot report it.
  * @since 5.0.0
  */
