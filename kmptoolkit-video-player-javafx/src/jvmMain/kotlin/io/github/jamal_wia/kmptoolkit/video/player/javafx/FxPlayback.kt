@@ -402,6 +402,10 @@ internal class FxPlayback private constructor(
         playIssued = false
         playGeneration++
         delayedPlayPending = false
+        // A speed that waits ([deferredRate]) survives the pause, but the movement counted for it does not: the count
+        // begins again from the first reading after the next play(), or the movement counted before the pause would
+        // complete the wait on that reading and the speed would be written right after the play (W-PLAY).
+        deferredGauge.reset()
         native.pause()
         // A1: the held speed is written after the pause, never before it. OpenJFX forwards a rate change and a pause()
         // synchronously and in order, so a write ahead of the pause() lands on a decoder that is still running (the
@@ -569,6 +573,9 @@ internal class FxPlayback private constructor(
         deferredGauge.reset()
         deferredAfterWrap = afterWrap
         deferredNotBeforeNanos = null
+        // JavaFX can deliver the end of a cycle after a pause(): then 1.0 is written on a player that is not playing,
+        // which is stamped like any other such write, so the next play() waits out the idle gap (see [idleRateWriteNanos]).
+        if (!playIssued && native.rate != 1.0) idleRateWriteNanos = host.nanoTime()
         native.rate = 1.0
     }
 
@@ -577,7 +584,11 @@ internal class FxPlayback private constructor(
         // A tick JavaFX queued before dispose() can still arrive after it, with a late status that reads PLAYING again.
         if (disposed) return
         val rate: Double = deferredRate ?: return
-        if (native.status != NativeStatus.PLAYING) return
+        // S19: JavaFX reports the status of a pause late, and a reading it published before can still tick: after pause()
+        // (or the end of a clip) the status may read PLAYING for a while. A write now would be a rate written while not
+        // playing that nothing stamps, and a play() right after it would start inside the idle gap. The speed stays
+        // deferred instead: start() takes it from [deferredRate] and gives it on its own path.
+        if (native.status != NativeStatus.PLAYING || !playIssued) return
         if (isBefore(deferredNotBeforeNanos)) return
         val position: Double = native.currentTimeMs
         if (position.isNaN()) return
@@ -617,8 +628,8 @@ internal class FxPlayback private constructor(
      * two paths that give a speed once the playhead has really moved: [applyResumeRate] (a resume without a native seek)
      * and [applyDeferredRate] (a loop wrap, a speed given right after a native seek while playing).
      *
-     * The first time JavaFX reports after a resume can be stale (the value from before the pause, measured up to 424 ms
-     * behind the decoder), followed within a few milliseconds by a fresh one; taken as two ticks of one playhead the pair
+     * The first time JavaFX reports after a resume can be stale (the value from before the pause, measured at 421 to 538 ms
+     * behind the decoder), followed within 1 to 22 ms by a fresh one; taken as two ticks of one playhead the pair
      * is a jump of hundreds of milliseconds that happened in almost no time, which would give the speed about 0.17 s after
      * the play(), inside the native start-up that the wait exists to avoid. A reading from before a seek, landing after it,
      * is stale too: behind the playhead after a seek forward (the same shape), ahead of it after a seek back (the fresh
@@ -805,7 +816,7 @@ internal class FxPlayback private constructor(
 
         /**
          * How far a tick may run ahead of the clock before it is taken as a stale-to-fresh jump of the reported time
-         * and not as playback (see [MovementGauge]): above the 17 ms jitter of an FX pulse, far below the 424 ms jump
+         * and not as playback (see [MovementGauge]): above the 17 ms jitter of an FX pulse, far below the stale jumps of 421 to 538 ms
          * measured after a resume.
          */
         private const val RATE_SETTLE_CLOCK_SLACK_MS: Double = 50.0
