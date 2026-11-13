@@ -44,14 +44,19 @@ import kotlinx.coroutines.withContext
  *
  * **Every transition does its engine calls first, then publishes its flows and writes [stateFlow] last, and
  * every write of a source flow or of [stateFlow] goes through [publish].** A collector on an immediate
- * dispatcher runs inside a write and may call the player back. Such a call sees the state the running
- * transition is establishing ([effectiveState]: inside the writes of [pause] the player is `Paused`, inside
- * those of a failure it is `Error`), and the transition stops at the first write inside which the call changed
- * the player and calls nothing more on the engine, so the call is never undone and a failure is never lost to
- * it. The exceptions are the calls whose result is the point of the call: [unload] and [release] reset the
- * source flows and end in `Idle` (an [unload] leaves the state to a [prepare] a collector called from inside
- * it), and a [prepare] that has not been replaced resets them and loads. A composite call ([replay]: seek,
- * then play) stops after its seek in that case, and re-reads the state between its steps otherwise.
+ * dispatcher runs inside a write and may call the player back. Such a call acts on the state the running
+ * transition is establishing ([effectiveState]: inside the writes of [pause] a call treats the player as `Paused`,
+ * inside those of a failure as `Error`), even though [stateFlow], written last, still holds the state being left
+ * until that final write; and the transition stops at the first write inside which the call changed the player
+ * and calls nothing more on the engine, so the call is never undone and a failure is never lost to it. What the
+ * engine reported about its source (buffered position, buffering, picture size) is not undone by a transport call
+ * either, so the last step of [prepare] writes those facts unless the source was dropped (its load replaced,
+ * [unload], [release]); in a failure every transport call is a no-op under `Error`, so none of them cuts the
+ * failure's own writes of those facts. The exceptions are the calls whose result is the point of the call:
+ * [unload] and [release] reset the source flows and end in `Idle` (an [unload] leaves the state, and the flows it
+ * has not reset yet, to a [prepare] a collector called from inside it), and a [prepare] that has not been replaced
+ * resets them and loads. A composite call ([replay]: seek, then play) stops after its seek in that case, and
+ * re-reads the state between its steps otherwise.
  *
  * ### Dropped sources
  *
@@ -276,6 +281,7 @@ internal class EngineVideoPlayer(
                 // released check and its installing itself in currentLoad, so the identity holds again
                 // here while the engine is already released and disposed, and nothing of it may be
                 // called after dispose.
+                // Not in establishing(Idle): every consumer call treats Preparing like the Idle this closes on.
                 if (isCurrent(load)) {
                     freeEngineSource()
                     if (resetSourceFlows()) publish(_stateFlow, VideoPlayerState.Idle)
@@ -328,8 +334,14 @@ internal class EngineVideoPlayer(
             }
             val ready: VideoPlayerState = VideoPlayerState.Ready(duration)
             establishing(ready) {
-                if (!publish(_bufferedPositionFlow, buffered)) return@exclusive
-                if (!publish(_isBufferingFlow, stalled)) return@exclusive
+                // The buffered position and the stall are facts about the source, which no transport call changes: they
+                // stop only when the source was dropped (this load replaced, released, or a new source begun). The state
+                // is a transport write and keeps the publish guard, so a collector's play, seek or stop stands.
+                val epoch: Long = sourceEpoch.value
+                val bufferedStood: Boolean = publish(_bufferedPositionFlow, buffered)
+                if (!isCurrent(load) || sourceEpoch.value != epoch) return@exclusive
+                val bufferingStood: Boolean = publish(_isBufferingFlow, stalled)
+                if (!bufferedStood || !bufferingStood || !isCurrent(load) || sourceEpoch.value != epoch) return@exclusive
                 publish(_stateFlow, ready)
             }
         }
@@ -437,9 +449,10 @@ internal class EngineVideoPlayer(
             abandonLoad(placeholder, dispose = false)
         } finally {
             // Idle is what this call promises, so a collector's call during the reset does not stop the reset. A
-            // prepare a collector called from inside it replaced the placeholder and owns the state now.
+            // prepare a collector called from inside it replaced the placeholder and owns the source and the state now:
+            // the reset stops there, or it would overwrite what that prepare published for its own source.
             establishing(VideoPlayerState.Idle) {
-                resetSourceFlowsFully()
+                resetSourceFlowsFully { currentLoad.value === placeholder }
                 if (currentLoad.value === placeholder) publish(_stateFlow, VideoPlayerState.Idle)
             }
         }
@@ -717,15 +730,23 @@ internal class EngineVideoPlayer(
     }
 
     /**
-     * Resets everything that describes a source like [resetSourceFlows], but always writes all four flows and ignores
-     * the write guard: for the calls whose promise is the reset itself (a [prepare] start, [unload], [release]).
+     * Resets everything that describes a source like [resetSourceFlows], but writes all four flows and ignores the write
+     * guard: for the calls whose promise is the reset itself (a [prepare] start, [unload], [release]). [whileHeld] is
+     * checked before the pending fields are cleared and before each write, and the reset stops at the first `false`:
+     * for an [unload] it says the placeholder is still the current load, so the reset does not overwrite what a
+     * [prepare] a collector called from inside it published for its own source.
      */
-    private fun resetSourceFlowsFully() {
+    private fun resetSourceFlowsFully(whileHeld: () -> Boolean = { true }) {
+        if (!whileHeld()) return
         preparingFailure = null
         preparingBuffering = false
+        if (!whileHeld()) return
         publish(_playbackPositionFlow, 0L)
+        if (!whileHeld()) return
         publish(_bufferedPositionFlow, 0L)
+        if (!whileHeld()) return
         publish(_isBufferingFlow, false)
+        if (!whileHeld()) return
         publish(_videoSizeFlow, null)
     }
 
