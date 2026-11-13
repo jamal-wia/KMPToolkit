@@ -51,9 +51,7 @@ class UploaderProtocolRandomModelRound7AdversarialTest {
             val testScheduler = TestCoroutineScheduler()
             val failures: MutableList<String> = mutableListOf()
             var ran = 0
-            val started: Long = System.nanoTime()
             for (seed in 0 until 400) {
-                if (System.nanoTime() - started > 150_000_000_000L) break
                 val scenario: Scenario = scenarioFor(seed)
                 val runner = ScenarioRunner(storage, testScheduler, CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob()), scenario)
                 val result: RunResult = runner.run(emptyList(), Random(seed * 31 + 7))
@@ -64,7 +62,7 @@ class UploaderProtocolRandomModelRound7AdversarialTest {
             }
             println("R7 random: $ran seeds")
             assertEquals(emptyList(), failures, "violations after $ran seeds")
-            assertEquals(400, ran, "only $ran of 400 seeds ran in the time budget")
+            assertEquals(400, ran, "only $ran of 400 seeds ran")
         }
     }
 }
