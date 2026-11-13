@@ -23,8 +23,12 @@ import org.robolectric.annotation.Config
  *
  * The row that tells the two implementations apart is "the device toggle on and no provider flag on": the
  * platform method answers `true` (API 28 and up), the provider union answers `false` (24 and 26, where
- * `LocationManager.isLocationEnabled` does not exist and a call would throw `NoSuchMethodError`). Run in this
- * order (toggle first, then the provider flags) it separates the two sides of the branch at API 28 as well.
+ * `LocationManager.isLocationEnabled` does not exist and a call would throw `NoSuchMethodError`). The
+ * API 28 boundary itself is NOT separable under Robolectric 4.17: on API 28 the shadow keeps `isProviderEnabled`
+ * true for both providers once the toggle is on, whatever the provider flags say (probe: the union and the
+ * platform method both answered true, in either order of the two writes), so a mutant moving the branch from API 28
+ * to 29 survives here and is equivalent under the shadow. API 28 still runs, to pin that the answer there is the
+ * toggle's.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [24, 26, 28, 29, 30, 35])
