@@ -106,7 +106,7 @@ service dies. The recorder notices, tries to finalize the file, and moves `state
 | `state` | The file | Meaning |
 |---|---|---|
 | `Interrupted(recording, reason)` | finalized and playable, holds everything up to the moment it ended (see the iOS suspension caveat below) | `recording.duration` is `elapsed` as it was frozen |
-| `Failed(RecordingLost(reason, cause), outputPath)` | kept, may be unplayable | the file could not be finalized — an unfinalized M4A usually does not play, an AAC (ADTS) file usually does |
+| `Failed(RecordingLost(reason, cause), outputPath)` | kept, may be unplayable | the file could not be finalized (or is gone: deleted or replaced by a directory while recording) — an unfinalized M4A usually does not play, an AAC (ADTS) file usually does |
 | `Failed(RecordingLost(reason), outputPath = null)` | deleted — it was empty | the recorder was prepared but never started |
 
 `reason` is an `InterruptionReason`: `AudioSessionInterrupted` (iOS: a call, Siri, an alarm,

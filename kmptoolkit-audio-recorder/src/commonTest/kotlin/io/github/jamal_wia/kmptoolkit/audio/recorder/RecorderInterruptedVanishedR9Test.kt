@@ -90,4 +90,33 @@ class RecorderInterruptedVanishedR9Test {
             val state: RecorderState = fixture.recorder.state.value
             assertFalse(state is RecorderState.Interrupted, "Interrupted names a vanished file: $state")
         }
+
+    // --- the documented outcome: a file that is gone is a lost recording, kept by path ---
+
+    @Test
+    fun `a system end of a recording whose file vanished fails as a lost recording that keeps the path and frees the engine`() {
+        directReasons.forEach { reason: InterruptionReason ->
+            runRecorderTest { fixture ->
+                val path: String = fixture.recording()
+                passTime(fixture, 2.seconds)
+                fixture.fileSystem.notRegularFiles += path
+
+                fixture.engine.emit(EngineEvent.Interrupted(reason))
+                runCurrent()
+
+                val state: RecorderState = fixture.recorder.state.value
+                assertIs<RecorderState.Failed>(state, "reason $reason: $state")
+                val lost: RecorderError = state.error
+                assertIs<RecorderError.RecordingLost>(lost, "reason $reason: $lost")
+                assertEquals(reason, lost.reason)
+                assertIs<IllegalStateException>(lost.cause, "reason $reason: the cause says what happened")
+                assertEquals(path, state.outputPath, "reason $reason: the path is kept")
+                assertContentEquals(emptyList(), fixture.fileSystem.deletedPaths, "reason $reason: nothing is deleted")
+                assertTrue(fixture.engine.releaseCount > 0, "reason $reason: the native handle is released")
+
+                fixture.recorder.cancel()
+                assertEquals(RecorderState.Idle, fixture.recorder.state.value)
+            }
+        }
+    }
 }
