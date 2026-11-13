@@ -501,9 +501,18 @@ internal class IosDownloaderStorage(
             // The database moves into the trash together with its -wal, -shm and -journal, also when the file is
             // already gone and only sidecars remain: the next download must never meet the old log. No lock, as for
             // a tree: the renames are atomic and a commit racing this delete moves whatever it finds.
-            val quarantined: String? = quarantineDatabase(path, unit)
-            if (quarantined != null) {
-                NSFileManager.defaultManager.removeItemAtPath(quarantined, error = null)
+            //
+            // A name that stays at the path (a rename that keeps failing) never throws here: this call is safe when
+            // the resource is not present and has never thrown. It logs a warning and returns; the unit then reads
+            // as unavailable or keeps stray sidecars, which the next commit's quarantine moves or, where a log would
+            // be replayed into the new file, refuses by throwing.
+            val quarantine: DatabaseQuarantine = quarantineDatabase(path)
+            if (quarantine.stuck) {
+                logger.w { "Could not move $unit aside completely at $path; leaving what stays" }
+                // Nothing in the trash is ever read back: this also reclaims the entries a failed attempt left.
+                sweepTrash()
+            } else if (quarantine.entry != null) {
+                NSFileManager.defaultManager.removeItemAtPath(quarantine.entry, error = null)
                 sweepTrash()
                 logger.i { "Deleted resource $unit at $path" }
             }
@@ -565,7 +574,7 @@ internal class IosDownloaderStorage(
      * another unit may have deleted the empty entry in between. A name that stays in place throws, never goes on:
      * a log left at the path would be replayed into the file that is moved in next.
      */
-    private fun quarantineDatabase(path: String, unit: DownloadUnit): String? {
+    private fun quarantineDatabase(path: String): DatabaseQuarantine {
         val parts: List<String> = listOf(path) + SqliteFiles.sidecarsOf(path)
         val fileName: String = path.substringAfterLast('/')
         var movedAny = false
@@ -580,14 +589,20 @@ internal class IosDownloaderStorage(
                 if (rename(part, inside) == 0) movedAny = true
             }
             if (parts.none { part: String -> presentWithoutFollowing(part) }) break
-            check(attempts < MAX_DETACH_ATTEMPTS) { "Could not move the committed $unit aside" }
+            if (attempts >= MAX_DETACH_ATTEMPTS) return DatabaseQuarantine(entry = null, stuck = true)
             trash = newTrashEntry()
         }
-        if (movedAny) return trash
+        if (movedAny) return DatabaseQuarantine(entry = trash, stuck = false)
         // Nothing moved into it, so it is empty.
         NSFileManager.defaultManager.removeItemAtPath(trash, error = null)
-        return null
+        return DatabaseQuarantine(entry = null, stuck = false)
     }
+
+    /**
+     * The outcome of [quarantineDatabase]: [entry] is the trash entry holding the old version, null when nothing was
+     * there to move or when [stuck]; [stuck] is true when a name stayed at the path after every attempt.
+     */
+    private class DatabaseQuarantine(val entry: String?, val stuck: Boolean)
 
     /** True when something stands at [path], a dangling link included (lstat: the entry itself, never what it points to). */
     private fun presentWithoutFollowing(path: String): Boolean =
@@ -697,7 +712,11 @@ internal class IosDownloaderStorage(
                 // not the file exists, so sidecars an earlier killed commit left behind are moved aside as well.
                 val destinationPath: String = getResourcePath(unit)
                 createParentDirectory(destinationPath)
-                quarantineDatabase(destinationPath, unit)?.let(onDetached)
+                val quarantine: DatabaseQuarantine = quarantineDatabase(destinationPath)
+                // The commit throws (the delete only warns): going on would put the new file beside a log
+                // that SQLite replays into it. The temp file stays complete and the next request retries.
+                check(!quarantine.stuck) { "Could not move the committed $unit aside" }
+                quarantine.entry?.let(onDetached)
             }
             moveFile(
                 tempFilePath = tempFilePath,
