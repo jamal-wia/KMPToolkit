@@ -205,7 +205,9 @@ decoder writes straight into memory without a render-and-read-back step.
   immediately followed by `play()` starts up to 200 ms late, except a play near the start. A speed given while
   that `play()` waits is held and given after the play (as a settle, about 200 ms of playback later on the plain path),
   never written in front of it; a second `play()` meanwhile does nothing (the first one plays once, at the end of the
-  wait), a `seekTo()` meanwhile does not shorten the wait, and a `pause()` meanwhile cancels it. The held speed of a
+  wait), a `seekTo()` meanwhile does not shorten the wait, and a `pause()` or the end of the clip meanwhile cancels it
+  (a speed held for it is kept for the next `play()`); if a looping clip wraps meanwhile, the held speed is given as
+  after any wrap, once the playhead has moved about 200 ms. The held speed of a
   `pause()` or of the end of a clip is written after the native pause, never on the decoder that still runs, so it is
   a write on a player that is not playing and the next `play()` waits out its 200 ms too.
   After a loop wrap the speed is given again as one change once the playhead has wrapped and moved about

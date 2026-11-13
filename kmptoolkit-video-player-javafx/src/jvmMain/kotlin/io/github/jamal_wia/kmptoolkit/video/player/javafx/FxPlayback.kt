@@ -222,22 +222,12 @@ internal class FxPlayback private constructor(
                     return
                 }
                 atEnd = true
-                playIssued = false
-                delayedPlayPending = false
                 // JavaFX leaves its status at PLAYING after the last cycle ends. The player reports
                 // Completed, and a seek from there reports Paused — so JavaFX must be paused too, or a
                 // seek would resume playback on a backend that honours the status, and the pulse
-                // would keep copying frames of a picture that does not move.
-                native.pause()
-                // A2: the held speed is written after the pause, never before it. OpenJFX forwards a rate change and
-                // a pause() synchronously and in order, so a write ahead of the pause() lands on a decoder that is
-                // still running (a play of this clip may be only milliseconds old), the shape no probe has measured.
-                // After the pause() it is a write on a player that is not playing, which is stamped like any other.
-                settleNudge?.let {
-                    if (native.rate != it) idleRateWriteNanos = host.nanoTime()
-                    native.rate = it
-                }
-                settleNudge = null
+                // would keep copying frames of a picture that does not move. The end cancels a play that still waits and
+                // flushes the held speeds exactly as pause() does (see [stopNativePlay]).
+                stopNativePlay()
                 reportTimes()
                 sink.onCompleted()
             }
@@ -390,7 +380,12 @@ internal class FxPlayback private constructor(
         host.postLater { host.postLater { giveNudge() } }
     }
 
-    /** Gives the native player the speed [start] left pending, as the old nudge: away and back. */
+    /**
+     * Gives the native player the speed [start] left pending, as the old nudge: away and back. While the delayed play of a
+     * start still waits it returns without consuming the value. A value left this way is always consumed later: by the nudge
+     * of the start that owns it, after its play, or by the flush of the [pause] or the end of the media that cancels that
+     * start (or, at a loop wrap, taken over by [deferRate]).
+     */
     private fun giveNudge() {
         if (disposed) return
         // S20: a start whose play() still waits owns [pendingNudge] and gives it itself, after its own play(). A nudge queued
@@ -413,6 +408,15 @@ internal class FxPlayback private constructor(
 
     fun pause(): Unit = host.post {
         if (disposed) return@post
+        stopNativePlay()
+    }
+
+    /**
+     * What [pause] and the end of a non-looping clip have in common: the native player stops, the play a [start] still
+     * waits to issue is cancelled for good (the generation moves on, so its callback does nothing), and every speed held for
+     * it is written on the paused player, stamped, and cleared. Called on the FX thread, on a player that is not disposed.
+     */
+    private fun stopNativePlay() {
         playIssued = false
         playGeneration++
         delayedPlayPending = false
@@ -432,7 +436,7 @@ internal class FxPlayback private constructor(
             native.rate = it
         }
         settleNudge = null
-        // C4: a speed held for a delayed seek-path play that this pause cancelled would stay in [pendingNudge] for
+        // C4: a speed held for a delayed seek-path play that this pause (or the end of the clip) cancelled would stay in [pendingNudge] for
         // good: the next speeds would be swallowed into it (see [setSpeed]) and the next start would never give them.
         // Flush it the way [giveNudge] does on a player that is paused again, stamped, and clear it.
         pendingNudge?.let {
@@ -581,18 +585,26 @@ internal class FxPlayback private constructor(
      * stand still). A resume from a pause is not handled here: see [start].
      */
     private fun deferRate(afterWrap: Boolean) {
-        val rate: Double = deferredRate ?: settleNudge ?: native.rate
+        // The newest held speed: [setSpeed] fills pendingNudge first, then settleNudge, then deferredRate, so a speed given
+        // while a seek-path play waits is in pendingNudge, newer than a value [deferredRate] may still hold. One holder
+        // is left: the others are cleared, or the speed they hold would be given again over it.
+        val rate: Double = pendingNudge ?: deferredRate ?: settleNudge ?: native.rate
+        pendingNudge = null
         settleNudge = null
-        if (rate == 1.0) return
-        deferredRate = rate
-        deferredGauge.reset()
-        deferredAfterWrap = afterWrap
-        deferredNotBeforeNanos = null
+        deferredRate = if (rate == 1.0) null else rate
+        if (rate != 1.0) {
+            deferredGauge.reset()
+            deferredAfterWrap = afterWrap
+            deferredNotBeforeNanos = null
+        }
         // JavaFX can deliver the end of a cycle after a pause(), or after a later start() whose play() is still delayed (S20):
         // then 1.0 is written on a player that is not playing, which is stamped like any other such write, so the next play()
-        // (or the delayed one, which checks the gap again) waits out the idle gap (see [idleRateWriteNanos]).
-        if (!nativePlayIssued && native.rate != 1.0) idleRateWriteNanos = host.nanoTime()
-        native.rate = 1.0
+        // (or the delayed one, which checks the gap again) waits out the idle gap (see [idleRateWriteNanos]). The property is
+        // put to 1.0 whenever it holds another value, also for a held speed of 1: nothing else would take the old speed out.
+        if (native.rate != 1.0) {
+            if (!nativePlayIssued) idleRateWriteNanos = host.nanoTime()
+            native.rate = 1.0
+        }
     }
 
     /** Called on every tick of the playhead: gives the native player the deferred speed once it is safe. */
@@ -707,12 +719,14 @@ internal class FxPlayback private constructor(
 
     /**
      * Runs the delayed [play] of a [start] once the idle gap is clear. Called when the wait [start] scheduled ends, with the
-     * generation of that [start]: nothing happens for a play that a [pause], a later [start] or the end of the media has
-     * cancelled or that [dispose] has dropped. A rate written while the native player was not playing during the wait (S20:
+     * generation of that [start]: nothing happens for a play that a [pause] or the end of the media has cancelled (both bump
+     * the generation, see [stopNativePlay]) or that [dispose] has dropped; a later [start] does not cancel it, it returns at
+     * its guard. A rate written while the native player was not playing during the wait (S20:
      * the return to 1.0 of a loop wrap JavaFX delivers after a [pause], see [deferRate]) has stamped the gap again, so the
      * wait is repeated for the rest of it, with the same generation and with [delayedPlayPending] still set. Every
      * repetition waits out the rest of the newest gap; only a handler JavaFX queued before the pause can stamp during the
-     * wait, and the decoder is paused, so there are finitely many. The play runs exactly once.
+     * wait, and the decoder is paused, so there are finitely many (in practice one: the wrap leaves the property at 1.0, and
+     * nothing else writes during the wait). The play runs exactly once.
      */
     private fun playWhenGapClear(generation: Long, play: () -> Unit) {
         if (disposed || !playIssued || generation != playGeneration) return
