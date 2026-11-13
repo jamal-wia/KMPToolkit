@@ -63,7 +63,8 @@ A failure after `prepare` has started, or after loading — a stream that dies m
 same way, as `Error`, when the platform notices. That includes a failure the engine reports while `prepare` is still `Preparing`,
 during its load or just before `Ready` is published, when the load itself returns normally: the first
 such failure is kept and applied in order, so the player settles on `Error` rather than `Ready`. If
-the load throws, its own `Throwable` is the `Error`. Recovering means preparing again; there is no
+the load throws, its own `Throwable` is the `Error`. `Error.cause` can be a `CancellationException` an engine threw on
+its own; rethrowing it inside a coroutine cancels that coroutine silently, so inspect it rather than rethrow it. Recovering means preparing again; there is no
 `retry()`, because the source to retry with (perhaps with a refreshed token) is information only
 you have.
 

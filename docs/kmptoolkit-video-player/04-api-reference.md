@@ -47,11 +47,11 @@ resets the playhead, buffered position, buffering and picture size.
 - Passes through `Preparing`, settles on `Ready(duration)` or `Error(cause)`.
 - **Does not throw on failure** — the platform's `Throwable` arrives as `VideoPlayerState.Error`,
   unchanged.
-- **Honors cancellation** — when the calling coroutine is cancelled, or a newer `prepare`, `unload()` or
-  `release()` replaces the load, the partially loaded source is freed, the state returns to `Idle` (or to what
-  replaced it), and `CancellationException` propagates. A `CancellationException` the engine throws on its own
-  while the load is still wanted (a timeout inside the engine, say) is a failure like any other: `Error` carrying
-  that exception, and `prepare` returns normally.
+- **Honors cancellation** — when the calling coroutine is cancelled, the partially loaded source is freed, the
+  state returns to `Idle`, and `CancellationException` propagates. A load that a newer `prepare`, `unload()` or
+  `release()` replaces is cancelled, and the replaced call returns normally (see the next bullet). A
+  `CancellationException` the engine throws on its own while the load is still wanted (a timeout inside the
+  engine, say) is a failure like any other: `Error` carrying that exception, and `prepare` returns normally.
 - **A newer `prepare` replaces this one** — the older load is cancelled and fully unwound before the
   newer one starts; the replaced call returns normally without writing any state.
 - **Frees the previous source first, whatever state it left the player in** (including `Error`), so a source that failed during playback is released before the next load.
@@ -98,7 +98,7 @@ wrote (a poll tick can no longer turn `Completed` or `Paused` back into `Playing
 its transition applied — after `pause()`, `stateFlow` already holds `Paused`. An engine event that
 arrives while a call is running is applied right after it. The flows are safe to collect anywhere.
 `release()` cannot double-free; a call racing a release from another thread is applied or dropped
-as a whole, never half-way, and nothing reaches the engine after the release. A completion the platform reported before a seek away from the end (or a `stop()`, or the rewind of a `play()` from the end) is dropped as stale; a seek onto the end does not make a completion stale. When the player drops a completion as stale while it is `Playing`, it calls `VideoPlaybackEngine.start()` and `setSpeed` again, so a seek made just as the source reached its end wins: an engine whose platform stops at its end must then resume output from the seek's target (not replay from the start, not ignore it). A collector of `stateFlow`, or of any other flow of the player, on an immediate dispatcher may call the player from inside the update: a transition stops writing as soon as such a call has changed the player, and calls nothing more on the engine, so the call is never undone.
+as a whole, never half-way, and nothing reaches the engine after the release. A completion the platform reported before a seek away from the end (or a `stop()`, or the rewind of a `play()` from the end) is dropped as stale; a seek onto the end does not make a completion stale. When the player drops a completion as stale while it is `Playing`, it calls `VideoPlaybackEngine.start()` and `setSpeed` again, so a seek made just as the source reached its end wins: an engine whose platform stops at its end must then resume output from the seek's target (not replay from the start, not ignore it). A collector of `stateFlow`, or of any other flow of the player, on an immediate dispatcher may call the player from inside the update. Such a call already sees the state the running transition is establishing (inside the writes of `pause()` the player is `Paused`, inside those of a failure it is `Error`), and the transition stops writing as soon as the call has changed the player and calls nothing more on the engine, so the call is never undone and a failure is never lost to it. The calls whose result is the point of the call still finish: `unload()` and `release()` reset the source flows and end in `Idle` (an `unload()` leaves the state to a `prepare` called from inside it), and a `prepare` that has not been replaced resets them and loads.
 
 ---
 
