@@ -22,12 +22,29 @@ import kotlinx.coroutines.test.runTest
  * Refactor-regression differential (A1 regress round): a seeded random walk over the public operations of the engine
  * that writes a full observable trace (every operation and its outcome, every attempt the handler saw, every store
  * write with its result, a snapshot of the rows after every step, the platform wake) to the directory named by the
- * environment variable CT_TRACE_DIR. The same source compiles against the engine before and after the component split;
- * the traces of the two engines are compared with diff. Without the variable the walks still run and only assert that
- * the quiet world drains. It touches no member that changed between the two engines (the store wrapper does not
- * override the keep insert).
+ * system property `kmptoolkit.test.traceDir` (Gradle: `-Pkmptoolkit.test.traceDir=<dir>`). The same source compiles
+ * against the engine before and after the component split; the traces of the two engines are compared with diff.
+ * Without the property the walks still run and only assert that the quiet world drains. It touches no member that
+ * changed between the two engines (the store wrapper does not override the keep insert).
+ *
+ * Knobs, all system properties forwarded from Gradle properties (the build file forwards exactly these three to this
+ * test JVM): `kmptoolkit.test.traceDir`; `kmptoolkit.test.coarse` (`1` settles the quiet phase in one-second steps);
+ * `kmptoolkit.test.seeds` (a comma list of seeds: only those seeds of a walk run, the others are skipped).
+ *
+ * Every `start@` line also carries the two lower bounds that apply to that start, so a trace can be checked for a
+ * retry that began before its gates: `pg` is the persisted gate of the row at the start, `og` is the in-memory
+ * outside-failure gate (the time of the last failure outside the handler plus the engine's growing backoff, `none`
+ * when the item has none), `ex` is `1` when a gate lies further ahead than its anomaly bound (the wall clock stepped
+ * backwards, so the engine legally treats it as due) and `below` is `1` when the start is earlier than the larger of
+ * the two gates and not exempt. They are diagnostic text only and never an assertion.
  */
 class RegressTraceDifferentialAdversarialTest {
+
+    private fun traceDir(): String? = System.getProperty("kmptoolkit.test.traceDir")?.takeIf { it.isNotBlank() }
+
+    private fun onlySeeds(): Set<Int>? =
+        System.getProperty("kmptoolkit.test.seeds")?.takeIf { it.isNotBlank() }
+            ?.split(',')?.map { it.trim().toInt() }?.toSet()
 
     @AfterTest
     fun clearRegistry() {
@@ -120,14 +137,32 @@ class RegressTraceDifferentialAdversarialTest {
         val spy = SpyStore(store, Random(seed * 31 + 7), log).also { it.failing = flaky; it.failDeletes = failDeletes }
         val net = TestConstraint("net", satisfied = true)
         val enqueued: MutableList<String> = mutableListOf()
+        val defaults = UploaderConfig()
+        val heartbeatMillis: Long = defaults.heartbeatInterval.inWholeMilliseconds
+        val pgBound: Long = 300L * defaults.clockAnomalyFactor
+        // The outside-failure gate of each item, rebuilt from the engine's own log: a failure outside the handler is
+        // logged at the very instant the engine records it (no suspension between the two), so the log time is the
+        // failure time. [openAttempt] is true from a start until a failure log closes it: a start that finds it still
+        // true means the previous attempt ended without such a failure, which resets the streak.
+        val streak: MutableMap<String, Int> = mutableMapOf()
+        val outsideGate: MutableMap<String, Long> = mutableMapOf()
+        val openAttempt: MutableSet<String> = mutableSetOf()
+        val idByName: MutableMap<String, String> = mutableMapOf()
+        val failureLog = Regex("^(?:Attempt of|Confirming the delivery of) (.+?) (?:failed outside its handler|leaked a cancellation|failed again); retrying later\\.$")
         val handler = TestHandler(
             retryPolicy = FixedRetryPolicy(delayMillis = 300L),
             constraintKeys = setOf("net"),
             ordering = { payload -> payload.substringBefore(':').takeIf { it != "free" } },
             onExecute = { context, payload ->
-                val gateAtStart: Long = store.find(context.id)?.nextRunAtEpochMillis ?: 0L
+                val row: UploaderItem? = store.find(context.id)
+                val gateAtStart: Long = row?.nextRunAtEpochMillis ?: 0L
                 if (!context.wasDetached && gateAtStart - clock.millis > 6L) log += "EARLY:${context.id}:gate=$gateAtStart:now=${clock.millis}"
-                log += "start@${clock.millis}/${testScheduler.currentTime}:${context.id}:a${context.attempts}:c${context.claim}:d${context.wasDetached}:$payload"
+                if (row != null) idByName["${row.type}/${row.uniqueKey ?: row.id}"] = row.id
+                if (!openAttempt.add(context.id)) { streak.remove(context.id); outsideGate.remove(context.id) }
+                val og: Long? = outsideGate[context.id]
+                val ex: Boolean = gateAtStart - clock.millis > pgBound || (og != null && og - clock.millis > heartbeatMillis)
+                val below: Boolean = !ex && clock.millis < maxOf(gateAtStart, og ?: Long.MIN_VALUE)
+                log += "start@${clock.millis}/${testScheduler.currentTime}:${context.id}:a${context.attempts}:c${context.claim}:d${context.wasDetached}:$payload pg=$gateAtStart og=${og ?: "none"} ex=${if (ex) 1 else 0} below=${if (below) 1 else 0}"
                 delay(random.nextLong(0L, 40L).milliseconds)
                 val r: AttemptResult = when (random.nextInt(100)) {
                     in 0..54 -> AttemptResult.Success
@@ -154,7 +189,17 @@ class RegressTraceDifferentialAdversarialTest {
                 override val tag: String = "ct"
                 override fun isLoggable(level: LogLevel): Boolean = true
                 override fun log(level: LogLevel, throwable: Throwable?, message: () -> String) {
-                    log += "log:${level.name}:${message().take(110)}"
+                    val text: String = message()
+                    log += "log:${level.name}:${text.take(110)}"
+                    val id: String? = failureLog.matchEntire(text)?.let { idByName[it.groupValues[1]] }
+                    if (id != null) {
+                        openAttempt.remove(id)
+                        val k: Int = (streak[id] ?: 0) + 1
+                        streak[id] = k
+                        var gap: Long = defaults.minAlarmDelay.inWholeMilliseconds
+                        repeat(k - 1) { if (gap < heartbeatMillis) gap *= 2 }
+                        outsideGate[id] = clock.millis + minOf(gap, heartbeatMillis)
+                    }
                 }
             },
         )
@@ -216,6 +261,7 @@ class RegressTraceDifferentialAdversarialTest {
                     in 77..82 -> if (chaos) { val d: Long = random.nextLong(0L, 30_000L); skew = maxOf(-40_000L, skew - d); label = "skew-$d" } else label = "noop"
                     in 83..86 -> if (chaos) {
                         engine.close()
+                        streak.clear(); outsideGate.clear(); openAttempt.clear()
                         engine = newEngine()
                         engine.start()
                         label = "restart"
@@ -242,7 +288,7 @@ class RegressTraceDifferentialAdversarialTest {
             while (store.items.any { it.state != UploaderItemState.PARKED } && rounds++ < 400) {
                 skew += 5_000L
                 clock.millis = 1_000L + testScheduler.currentTime + skew
-                if (System.getenv("CT_COARSE") == "1") {
+                if (System.getProperty("kmptoolkit.test.coarse") == "1") {
                     advanceTimeBy(1.seconds)
                 } else repeat(20) {
                     advanceTimeBy(50.milliseconds)
@@ -262,9 +308,10 @@ class RegressTraceDifferentialAdversarialTest {
     }
 
     private fun run(name: String, seeds: IntRange, chaos: Boolean, flaky: Boolean, keepOverParked: Boolean, failDeletes: Boolean = true, quietSettle: Boolean = false) = runTest(timeout = 300.seconds) {
-        val dir: String? = System.getenv("CT_TRACE_DIR")
+        val dir: String? = traceDir()
         val out: StringBuilder? = dir?.let { StringBuilder() }
-        for (seed in seeds) walk(seed, out, chaos, flaky, keepOverParked, failDeletes, quietSettle)
+        val only: Set<Int>? = onlySeeds()
+        for (seed in seeds) if (only == null || seed in only) walk(seed, out, chaos, flaky, keepOverParked, failDeletes, quietSettle)
         if (dir != null) File(dir).also { it.mkdirs() }.resolve("$name.txt").writeText(out.toString())
     }
 
@@ -380,9 +427,10 @@ class RegressTraceDifferentialAdversarialTest {
     }
 
     private fun runSlow(name: String, seeds: IntRange, closes: Boolean) = runTest(timeout = 600.seconds) {
-        val dir: String? = System.getenv("CT_TRACE_DIR")
+        val dir: String? = traceDir()
         val out: StringBuilder? = dir?.let { StringBuilder() }
-        for (seed in seeds) walkSlow(seed, out, closes)
+        val only: Set<Int>? = onlySeeds()
+        for (seed in seeds) if (only == null || seed in only) walkSlow(seed, out, closes)
         if (dir != null) File(dir).also { it.mkdirs() }.resolve("$name.txt").writeText(out.toString())
     }
 
