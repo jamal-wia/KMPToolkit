@@ -30,7 +30,9 @@ import kotlin.time.Duration.Companion.milliseconds
  * @param minProgressInterval the shortest time between two posts for the same id while its progress
  *   is determinate. Bucketing alone does not bound the *rate*: a fast download crosses ten buckets
  *   in a second, and both platforms rate-limit an app that posts that often — Android starts
- *   dropping notifications outright. `Duration.ZERO` disables the throttle. Must not be negative.
+ *   dropping notifications outright. `Duration.ZERO` is the knob for no throttle; an infinite value is accepted but
+ *   suppresses every determinate frame after an id's first until a terminal frame and keeps the baselines
+ *   of abandoned ids, so it is not a way to disable updates. Must not be negative.
  * @throws IllegalArgumentException if any parameter is outside the range described above. Failing
  *   at construction beats discovering months later that a progress bar moves in one jump.
  */

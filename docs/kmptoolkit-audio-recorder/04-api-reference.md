@@ -86,7 +86,7 @@ decide again against the state it published; `start`, `pause` and `resume` do no
 | `Recording` | no | no | yes | no | yes | yes |
 | `Paused` | no | no | no | yes | yes | yes |
 | `Completed` | yes | no | no | no | no | no |
-| `Interrupted` | yes | no | no | no | yes² | yes |
+| `Interrupted` | yes | no | no | no | yes² | yes³ |
 | `Failed` | yes | no | no | no | no | yes¹ |
 | `Released` | no | no | no | no | no | no |
 
@@ -94,6 +94,9 @@ decide again against the state it published; `start`, `pause` and `resume` do no
 a `Failed` without a path `cancel` is illegal, as before.
 ² Returns the interrupted recording again as a success and leaves `state` unchanged — no emission,
 not `Completed`.
+³ Deletes the interrupted file, although it is finalized and playable, and the state becomes `Idle`:
+`cancel` is the discard. To keep the file, do not call `cancel`; `prepare` starts a fresh recording
+and never deletes it.
 
 While the system's event is being finalized `state` still shows the old value (`Ready`, `Recording`
 or `Paused`): `start`, `pause` and `resume` then return `IllegalState` with that state, and
