@@ -247,8 +247,10 @@ class PauseAndIdleGapModelTest {
      * Seed 467: a resume with a seek pending leaves the speed as a nudge two FX tasks after the play; a pause and a seek (a
      * `stop()`) overtake it, so the nudge finds the player paused and writes the speed to the property (an idle write, class
      * C1). The next play follows 20 ms later through the seek path (the stop's seek is still marked), which must wait out the
-     * rest of the 200 ms idle gap: the seek came BEFORE the write, so nothing clears the gap. The speed 2 reaches the decoder
-     * after that play, and the decoder never freezes.
+     * rest of the 200 ms idle gap. On the fixed code the pause writes the held speed BEFORE the stop's seek (C4), so the
+     * seek stands between the write and the play, yet the platform notes promise the wait on every resume path with a seek
+     * pending, so this test pins that a held speed flushed by a stop's pause still makes the next play wait. The speed 2
+     * reaches the decoder after that play, and the decoder never freezes.
      */
     @Test
     fun aPlayRightAfterANudgeOvertakenByAStopWaitsOutTheIdleGap() {

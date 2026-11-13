@@ -337,11 +337,11 @@ internal class FxPlayback private constructor(
         // [setSpeed] on a player that is already playing when the seek is posted (see [lastNativeSeekNanos]): there the
         // same rate change can freeze the playhead. Both are true for different states: do not merge the two paths.
         if (idleWait > 0L && seekedSincePlay) {
-            // C2 on the seek path: the seek is already posted but precedes the idle write (a seek after the write
-            // would have cleared the gap), so the native sequence after the write is the measured one, write and play.
-            // Wait out the rest of the gap, then play and give the nudge. C3: the speed is held in [pendingNudge]
-            // meanwhile, which [setSpeed] replaces and [pause] flushes (C4); the nudge keeps its shape of play first,
-            // two FX tasks later the away-and-back.
+            // C2 on the seek path: it waits whenever a seek is pending, whatever the order of that seek and the idle write
+            // (a stop's seek after the pause flush and the replay's own seek wait too). That errs on the safe side of the
+            // model's reading that a seek after the write clears the gap. Wait out the rest of the gap, then play and
+            // give the nudge. C3: the speed is held in [pendingNudge] meanwhile, which [setSpeed] replaces and [pause]
+            // flushes (C4); the nudge keeps its shape of play first, two FX tasks later the away-and-back.
             seekedSincePlay = false
             playIssuedAtNanos = 0L
             pendingNudge = rate
