@@ -573,7 +573,8 @@ internal class IosDownloaderStorage(
      * that fails while something still stands at its source is retried with a fresh entry, bounded: a sweep of
      * another unit may have deleted the empty entry in between. A name that stays in place after every attempt is reported
      * as stuck, never ignored: the commit throws on it (a log left at the path would be replayed into the file that is
-     * moved in next), the delete only logs a warning. On that path the 1 to 3 entries made (empty, or holding the old
+     * moved in next), the delete only logs a warning. While the file itself stays no sidecar is moved, so the old version
+     * keeps its log. On that path the 1 to 3 entries made (empty, or holding the old
      * file) are not returned: after a commit's throw they wait for the next sweep of any unit, a delete sweeps at once.
      */
     private fun quarantineDatabase(path: String): DatabaseQuarantine {
@@ -588,7 +589,13 @@ internal class IosDownloaderStorage(
             for (part: String in parts) {
                 // "db" for the file itself, "db-wal", "db-shm" and "db-journal" for its sidecars.
                 val inside = "$trash/db${part.substringAfterLast('/').removePrefix(fileName)}"
-                if (rename(part, inside) == 0) movedAny = true
+                if (rename(part, inside) == 0) {
+                    movedAny = true
+                } else if (part == path && presentWithoutFollowing(path)) {
+                    // The file itself stays: move no sidecar in this attempt, or the old version would stay
+                    // at the path without its log (its uncheckpointed frames would go with the next sweep).
+                    break
+                }
             }
             if (parts.none { part: String -> presentWithoutFollowing(part) }) break
             if (attempts >= MAX_DETACH_ATTEMPTS) return DatabaseQuarantine(entry = null, stuck = true)
