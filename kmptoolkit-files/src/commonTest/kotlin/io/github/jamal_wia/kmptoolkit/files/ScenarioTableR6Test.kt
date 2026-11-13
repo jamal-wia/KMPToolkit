@@ -106,6 +106,10 @@ class ScenarioTableR6Test {
         Row("W10 write over a dangling link", {
             link("l", "gone"); out(files.writeAtomically(p("l"), "abc".encodeToByteArray())) + " " + tree()
         }, "ok l:F3"),
+        Row("W19 write over a link to a directory replaces the link and leaves the directory", {
+            mkdir("d"); put("d/x"); link("l", "d")
+            out(files.writeAtomically(p("l"), "abc".encodeToByteArray())) + " " + tree()
+        }, "ok d:D d/x:F1 l:F3"),
         Row("W11 write with a trailing separator names the same entry", {
             out(files.writeAtomically(p("a") + (if (posix) "/" else "\\"), "x".encodeToByteArray())) + " " + tree()
         }, "ok a:F1"),
@@ -210,7 +214,8 @@ class ScenarioTableR6Test {
         }, "ok a:D a/b:D"),
         Row("S01 sweep deletes only matching old regular files and links", {
             put("old.tmp"); put("old.keep"); put("new.tmp"); mkdir("dir.tmp")
-            val ok: Boolean = TestEnv.setLastModified(p("old.tmp"), 1_000_000L) && TestEnv.setLastModified(p("old.keep"), 1_000_000L)
+            val ok: Boolean = TestEnv.setLastModified(p("old.tmp"), 1_000_000L) && TestEnv.setLastModified(p("old.keep"), 1_000_000L) &&
+                TestEnv.setLastModified(p("dir.tmp"), 1_000_000L)
             if (!ok) TestEnv.skip("cannot set the modification time")
             "${files.sweep(root, 60_000L) { it.endsWith(".tmp") }.getOrNull()} ${tree()}"
         }, "1 dir.tmp:D new.tmp:F1 old.keep:F1"),
