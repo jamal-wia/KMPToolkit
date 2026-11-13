@@ -83,7 +83,7 @@ CJK characters (600 UTF-8 bytes) is therefore accepted on NTFS and APFS and refu
 
 `FileAccess` never pre-rejects a name by length — the platform decides. When an operation that names
 or creates an entry **fails** with an untyped exception, the module classifies the failure as
-`NameTooLong(path)` by the length of a segment of the operation's path (Windows: more than 255 UTF-16
+`NameTooLong(path)` by the length of a segment of the operation's path (a `\` separates segments only on Windows) (Windows: more than 255 UTF-16
 code units; a macOS host: more than 255 code points; elsewhere: more than 255 UTF-8 bytes). It is a
 classification of a failure that already happened, never a check, and it is never applied to a read,
 write, sync or close of a file that is already open. A disk-full while writing a file inside a folder
@@ -104,6 +104,10 @@ ENOTDIR (a regular file where the path needs a directory) is one of the text-dep
 (`metadata`, `exists`) still answers `null`/`false`, but on a Linux desktop in another language `readBytes`,
 `createDirectories`, `writeAtomically` and `move` can report `Io` where an English system reports `NotFound` or
 `NotADirectory`. macOS, iOS and Android are not affected (unlocalized `strerror` or `errno`).
+
+EPERM ("Operation not permitted": an immutable or append-only file, the sticky-bit rule, a sandbox refusal) is
+another one: the JDK does not type it, so the JVM and Android API 26+ map it by its English text to `AccessDenied`
+(`Unsupported` for a hard link). On a Linux desktop in another language it can arrive as `Io`.
 
 ## Case-insensitive volumes and Unicode
 

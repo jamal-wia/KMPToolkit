@@ -64,10 +64,11 @@ private const val MAX_SEGMENT_UNITS: Int = 255
 
 /**
  * Whether a segment of [path] is over the file system's limit: 255 UTF-16 units on Windows, 255 code points when
- * [codePoints] (APFS on a macOS host), 255 UTF-8 bytes elsewhere.
+ * [codePoints] (APFS on a macOS host), 255 UTF-8 bytes elsewhere. A backslash separates segments only on Windows.
  */
 internal fun segmentTooLong(path: String, windows: Boolean, codePoints: Boolean = false): Boolean {
-    for (segment: String in path.split('/', '\\')) {
+    val segments: List<String> = if (windows) path.split('/', '\\') else path.split('/')
+    for (segment: String in segments) {
         if (segment.isEmpty()) continue
         if (windows) {
             if (segment.length > MAX_SEGMENT_UNITS) return true
@@ -123,6 +124,7 @@ private fun mapByText(e: Throwable, reason: String, path: String, forLink: Boole
         "operation not supported" in reason || "operation not permitted" in reason ||
             "incorrect function" in reason || "not supported" in reason
         ) -> FileError.Unsupported(path)
+    "operation not permitted" in reason -> FileError.AccessDenied(path)
     else -> FileError.Io(path, null, e)
 }
 
