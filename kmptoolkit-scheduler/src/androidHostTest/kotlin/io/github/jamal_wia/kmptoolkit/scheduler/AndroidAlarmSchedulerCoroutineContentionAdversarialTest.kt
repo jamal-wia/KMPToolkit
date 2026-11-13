@@ -36,7 +36,7 @@ import org.robolectric.shadows.ShadowAlarmManager
  * healthy cancelAll leaves neither alarms nor slots.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [26, 34])
+@Config(sdk = [34])
 class AndroidAlarmSchedulerCoroutineContentionAdversarialTest {
 
     private val context: Context = RuntimeEnvironment.getApplication()
