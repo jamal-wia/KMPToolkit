@@ -8,28 +8,35 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * RED FIRST tests of task D-pi (ruling `reviews/fxport-j13a-opus.md`, decision D-95): the pause order and the idle gap
- * before a play, on the composed and watched scripted player ([composeAll]) in virtual time. Part 1 of 3 of the task: these
- * tests are red on the current `FxPlayback` by design, the fixes (A1, A2, C1 to C4 of the ruling) come in part 2 and 3,
- * and this branch merges only with them.
+ * Model tests of task D-pi (ruling `reviews/fxport-j13a-opus.md`, decision D-95): the pause order, the idle gap before a
+ * play and the second-start guard, on the composed and watched scripted player ([composeAll]) in virtual time. They were
+ * written red first (part 1 of 3, red on the then-current `FxPlayback`) and are green on the merged fixes: the pause order
+ * and the stamps (A1, A2, C1 to C4 of the ruling, part 2) and the delayed-play guard (part 3).
  *
- * Each test stands for one seed of the J13a sequence fuzzer (`SequenceFuzzModelTest`, 2000 seeds, replay one with
- * `-Pkmptoolkit.test.seed=<n>`) and keeps only the shape that makes that seed fail, with the clock exact (no jitter) and
- * every call at an instant the test names:
+ * Each of the first six tests stands for one seed of the J13a sequence fuzzer (`SequenceFuzzModelTest`, 2000 seeds, replay
+ * one with `-Pkmptoolkit.test.seed=<n>`) and keeps only the shape that makes that seed fail, with the clock exact (no
+ * jitter) and every call at an instant the test names:
  * - the pause site (class A): [aSpeedGivenInsideThePlayWindowIsNotWrittenBeforeThePauseThatFollowsIt] (seeds 211 and 369);
  * - the end-of-media site (class A): [aSpeedHeldAtTheEndOfAClipIsNotWrittenBeforeThePauseThatEndsIt] (seed 1424);
  * - the idle gap before a play on the seek path (class C): [aPlayRightAfterANudgeOvertakenByAStopWaitsOutTheIdleGap]
  *   (seed 467);
  * - the idle gap created by an A-only fix (class C): [aPauseAndAPlayInTheSameInstantWithAHeldSpeedAndAStaleSeekMarkDoNotBreakTheIdleGap]
- *   (seed 1369), which is GREEN on the current code and turns red under the pause reorder alone, see its KDoc;
+ *   (seed 1369), which was green before the fix and turns red under the pause reorder alone, see its KDoc;
  * - a speed given during the delayed plain play (class C): [aSpeedGivenWhileAPlainPlayWaitsOutTheIdleGapIsHeldNotWritten]
  *   (seed 943);
  * - the lost speed of the seek-path hole (C4): [aSpeedGivenAfterAPauseThatInterruptedADelayedSeekPathPlayIsNotLost].
  *
+ * The tests added in parts 2 and 3 follow them: a second `start()` while the delayed play waits
+ * ([aSecondStartWhileTheDelayedPlayWaitsDoesNotPlayInsideTheIdleGap],
+ * [aSeekASpeedOrAPauseDuringTheWaitAndThenAStartPlaysOnceAfterTheGap]), the stale seek mark of the review finding F1
+ * ([aSeekDuringTheWaitOfADelayedPlayLeavesNoStaleMarkForALaterResume]) and the end-of-media stamp pinned from the
+ * documented behaviour ([aReplayAfterTheEndOfAClipWaitsOutTheIdleGapOfTheSpeedTheEndWrote]).
+ *
  * The contract the tests read, not the implementation: a native `pause()` is never preceded by a rate write on the same
  * decoder within W-PLAY or W-SEEK-RUN (a property write after the pause is a write on a player that does not run); a
  * `play()` is never issued within the idle gap (200 ms) of a rate written while the player did not run, unless a native
- * seek came in between (the model's MUST-2 reading); a speed the caller gave is never lost.
+ * seek came in between (the model's MUST-2 reading); a second `start()` while the delayed play of the first waits does
+ * nothing; a speed the caller gave is never lost.
  */
 class PauseAndIdleGapModelTest {
 
@@ -575,8 +582,9 @@ class PauseAndIdleGapModelTest {
 
     /**
      * The platform notes promise that the held speed written at the end of a clip is an idle write like any other: the next
-     * `play()` waits out its 200 ms. A non-looping clip ends 40 ms after a plain play with a speed given 20 ms into it; the
-     * speed is held and `onEndOfMedia` writes it after its `pause()`. A `start()` 40 ms after the end replays through the
+     * `play()` waits out its 200 ms. A non-looping clip ends 50 ms after a plain play with a speed given 20 ms into it; the
+     * speed is held and `onEndOfMedia` writes it after its `pause()`. A `start()` 110 ms after the end (the test advances
+     * 100 ms for the write check and 40 ms more, and the end came 30 ms into the first of those) replays through the
      * seek path (the replay posts its own seek), and that play must come no sooner than 200 ms after the end-of-media write.
      * The hazard monitor cannot see this (a native seek between the write and the play is safe under the model's MUST-2
      * reading), so the test reads the documented instants, not the monitor.

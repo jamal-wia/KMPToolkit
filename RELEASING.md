@@ -32,7 +32,9 @@ The build machine needs:
 
 1. **Confirm `main` is green.** `./gradlew build checkKotlinAbi` and
    `./gradlew testAndroidHostTest iosSimulatorArm64Test` must both pass on the commit you intend to
-   release (see `.claude/CLAUDE.md` § Verification).
+   release (see `.claude/CLAUDE.md` § Verification). If the release changes
+   `kmptoolkit-video-player-javafx`, also run its real-media soak on a Mac with a display, in the split
+   commands of `docs/kmptoolkit-video-player-javafx/06-testing.md` (`jvmRealMediaTest`).
 2. **Bump the version.** Edit `kmptoolkit.version` in `gradle.properties` — this is the single
    source of truth; every `kmptoolkit-*` module and the `kmptoolkit-bom` constraints read it.
    Follow semver: see `.claude/CLAUDE.md` § Public API and compatibility for what qualifies as

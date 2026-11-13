@@ -99,3 +99,78 @@ tasks.withType<Test>().configureEach {
         "-XX:ErrorFile=" + File(hsErrDir, "hs_err_pid%p.log").path,
     )
 }
+
+// Test tiers (docs/kmptoolkit-video-player-javafx/06-testing.md): `jvmTest` is the default gate and runs everything
+// except the real-media soak classes below and the opt-in hazard probes; `jvmRealMediaTest` runs exactly those.
+// Both lists are explicit class names, never a pattern, so a new class cannot vanish from the gate by accident:
+// it is in `jvmTest` until somebody writes its name into the soak list.
+val testPackage: String = "io.github.jamal_wia.kmptoolkit.video.player.javafx"
+
+// Real-media sequencing classes. Each one has a deterministic twin in the `model` package (virtual time, no media)
+// that asserts the same contract exactly, so the real class is a soak, not a gate. The evidence per class (twin,
+// family mutation, alone failure rate) is in the J15 report; a class whose evidence is incomplete stays in the gate.
+val realMediaSoakClasses: List<String> = listOf(
+    "JavaFxFxThreadCallerR7AdversarialTest",
+    "JavaFxFxThreadNudgeR8FixerTest",
+    "JavaFxLoopSpeedR5AdversarialTest",
+    "JavaFxRateGivingR8AdversarialTest",
+    "JavaFxResumeAtSpeedR5AdversarialTest",
+    "JavaFxResumeKeepsPositionR10AdversarialTest",
+    "JavaFxResumeSettlesAtSpeedR5FixerTest",
+    "JavaFxSeekAtSpeedFreezeR6AdversarialTest",
+    "JavaFxSpeedAfterSeekFreezeAdversarialTest",
+    "JavaFxSpeedInReadyThroughCoreR6AdversarialTest",
+    "JavaFxSpeedThroughCoreR6AdversarialTest",
+).map { "$testPackage.$it" }
+
+// Statistical probes of the native player (40 rounds each). They test the OS against the model's assumptions, not
+// this code, and skip unless `-Pkmptoolkit.test.hazards=true`. Never in `jvmTest`; `jvmRealMediaTest` can run them.
+val hazardProbeClasses: List<String> = listOf(
+    "JavaFxNativeHazardCharacterizationTest",
+).map { "$testPackage.$it" }
+
+/**
+ * Fails the task before it starts when a name of [classNames] has no compiled class: a stale or misspelled name
+ * would otherwise exclude nothing (jvmTest) or select nothing (jvmRealMediaTest) without a word, and Gradle's own
+ * `isFailOnNoMatchingTests` only fires when no filter matches at all.
+ */
+fun Test.failOnStaleClassNames(classNames: List<String>) {
+    val classDirs: FileCollection = testClassesDirs
+    val taskPath: String = path
+    doFirst {
+        val stale: List<String> = classNames.filter { name: String ->
+            val relative: String = name.replace('.', '/') + ".class"
+            classDirs.files.none { dir: File -> File(dir, relative).isFile }
+        }
+        if (stale.isNotEmpty()) {
+            throw GradleException("$taskPath: no compiled test class for $stale: fix the lists in the build file")
+        }
+    }
+}
+
+tasks.named<Test>("jvmTest") {
+    description = "The default gate: every JVM test except the real-media soak classes and the hazard probes."
+    filter {
+        (realMediaSoakClasses + hazardProbeClasses).forEach { name: String -> excludeTestsMatching(name) }
+    }
+    failOnStaleClassNames(realMediaSoakClasses + hazardProbeClasses)
+}
+
+// Same classes and classpath as jvmTest; the JVM settings and the forwarded -P properties come from the
+// `withType<Test>` blocks above and from the kmptoolkit.library.jvm convention. One fork, never wired into `check`:
+// run it before a release and after a change to FxPlayback, JavaFxNativePlayer, FxThread or FxQueue.
+tasks.register<Test>("jvmRealMediaTest") {
+    group = "verification"
+    description = "Real-media soak: the sequencing classes that have a deterministic twin, plus the opt-in hazard probes."
+    val gate: Test = tasks.named<Test>("jvmTest").get()
+    testClassesDirs = gate.testClassesDirs
+    classpath = gate.classpath
+    maxParallelForks = 1
+    // Its verdict depends on the machine (the OS media stack), which no task input records: a cached or up-to-date result would stand in for a run.
+    doNotTrackState("Real-media soak: its verdict depends on the machine, never reuse an earlier result")
+    filter {
+        (realMediaSoakClasses + hazardProbeClasses).forEach { name: String -> includeTestsMatching(name) }
+        isFailOnNoMatchingTests = true
+    }
+    failOnStaleClassNames(realMediaSoakClasses + hazardProbeClasses)
+}
