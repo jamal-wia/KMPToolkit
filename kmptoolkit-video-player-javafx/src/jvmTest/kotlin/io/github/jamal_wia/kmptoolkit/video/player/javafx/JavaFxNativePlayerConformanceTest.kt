@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.video.player.javafx
 
 import java.io.File
+import java.nio.file.Files
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
@@ -21,17 +22,17 @@ import kotlin.test.fail
 
 /**
  * Tier C of the JavaFX playback port (task J14a, plans/javafx-port-design.md section 5.3, plans/javafx-port-ruling.md):
- * one test per port promise, C1 to C10 (C11, the non-video file, is withheld: see the task report, Question 1), on the
- * real adapter ([JavaFxBackend] and [JavaFxNativePlayer], `MediaPlayer` underneath), never on the scripted fake. The
+ * one test per port promise, C1 to C11, on the real adapter ([JavaFxBackend] and [JavaFxNativePlayer], `MediaPlayer` underneath), never on the scripted fake. The
  * scripted fake of the model tier claims the same behaviours (B1 to B13); these tests are what keeps those claims
  * honest against real media.
  *
  * Every assertion is derived from the port contract (`PlaybackPort.kt` KDoc and the design table), not from what the
  * adapter happens to print. Every wait is on an event with a deadline: a [Watch] completed by the callback itself, or a
  * latch; there is no sleep. Time stamps are taken on the FX thread in the very callback that produces a sample
- * (producer side), never read on the test thread after a pause. A check that cannot be stated against the contract is
- * not bent: C11 of the design table ("a non-video file sets playerError or mediaError and calls the handler") is not
- * written, because on macOS no non-media file does that (the task report, Question 1).
+ * (producer side), never read on the test thread after a pause. A check is stated as the contract states it, not as the
+ * design table first wrote it: C11 asserts that a source that is not media never becomes READY (refused by `probe`, or
+ * silent, an error report being allowed), because on macOS no such source reaches an error handler (the
+ * `FxPlayback.open` KDoc; J14a report, Question 1; plans/j14a-c11-advice.md).
  *
  * C5 carries the FX liveness void rule (determinism plan 2.4, ruling 4.1): an independent probe times a
  * `Platform.runLater` round trip all through a measuring window, and a window in which the FX thread itself was
@@ -562,6 +563,120 @@ class JavaFxNativePlayerConformanceTest {
         assertEquals(emptyList(), rig.events.offFx, "callbacks that ran off the FX thread")
     }
 
+    // ---- C11 -----------------------------------------------------------------------------------------------------
+
+    private class Hostile(val name: String, val rig: Rig)
+
+    /**
+     * C11 (B9): a source that is not media never becomes READY. `probe` refuses it, or the player is created and reports
+     * no `onReady` and no status beyond UNKNOWN or HALTED; an error report is allowed, not required, because macOS
+     * reports nothing for a file it cannot parse (the `FxPlayback.open` KDoc) while another backend may report an error.
+     * A `.txt` is refused by `probe` (05-platform-notes: an unknown container fails `prepare` straight away). The
+     * never-ready players then survive the dispose sequence `open` runs after its ready timeout.
+     *
+     * The wait is on the event that must not come: one fixed [NO_READY_WINDOW_MS] window, opened after the checked-in
+     * clip, created after every hostile player, became READY. Every red is a positive observation (a READY, a loaded
+     * status, a throw, a callback off the FX thread), so a slow or starved machine can only delay events and never turn
+     * this red; that is why C11 needs no FX liveness void rule.
+     */
+    @Test
+    fun `C11 a source that is not media is refused by probe or never reports READY and an error report is allowed`() {
+        assumeJavaFxMedia()
+        FxThread.startToolkit()
+        val sentence: ByteArray = "this is not a video, it is a sentence".toByteArray(Charsets.UTF_8)
+        val clipFile: File = TestClip.copyToTempFile()
+        val files: List<Pair<String, ByteArray>> = try {
+            listOf(
+                "zero-length.mp4" to ByteArray(0),
+                "text.mp4" to sentence,
+                "pattern-4k.mp4" to ByteArray(4096) { i: Int -> ((i * 31 + 7) and 0xFF).toByte() },
+                "truncated.mp4" to clipFile.readBytes().copyOf(TRUNCATED_BYTES),
+                "text.m4a" to sentence,
+                "text.wav" to sentence,
+                "text.txt" to sentence,
+            )
+        } finally {
+            clipFile.delete()
+        }
+
+        val dir: File = Files.createTempDirectory("kmptoolkit-c11").toFile()
+        val problems: MutableList<String> = mutableListOf()
+        val refused: MutableList<Pair<String, Throwable>> = mutableListOf()
+        val hostile: MutableList<Hostile> = mutableListOf()
+        try {
+            for ((name: String, bytes: ByteArray) in files) {
+                val file = File(dir, name)
+                file.writeBytes(bytes)
+                val uri: String = file.toURI().toString()
+                val source: NativeSource = try {
+                    JavaFxBackend.probe(uri)
+                } catch (t: Throwable) {
+                    refused += name to t
+                    continue
+                }
+                // Not in `rigs`: quiesce() calls pause() on every tracked player, which production never does to a never-ready one.
+                val (rig: Rig, _) = build(source, tracked = false) { }
+                hostile += Hostile(name, rig)
+            }
+
+            if (hostile.isEmpty()) {
+                problems += "A1: no non-media source got past probe on this host, so C11's silent branch was not exercised: a finding for the advisor, not a flake"
+            }
+            val txt: Throwable? = refused.firstOrNull { it.first == "text.txt" }?.second
+            if (txt == null) {
+                problems += "A2: probe returned a source for text.txt: an unknown container must be refused at probe (05-platform-notes)"
+            } else if (txt !is Exception) {
+                problems += "A2: probe refused text.txt with ${txt::class.java.name}, which is not an Exception"
+            }
+
+            if (hostile.isNotEmpty()) {
+                // The control is created after every hostile player, so each of them has been alive at least as long as it took.
+                val (control: Rig, _) = create(clipUri()) { }
+                control.events.readyWatch.await(READY_BOUND_MS) { "control clip not READY within $READY_BOUND_MS ms: no C11 verdict" }
+
+                val futures: Array<CompletableFuture<ReadyReading>> = hostile.map { it.rig.events.readyWatch.future }.toTypedArray()
+                try {
+                    CompletableFuture.anyOf(*futures).get(NO_READY_WINDOW_MS, TimeUnit.MILLISECONDS)
+                    val ready: List<String> = hostile.filter { it.rig.events.readyWatch.future.isDone }.map { it.name }
+                    fail("onReady fired for a source that is not media: $ready")
+                } catch (_: TimeoutException) {
+                    // none, as the contract says
+                }
+                repeat(DRAIN_ROUND_TRIPS) { fx { } }
+
+                val allowed: Set<NativeStatus> = setOf(NativeStatus.UNKNOWN, NativeStatus.HALTED)
+                for (h: Hostile in hostile) {
+                    val events: Recorder = h.rig.events
+                    if (events.readyWatch.future.isDone) problems += "A3: ${h.name}: onReady fired for a source that is not media"
+                    val now: NativeStatus = fx { h.rig.native.status }
+                    if (now !in allowed) problems += "A4: ${h.name}: status $now implies a loaded source"
+                    val seen: List<NativeStatus> = events.statuses.toList()
+                    if (seen.any { it !in allowed }) problems += "A4: ${h.name}: onStatus reported $seen"
+                    if (events.offFx.isNotEmpty()) problems += "A5: ${h.name}: callbacks off the FX thread: ${events.offFx}"
+                }
+            }
+        } finally {
+            // The sequence FxPlayback.open runs on a half-built playback after LoadTimedOut (the order of C9).
+            for (h: Hostile in hostile) {
+                h.rig.disposed = true
+                try {
+                    fx {
+                        h.rig.native.stopPulse()
+                        h.rig.native.detachView()
+                        h.rig.native.clearEndOfMedia()
+                        h.rig.native.cycleCount = 1
+                        h.rig.native.dispose()
+                    }
+                } catch (t: Throwable) {
+                    problems += "A6: ${h.name}: the dispose sequence threw $t"
+                }
+            }
+            dir.deleteRecursively()
+        }
+        println("C11 on this host: refused by probe ${refused.map { "${it.first} (${it.second::class.java.simpleName})" }}, created and silent ${hostile.map { it.name }}")
+        assertTrue(problems.isEmpty(), "C11: ${problems.joinToString("; ")}")
+    }
+
     private fun sentinelArray(size: Int): IntArray = IntArray(size + TAIL).also { it.fill(SENTINEL) }
 
     private fun tailIsIntact(pixels: IntArray, size: Int): Boolean = (size until size + TAIL).all { pixels[it] == SENTINEL }
@@ -578,8 +693,11 @@ class JavaFxNativePlayerConformanceTest {
      * Probes [uri] on the calling thread (the port says `probe` may block) and builds the player on the FX thread,
      * installing the events in that same task; [atCreate] runs in it too, before any callback can be delivered.
      */
-    private fun <T> create(uri: String, atCreate: (JavaFxNativePlayer) -> T): Pair<Rig, T> {
-        val source: NativeSource = JavaFxBackend.probe(uri)
+    private fun <T> create(uri: String, atCreate: (JavaFxNativePlayer) -> T): Pair<Rig, T> =
+        build(JavaFxBackend.probe(uri), tracked = true, atCreate)
+
+    /** [create] after the probe; a player that is not [tracked] is not touched by [quiesce]. */
+    private fun <T> build(source: NativeSource, tracked: Boolean, atCreate: (JavaFxNativePlayer) -> T): Pair<Rig, T> {
         val recorder = Recorder()
         val (native: JavaFxNativePlayer, extra: T) = fx {
             val created: JavaFxNativePlayer = JavaFxBackend.create(source) as JavaFxNativePlayer
@@ -588,7 +706,7 @@ class JavaFxNativePlayerConformanceTest {
             created to atCreate(created)
         }
         val rig = Rig(native, recorder)
-        rigs += rig
+        if (tracked) rigs += rig
         return rig to extra
     }
 
@@ -629,7 +747,8 @@ class JavaFxNativePlayerConformanceTest {
         const val LOOP_BOUND_MS: Long = 25_000L
         const val NO_SECOND_END_MS: Long = 1_500L
         const val PICTURE_BOUND_MS: Long = 10_000L
-        const val ERROR_BOUND_MS: Long = 10_000L
+        const val NO_READY_WINDOW_MS: Long = 3_000L
+        const val TRUNCATED_BYTES: Int = 300
 
         const val KEY_FRAME_INTERVAL_MS: Double = 1_000.0
         const val SEEK_TARGET_MS: Double = 1_540.0
