@@ -111,9 +111,10 @@ public class LogOverlayState(
     // A throwable whose own toString()/message fails (a message built lazily from a null field, a TODO(),
     // a failed assert) makes stackTraceToString() throw. The sink promises never to throw anything the
     // logger would contain and the message is still worth showing, so the record keeps a placeholder
-    // naming the class instead of losing the event. The contained set is exactly the logger's
-    // (isContainedDescriptionFailure); any other Error, such as a StackOverflowError from a recursive
-    // toString(), propagates as it does through the logger.
+    // naming the class instead of losing the event. The contained set is the logger's isContainedSinkFailure
+    // set (isContainedDescriptionFailure). Unlike the logger, which rethrows a sink's CancellationException,
+    // a CancellationException from a description is contained too. Any other Error, such as a
+    // StackOverflowError from a recursive toString(), propagates as it does through the logger.
     //
     // A throwable whose cause graph is deeper or larger than the limits below is not handed to
     // stackTraceToString(): its trace dump recurses once per cause and would overflow the stack, and
@@ -212,15 +213,17 @@ public class LogOverlayState(
      * )
      * ```
      *
-     * The returned sink honors this state's [minLevel] (through [record]). It never throws anything
-     * the logger would contain (every `Exception`, an `AssertionError`, a `NotImplementedError` and, on
-     * Android, a `LinkageError`, including one raised by a throwable's own `toString()` or `message`),
-     * so the logger's containment never has to engage; any other `Error` (a `StackOverflowError` from a
-     * recursive `toString()`, say) propagates, exactly as the logger lets it. A throwable whose cause
+     * The returned sink honors this state's [minLevel] (through [record]). It never throws an
+     * `Exception`, an `AssertionError`, a `NotImplementedError` or, on Android, a `LinkageError`,
+     * including one raised by a throwable's own `toString()` or `message`, so the logger's containment
+     * never has to engage. That includes a `CancellationException`, which the logger itself would
+     * rethrow if a sink raised it. Any other `Error` (a `StackOverflowError` from a recursive
+     * `toString()`, say) propagates, exactly as the logger lets it. A throwable whose cause
      * and suppressed graph is too large to render is recorded without stack frames, as its own text,
-     * its first 64 causes and a count of the rest. Too large means that some throwable in the graph
-     * lies more than 64 levels below the root along its shortest path (each `cause` or suppressed
-     * exception is one level), or that the graph holds more than 1 024 throwables, the root included.
+     * its first 64 causes and a count of the rest (suppressed exceptions are not listed). Too large
+     * means that some throwable in the graph lies more than 64 levels below the root along its
+     * shortest path (each `cause` or suppressed exception is one level), or that the graph holds more
+     * than 1 024 throwables, the root included.
      * A long cause chain that is also reachable by a shorter path (every cause attached to the root as
      * a suppressed exception, say) is within the limit and is rendered in full.
      * Each call returns a new sink instance; they are interchangeable, since all of them delegate

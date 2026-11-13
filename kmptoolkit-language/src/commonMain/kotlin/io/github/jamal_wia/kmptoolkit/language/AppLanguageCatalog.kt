@@ -50,8 +50,8 @@ public interface AppLanguageCatalog {
      * Matching ignores case, reads `_` as `-`, ignores extensions (`-u-...`, `-x-...`) and applies the
      * JDK's legacy language-code remaps to the language subtag, so a platform reporting Indonesian as
      * the obsolete `"in"` still finds your `"id"` entry. A code with no language subtag (private use
-     * `x-...`, grandfathered `i-...`) is compared by its whole text, case and `_` ignored. Region and
-     * script subtags must otherwise match.
+     * `x-...`, grandfathered `i-...`) is compared by its whole text, case and `_` ignored, empty
+     * segments (`x--klingon`) too. Region and script subtags must otherwise match.
      */
     public fun byCode(code: String): AppLanguage?
 
