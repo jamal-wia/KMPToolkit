@@ -61,7 +61,10 @@ public interface AudioPlayer : AutoCloseable {
 
     /**
      * The playhead position in milliseconds, refreshed every
-     * [AudioPlayerConfig.positionUpdateIntervalMs] while playing.
+     * [AudioPlayerConfig.positionUpdateIntervalMs] while playing. The other states keep the playhead as it
+     * is ([PlayerState.Paused] the position it paused at, [PlayerState.Ready] the position of the last seek,
+     * [PlayerState.Completed] the duration); it is `0` in [PlayerState.Idle] and after [prepare], [stop],
+     * [unload] and [release].
      *
      * A narrower alternative to [stateFlow] for a component that only draws a scrubber: it changes
      * on position ticks only, so collecting it does not wake on unrelated state changes.

@@ -21,7 +21,7 @@ The headless player. Obtain one from a platform factory; never implement it your
 | Member | Contract |
 |---|---|
 | `val stateFlow: StateFlow<PlayerState>` | Current state. Starts at `Idle`, never completes. Safe to collect from any thread. |
-| `val playbackPositionFlow: StateFlow<Long>` | Playhead in ms, refreshed every `positionUpdateIntervalMs` while playing, `0` otherwise. |
+| `val playbackPositionFlow: StateFlow<Long>` | Playhead in ms, refreshed every `positionUpdateIntervalMs` while `Playing`. The other states keep the playhead as it is: `Paused` the position it paused at, `Ready` the position of the last `seekTo`, `Completed` the duration. It is `0` in `Idle` and after `prepare`, `stop()`, `unload()` and `release()`. |
 | `val playbackSpeed: Float` | Rate in effect, already clamped to the configured range. `1.0` (clamped into the range) until `setPlaybackSpeed`. Survives `prepare`. |
 
 ### `suspend fun prepare(source: AudioSource)`
@@ -53,7 +53,7 @@ entirely after `release()`.
 | Member | Contract |
 |---|---|
 | `fun play()` | `Ready`/`Paused`/`Completed` → `Playing`, starts position polling. Ignored while already `Playing`. From `Completed`, or with the playhead sitting on the end (a seek onto the end of a completed source), it starts over from `0`, like `replay()`. |
-| `fun pause()` | `Playing` → `Paused(duration, position)`, stops polling. Ignored in any other state. |
+| `fun pause()` | `Playing` → `Paused(duration, currentPosition)`, stops polling. Ignored in any other state. |
 | `fun stop()` | Any playable → `Ready(duration)` with the playhead at `0`; the source stays loaded. |
 | `fun seekTo(positionMs: Long)` | Moves the playhead, clamped to `0..duration`. `Playing` stays `Playing`, `Paused` stays `Paused`, `Completed` becomes `Paused`. |
 | `fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position + amountMs)`; the addition saturates, so `Long.MAX_VALUE` lands on the end. While the duration is not known yet (`0`) there is no end to clamp to, so `seekForward`/`seekBackward` pass the target on (never below `0`) instead of rewinding to the start. |
