@@ -200,7 +200,9 @@ public interface DownloaderStorage {
     /**
      * Bytes [unit] occupies on disk (summed recursively for a directory), or 0 when absent. It does not
      * consult [isResourceAvailable]: a directory at a plain-file unit's path, which reads as unavailable, is
-     * still totalled, as is an archive tree whose marker is missing.
+     * still totalled, as is an archive tree whose marker is missing. A symbolic link at the unit's path is
+     * followed (it is the resource, as for [isResourceAvailable]); links inside a directory are not followed and
+     * add nothing.
      */
     public fun getResourceSize(unit: DownloadUnit): Long
 

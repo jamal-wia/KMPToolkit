@@ -308,7 +308,9 @@ internal class AndroidDownloaderStorage(
         )
         if (!target.exists()) return 0L
         return if (target.isDirectory) {
-            treeSize(target)
+            // A link AT the unit's path is the resource (as for isResourceAvailable); the tree walk does not follow a
+            // link, not even its own start, so it starts from the resolved path. Links inside the tree add nothing.
+            treeSize(File(target.canonicalPath))
         } else {
             target.length()
         }
@@ -678,30 +680,35 @@ internal class AndroidDownloaderStorage(
                 if (entryName.indexOf('\u0000') >= 0) {
                     throw ResourceIntegrityException("Archive of $unit has an entry name with a NUL character")
                 }
-                // Before anything touches the file system: canonicalFile, the layout check and mkdirs each walk
-                // the whole path, and a name of tens of thousands of segments would spend minutes or the heap on
-                // a path no file system holds. A name that climbs out (null) still fails in requireInside below.
-                val resolved: List<String>? = resolveEntrySegments(entryName)
-                if (resolved != null && entryPathBytes(dirPath, resolved) > MAX_ENTRY_PATH_BYTES) {
+                // The entry is laid out from its resolved segments and the raw name is never handed to the file system:
+                // File.canonicalFile on archive-controlled text refuses a string over PATH_MAX with a plain IOException
+                // on OpenJDK (and, most likely, on ART), which would be a storage failure instead of the archive's fault.
+                // A name that climbs out of the extraction directory resolves to null and is a traversal.
+                val resolved: List<String> = resolveEntrySegments(entryName)
+                    ?: throw ResourceIntegrityException("Archive of $unit has an entry that attempts path traversal: ${shortEntryName(entryName)}")
+                // Before anything touches the file system: the layout check and mkdirs each walk the whole path, and a
+                // name of tens of thousands of segments would spend minutes or the heap on a path no file system holds.
+                if (entryPathBytes(dirPath, resolved) > MAX_ENTRY_PATH_BYTES) {
                     throw ResourceIntegrityException(
                         "Archive of $unit cannot be extracted: '${shortEntryName(entryName)}' is longer than this file system allows",
                     )
                 }
-                // The canonical file, so `a/../x` is written as `x` (the lexical result) and a climbing name fails.
-                val output: File = File(dir, entryName).canonicalFile
+                // So `a/../x` is written as `x`. dirPath is canonical and the staging tree holds no links (the extractor
+                // writes only regular files and directories), so this is the path canonicalFile gave before.
+                val output: File = resolved.fold(File(dirPath)) { parent: File, segment: String -> File(parent, segment) }
                 if (entry.isDirectory) {
                     // An empty directory is part of the tree. A `./` or `/` entry is the target itself.
-                    if (output.path != dirPath) {
+                    if (resolved.isNotEmpty()) {
                         requireInside(unit, output, dirPath, entryName)
-                        requireLayout(unit, entryLayout, dir, entryName, isDirectory = true)
+                        requireLayout(unit, entryLayout, dir, resolved, isDirectory = true)
                         if (!output.isDirectory && !output.mkdirs() && !output.isDirectory) {
-                            throw ResourceIntegrityException("Archive of $unit cannot be extracted: '$entryName' cannot be created on this file system")
+                            throw ResourceIntegrityException("Archive of $unit cannot be extracted: '${shortEntryName(entryName)}' cannot be created on this file system")
                         }
                     }
                 } else {
-                    // Zip slip protection
+                    // Zip slip protection, a second lexical defence after the resolution above
                     requireInside(unit, output, dirPath, entryName)
-                    requireLayout(unit, entryLayout, dir, entryName, isDirectory = false)
+                    requireLayout(unit, entryLayout, dir, resolved, isDirectory = false)
                     output.parentFile?.mkdirs()
                     openOutput(unit, output, entryName).use { out: FileOutputStream ->
                         var bytesRead: Int
@@ -709,7 +716,7 @@ internal class AndroidDownloaderStorage(
                             out.write(copyBuffer, 0, bytesRead)
                         }
                     }
-                    logger.d { "Extracted: $entryName" }
+                    logger.d { "Extracted: ${shortEntryName(entryName)}" }
                 }
                 readingArchive(unit) { zipStream.closeEntry() }
                 entry = readingArchive(unit) { zipStream.nextEntry }
@@ -719,8 +726,7 @@ internal class AndroidDownloaderStorage(
     }
 
     /** Fails with [ResourceIntegrityException] when [entryName] cannot be laid out next to what was already extracted; see [ZipEntryLayout]. */
-    private fun requireLayout(unit: DownloadUnit, entryLayout: ZipEntryLayout, dir: File, entryName: String, isDirectory: Boolean) {
-        val segments: List<String> = resolveEntrySegments(entryName) ?: return
+    private fun requireLayout(unit: DownloadUnit, entryLayout: ZipEntryLayout, dir: File, segments: List<String>, isDirectory: Boolean) {
         if (segments.isEmpty()) return
         val reason: String? = entryLayout.conflict(segments, isDirectory) { path: String -> File(dir, path).exists() }
         if (reason != null) throw ResourceIntegrityException("Archive of $unit cannot be extracted: $reason")
@@ -735,7 +741,7 @@ internal class AndroidDownloaderStorage(
     } catch (e: FileNotFoundException) {
         val reason: String = e.message.orEmpty().lowercase()
         if (UNLAYABLE_REASONS.any { it in reason }) {
-            throw ResourceIntegrityException("Archive of $unit cannot be extracted: '$entryName' cannot be created on this file system (${e.message})", e)
+            throw ResourceIntegrityException("Archive of $unit cannot be extracted: '${shortEntryName(entryName)}' cannot be created on this file system (${e.message})", e)
         }
         throw e
     }
@@ -743,7 +749,7 @@ internal class AndroidDownloaderStorage(
     private fun requireInside(unit: DownloadUnit, output: File, dirPath: String, entryName: String) {
         // path-hygiene-ignore: PH1 a prefix check on canonical host paths built with the same separator; java.nio.file.Path is missing below API 26
         if (!output.path.startsWith(dirPath + File.separator)) {
-            throw ResourceIntegrityException("Archive of $unit has an entry that attempts path traversal: $entryName")
+            throw ResourceIntegrityException("Archive of $unit has an entry that attempts path traversal: ${shortEntryName(entryName)}")
         }
     }
 

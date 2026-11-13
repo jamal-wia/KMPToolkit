@@ -32,14 +32,6 @@ abstract class ZipRawNameRound11Contract {
     /** The longest path in UTF-8 bytes the platform's storage lets an entry have (Android 4,095, iOS 1,023). */
     protected abstract val entryPathLimit: Int
 
-    /**
-     * Called first by every test with a raw name over 4,096 bytes. The Android storage resolves the RAW name with
-     * `File.canonicalFile`, and an OpenJDK host refuses such a string with a plain IOException ("File name too long")
-     * where the JetBrains runtime the build normally tests with does not (B round 11 suspect r11-S1, in the report).
-     * The Android subclass skips these tests on such a host, so the suite does not depend on the vendor of the JDK.
-     */
-    protected open fun assumeLongRawNamesCanBeResolved() {}
-
     @AfterTest
     fun cleanUp() {
         deleteTestDirectory()
@@ -88,19 +80,16 @@ abstract class ZipRawNameRound11Contract {
 
     @Test
     fun `a climbing entry name of more than four thousand bytes fails the commit as an integrity failure`() = runTest {
-        assumeLongRawNamesCanBeResolved()
         assertCleanRefusal("climbinglong", "../" + "x".repeat(4_200))
     }
 
     @Test
     fun `a name that climbs deep below the top and out again is a traversal whatever its length`() = runTest {
-        assumeLongRawNamesCanBeResolved()
         assertCleanRefusal("climbingdeep", "a/".repeat(2_100) + "../".repeat(2_200) + "f")
     }
 
     @Test
     fun `a long name that resolves to a short path is extracted whole or fails as an integrity failure`() = runTest {
-        assumeLongRawNamesCanBeResolved()
         val storage: DownloaderStorage = newStorage()
         val unit = ArchiveUnit("resolvesshort")
         val name: String = "a/../".repeat(2_000) + "f.txt"
@@ -121,7 +110,6 @@ abstract class ZipRawNameRound11Contract {
 
     @Test
     fun `a name padded with current directory segments beyond the path limit is extracted whole or fails as an integrity failure`() = runTest {
-        assumeLongRawNamesCanBeResolved()
         val storage: DownloaderStorage = newStorage()
         val unit = ArchiveUnit("dotpadded")
         val name: String = "./".repeat(2_100) + "f.txt"
@@ -136,6 +124,32 @@ abstract class ZipRawNameRound11Contract {
             assertEquals(TempFileState.None, storage.tempFileState(unit))
             assertFalse(pathExists(stagingOf(storage, unit)))
         }
+    }
+
+    @Test
+    fun `a long name that resolves to a short path is extracted under its resolved name`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("resolvesshortstrict")
+        stage(storage, unit, "a/../".repeat(2_000) + "f.txt")
+
+        storage.commitResource(unit)
+
+        assertEquals("payload\n", readFile(TestPaths.join(storage.getResourcePath(unit), "f.txt"))?.decodeToString())
+        assertEquals(TempFileState.None, storage.tempFileState(unit), "a committed archive leaves no temp file")
+        assertFalse(pathExists(stagingOf(storage, unit)), "no staging directory may stay behind")
+    }
+
+    @Test
+    fun `a name padded with current directory segments beyond the path limit is extracted under its resolved name`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("dotpaddedstrict")
+        stage(storage, unit, "./".repeat(2_100) + "f.txt")
+
+        storage.commitResource(unit)
+
+        assertEquals("payload\n", readFile(TestPaths.join(storage.getResourcePath(unit), "f.txt"))?.decodeToString())
+        assertEquals(TempFileState.None, storage.tempFileState(unit), "a committed archive leaves no temp file")
+        assertFalse(pathExists(stagingOf(storage, unit)), "no staging directory may stay behind")
     }
 
     @Test

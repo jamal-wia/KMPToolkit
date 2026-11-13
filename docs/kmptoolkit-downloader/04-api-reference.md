@@ -224,7 +224,8 @@ counts, a directory or a dangling link does not. Android tests `File.isFile`, so
 reads as unavailable; iOS tests that the path exists and is not a directory, so one of those reads as available
 (no download produces such a node). `getResourceSize` does not consult availability: it totals a directory found
 at a plain-file unit's path, which reads as unavailable, the same way it totals an archive tree whose marker is
-missing.
+missing. A symbolic link at the unit's path is followed (it is the resource, as for `isResourceAvailable`); links
+inside a directory are not followed and add nothing.
 
 `TempFileState`: `sealed interface` — `None` (no file, or an empty one), `Partial` (an unfinished
 transfer, resumed from `getTempFileSize`), `Complete` (marked by `markTempFileComplete`; the only

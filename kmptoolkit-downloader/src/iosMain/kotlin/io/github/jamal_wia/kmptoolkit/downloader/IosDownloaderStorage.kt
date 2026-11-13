@@ -53,6 +53,7 @@ import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
 import platform.Foundation.NSURLVolumeSupportsCaseSensitiveNamesKey
 import platform.Foundation.decomposedStringWithCanonicalMapping
+import platform.Foundation.stringByResolvingSymlinksInPath
 import platform.Foundation.timeIntervalSince1970
 import platform.Foundation.NSUserDomainMask
 import platform.posix.EISDIR
@@ -436,8 +437,11 @@ internal class IosDownloaderStorage(
             return 0L
         }
         if (!fileExists(path)) return 0L
+        // fileExists follows links, so a dangling link is 0 above. A link AT the unit's path is the resource (as for
+        // isResourceAvailable): its size is the size of what it points to. Links inside a tree are not followed.
+        val target: String = (path as NSString).stringByResolvingSymlinksInPath
         val fm: NSFileManager = NSFileManager.defaultManager
-        val attributes: Map<Any?, *>? = fm.attributesOfItemAtPath(path, error = null)
+        val attributes: Map<Any?, *>? = fm.attributesOfItemAtPath(target, error = null)
 
         val isDir: Boolean = (attributes?.get(NSFileType) as? String) == NSFileTypeDirectory
 
@@ -446,12 +450,12 @@ internal class IosDownloaderStorage(
         }
 
         // Recursive enumeration for directories
-        val enumerator: NSDirectoryEnumerator = fm.enumeratorAtPath(path) ?: return 0L
+        val enumerator: NSDirectoryEnumerator = fm.enumeratorAtPath(target) ?: return 0L
         var total = 0L
         while (true) {
             val next: Any = enumerator.nextObject() ?: break
             val relative: String = next as? String ?: continue
-            val full = "$path/$relative"
+            val full = "$target/$relative"
             val attrs: Map<Any?, *>? = fm.attributesOfItemAtPath(full, error = null)
 
             val type: String? = attrs?.get(NSFileType) as? String
@@ -921,9 +925,12 @@ internal class IosDownloaderStorage(
         var size: Long = 0L
     }
 
-    /** Logs and throws: the archive cannot be extracted as delivered (bytes that are not what a valid archive holds). */
+    /**
+     * Logs and throws: the archive cannot be extracted as delivered (bytes that are not what a valid archive holds).
+     * The entry name is cut for the log line and the message ([shortEntryName]): it can be 64 kB long and hold line breaks.
+     */
     private fun zipFail(entry: String?, reason: String): Nothing {
-        val message: String = if (entry == null) "ZIP archive: $reason" else "ZIP entry '$entry': $reason"
+        val message: String = if (entry == null) "ZIP archive: $reason" else "ZIP entry '${shortEntryName(entry)}': $reason"
         logger.e { message }
         throw ResourceIntegrityException(message)
     }
@@ -1019,7 +1026,7 @@ internal class IosDownloaderStorage(
                 if (segments.isEmpty() && !isDirectory) zipFail(fileName, "the name has no file part")
                 // Before the layout check and any directory is created: a path this long never fits a Darwin volume.
                 if (entryPathBytes(targetDir, segments) > MAX_ENTRY_PATH_BYTES) {
-                    zipFail(shortEntryName(fileName), "the path is longer than this volume allows")
+                    zipFail(fileName, "the path is longer than this volume allows")
                 }
                 if (segments.isNotEmpty()) {
                     val conflict: String? = entryLayout.conflict(segments, isDirectory) { path: String ->
