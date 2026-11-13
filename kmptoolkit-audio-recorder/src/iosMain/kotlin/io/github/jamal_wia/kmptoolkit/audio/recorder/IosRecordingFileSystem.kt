@@ -9,7 +9,6 @@ import platform.Foundation.NSBundle
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
-import platform.Foundation.NSURL
 import platform.Foundation.NSUserDomainMask
 
 /** [RecordingFileSystem] over `kmptoolkit-files` and `NSFileManager`, rooted at the app's `Documents` directory. */
@@ -31,16 +30,23 @@ internal class IosRecordingFileSystem(
     override fun applicationIdentifier(): String =
         NSBundle.mainBundle.bundleIdentifier ?: FALLBACK_IDENTIFIER
 
+    // Both path calls are plain string work, not NSURL: NSURL keeps a repeated separator, answers the file name
+    // decomposed (NFD, a different string from the precomposed name the caller passed) and gives "/.." as the
+    // parent of the root. The contract is the one AndroidRecordingFileSystem keeps through java.io.File: a
+    // trailing or repeated separator is dropped, the name is returned exactly as given, the root has no parent.
     override fun resolve(directory: String, name: String): String =
-        NSURL.fileURLWithPath(directory).URLByAppendingPathComponent(name)?.path
-            ?: "$directory/$name"
+        collapseSeparators(if (name.isEmpty()) directory else "$directory/$name")
 
     override fun parentOf(path: String): String? {
-        // Short-circuited rather than delegated to NSURL: URLByDeletingLastPathComponent resolves a
-        // bare file name against the process's working directory and hands back a real path, which
-        // would silently answer "yes, it has a parent" for something the contract says has none.
-        if (!path.contains('/')) return null
-        return NSURL.fileURLWithPath(path).URLByDeletingLastPathComponent?.path
+        val clean: String = collapseSeparators(path)
+        val lastSeparator: Int = clean.lastIndexOf('/')
+        return when {
+            // A bare file name has no directory part; NSURL would resolve it against the working directory instead.
+            lastSeparator < 0 -> null
+            lastSeparator > 0 -> clean.substring(0, lastSeparator)
+            clean.length == 1 -> null
+            else -> "/"
+        }
     }
 
     override fun ensureWritableDirectory(path: String): Boolean {
@@ -65,6 +71,16 @@ internal class IosRecordingFileSystem(
     override fun delete(path: String) {
         // Best effort by contract. Not recursive: a non-empty directory that replaced the file is left alone.
         files.delete(path)
+    }
+
+    /** [path] with every run of `/` made one and a trailing `/` dropped (the root `/` keeps its own). */
+    private fun collapseSeparators(path: String): String {
+        val collapsed: StringBuilder = StringBuilder(path.length)
+        for (character: Char in path) {
+            if (character != '/' || collapsed.isEmpty() || collapsed.last() != '/') collapsed.append(character)
+        }
+        if (collapsed.length > 1 && collapsed.last() == '/') collapsed.setLength(collapsed.length - 1)
+        return collapsed.toString()
     }
 
     private companion object {

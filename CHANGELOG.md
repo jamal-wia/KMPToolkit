@@ -81,7 +81,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-downloader` now depends on `kmptoolkit-files` (its lock registries, the Android tree walk, the no-replace
   rename and the SQLite sidecar names). The on-disk format and directory layout do not change; a unit whose id has an unpaired surrogate now
   gets hashed file names (Android could not create files named by such an id before).
-- `kmptoolkit-audio-recorder` now depends on `kmptoolkit-files`. No file name or directory layout changes.
+- `kmptoolkit-audio-recorder` now depends on `kmptoolkit-files`. No file name or directory layout changes. It creates
+  its directories through it (`createDirectories`), then checks that the path is a directory with links followed and
+  writable: a link to a directory is accepted, a dangling link is not.
+- `kmptoolkit-audio-recorder`: `RecordingStorage(directoryPath = ...)` and an explicit output path must be absolute for
+  the file system the code runs on. On a Windows JVM, where host tests of an Android module run, a `/...` path is
+  drive-relative and is rejected, like a blank or a relative one; Android and iOS are unchanged.
+  `kmptoolkit-audio-recorder-testing`: `FakeAudioRecorder` accepts a host-absolute `directory` and explicit path as well
+  as a POSIX-style one.
 - `kmptoolkit-audio-recorder`: `stop()` fails with `EngineFailure(STOP)` and the state `Failed(error, outputPath)` when the
   output file is no longer a regular file once the encoder has finished (deleted, or replaced by a directory);
   `Completed` never names such a path.
@@ -149,6 +156,10 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   supersedes the parked row before that retry succeeds still withdraws it, as the conflict policy says.
 - `kmptoolkit-audio-recorder` (iOS): deleting a recording no longer removes a directory tree that replaced the output
   file.
+- `kmptoolkit-audio-recorder` (iOS): a generated path no longer keeps a repeated or several trailing separators of
+  `RecordingStorage.directoryPath`, and a file name is no longer returned in decomposed Unicode form instead of the form
+  the caller wrote, so a path is the same string as on Android (`FakeAudioRecorder` already did this). The directory
+  part of the root `/` is none, not `/..`.
 - `kmptoolkit-audio-recorder`: a recording the system ends (storage low, an interruption, a silenced input) no longer
   ends as `Interrupted` for a file that was deleted or replaced by a directory meanwhile; it fails as
   `Failed(RecordingLost(reason, cause), outputPath)` and keeps the path, as `stop()` does for the same situation.

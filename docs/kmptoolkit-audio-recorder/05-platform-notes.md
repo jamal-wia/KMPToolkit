@@ -157,6 +157,8 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
   the platform cannot answer for is reported as unknown, and an unknown never blocks a recording.
   The recorder reads it through `kmptoolkit-files` (`FileAccess.freeSpaceBytes`), which does the same
   `NSFileSystemFreeSize` read.
+- **Generated paths** are joined as plain strings, so a trailing or repeated `/` of `directoryPath` is dropped
+  and a file name keeps the exact form you gave it, the same as on Android. The directory part of `/` is none.
 - **Deleting a recording is not recursive.** Discarding a file (`cancel`, `release`) removes a regular
   file, a link or an empty directory at the path; a non-empty directory that replaced the file is left
   alone. Earlier versions removed such a directory tree on iOS.
