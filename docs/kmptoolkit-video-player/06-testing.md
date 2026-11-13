@@ -167,6 +167,8 @@ reported from inside one of the player's own calls. On Android, Robolectric
 tests run the real Media3 engine over Media3's test ExoPlayer (fake renderers, a fake clock) and fake
 media sources: loading, completion, looping, buffering on seek, the picture-size mapping, settings,
 marshalling from other threads, `release` versus `dispose`, and the source-to-URI and header mapping.
-What they cannot cover without a device: real decoding, a real network stream and HLS end to end,
-and a playback failure *after* a successful load (Media3's fakes offer no clean way to inject one) —
-that path is covered by the common tests against the engine contract.
+A playback failure *after* a successful load is covered there too: a `FakeRenderer` subclass that
+throws an `ExoPlaybackException` once told to, installed through `TestExoPlayerBuilder.setRenderers`,
+makes Media3's test player report a real `onPlayerError` on the looper (`Media3MidPlaybackFailureR8AdversarialTest`:
+one engine failure carrying the original `PlaybackException`, and the player ending in `Error` with it).
+What they cannot cover without a device: real decoding, and a real network stream and HLS end to end.

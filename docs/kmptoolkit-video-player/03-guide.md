@@ -144,10 +144,9 @@ player.bufferedPositionFlow // how far ahead the platform has data, in ms — a 
 ```
 
 - `isBufferingFlow` is reported for a **loaded** source only. Waiting for data while loading is what
-  `Preparing` already says, so it is not shown then. A stall the engine reports in the instant between
-  its load succeeding and `prepare` publishing `Ready` is the exception: it is kept and shown with
-  `Ready`. It is `false` whenever the player is idle, has
-  completed (a stall reported after the end is ignored), or has failed.
+  `Preparing` already says, so it is not shown then. A stall the engine reports before `Ready` is
+  published is the exception: it is kept and shown with `Ready`. It is `false` whenever the player is
+  idle, has completed (a stall reported after the end is ignored), or has failed.
 - `bufferedPositionFlow` is polled together with the playhead, only while `Playing`, and snapshotted
   when a source finishes loading and on `pause()`. It is `0` when nothing is loaded; for a local file
   it is the duration.
