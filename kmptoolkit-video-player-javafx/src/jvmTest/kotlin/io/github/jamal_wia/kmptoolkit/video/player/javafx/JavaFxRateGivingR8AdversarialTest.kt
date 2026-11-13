@@ -55,8 +55,8 @@ class JavaFxRateGivingR8AdversarialTest {
 
     private fun nativePlayer(e: JavaFxVideoEngine): MediaPlayer {
         val pb: Any = playback(e)
-        val f = pb.javaClass.getDeclaredField("player").apply { isAccessible = true }
-        return f.get(pb) as MediaPlayer
+        val f = pb.javaClass.getDeclaredField("native").apply { isAccessible = true }
+        return (f.get(pb) as JavaFxNativePlayer).mediaPlayer
     }
 
     private fun longField(e: JavaFxVideoEngine, name: String): Long {

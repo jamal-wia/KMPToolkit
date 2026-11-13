@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.update
  * must still not run again. A row removed for good, by a withdrawal or from outside every engine, leaves a leaked entry
  * of about a hundred bytes. The time cost of such an entry is bounded separately: the drain's sweep of held rows reads
  * an entry whose row it found absent only once per heartbeat interval ([RowLedger.heldOutOfRotation]), not on every
- * pass.
+ * pass; a row that comes back is seen within two heartbeat intervals of the last re-check.
  *
  * Residual: a row of another store with the same id and fingerprint (a custom `idGenerator` reusing ids with identical
  * content and creation time) is taken for the same item.

@@ -5,18 +5,6 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoFrame
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
-import javafx.animation.AnimationTimer
-import javafx.animation.PauseTransition
-import javafx.scene.Group
-import javafx.scene.Scene
-import javafx.scene.SnapshotParameters
-import javafx.scene.image.PixelFormat
-import javafx.scene.image.WritableImage
-import javafx.scene.media.Media
-import javafx.scene.media.MediaPlayer
-import javafx.scene.media.MediaView
-import javafx.scene.paint.Color
-import javafx.util.Duration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,9 +18,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * One loaded source: a `MediaPlayer`, the off-screen `MediaView` it paints into, and the pulse that
- * copies that view into memory. Every JavaFX type the engine uses lives in this file, so
- * [JavaFxVideoEngine] loads on a classpath without OpenJFX.
+ * The playback logic over one loaded source: what to give the native player and when. The native player itself
+ * (a `MediaPlayer`, the off-screen `MediaView` it paints into, and the pulse that copies that view into memory)
+ * is a [NativePlayer], and the FX thread with its clock and timers is an [FxHost]; every JavaFX type the engine
+ * uses lives in `JavaFxNativePlayer.kt`, so this file and [JavaFxVideoEngine] load on a classpath without OpenJFX.
  *
  * All state is confined to the FX application thread; the public methods may be called from any
  * thread and hop there themselves. Nothing here decides whether an event still matters — [Sink]
@@ -40,7 +29,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 @OptIn(ToolkitInternalApi::class)
 internal class FxPlayback private constructor(
-    private val media: Media,
+    private val native: NativePlayer,
+    private val host: FxHost,
     private val sink: Sink,
     maxFrameRate: Int,
 ) {
@@ -62,21 +52,10 @@ internal class FxPlayback private constructor(
         fun onFrame(frame: VideoFrame)
     }
 
-    private val player: MediaPlayer = MediaPlayer(media)
-    private val view: MediaView = MediaView(player)
     private val minFrameIntervalNanos: Long = 1_000_000_000L / maxFrameRate
-    // Transparent, so a snapshot taken before the view holds any decoded picture comes back with
-    // alpha 0 and is recognisably "nothing yet" — a decoded video picture is always opaque.
-    private val snapshotParameters: SnapshotParameters =
-        SnapshotParameters().apply { fill = Color.TRANSPARENT }
-
-    // Keeps the view in a scene graph, so a snapshot renders it the way a window would.
-    @Suppress("unused")
-    private val scene: Scene = Scene(Group(view))
 
     /** Completes once, with READY or the first error; later errors go to [Sink.onFailed]. */
     private val ready: CompletableDeferred<Unit> = CompletableDeferred()
-    private var image: WritableImage? = null
 
     /**
      * Where the next snapshot is copied. Handed over with the frame it becomes and never touched
@@ -168,84 +147,91 @@ internal class FxPlayback private constructor(
     /** Whether [pulse] runs. FX-thread confined, like everything here. */
     private var pulsing: Boolean = false
 
-    private val pulse: AnimationTimer = object : AnimationTimer() {
-        override fun handle(now: Long) = onPulse(now)
-    }
-
     init {
-        player.setOnReady {
-            reportTimes()
-            reportSize()
-            // The first picture is decoded around READY, not necessarily before it: the pulse keeps
-            // trying until a snapshot is opaque (see awaitingPicture).
-            startPulse()
-            ready.complete(Unit)
-        }
-        player.setOnError { fail(player.error ?: media.error) }
-        media.setOnError { fail(media.error ?: player.error) }
-        player.setOnEndOfMedia {
-            // Fired at the end of every cycle, including while cycleCount is INDEFINITE and JavaFX
-            // is already starting the next one — that is not an end. A handler JavaFX queued before
-            // dispose() can still run after it, and must then do nothing.
-            if (disposed) return@setOnEndOfMedia
-            if (looping) {
-                // The native player starts the next cycle at normal speed (macOS), so a speed other than 1 is lost
-                // here unless it is given again.
-                deferRate(afterWrap = true)
-                return@setOnEndOfMedia
-            }
-            atEnd = true
-            playIssued = false
-            settleNudge?.let { player.rate = it }
-            settleNudge = null
-            // JavaFX leaves its status at PLAYING after the last cycle ends. The player reports
-            // Completed, and a seek from there reports Paused — so JavaFX must be paused too, or a
-            // seek would resume playback on a backend that honours the status, and the pulse
-            // would keep copying frames of a picture that does not move.
-            player.pause()
-            reportTimes()
-            sink.onCompleted()
-        }
-        player.statusProperty().addListener { _, _, status ->
-            setBuffering(status == MediaPlayer.Status.STALLED)
-            // JavaFX reports PLAYING some time after play(): a pulse in between may already have
-            // stopped, and a stall longer than the refresh window stops it too.
-            if (status == MediaPlayer.Status.PLAYING) {
+        native.setEvents(object : NativeEvents {
+            override fun onReady() {
+                reportTimes()
+                reportSize()
+                // The first picture is decoded around READY, not necessarily before it: the pulse keeps
+                // trying until a snapshot is opaque (see awaitingPicture).
                 startPulse()
+                ready.complete(Unit)
             }
-        }
-        player.currentTimeProperty().addListener { _, _, _ ->
-            applyDeferredRate()
-            applyResumeRate()
-            reportTimes()
-            if (player.status != MediaPlayer.Status.PLAYING) refreshPicture()
-        }
-        player.bufferProgressTimeProperty().addListener { _, _, _ -> reportTimes() }
-        media.durationProperty().addListener { _, _, _ -> reportTimes() }
-        media.widthProperty().addListener { _, _, _ -> reportSize() }
-        media.heightProperty().addListener { _, _, _ -> reportSize() }
+
+            override fun onPlayerError() = fail(native.playerError ?: native.mediaError)
+
+            override fun onMediaError() = fail(native.mediaError ?: native.playerError)
+
+            override fun onEndOfMedia() {
+                // Fired at the end of every cycle, including while cycleCount is INDEFINITE and JavaFX
+                // is already starting the next one — that is not an end. A handler JavaFX queued before
+                // dispose() can still run after it, and must then do nothing.
+                if (disposed) return
+                if (looping) {
+                    // The native player starts the next cycle at normal speed (macOS), so a speed other than 1 is lost
+                    // here unless it is given again.
+                    deferRate(afterWrap = true)
+                    return
+                }
+                atEnd = true
+                playIssued = false
+                settleNudge?.let { native.rate = it }
+                settleNudge = null
+                // JavaFX leaves its status at PLAYING after the last cycle ends. The player reports
+                // Completed, and a seek from there reports Paused — so JavaFX must be paused too, or a
+                // seek would resume playback on a backend that honours the status, and the pulse
+                // would keep copying frames of a picture that does not move.
+                native.pause()
+                reportTimes()
+                sink.onCompleted()
+            }
+
+            override fun onStatus(status: NativeStatus) {
+                setBuffering(status == NativeStatus.STALLED)
+                // JavaFX reports PLAYING some time after play(): a pulse in between may already have
+                // stopped, and a stall longer than the refresh window stops it too.
+                if (status == NativeStatus.PLAYING) {
+                    startPulse()
+                }
+            }
+
+            override fun onCurrentTime() {
+                applyDeferredRate()
+                applyResumeRate()
+                reportTimes()
+                if (native.status != NativeStatus.PLAYING) refreshPicture()
+            }
+
+            override fun onBufferProgress() = reportTimes()
+
+            override fun onDuration() = reportTimes()
+
+            override fun onSize() = reportSize()
+
+            override fun onPulse(nowNanos: Long) = this@FxPlayback.onPulse(nowNanos)
+        })
         // Anything already failed before the handlers were installed.
-        (player.error ?: media.error)?.let { fail(it) }
+        (native.playerError ?: native.mediaError)?.let { fail(it) }
     }
 
-    fun start(): Unit = FxThread.post {
+    fun start(): Unit = host.post {
         if (disposed) return@post
         if (atEnd) {
             atEnd = false
-            player.seek(player.startTime)
-            lastNativeSeekNanos = System.nanoTime()
+            native.seek(native.startTimeMs)
+            lastNativeSeekNanos = host.nanoTime()
             seekedSincePlay = true
         }
         // Keeps the pulse alive until the status turns PLAYING (the listener restarts it then).
         refreshPicture()
-        val rate: Double = deferredRate ?: player.rate
+        val rate: Double = deferredRate ?: native.rate
         val resuming: Boolean = !playIssued
         playIssued = true
         if (!resuming || rate == 1.0) {
             val hadSeek: Boolean = seekedSincePlay
-            player.play()
+            native.play()
             seekedSincePlay = false
-            playIssuedAtNanos = if (resuming && !hadSeek) System.nanoTime() else 0L
+            playIssuedAtNanos = if (resuming && !hadSeek) host.nanoTime() else 0L
             return@post
         }
         deferredRate = null
@@ -259,30 +245,30 @@ internal class FxPlayback private constructor(
             settleNotBeforeNanos = 0L
             settleFrom = Double.NaN
             val generation: Long = ++playGeneration
-            val wait: Long = IDLE_RATE_GAP_NANOS - (System.nanoTime() - idleRateWriteNanos)
+            val wait: Long = IDLE_RATE_GAP_NANOS - (host.nanoTime() - idleRateWriteNanos)
             if (wait > 0L) {
-                PauseTransition(Duration.millis(wait / 1_000_000.0 + 1.0)).apply {
-                    setOnFinished {
-                        if (disposed || !playIssued || generation != playGeneration) return@setOnFinished
-                        player.play()
-                        playIssuedAtNanos = System.nanoTime()
-                    }
-                    play()
+                host.after(wait / 1_000_000.0 + 1.0) {
+                    if (disposed || !playIssued || generation != playGeneration) return@after
+                    native.play()
+                    playIssuedAtNanos = host.nanoTime()
                 }
             } else {
-                player.play()
-                playIssuedAtNanos = System.nanoTime()
+                native.play()
+                playIssuedAtNanos = host.nanoTime()
             }
             return@post
         }
         // A native seek is already posted (the caller's seek, or the restart after the end), or the playhead stands at
         // the start, where a seek to it moves nothing (the first play, a replay): a rate change right after a native
-        // seek is safe and effective, so the speed is given right after play() as the old nudge, away and back.
+        // seek is safe and effective when it follows a play() issued after the seek, while the native player is not yet
+        // playing, so the speed is given right after play() as the old nudge, away and back. That is not the case of
+        // [setSpeed] on a player that is already playing when the seek is posted (see [lastNativeSeekNanos]): there the
+        // same rate change can freeze the playhead. Both are true for different states: do not merge the two paths.
         if (!seekedSincePlay) {
-            player.seek(player.currentTime)
-            lastNativeSeekNanos = System.nanoTime()
+            native.seek(native.currentTimeMs)
+            lastNativeSeekNanos = host.nanoTime()
         }
-        player.play()
+        native.play()
         seekedSincePlay = false
         playIssuedAtNanos = 0L
         pendingNudge = rate
@@ -290,7 +276,7 @@ internal class FxPlayback private constructor(
         // behind a nudge posted one task later (post() runs inline only when nothing is queued), found the nudge already
         // given and wrote the speed as a third rate change right after play(), which can freeze the playhead on macOS.
         // One more hop puts that setSpeed in front of the nudge, where it replaces it.
-        FxThread.postLater { FxThread.postLater { giveNudge() } }
+        host.postLater { host.postLater { giveNudge() } }
     }
 
     /** Gives the native player the speed [start] left pending, as the old nudge: away and back. */
@@ -300,48 +286,48 @@ internal class FxPlayback private constructor(
         if (disposed) return
         if (!playIssued) {
             // Paused again meanwhile: the property only keeps the speed for the next start.
-            player.rate = rate
+            native.rate = rate
             return
         }
-        player.rate = 1.0
-        player.rate = rate
+        native.rate = 1.0
+        native.rate = rate
     }
 
-    fun pause(): Unit = FxThread.post {
+    fun pause(): Unit = host.post {
         if (disposed) return@post
         playIssued = false
         playGeneration++
         settleNudge?.let {
-            if (player.rate != it) idleRateWriteNanos = System.nanoTime()
-            player.rate = it
+            if (native.rate != it) idleRateWriteNanos = host.nanoTime()
+            native.rate = it
         }
         settleNudge = null
-        player.pause()
+        native.pause()
     }
 
     fun seekTo(positionMs: Long) {
         val ticket: Long = latestSeek.updateAndGet { it + 1 }
-        FxThread.post {
+        host.post {
             // A newer seek is queued behind this one and overrides its position: skip the native work.
-            // The newer ticket is taken before its block is posted, and FxThread.post runs a block inline
+            // The newer ticket is taken before its block is posted, and host.post runs a block inline
             // only when nothing is queued, so a block that sees a newer ticket always has that newer
             // block still behind it. onSeekApplied still answers every seek, a skipped one included.
             if (!disposed && ticket == latestSeek.value) {
                 atEnd = false
-                player.seek(Duration.millis(positionMs.toDouble()))
-                lastNativeSeekNanos = System.nanoTime()
+                native.seek(positionMs.toDouble())
+                lastNativeSeekNanos = host.nanoTime()
                 seekedSincePlay = true
                 if (settleNudge != null) {
                     // Same as below: the playhead jumped, wait again from the new place.
                     settleFrom = Double.NaN
-                    settleNotBeforeNanos = System.nanoTime() + SEEK_RATE_SETTLE_NANOS
+                    settleNotBeforeNanos = host.nanoTime() + SEEK_RATE_SETTLE_NANOS
                 }
                 if (deferredRate != null) {
                     // The playhead jumped without the native player having settled, and a rate change within about
                     // 100 ms of a native seek can make the playhead stand still: wait again, from the new place.
                     deferredFrom = Double.NaN
                     deferredAfterWrap = false
-                    deferredNotBeforeNanos = System.nanoTime() + SEEK_RATE_SETTLE_NANOS
+                    deferredNotBeforeNanos = host.nanoTime() + SEEK_RATE_SETTLE_NANOS
                 }
                 refreshPicture()
             }
@@ -349,15 +335,15 @@ internal class FxPlayback private constructor(
         }
     }
 
-    fun setSpeed(speed: Float): Unit = FxThread.post {
+    fun setSpeed(speed: Float): Unit = host.post {
         if (disposed) return@post
         val rate: Double = speed.toDouble()
         when {
             pendingNudge != null -> pendingNudge = rate
             settleNudge != null -> settleNudge = rate
             deferredRate != null -> deferredRate = rate
-            rate != player.rate && rate != 1.0 && playIssued && playIssuedAtNanos != 0L &&
-                System.nanoTime() - playIssuedAtNanos < FRESH_PLAY_NANOS -> {
+            rate != native.rate && rate != 1.0 && playIssued && playIssuedAtNanos != 0L &&
+                host.nanoTime() - playIssuedAtNanos < FRESH_PLAY_NANOS -> {
                 // A play() has just been issued (the shared player gives the speed right after start(), so a
                 // speed changed while paused arrives here): a rate change right after a plain play() can freeze
                 // the playhead on macOS. Give it the way start() gives a resume at a speed, once the native
@@ -365,21 +351,21 @@ internal class FxPlayback private constructor(
                 playIssuedAtNanos = 0L
                 if (nearStart()) {
                     if (!seekedSincePlay) {
-                        player.seek(player.currentTime)
-                        lastNativeSeekNanos = System.nanoTime()
+                        native.seek(native.currentTimeMs)
+                        lastNativeSeekNanos = host.nanoTime()
                     }
-                    player.play()
+                    native.play()
                     seekedSincePlay = false
-                    player.rate = 1.0
-                    player.rate = rate
+                    native.rate = 1.0
+                    native.rate = rate
                 } else {
                     settleNudge = rate
                     settleNotBeforeNanos = 0L
                     settleFrom = Double.NaN
                 }
             }
-            rate != player.rate && playIssued && lastNativeSeekNanos != 0L &&
-                System.nanoTime() - lastNativeSeekNanos < SEEK_RATE_SETTLE_NANOS -> {
+            rate != native.rate && playIssued && lastNativeSeekNanos != 0L &&
+                host.nanoTime() - lastNativeSeekNanos < SEEK_RATE_SETTLE_NANOS -> {
                 // A native seek was posted a moment ago on a player that is playing (replay() or seekTo() while
                 // Playing, or a stop() followed by a play()): a rate written now can leave the native player PLAYING
                 // with the playhead standing at the seek target for good (macOS, AVFoundation). Keep the property as
@@ -392,20 +378,20 @@ internal class FxPlayback private constructor(
                 deferredNotBeforeNanos = lastNativeSeekNanos + SEEK_RATE_SETTLE_NANOS
             }
             else -> {
-                if (!playIssued && player.rate != rate) idleRateWriteNanos = System.nanoTime()
-                player.rate = rate
+                if (!playIssued && native.rate != rate) idleRateWriteNanos = host.nanoTime()
+                native.rate = rate
             }
         }
     }
 
-    fun setVolume(volume: Float): Unit = FxThread.post {
-        if (!disposed) player.volume = volume.toDouble()
+    fun setVolume(volume: Float): Unit = host.post {
+        if (!disposed) native.volume = volume.toDouble()
     }
 
-    fun setLooping(looping: Boolean): Unit = FxThread.post {
+    fun setLooping(looping: Boolean): Unit = host.post {
         if (disposed) return@post
         this.looping = looping
-        player.cycleCount = if (looping) MediaPlayer.INDEFINITE else 1
+        native.cycleCount = if (looping) CYCLE_INDEFINITE else 1
     }
 
     /** What JavaFX currently holds, read on the FX thread — for tests; settings have no getter. */
@@ -417,17 +403,17 @@ internal class FxPlayback private constructor(
         val pulsing: Boolean,
     )
 
-    suspend fun inspect(): Inspection = FxThread.call {
-        Inspection(player.volume, player.rate, player.cycleCount, player.status.toString(), pulsing)
+    suspend fun inspect(): Inspection = host.call {
+        Inspection(native.volume, native.rate, native.cycleCount, native.status.toString(), pulsing)
     }
 
     /** Stops the pulse and frees the native player. Idempotent; any thread. */
-    fun dispose(): Unit = FxThread.post {
+    fun dispose(): Unit = host.post {
         if (disposed) return@post
         disposed = true
         stopPulse()
         ready.cancel()
-        view.mediaPlayer = null
+        native.detachView()
         // OpenJFX race: MediaPlayer.dispose() sets DISPOSED, but a status update its native side had
         // already queued (onPlaying / onPause) can run afterwards and overwrite it, after which the
         // guards in seek() and pause() pass on a player whose native half is gone. A queued
@@ -435,10 +421,9 @@ internal class FxPlayback private constructor(
         // handler. With one cycle and no handler an already queued end takes the plain non-looping
         // branch, which never seeks. Plain property writes on a player that is not yet disposed. Do
         // not "simplify" this away.
-        player.onEndOfMedia = null
-        player.cycleCount = 1
-        player.dispose()
-        image = null
+        native.clearEndOfMedia()
+        native.cycleCount = 1
+        native.dispose()
         scratch = null
     }
 
@@ -450,25 +435,25 @@ internal class FxPlayback private constructor(
      * stand still). A resume from a pause is not handled here: see [start].
      */
     private fun deferRate(afterWrap: Boolean) {
-        val rate: Double = deferredRate ?: settleNudge ?: player.rate
+        val rate: Double = deferredRate ?: settleNudge ?: native.rate
         settleNudge = null
         if (rate == 1.0) return
         deferredRate = rate
         deferredFrom = Double.NaN
         deferredAfterWrap = afterWrap
         deferredNotBeforeNanos = 0L
-        player.rate = 1.0
+        native.rate = 1.0
     }
 
     /** Called on every tick of the playhead: gives the native player the deferred speed once it is safe. */
     private fun applyDeferredRate() {
         val rate: Double = deferredRate ?: return
-        if (player.status != MediaPlayer.Status.PLAYING) return
-        if (System.nanoTime() < deferredNotBeforeNanos) return
-        val position: Double = player.currentTime.toMillis()
+        if (native.status != NativeStatus.PLAYING) return
+        if (host.nanoTime() < deferredNotBeforeNanos) return
+        val position: Double = native.currentTimeMs
         if (position.isNaN()) return
         if (deferredAfterWrap) {
-            if (position > media.duration.toMillis() / 2.0) return
+            if (position > native.durationMs / 2.0) return
             deferredAfterWrap = false
         }
         if (deferredFrom.isNaN()) {
@@ -478,7 +463,7 @@ internal class FxPlayback private constructor(
         // Either direction: a seek during the wait moves the playhead without the native player having settled.
         if (abs(position - deferredFrom) < LOOP_RATE_SETTLE_MS) return
         deferredRate = null
-        player.rate = rate
+        native.rate = rate
     }
 
     /**
@@ -488,9 +473,9 @@ internal class FxPlayback private constructor(
      */
     private fun applyResumeRate() {
         val rate: Double = settleNudge ?: return
-        if (player.status != MediaPlayer.Status.PLAYING || !playIssued) return
-        if (System.nanoTime() < settleNotBeforeNanos) return
-        val position: Double = player.currentTime.toMillis()
+        if (native.status != NativeStatus.PLAYING || !playIssued) return
+        if (host.nanoTime() < settleNotBeforeNanos) return
+        val position: Double = native.currentTimeMs
         if (position.isNaN()) return
         if (settleFrom.isNaN()) {
             settleFrom = position
@@ -498,8 +483,8 @@ internal class FxPlayback private constructor(
         }
         if (abs(position - settleFrom) < RESUME_RATE_SETTLE_MS) return
         settleNudge = null
-        player.rate = 1.0
-        player.rate = rate
+        native.rate = 1.0
+        native.rate = rate
     }
 
     /**
@@ -507,7 +492,7 @@ internal class FxPlayback private constructor(
      * (the first key frame is at 0): there a resume may seek to where it stands, and does, for the freeze it prevents.
      */
     private fun nearStart(): Boolean {
-        val position: Double = player.currentTime.toMillis()
+        val position: Double = native.currentTimeMs
         return position.isNaN() || position <= NEAR_START_MS
     }
 
@@ -528,18 +513,18 @@ internal class FxPlayback private constructor(
 
     private fun reportTimes() {
         if (disposed) return
-        val duration: Long = media.duration.toMillisOrZero()
+        val duration: Long = native.durationMs.toMillisOrZero()
         sink.onTimes(
             durationMs = duration,
-            positionMs = player.currentTime.toMillisOrZero(),
-            bufferedMs = player.bufferProgressTime.toMillisOrZero(),
+            positionMs = native.currentTimeMs.toMillisOrZero(),
+            bufferedMs = native.bufferProgressMs.toMillisOrZero(),
         )
     }
 
     private fun reportSize() {
         if (disposed) return
-        val size: VideoSize? = if (media.width > 0 && media.height > 0) {
-            VideoSize(media.width, media.height)
+        val size: VideoSize? = if (native.width > 0 && native.height > 0) {
+            VideoSize(native.width, native.height)
         } else {
             null
         }
@@ -552,30 +537,30 @@ internal class FxPlayback private constructor(
 
     /** Keeps copying for a while although not playing: the picture changes after a seek. */
     private fun refreshPicture() {
-        refreshUntilNanos = System.nanoTime() + REFRESH_WINDOW_NANOS
+        refreshUntilNanos = host.nanoTime() + REFRESH_WINDOW_NANOS
         startPulse()
     }
 
     private fun startPulse() {
         if (disposed || pulsing) return
         pulsing = true
-        pulse.start()
+        native.startPulse()
     }
 
     private fun stopPulse() {
         if (!pulsing) return
         pulsing = false
-        pulse.stop()
+        native.stopPulse()
     }
 
     private fun onPulse(now: Long) {
         if (disposed) return
-        if (media.width <= 0 || media.height <= 0) {
+        if (native.width <= 0 || native.height <= 0) {
             // Audio only: there is no picture to copy, now or until reportSize sees one.
             stopPulse()
             return
         }
-        val playing: Boolean = player.status == MediaPlayer.Status.PLAYING && !atEnd
+        val playing: Boolean = native.status == NativeStatus.PLAYING && !atEnd
         if (!playing && !awaitingPicture && now > refreshUntilNanos) {
             // Nothing left to copy; start(), seekTo() and a changed picture start it again.
             stopPulse()
@@ -589,15 +574,11 @@ internal class FxPlayback private constructor(
     }
 
     private fun snapshot() {
-        val width: Int = media.width
-        val height: Int = media.height
+        val width: Int = native.width
+        val height: Int = native.height
         if (width <= 0 || height <= 0) return
-        val target: WritableImage = image
-            ?.takeIf { it.width.toInt() == width && it.height.toInt() == height }
-            ?: WritableImage(width, height).also { image = it }
-        view.snapshot(snapshotParameters, target)
         val pixels: IntArray = scratch?.takeIf { it.size == width * height } ?: IntArray(width * height)
-        target.pixelReader.getPixels(0, 0, width, height, PixelFormat.getIntArgbInstance(), pixels, 0, width)
+        native.snapshotInto(pixels, width, height)
         if (pixels[(height / 2) * width + width / 2] ushr 24 == 0) {
             // The view has no decoded picture yet: nothing to show, and nothing was published, so
             // the array can be written again next time.
@@ -651,9 +632,10 @@ internal class FxPlayback private constructor(
             sink: Sink,
             maxFrameRate: Int,
             readyTimeoutMs: Long,
+            backend: NativeBackend = JavaFxBackend,
             onCreated: (FxPlayback) -> Unit,
         ): FxPlayback {
-            val media: Media = withContext(Dispatchers.IO) { runInterruptible { Media(uri) } }
+            val source: NativeSource = withContext(Dispatchers.IO) { runInterruptible { backend.probe(uri) } }
             // An atomic: the FX block may still run after the wait timed out or was cancelled,
             // concurrently with the read below (D-21).
             val created: AtomicReference<FxPlayback?> = AtomicReference(null)
@@ -674,15 +656,15 @@ internal class FxPlayback private constructor(
                         val exitWatch: Job = launch {
                             while (true) {
                                 delay(EXIT_POLL_MS)
-                                if (FxThread.hasExited(wait = false)) {
+                                if (backend.host.hasExitedNow()) {
                                     throw JavaFxVideoPlayerException.RuntimeUnavailable(
                                         IllegalStateException("The JavaFX toolkit has exited"),
                                     )
                                 }
                             }
                         }
-                        val playback: FxPlayback = FxThread.call {
-                            FxPlayback(media, sink, maxFrameRate).also {
+                        val playback: FxPlayback = backend.host.call {
+                            FxPlayback(backend.create(source), backend.host, sink, maxFrameRate).also {
                                 created.set(it)
                                 onCreated(it)
                             }
@@ -711,10 +693,12 @@ internal class FxPlayback private constructor(
 
         private const val EXIT_POLL_MS: Long = 100L
 
-        private fun Duration?.toMillisOrZero(): Long {
-            if (this == null || isUnknown || isIndefinite) return 0L
-            val millis: Double = toMillis()
-            return if (millis.isNaN() || millis < 0.0) 0L else millis.toLong()
+        /** `MediaPlayer.INDEFINITE`, the value of [NativePlayer.cycleCount] that loops for ever. */
+        private const val CYCLE_INDEFINITE: Int = -1
+
+        private fun Double.toMillisOrZero(): Long {
+            if (isNaN() || isInfinite()) return 0L
+            return if (this < 0.0) 0L else toLong()
         }
     }
 }

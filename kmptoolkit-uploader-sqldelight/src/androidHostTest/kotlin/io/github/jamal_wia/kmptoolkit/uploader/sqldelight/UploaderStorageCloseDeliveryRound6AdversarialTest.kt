@@ -44,6 +44,7 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class UploaderStorageCloseDeliveryRound6AdversarialTest {
+    private val seed: Long = testSeed(20261113L)
 
     private val storages: MutableList<UploaderStorage> = mutableListOf()
     private val engines: MutableList<UploaderEngine> = mutableListOf()
@@ -111,6 +112,7 @@ class UploaderStorageCloseDeliveryRound6AdversarialTest {
     }
 
     private fun open(): UploaderStorage {
+        // timing-hygiene-ignore: TH3 name a unique database file name, not a scenario choice
         val name = "adv.a1r6.${Random.nextLong(0L, Long.MAX_VALUE)}"
         files += name
         return createUploaderStorage(application(), UploaderDatabaseConfig(name)).also { storages += it }
@@ -158,7 +160,7 @@ class UploaderStorageCloseDeliveryRound6AdversarialTest {
             val first: UploaderEngine = engineOver(storage.store, handler)
             repeat(100) { first.enqueue(handler, "p$it") }
             first.start()
-            delay(Random.nextLong(0, 15))
+            delay(Random(seed + iteration).nextLong(0, 15))
             first.close()
             quiesce(first)
             val second: UploaderEngine = engineOver(storage.store, handler)
@@ -169,8 +171,8 @@ class UploaderStorageCloseDeliveryRound6AdversarialTest {
                 waited += 25
             }
             val repeated: Map<String, Int> = handler.runs.value.filterValues { it > 1 }
-            assertEquals(emptyMap(), repeated, "iteration $iteration: delivered effects ran again; queue left=${storage.store.getAllActive().size}")
-            assertEquals(100, handler.runs.value.size, "iteration $iteration: every effect ran")
+            assertEquals(emptyMap(), repeated, "iteration $iteration: delivered effects ran again; queue left=${storage.store.getAllActive().size} (seed=$seed)")
+            assertEquals(100, handler.runs.value.size, "iteration $iteration: every effect ran (seed=$seed)")
             second.close()
         }
     }

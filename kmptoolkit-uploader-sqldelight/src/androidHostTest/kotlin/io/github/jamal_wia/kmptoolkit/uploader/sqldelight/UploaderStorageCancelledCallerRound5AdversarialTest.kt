@@ -39,6 +39,8 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class UploaderStorageCancelledCallerRound5AdversarialTest {
+    private val seed: Long = testSeed(20261113L)
+    private val random: Random = Random(seed)
 
     private val storages: MutableList<UploaderStorage> = mutableListOf()
     private val engines: MutableList<UploaderEngine> = mutableListOf()
@@ -86,6 +88,7 @@ class UploaderStorageCancelledCallerRound5AdversarialTest {
     }
 
     private fun open(): UploaderStorage {
+        // timing-hygiene-ignore: TH3 name a unique database file name, not a scenario choice
         val name = "adv.a1r5.${Random.nextLong(0L, Long.MAX_VALUE)}"
         files += name
         return createUploaderStorage(application(), UploaderDatabaseConfig(name)).also { storages += it }
@@ -120,7 +123,7 @@ class UploaderStorageCancelledCallerRound5AdversarialTest {
     private suspend fun cancelSoon(body: suspend () -> Unit) {
         coroutineScope {
             val call: Job = launch(Dispatchers.Default) { body() }
-            repeat(Random.nextInt(0, 40)) { yield() }
+            repeat(random.nextInt(0, 40)) { yield() }
             call.cancel()
             call.join()
         }
@@ -141,7 +144,7 @@ class UploaderStorageCancelledCallerRound5AdversarialTest {
             assertEquals(
                 emptyList(),
                 running(transport, gone),
-                "iteration $iteration: ${gone.size} rows were deleted; these uploads still run",
+                "iteration $iteration: ${gone.size} rows were deleted; these uploads still run (seed=$seed)",
             )
             engine.close()
         }
@@ -159,7 +162,7 @@ class UploaderStorageCancelledCallerRound5AdversarialTest {
             awaitLaunched(transport, ids.size)
             ids.indices.forEach { n -> cancelSoon { engine.cancelByTag("t$n") } }
             val gone: List<String> = ids.filter { storage.store.getById(it) == null }
-            assertEquals(emptyList(), running(transport, gone), "iteration $iteration: ${gone.size} rows were wiped; these uploads still run")
+            assertEquals(emptyList(), running(transport, gone), "iteration $iteration: ${gone.size} rows were wiped; these uploads still run (seed=$seed)")
             engine.close()
         }
     }
@@ -178,7 +181,7 @@ class UploaderStorageCancelledCallerRound5AdversarialTest {
                 cancelSoon { engine.enqueue(handler, "new$n", uniqueKey = "k$n", conflictPolicy = ConflictPolicy.REPLACE) }
             }
             val gone: List<String> = ids.filter { storage.store.getById(it) == null }
-            assertEquals(emptyList(), running(transport, gone), "iteration $iteration: ${gone.size} rows were replaced; these uploads still run")
+            assertEquals(emptyList(), running(transport, gone), "iteration $iteration: ${gone.size} rows were replaced; these uploads still run (seed=$seed)")
             engine.close()
         }
     }
@@ -197,7 +200,7 @@ class UploaderStorageCancelledCallerRound5AdversarialTest {
                 cancelSoon { engine.enqueue(handler, "new$n", uniqueKey = "k$n", conflictPolicy = ConflictPolicy.REPLACE) }
             }
             val gone: List<String> = ids.filter { storage.store.getById(it) == null }
-            assertEquals(emptyList(), running(transport, gone), "iteration $iteration: ${gone.size} rows were replaced; these uploads still run")
+            assertEquals(emptyList(), running(transport, gone), "iteration $iteration: ${gone.size} rows were replaced; these uploads still run (seed=$seed)")
             engine.close()
         }
     }
