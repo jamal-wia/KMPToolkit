@@ -120,6 +120,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
+- `kmptoolkit-files`: `Paths.normalizeLexically` on a Windows JVM no longer turns a rooted path that starts with three or
+  more separators (`///a/b`) into an absolute `\\a\b\` UNC path: such a path is a rooted path of the current drive,
+  not absolute, before and after.
 - `kmptoolkit-uploader`: a `drain()` called from inside a handler's attempt, or overlapping another pass of the same
   engine, no longer starts that item a second time or loses the running attempt's withdrawal handle.
 - `kmptoolkit-downloader` (Android): the resource-size walk no longer follows a symbolic link inside a resource

@@ -116,6 +116,13 @@ internal sealed class PathRules(val separator: Char) {
         private fun hasDrive(path: String): Boolean =
             path.length >= 2 && path[1] == ':' && (path[0] in 'a'..'z' || path[0] in 'A'..'Z')
 
+        /**
+         * Three or more separators at the start: the server name would be empty, so the path is not a UNC path. It is a
+         * rooted path of the current drive (root `\`), like `\x`, in [rootLength], [isAbsolute] and [parse] alike.
+         */
+        private fun hasEmptyServer(path: String): Boolean =
+            path.length >= 3 && isSeparator(path[0]) && isSeparator(path[1]) && isSeparator(path[2])
+
         /** End index (exclusive) of `\\server\share` at the start of [path], or -1 when it has no share. */
         private fun uncEnd(path: String): Int {
             if (path.length < 3 || !isSeparator(path[0]) || !isSeparator(path[1])) return -1
@@ -130,6 +137,7 @@ internal sealed class PathRules(val separator: Char) {
         }
 
         override fun rootLength(path: String): Int {
+            if (hasEmptyServer(path)) return 1
             if (path.length >= 2 && isSeparator(path[0]) && isSeparator(path[1])) {
                 val end: Int = uncEnd(path)
                 return if (end >= 0) end else path.length
@@ -144,7 +152,7 @@ internal sealed class PathRules(val separator: Char) {
         }
 
         override fun parse(path: String): ParsedPath {
-            if (path.length >= 2 && isSeparator(path[0]) && isSeparator(path[1])) {
+            if (path.length >= 2 && isSeparator(path[0]) && isSeparator(path[1]) && !hasEmptyServer(path)) {
                 val parts: List<String> = path.substring(2).split('\\', '/').filter { it.isNotEmpty() }
                 val head: List<String> = parts.take(2)
                 val root: String = "\\\\" + head.joinToString("\\") + if (head.size == 2) "\\" else ""
