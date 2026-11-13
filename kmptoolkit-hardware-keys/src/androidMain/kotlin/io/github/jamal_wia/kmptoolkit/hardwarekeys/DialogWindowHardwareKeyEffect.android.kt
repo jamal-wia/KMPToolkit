@@ -25,11 +25,15 @@ import java.util.WeakHashMap
  * practice means `Application.onCreate` — and clears it when the policy no longer applies. Nothing
  * is registered by default, so an app that never calls [install] is completely unaffected.
  *
- * The interceptor is invoked on the **main thread**, once per key event, before the dialog's own
- * dispatch. Returning `true` consumes the event: the dialog's content, its `Window.Callback`, and the
- * `PhoneWindow` fallback (the one that would otherwise show the system volume panel) never see it.
- * Return `false` for every event the policy does not care about — the dialog then behaves exactly as
- * if no interceptor existed.
+ * The interceptor is invoked on the **main thread**, once per key event. In a dialog window (a
+ * `Dialog`, `ModalBottomSheet`, `DatePickerDialog`, anything with a `DialogWindowProvider`) it runs
+ * before the dialog's own dispatch, and returning `true` consumes the event: the dialog's content, its
+ * `Window.Callback`, and the `PhoneWindow` fallback (the one that would otherwise show the system volume
+ * panel) never see it. In a focusable `Popup`, and in the Activity's own content on API 28 and higher,
+ * the interceptor runs as the platform's unhandled-key listener instead, after the view tree has left
+ * the key unhandled: a Compose key handler (`Modifier.onKeyEvent`) has already seen it, and `true` stops
+ * only what the platform would do next. Return `false` for every event the policy does not care about —
+ * the window then behaves exactly as if no interceptor existed.
  *
  * This is a process-wide registration rather than a factory-made instance on purpose: a dialog
  * window can be composed anywhere in the tree, including from code that has no route to an app-level

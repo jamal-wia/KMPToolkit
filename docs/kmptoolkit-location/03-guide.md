@@ -9,7 +9,7 @@ things.
 |---|---|---|
 | Shape | `suspend fun … : GeoCoordinates?` | `fun … : Flow<GeoCoordinates?>` |
 | Returns | one fix, or `null` | every update, forever, until cancelled |
-| Prefers a cached fix | yes | no — always live |
+| Prefers a cached fix | yes on Android; no on iOS, which always requests a fresh fix | no — always live |
 | Underlying request | stopped as soon as a fix arrives (or the timeout expires) | stopped when the flow is cancelled |
 | Use for | "where is the user right now" — centering a map on open, tagging a single action | a live map camera, a distance-based feature that must react as the user moves |
 

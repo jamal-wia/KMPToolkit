@@ -40,9 +40,9 @@ of them, `promptToEnableService()`, exists specifically for "the service is off"
 - **Not a permission library.** It declares no Android permission and requests no iOS
   authorization; see [`05-platform-notes.md`](05-platform-notes.md). Implementations assume the
   permission is already granted and degrade to `null` when it is not.
-- **Not a cache.** `getCurrentLocation()` prefers a cached fix the platform already has purely as an
-  optimization; this module stores nothing itself and has no opinion about how stale a fix your app
-  should tolerate.
+- **Not a cache.** On Android, `getCurrentLocation()` prefers a cached fix the platform already has
+  purely as an optimization; on iOS it always requests a fresh fix and never reads a cached one. This
+  module stores nothing itself and has no opinion about how stale a fix your app should tolerate.
 - **Not a geocoder.** No address lookup, no reverse geocoding, no place search — `GeoCoordinates` is
   a bare latitude/longitude pair.
 - **Not Google Play Services.** The Android side is plain `android.location.LocationManager`, not

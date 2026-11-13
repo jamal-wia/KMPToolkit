@@ -48,7 +48,10 @@ Things to know:
   building its message is not.
 - **`android.util.Log` is not available on a plain JVM.** In a local unit test without Robolectric,
   calling it throws `"not mocked"`. Tests should use their own sink or an empty sink list — this
-  module's own tests never touch `platformLogSink()` for exactly this reason.
+  module's common tests never touch `platformLogSink()` for exactly this reason. The only tests that
+  create it are the Android host tests (`PlatformLogSinkStackTraceTest`, `PlatformLogSinkLongChainTest`),
+  which run under Robolectric, where `android.util.Log` is a working shadow that records what the sink
+  passes to it.
 
 ## iOS
 

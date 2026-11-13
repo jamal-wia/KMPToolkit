@@ -80,8 +80,9 @@ public fun SystemBarsEffect(
 }
 
 /**
- * Applies [controller]'s current configuration to a Compose surface that renders into its own
- * platform window — `Dialog`, `Popup`, `ModalBottomSheet`, `BasicAlertDialog`.
+ * Applies [controller]'s current status-bar and navigation-bar icon styles (only those two; bar
+ * visibility and the hidden-bar behaviour are not applied) to a Compose surface that renders into
+ * its own platform window — `Dialog`, `Popup`, `ModalBottomSheet`, `BasicAlertDialog`.
  *
  * On Android such a surface gets a window, and therefore an insets controller, of its own; the
  * appearance the controller set on the activity's window never reaches it. Without this the bars
