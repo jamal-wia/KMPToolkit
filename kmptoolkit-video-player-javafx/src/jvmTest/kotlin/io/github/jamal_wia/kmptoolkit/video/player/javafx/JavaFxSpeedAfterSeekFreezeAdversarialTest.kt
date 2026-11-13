@@ -24,6 +24,12 @@ import kotlinx.coroutines.withTimeout
  * contract: a playing player's playhead moves (or the player leaves Playing) within a few seconds, whatever speed was
  * given. The check is edge based (the JavaFX playhead steps in about 100 ms), never a slope. The control test leaves a
  * pause of 400 ms or more before the speed change and holds the same contract.
+ *
+ * The first three tests (replay rounds from a clip playing at 1x) are controls: they were green on the code before the
+ * fix and stay green. The reproducers are the two recorded-sequence tests (`a stop then play then speed then double
+ * replay then speed sequence ...` and `the recorded seed three call sequence ...`): the freeze needs the preceding
+ * stop, play and speed of 3.0 state, and a plain replay at 1x does not reproduce it. Both were red in 10 of 10 runs on
+ * the code before the fix.
  */
 @OptIn(ToolkitInternalApi::class)
 class JavaFxSpeedAfterSeekFreezeAdversarialTest {
@@ -69,6 +75,11 @@ class JavaFxSpeedAfterSeekFreezeAdversarialTest {
                 drive(player, rnd)
                 frozenAt(engine, player, boundMs = 2_000L)?.let { failures += "$variant round $round: $it" }
             } finally {
+                // Not waiting for the code under test: the player is let run for a moment before it is released. A
+                // video player disposed right after its first frames can hit the OpenJFX CoreVideo display-link race
+                // that kills the JVM (docs/kmptoolkit-video-player-javafx/05-platform-notes.md, "Known issue"); this
+                // is the documented mitigation, a real-time pause for that native-crash workaround only.
+                Thread.sleep(300L)
                 player.release()
             }
         }
@@ -141,6 +152,11 @@ class JavaFxSpeedAfterSeekFreezeAdversarialTest {
                 }
                 frozenAt(engine, player, boundMs = 3_500L)?.let { failures += "$variant round $round: $it" }
             } finally {
+                // Not waiting for the code under test: the player is let run for a moment before it is released. A
+                // video player disposed right after its first frames can hit the OpenJFX CoreVideo display-link race
+                // that kills the JVM (docs/kmptoolkit-video-player-javafx/05-platform-notes.md, "Known issue"); this
+                // is the documented mitigation, a real-time pause for that native-crash workaround only.
+                Thread.sleep(300L)
                 player.release()
             }
         }
