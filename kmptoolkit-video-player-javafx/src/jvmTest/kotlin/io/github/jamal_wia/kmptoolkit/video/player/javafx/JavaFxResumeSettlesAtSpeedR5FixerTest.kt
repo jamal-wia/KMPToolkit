@@ -13,13 +13,13 @@ import kotlinx.coroutines.withTimeout
  * the playhead passes at normal speed before a freeze at the speed change shows. This class checks what comes
  * after: a pause and a start at a speed other than 1 must carry the playhead past paused + 1200 within 3 s, so a
  * playhead that freezes when the speed is given fails it (the engine seeks the native player to where it stands
- * before the start, see ruling d2-r5-advice-2). The number of fresh engines per speed is 6, or the environment
- * variable `KMPTOOLKIT_FREEZE_TRIALS` (the 30 + 30 run of the fix).
+ * before the start, see ruling d2-r5-advice-2). The number of fresh engines per speed is 6, or the system
+ * property `kmptoolkit.test.freeze.trials` (the 30 + 30 run of the fix).
  */
 @OptIn(ToolkitInternalApi::class)
 class JavaFxResumeSettlesAtSpeedR5FixerTest {
 
-    private val trials: Int = System.getenv("KMPTOOLKIT_FREEZE_TRIALS")?.toIntOrNull() ?: 6
+    private val trials: Int = System.getProperty("kmptoolkit.test.freeze.trials")?.toIntOrNull() ?: 6
 
     @BeforeTest
     fun setUp() {

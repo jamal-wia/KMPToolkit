@@ -79,7 +79,7 @@ class JavaFxSpeedInReadyThroughCoreR6AdversarialTest {
     }
 
     private companion object {
-        /** KMPTOOLKIT_R6_TRIALS lengthens a run without editing the test. */
-        val TRIALS: Int = System.getenv("KMPTOOLKIT_R6_TRIALS")?.toIntOrNull() ?: 6
+        /** kmptoolkit.test.r6.trials lengthens a run without editing the test. */
+        val TRIALS: Int = System.getProperty("kmptoolkit.test.r6.trials")?.toIntOrNull() ?: 6
     }
 }

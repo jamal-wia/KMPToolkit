@@ -180,10 +180,10 @@ class JavaFxSpeedThroughCoreR6AdversarialTest {
         /** How long the end of a slope window waits for the reported playhead to change. */
         const val END_CHANGE_TIMEOUT_MS: Long = 250L
 
-        /** KMPTOOLKIT_R6_PRINT=1 prints every measured slope (for the distribution a ruling asks for). */
-        val PRINT_SLOPES: Boolean = System.getenv("KMPTOOLKIT_R6_PRINT") == "1"
+        /** kmptoolkit.test.r6.print=1 prints every measured slope (for the distribution a ruling asks for). */
+        val PRINT_SLOPES: Boolean = System.getProperty("kmptoolkit.test.r6.print") == "1"
 
-        /** KMPTOOLKIT_R6_TRIALS lengthens a run without editing the test. */
-        val TRIALS: Int = System.getenv("KMPTOOLKIT_R6_TRIALS")?.toIntOrNull() ?: 6
+        /** kmptoolkit.test.r6.trials lengthens a run without editing the test. */
+        val TRIALS: Int = System.getProperty("kmptoolkit.test.r6.trials")?.toIntOrNull() ?: 6
     }
 }

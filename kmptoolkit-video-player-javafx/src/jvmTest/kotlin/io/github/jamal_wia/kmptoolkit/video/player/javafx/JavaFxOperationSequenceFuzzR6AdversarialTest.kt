@@ -177,9 +177,9 @@ class JavaFxOperationSequenceFuzzR6AdversarialTest {
 
     @Test
     fun `random call sequences on the real engine keep to the transition table and never freeze`() {
-        // KMPTOOLKIT_R6_SEEDS / KMPTOOLKIT_R6_SEED_FROM lengthen the run (more seeds, other seeds) without editing the test.
-        val count: Int = System.getenv("KMPTOOLKIT_R6_SEEDS")?.toIntOrNull() ?: SEEDS
-        val from: Int = System.getenv("KMPTOOLKIT_R6_SEED_FROM")?.toIntOrNull() ?: 1
+        // kmptoolkit.test.r6.seeds / kmptoolkit.test.r6.seed.from lengthen the run (more seeds, other seeds) without editing the test.
+        val count: Int = System.getProperty("kmptoolkit.test.r6.seeds")?.toIntOrNull() ?: SEEDS
+        val from: Int = System.getProperty("kmptoolkit.test.r6.seed.from")?.toIntOrNull() ?: 1
         for (seed: Int in from until from + count) runSeed(seed, operations = 26)
     }
 

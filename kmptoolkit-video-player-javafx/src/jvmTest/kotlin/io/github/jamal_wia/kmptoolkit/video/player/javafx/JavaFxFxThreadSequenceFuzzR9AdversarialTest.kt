@@ -122,8 +122,8 @@ class JavaFxFxThreadSequenceFuzzR9AdversarialTest {
     @Test
     fun `random player calls from the FX thread and from a plain thread never leave the player stuck`() {
         assumeJavaFxMedia()
-        val from: Int = System.getenv("KMPTOOLKIT_R9_SEED_FROM")?.toIntOrNull() ?: 1
-        val count: Int = System.getenv("KMPTOOLKIT_R9_SEEDS")?.toIntOrNull() ?: 5
+        val from: Int = System.getProperty("kmptoolkit.test.r9.seed.from")?.toIntOrNull() ?: 1
+        val count: Int = System.getProperty("kmptoolkit.test.r9.seeds")?.toIntOrNull() ?: 5
         val failures: List<String> = (from until from + count).mapNotNull { seed: Int -> runSequence(seed, steps = 22, stuckBoundMs = 3_500L, label = "single") }
         assertEquals(emptyList(), failures, "of $count seeds from $from")
     }
@@ -131,8 +131,8 @@ class JavaFxFxThreadSequenceFuzzR9AdversarialTest {
     @Test
     fun `three players driven at once, calls from the FX thread among them, are not left stuck`() {
         assumeJavaFxMedia()
-        val from: Int = System.getenv("KMPTOOLKIT_R9_SEED_FROM")?.toIntOrNull() ?: 1
-        val rounds: Int = System.getenv("KMPTOOLKIT_R9_PARALLEL_ROUNDS")?.toIntOrNull() ?: 2
+        val from: Int = System.getProperty("kmptoolkit.test.r9.seed.from")?.toIntOrNull() ?: 1
+        val rounds: Int = System.getProperty("kmptoolkit.test.r9.parallel.rounds")?.toIntOrNull() ?: 2
         val failures: MutableList<String> = java.util.Collections.synchronizedList(mutableListOf())
         repeat(rounds) { round: Int ->
             val threads: List<Thread> = (0 until 3).map { index: Int ->

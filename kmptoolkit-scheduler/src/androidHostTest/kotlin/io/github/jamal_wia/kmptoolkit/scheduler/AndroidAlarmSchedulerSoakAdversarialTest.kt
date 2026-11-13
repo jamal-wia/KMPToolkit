@@ -28,7 +28,7 @@ import org.robolectric.shadows.ShadowAlarmManager
  * 250 steps the armed set, the content of every alarm and the order of the next fire must equal the model;
  * at the end a cancelAll leaves no alarm and no PendingIntent slot of any id behind, and the run has not
  * grown the thread count by more than the receiver's dispatcher pool. The default is bounded; set
- * KMPTOOLKIT_SOAK_STEPS (environment) or kmptoolkit.soak.steps (system property) for the long form.
+ * kmptoolkit.test.soak.steps or kmptoolkit.soak.steps (system properties) for the long form.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -75,7 +75,7 @@ class AndroidAlarmSchedulerSoakAdversarialTest {
     @Test
     fun `a seeded soak of schedules, cancels, cancelAlls and fires matches the model and leaves nothing behind`() {
         val steps: Int = System.getProperty("kmptoolkit.soak.steps")?.toIntOrNull()
-            ?: System.getenv("KMPTOOLKIT_SOAK_STEPS")?.toIntOrNull()
+            ?: System.getProperty("kmptoolkit.test.soak.steps")?.toIntOrNull()
             ?: DEFAULT_STEPS
         println("soak steps=$steps")
         val threadsBefore: Int = Thread.activeCount()

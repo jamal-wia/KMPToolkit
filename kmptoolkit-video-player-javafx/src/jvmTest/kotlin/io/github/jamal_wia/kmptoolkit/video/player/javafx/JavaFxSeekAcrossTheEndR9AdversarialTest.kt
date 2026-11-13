@@ -27,7 +27,7 @@ class JavaFxSeekAcrossTheEndR9AdversarialTest {
     @Test
     fun `a seek away from the end made around the natural end resumes at the target and not at the start`() {
         assumeJavaFxMedia()
-        val seed: Int = System.getenv("KMPTOOLKIT_R9_END_SEED")?.toIntOrNull() ?: 9
+        val seed: Int = System.getProperty("kmptoolkit.test.r9.end.seed")?.toIntOrNull() ?: 9
         val rnd = Random(seed)
         val failures: MutableList<String> = mutableListOf()
         val outcomes: MutableMap<String, Int> = sortedMapOf()
@@ -106,7 +106,7 @@ class JavaFxSeekAcrossTheEndR9AdversarialTest {
     }
 
     private companion object {
-        val TRIALS: Int = System.getenv("KMPTOOLKIT_R9_END_TRIALS")?.toIntOrNull() ?: 12
-        val DETERMINISTIC_TRIALS: Int = System.getenv("KMPTOOLKIT_R9_END_DET_TRIALS")?.toIntOrNull() ?: 6
+        val TRIALS: Int = System.getProperty("kmptoolkit.test.r9.end.trials")?.toIntOrNull() ?: 12
+        val DETERMINISTIC_TRIALS: Int = System.getProperty("kmptoolkit.test.r9.end.det.trials")?.toIntOrNull() ?: 6
     }
 }

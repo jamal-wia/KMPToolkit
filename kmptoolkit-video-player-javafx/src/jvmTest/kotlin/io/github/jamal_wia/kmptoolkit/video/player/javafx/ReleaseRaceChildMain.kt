@@ -61,8 +61,8 @@ internal object ReleaseRaceChildMain {
         Thread.setDefaultUncaughtExceptionHandler { t: Thread, e: Throwable -> uncaught += "${t.name}: $e" }
         val failures: MutableList<String> = mutableListOf()
         try {
-            val from: Int = System.getenv("KMPTOOLKIT_R9_REL_FROM")?.toIntOrNull() ?: 1
-            val count: Int = System.getenv("KMPTOOLKIT_R9_REL_SEEDS")?.toIntOrNull() ?: 14
+            val from: Int = System.getProperty("kmptoolkit.test.r9.rel.from")?.toIntOrNull() ?: 1
+            val count: Int = System.getProperty("kmptoolkit.test.r9.rel.seeds")?.toIntOrNull() ?: 14
             for (seed: Int in from until from + count) {
                 val rnd = Random(seed)
                 val engine = JavaFxVideoEngine(readyTimeoutMs = 15_000L)

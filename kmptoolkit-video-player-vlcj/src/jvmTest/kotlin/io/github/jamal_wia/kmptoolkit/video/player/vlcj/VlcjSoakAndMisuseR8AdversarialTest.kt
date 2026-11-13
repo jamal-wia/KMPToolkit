@@ -29,12 +29,12 @@ import kotlinx.coroutines.withTimeout
  * Round 8 (breaker at): a seeded long-run soak of the VLC engine behind the shared player on the libvlc model, with a
  * leak check at the end (native players freed once each and in order, libvlc instances freed, teardown threads gone,
  * temp copies gone, engines and players unreachable), and misuse of the public factory and exception types.
- * The soak length comes from the environment variable KMPTOOLKIT_SOAK_SECONDS (default 3).
+ * The soak length comes from the system property kmptoolkit.test.soak.seconds (default 3).
  */
 @OptIn(ToolkitInternalApi::class)
 class VlcjSoakAndMisuseR8AdversarialTest {
 
-    private fun soakSeconds(): Long = System.getenv("KMPTOOLKIT_SOAK_SECONDS")?.toLongOrNull() ?: 3L
+    private fun soakSeconds(): Long = System.getProperty("kmptoolkit.test.soak.seconds")?.toLongOrNull() ?: 3L
 
     private fun teardownThreads(): Int = Thread.getAllStackTraces().keys.count { it.name == "kmptoolkit-vlcj-teardown" && it.isAlive }
 
@@ -52,7 +52,7 @@ class VlcjSoakAndMisuseR8AdversarialTest {
 
     @Test
     fun `a seeded soak of cycles and random calls frees every native handle thread and copy and keeps the player sane`() {
-        val seed: Long = System.getenv("KMPTOOLKIT_SOAK_SEED")?.toLongOrNull() ?: 8L
+        val seed: Long = System.getProperty("kmptoolkit.test.soak.seed")?.toLongOrNull() ?: 8L
         val random = Random(seed)
         val runtime = FakeVlcRuntime()
         val jar: File = Files.createTempFile("r8-soak-", ".jar").toFile().also { it.deleteOnExit() }

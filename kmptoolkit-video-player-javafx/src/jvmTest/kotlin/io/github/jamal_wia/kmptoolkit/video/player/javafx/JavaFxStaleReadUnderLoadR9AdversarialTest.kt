@@ -100,6 +100,6 @@ class JavaFxStaleReadUnderLoadR9AdversarialTest {
     }
 
     private companion object {
-        val TRIALS: Int = System.getenv("KMPTOOLKIT_R9_TRIALS")?.toIntOrNull() ?: 6
+        val TRIALS: Int = System.getProperty("kmptoolkit.test.r9.trials")?.toIntOrNull() ?: 6
     }
 }

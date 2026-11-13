@@ -38,6 +38,7 @@ class JvmLibraryConventionPlugin : Plugin<Project> {
             pluginManager.apply("org.jetbrains.kotlin.multiplatform")
 
             shortenWindowsTestTmpDir()
+            forwardTestKnobs()
             registerPathHygieneCheck()
             registerTimingHygieneCheck()
 

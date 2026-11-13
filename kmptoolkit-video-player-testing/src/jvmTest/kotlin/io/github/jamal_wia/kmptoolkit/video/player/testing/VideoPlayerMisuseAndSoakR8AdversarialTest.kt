@@ -26,7 +26,7 @@ import kotlinx.coroutines.withTimeout
 
 /**
  * Round 8 (breaker at): API misuse of the public types as a consumer's tool, and a long-run soak of the shared
- * player on the scriptable fake. The soak length is bounded by the environment variable KMPTOOLKIT_SOAK_SECONDS (or
+ * player on the scriptable fake. The soak length is bounded by the system property kmptoolkit.test.soak.seconds (or
  * the system property of the same name); the committed default is a few seconds.
  */
 class VideoPlayerMisuseAndSoakR8AdversarialTest {
@@ -37,7 +37,7 @@ class VideoPlayerMisuseAndSoakR8AdversarialTest {
     )
 
     private fun soakSeconds(): Long =
-        (System.getenv("KMPTOOLKIT_SOAK_SECONDS") ?: System.getProperty("KMPTOOLKIT_SOAK_SECONDS"))?.toLongOrNull() ?: 3L
+        System.getProperty("kmptoolkit.test.soak.seconds")?.toLongOrNull() ?: 3L
 
     private fun newPlayer(
         engine: FakeVideoPlaybackEngine,
@@ -210,7 +210,7 @@ class VideoPlayerMisuseAndSoakR8AdversarialTest {
 
     @Test
     fun `seeded random operations with leak checks hold the invariants for the soak time`() = runBlocking {
-        val seed: Long = (System.getenv("KMPTOOLKIT_SOAK_SEED") ?: "8").toLong()
+        val seed: Long = (System.getProperty("kmptoolkit.test.soak.seed") ?: "8").toLong()
         val random = Random(seed)
         val threadsBefore: Int = Thread.getAllStackTraces().keys.count { it.isAlive }
         val deadline: Long = System.nanoTime() + soakSeconds() * 1_000_000_000L

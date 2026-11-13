@@ -31,7 +31,7 @@ import kotlinx.coroutines.withTimeout
  * per play-through, Error once per failure, Preparing once per prepare, nothing but the final Idle after a
  * release, nothing reaches the engine after a release).
  *
- * The same script also writes a trace (environment variable KMPTOOLKIT_R10_TRACE or system property kmptoolkit.r10.trace, a file) so it can be run on the
+ * The same script also writes a trace (system property kmptoolkit.test.r10.trace or kmptoolkit.r10.trace, a file) so it can be run on the
  * 4.0.0 sources and diffed against the current ones.
  */
 class VideoPlayerStateMachineModelR10AdversarialTest {
@@ -485,7 +485,7 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
     fun `scripts agree with the reference model with polling effectively off`() {
         val traces: MutableList<String> = mutableListOf()
         for (seed: Int in 1..300) runScript(seed, steps = 60, pollMs = 3_600_000L, traceSink = traces)
-        (System.getenv("KMPTOOLKIT_R10_TRACE") ?: System.getProperty("kmptoolkit.r10.trace"))?.let { File(it).writeText(traces.joinToString("\n")) }
+        (System.getProperty("kmptoolkit.test.r10.trace") ?: System.getProperty("kmptoolkit.r10.trace"))?.let { File(it).writeText(traces.joinToString("\n")) }
     }
 
     @Test
@@ -496,7 +496,7 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
     /**
      * Upgrade differential: an engine written for 4.0.0 that reports the completion from inside seekTo (the
      * stale-report shapes) is driven through the player; the trace of states and engine calls goes to
-     * KMPTOOLKIT_R10_TRACE.stale so the 4.0.0 sources and the current ones can be diffed. The assertions are the
+     * kmptoolkit.test.r10.trace.stale so the 4.0.0 sources and the current ones can be diffed. The assertions are the
      * CURRENT documented behaviour: a seek away from the end made as the completion arrives wins (04-api-reference).
      */
     @Test
@@ -528,7 +528,7 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
                 player.release()
             }
         }
-        (System.getenv("KMPTOOLKIT_R10_TRACE") ?: System.getProperty("kmptoolkit.r10.trace"))?.let { File("$it.stale").writeText(lines.joinToString("\n")) }
+        (System.getProperty("kmptoolkit.test.r10.trace") ?: System.getProperty("kmptoolkit.r10.trace"))?.let { File("$it.stale").writeText(lines.joinToString("\n")) }
         // A completion reported before a stop() is dropped as stale per the doc; nothing here may end Completed
         // while the transport call that followed it is the newest word.
         for (line: String in lines) {

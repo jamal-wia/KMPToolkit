@@ -55,13 +55,13 @@ The module's `jvmTest` runs the real engine against real JavaFX Media:
   is measured once the resume has settled; D-16 moved that window). The freeze is a race, so a run of 30
   resumes each at 2 and 4 was also made when the fix landed (0 of 60; the old code froze 7 of 30).
 - **Freeze after a resume** — `JavaFxResumeSettlesAtSpeedR5FixerTest`: after a pause and a start at 2 and at
-  4 (six fresh engines each, or `KMPTOOLKIT_FREEZE_TRIALS` for a longer run) the playhead passes where it
+  4 (six fresh engines each, or `-Pkmptoolkit.test.freeze.trials` for a longer run) the playhead passes where it
   paused plus 1200 ms within 3 s, so a playhead that freezes after the speed is given fails it.
 - **Speed through the shared player** — `JavaFxSpeedThroughCoreR6AdversarialTest` (a speed changed while
   paused, ready or completed is played from the next `play()` at that speed and the playhead keeps moving;
   the player gives the speed after `start()`, which no engine-level test above reaches) and
   `JavaFxSeekAtSpeedFreezeR6AdversarialTest` (a seek just after a loop wrap at a speed of 2 does not leave
-  the playhead standing). Both are races: `KMPTOOLKIT_R6_TRIALS` lengthens a run.
+  the playhead standing). Both are races: `-Pkmptoolkit.test.r6.trials` lengthens a run.
 - **Calls from the FX thread** — `JavaFxFxThreadCallerR7AdversarialTest` (the same speed scenarios driven from a
   button handler: the playhead moves on at the speed asked for) and `JavaFxFxThreadNudgeR8FixerTest` (a listener
   on the native rate property: a replay at a new speed from the FX thread gives the native player one
@@ -83,3 +83,8 @@ Run it with:
 
 The suite takes about 40 s, most of it real playback time. The CI workflow does not run `jvmTest`;
 run it locally on a machine with a display before changing the engine.
+
+Knobs of the long runs (trial counts, seed ranges, soak length, `-Pkmptoolkit.test.hazards=true`) are Gradle
+properties that start with `kmptoolkit.test.`, for example `-Pkmptoolkit.test.r6.trials=30`. The build hands each
+of them to the test JVM, and to the child JVMs that some classes start, as a system property of the same name, and
+prints them once when the test task starts; a value exported in the shell is not read.

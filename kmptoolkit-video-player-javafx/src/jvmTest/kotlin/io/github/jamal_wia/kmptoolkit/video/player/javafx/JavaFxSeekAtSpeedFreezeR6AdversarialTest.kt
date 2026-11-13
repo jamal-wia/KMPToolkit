@@ -23,7 +23,7 @@ class JavaFxSeekAtSpeedFreezeR6AdversarialTest {
         assumeJavaFxMedia()
     }
 
-    private val trials: Int = System.getenv("KMPTOOLKIT_R6_TRIALS")?.toIntOrNull() ?: 8
+    private val trials: Int = System.getProperty("kmptoolkit.test.r6.trials")?.toIntOrNull() ?: 8
 
     /** Whether the playhead, after a seek, moved at least 300 ms away from where the seek landed within 3.5 s. */
     private fun movesOnAfter(engine: JavaFxVideoEngine, afterMs: Long = 3_500L): Boolean {
