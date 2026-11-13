@@ -109,6 +109,7 @@ class RegressTraceDifferentialAdversarialTest {
     }
 
     private fun snapshot(store: TestUploaderStore): String =
+        // path-hygiene-ignore: PH4 the '/' is the field delimiter of a diagnostic snapshot string ('attempts' only contains the substring 'temp'), not a path join
         store.items.sortedBy { it.id }.joinToString(" ") { "${it.id}/${it.state.name.take(2)}/a${it.attempts}/c${it.claim}/n${it.nextRunAtEpochMillis}/l${it.leaseUntilEpochMillis}" }
 
     private suspend fun TestScope.walk(seed: Int, out: StringBuilder?, chaos: Boolean, flaky: Boolean, keepOverParked: Boolean, failDeletes: Boolean = true, quietSettle: Boolean = false) {
