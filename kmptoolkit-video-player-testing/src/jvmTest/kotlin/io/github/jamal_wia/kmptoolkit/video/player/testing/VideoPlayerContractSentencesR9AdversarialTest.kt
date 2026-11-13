@@ -24,6 +24,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -105,6 +106,15 @@ class VideoPlayerContractSentencesR9AdversarialTest {
         createVideoPlayer(engine, config, Dispatchers.Default)
 
     private fun <T> bounded(block: suspend () -> T): T = runBlocking { withTimeout(30_000L) { block() } }
+
+    /** Waits for the first load to start, at most 5000 polls of 1 ms: withTimeout cannot interrupt this blocking loop. */
+    private fun awaitLoadStarted(engine: StrictEngine) {
+        repeat(5_000) {
+            if (engine.loadCount.get() >= 1) return
+            Thread.sleep(1L)
+        }
+        fail("the first load did not start within 5 s: ${engine.calls}")
+    }
 
     private val source: VideoSource = VideoSource.File("clip.mp4")
 
@@ -547,12 +557,15 @@ class VideoPlayerContractSentencesR9AdversarialTest {
         val first = AtomicReference<Throwable?>(null)
         engine.onLoad = { if (engine.loadCount.get() == 1) { gate.await(10, TimeUnit.SECONDS) } }
         val p: VideoPlayer = player(engine)
-        val firstPrepare = Thread { try { runBlocking { p.prepare(VideoSource.File("one.mp4")) } } catch (t: Throwable) { first.set(t) } }
+        // Daemon threads with a bounded prepare: a player that never answers leaves no stuck thread behind.
+        val firstPrepare = Thread { try { runBlocking { withTimeout(10_000L) { p.prepare(VideoSource.File("one.mp4")) } } } catch (t: Throwable) { first.set(t) } }
+        firstPrepare.isDaemon = true
         firstPrepare.start()
         val deadline: Long = System.nanoTime() + 5_000_000_000L
         while (engine.loadCount.get() < 1 && System.nanoTime() < deadline) Thread.sleep(1L)
         // onLoad blocks a thread, not a coroutine: the second prepare cancels the first, which can only unwind once released.
-        val second = Thread { runBlocking { p.prepare(VideoSource.File("two.mp4")) } }
+        val second = Thread { runBlocking { withTimeout(10_000L) { p.prepare(VideoSource.File("two.mp4")) } } }
+        second.isDaemon = true
         second.start()
         Thread.sleep(50L)
         gate.countDown()
@@ -571,7 +584,7 @@ class VideoPlayerContractSentencesR9AdversarialTest {
         engine.loadSuspend = { gate.await() }
         val p: VideoPlayer = player(engine)
         val job = kotlinx.coroutines.GlobalScope.launch(Dispatchers.Default) { p.prepare(source) }
-        while (engine.loadCount.get() < 1) Thread.sleep(1L)
+        awaitLoadStarted(engine)
         assertEquals(VideoPlayerState.Preparing, p.stateFlow.value)
         job.cancel()
         job.join()
@@ -589,7 +602,7 @@ class VideoPlayerContractSentencesR9AdversarialTest {
         engine.loadSuspend = { n: Int -> if (n == 1) { try { gate.await() } finally { Thread.sleep(40L) } } }
         val p: VideoPlayer = player(engine)
         val first = kotlinx.coroutines.GlobalScope.async(Dispatchers.Default) { p.prepare(VideoSource.File("one")) }
-        while (engine.loadCount.get() < 1) Thread.sleep(1L)
+        awaitLoadStarted(engine)
         val second = kotlinx.coroutines.GlobalScope.async(Dispatchers.Default) { p.prepare(VideoSource.File("two")) }
         first.await()
         second.await()
