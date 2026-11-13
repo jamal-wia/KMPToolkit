@@ -102,18 +102,20 @@ abstract class VideoPlayerConsumerScreenR9Tests {
     // --- 06-testing "Auto-hide timing", as printed ------------------------------------------------
 
     @Test
-    fun `the printed auto-hide snippet checks nothing because it passes before any time has passed`() =
-        runComposeUiTest {
-            val tp = TestPlayer().paused(0L)
-            mainClock.autoAdvance = false
-            // As printed: no labels are passed, so no control carries the description "Pause", and a player that
-            // is not playing never hides its controls and would show "Play" anyway.
-            setContent { TestHost { VideoPlayer(tp.player, controlsAutoHideDelayMs = 3_000L) } }
-            onNodeWithContentDescription("Pause").assertDoesNotExist()
-            mainClock.advanceTimeBy(3_000L + 1_000L)
-            onNodeWithContentDescription("Pause").assertDoesNotExist()
-            tp.player.release()
-        }
+    fun `the printed auto-hide snippet hides the pause control after the delay`() = runComposeUiTest {
+        val tp = TestPlayer().prepare()
+        val player: VideoPlayer = tp.player
+        mainClock.autoAdvance = false
+        // As printed in 06-testing "Auto-hide timing" (MyLabels is LABELS, and TestHost supplies the factory and
+        // lifecycle that the snippet's own host provides).
+        setContent { TestHost { VideoPlayer(player, controlsAutoHideDelayMs = 3_000L) { DefaultVideoControls(labels = LABELS) } } }
+        player.play() // a prepared player: the controls only hide while playing
+        mainClock.advanceTimeByFrame()
+        onNodeWithContentDescription(LABELS.pause!!).assertExists()
+        mainClock.advanceTimeBy(3_000L + 1_000L) // the delay, then the fade-out
+        onNodeWithContentDescription(LABELS.pause!!).assertDoesNotExist()
+        player.release()
+    }
 
     @Test
     fun `the auto-hide behaviour the snippet means holds with labels and a playing player`() = runComposeUiTest {

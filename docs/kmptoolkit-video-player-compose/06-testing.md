@@ -51,9 +51,12 @@ the composition's clock. In a test, take the clock over:
 
 ```kotlin
 mainClock.autoAdvance = false
-setContent { VideoPlayer(player, controlsAutoHideDelayMs = 3_000L) }
+setContent { VideoPlayer(player, controlsAutoHideDelayMs = 3_000L) { DefaultVideoControls(labels = MyLabels) } }
+player.play() // a prepared player: the controls only hide while playing
+mainClock.advanceTimeByFrame()
+onNodeWithContentDescription(MyLabels.pause!!).assertExists()
 mainClock.advanceTimeBy(3_000L + 1_000L) // the delay, then the fade-out
-onNodeWithContentDescription("Pause").assertDoesNotExist()
+onNodeWithContentDescription(MyLabels.pause!!).assertDoesNotExist()
 ```
 
 In a test that is not about timing, pass a long delay so nothing hides mid-assertion.

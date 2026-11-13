@@ -44,4 +44,25 @@ class FakeEngineSeamR9AdversarialTest {
         assertEquals(60_000L, engine.positionMs)
         assertFalse(engine.isPlaying)
     }
+
+    /**
+     * `FakeVideoPlaybackEngine.positionMs` documents that a load, a release and a looping `completePlayback` reset
+     * it to `0`. The engine is driven directly, so that nothing the player above it does can mask a missing reset
+     * (mutants T1 and T2 of round 9 survived the tests that go through the player).
+     */
+    @Test
+    fun `a load and a release each reset the playhead read from the fake itself`() {
+        val engine = FakeVideoPlaybackEngine(60_000L)
+        val source = io.github.jamal_wia.kmptoolkit.video.player.VideoSource.Remote("https://example.test/a.mp4")
+        runBlocking { engine.load(source) }
+        engine.advancePositionTo(5_000L)
+        assertEquals(5_000L, engine.positionMs, "the harness does not move the playhead")
+
+        runBlocking { engine.load(source) }
+        assertEquals(0L, engine.positionMs, "a load did not reset the playhead")
+
+        engine.advancePositionTo(5_000L)
+        engine.release()
+        assertEquals(0L, engine.positionMs, "a release did not reset the playhead")
+    }
 }

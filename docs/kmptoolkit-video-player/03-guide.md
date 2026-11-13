@@ -60,10 +60,12 @@ apart. Match on the types and codes you care about and fall through on the rest;
 platform produces are not part of this module's compatibility promise.
 
 A failure *after* loading — a stream that dies mid-video — arrives the same way, as `Error`, when the
-platform notices. That includes a failure the engine reports in the instant between its load
-succeeding and `prepare` publishing `Ready`: it is kept and applied in order, so the player settles on
-`Error` rather than `Ready`. Recovering means preparing again; there is no `retry()`, because the source to
-retry with (perhaps with a refreshed token) is information only you have.
+platform notices. That includes a failure the engine reports while `prepare` is still `Preparing`,
+during its load or just before `Ready` is published, when the load itself returns normally: the first
+such failure is kept and applied in order, so the player settles on `Error` rather than `Ready`. If
+the load throws, its own `Throwable` is the `Error`. Recovering means preparing again; there is no
+`retry()`, because the source to retry with (perhaps with a refreshed token) is information only
+you have.
 
 ## The release contract
 

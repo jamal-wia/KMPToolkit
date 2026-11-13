@@ -52,7 +52,10 @@ public class FakeVideoPlaybackEngine(
      */
     public var durationMs: Long = durationMs
 
-    /** Current playhead, in milliseconds. Moved by seeks and by [advancePositionTo]/[advancePositionBy]. */
+    /**
+     * Current playhead, in milliseconds. Moved by seeks and by [advancePositionTo]/[advancePositionBy]; reset to
+     * `0` by a load, by [VideoPlaybackEngine.release] and by [completePlayback] on a looping fake.
+     */
     public var positionMs: Long = 0L
         private set
 
