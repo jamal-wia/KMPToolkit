@@ -71,9 +71,9 @@ class AndroidDocsPinsRound8Test {
     }
 
     /**
-     * 03-guide "Extract into a staging directory, swap into place": the tree after a second commit of the unit is the new
-     * archive's tree and nothing of the old one. (Mutant: the old tree is not removed before the staging tree is
-     * renamed onto it; the rename then fails and the copy fallback merges the two.)
+     * 03-guide "Extract into a staging directory, move the old tree aside, rename the new one into place": the tree after a
+     * second commit of the unit is the new archive's tree and nothing of the old one. (Mutant: the old tree is not moved
+     * aside before the staging tree is renamed onto it; the rename then fails and the commit throws.)
      */
     @Test
     fun `replacing a committed archive leaves no file of the old tree`() = runBlocking<Unit> {
