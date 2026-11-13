@@ -244,6 +244,189 @@ class TimeModelTest {
         assertEquals(trace(), trace())
     }
 
+    /**
+     * The published sequence of a loaded script without a `read` argument (AT_TICK, the default): every change of the
+     * published playhead as (virtual ms, value), over a play, a seek to a key frame and the rest of the clip.
+     */
+    private fun publishedSequence(seed: Long, script: TimeScript): List<Pair<Double, Double>> {
+        val out: MutableList<Pair<Double, Double>> = mutableListOf()
+        fxModel(seed = seed) {
+            val rig: Rig = readyRig(script)
+            rig.onFx { rig.player.play() }
+            var last: Double = rig.player.currentTimeMs
+            for (step in 0 until 2_000) {
+                if (step == 700) rig.onFx { rig.player.seek(1_540.0) }
+                rig.advance(1)
+                if (rig.player.currentTimeMs != last) {
+                    last = rig.player.currentTimeMs
+                    out += rig.now() to last
+                }
+            }
+        }
+        return out
+    }
+
+    @Test
+    fun theDefaultReadOfTheLoadProfileIsAtTheTickAndItsPublishedSequenceIsPinned() {
+        assertEquals(
+            listOf(
+                249.0 to 100.0, 458.0 to 300.0, 515.0 to 400.0, 604.0 to 200.0, 771.0 to 600.0, 850.0 to 500.0, 1025.0 to 1200.0,
+                1063.0 to 1100.0, 1078.0 to 1000.0, 1118.0 to 700.0, 1260.0 to 1300.0, 1516.0 to 1500.0, 1542.0 to 1400.0,
+                1792.0 to 1700.0, 1864.0 to 1800.0, 1924.0 to 1900.0, 2003.0 to 2000.0, 2044.0 to 2100.0,
+            ),
+            publishedSequence(99L, TimeScript().load(seed = 99L)),
+            "seed 99",
+        )
+        assertEquals(
+            publishedSequence(7L, TimeScript().load(seed = 7L)),
+            publishedSequence(7L, TimeScript().load(seed = 7L, read = SampleRead.AT_TICK)),
+            "an explicit AT_TICK is the default",
+        )
+        assertEquals(
+            listOf(
+                392.0 to 100.0, 572.0 to 400.0, 608.0 to 200.0, 872.0 to 500.0, 909.0 to 1000.0, 943.0 to 600.0, 1009.0 to 1100.0,
+                1047.0 to 700.0, 1205.0 to 1200.0, 1433.0 to 1400.0, 1434.0 to 1300.0, 1448.0 to 1500.0, 1547.0 to 1700.0,
+                1715.0 to 1900.0, 1789.0 to 1800.0, 2041.0 to 2100.0, 2042.0 to 2000.0,
+            ),
+            publishedSequence(7L, TimeScript().load(seed = 7L)),
+            "seed 7",
+        )
+    }
+
+    // -- B3: the LOAD profile reads the playhead when the publication runs (SampleRead.AT_PUBLISH, task J-load-fresh) --
+
+    /** The values published after a seek made at [seekAtMs] of playing, one entry per change, polled every virtual ms. */
+    private fun valuesPublishedAfterASeek(seed: Long, read: SampleRead): List<Double> {
+        val out: MutableList<Double> = mutableListOf()
+        fxModel(seed = seed) {
+            val rig: Rig = readyRig(TimeScript().load(seed = seed, read = read))
+            rig.onFx { rig.player.play() }
+            rig.advance(300L + (seed % 7L) * 13L)
+            rig.onFx { rig.player.seek(2_000.0) }
+            var last: Double = rig.player.currentTimeMs
+            for (step in 0 until 600) {
+                rig.advance(1)
+                if (rig.player.currentTimeMs != last) {
+                    last = rig.player.currentTimeMs
+                    out += last
+                }
+            }
+        }
+        return out
+    }
+
+    @Test
+    fun underAtPublishNoValuePublishedAfterTheSeekBlockRanPredatesTheSeek() {
+        val offenders: List<String> = (1L..200L).mapNotNull { seed ->
+            val low: Double? = valuesPublishedAfterASeek(seed, SampleRead.AT_PUBLISH).filter { it < 2_000.0 }.minOrNull()
+            low?.let { "seed $seed published $it after a seek to 2000" }
+        }
+
+        assertEquals(emptyList(), offenders)
+    }
+
+    @Test
+    fun underAtTickAValuePublishedAfterTheSeekBlockRanCanPredateTheSeekSoTheAtPublishTestBites() {
+        val stale: Int = (1L..200L).count { seed ->
+            valuesPublishedAfterASeek(seed, SampleRead.AT_TICK).any { it < 2_000.0 }
+        }
+
+        assertTrue(stale > 20, "only $stale of 200 seeds published a pre-seek value after the seek under AT_TICK")
+    }
+
+    @Test
+    fun aPublicationQueuedBeforeTheSeekBlockStillRunsFirstAndCarriesTheOldPosition() = fxModel {
+        val rig: Rig = readyRig(TimeScript().load(seed = 1L, minDelayMs = 0.0, maxDelayMs = 0.0, dropFraction = 0.0, read = SampleRead.AT_PUBLISH))
+        rig.onFx { rig.player.play() }
+        rig.advance(430)
+        val taken: Int = rig.time.samplesTaken
+        var steps = 0
+        while (rig.time.samplesTaken == taken) check(host.step() && steps++ < 100) { "no sample was taken ($host)" }
+        assertTrue(host.pendingCount > 0, "the publication of the sample is not queued ($host)")
+        val old: Double = rig.time.nativePositionMs
+        assertTrue(old in 1.0..1_999.0, "the premise: the playhead is before the seek target, at $old")
+
+        // From the test thread the seek block queues behind the publication already waiting, as on a busy FX thread.
+        host.post { rig.player.seek(2_000.0) }
+        rig.advance(0)
+
+        // Two publications ran at this instant: the one queued before the seek block, then the sample the seek itself took.
+        val ran: List<TimeModel.Publication> = rig.time.publications.filter { it.tickMs == rig.now() }
+        assertEquals(2, ran.size, "the publications of this instant: ${rig.time.publications.map { "${it.index}@${it.runMs}=${it.value}" }}")
+        assertEquals(old, ran[0].value, "the publication queued ahead of the seek block carries the old position")
+        assertEquals(2_000.0, ran[1].value, "the sample the seek took carries the new position")
+        assertEquals(ran[0].index + 1, ran[1].index, "the two ran in the posting order")
+        assertEquals(2_000.0, rig.player.currentTimeMs)
+        rig.advance(300)
+        assertTrue(rig.player.currentTimeMs >= 2_000.0, "a later publication carries the new position, ${rig.player.currentTimeMs}")
+    }
+
+    private fun publicationsOf(seed: Long, jitterMaxMs: Double = 0.0): List<TimeModel.Publication> {
+        var out: List<TimeModel.Publication> = emptyList()
+        fxModel(seed = seed, jitterMaxMs = jitterMaxMs) {
+            val rig: Rig = readyRig(TimeScript().load(seed = seed, read = SampleRead.AT_PUBLISH), ClipModel(durationMs = 1_000_000.0))
+            rig.onFx { rig.player.play() }
+            rig.advance(20_000)
+            rig.advance(1_000) // the last publications of the window run
+            out = rig.time.publications
+        }
+        return out
+    }
+
+    @Test
+    fun underAtPublishPublicationsRunInThePostingOrderAtTheLaterOfThePreviousRunAndTheirOwnDelay() {
+        var clamped = 0
+        for (seed in 1L..200L) {
+            val log: List<TimeModel.Publication> = publicationsOf(seed)
+            assertTrue(log.size > 100, "seed $seed: only ${log.size} publications ran")
+            log.forEachIndexed { i: Int, p: TimeModel.Publication ->
+                assertEquals(i, p.index, "seed $seed: publication $i ran out of the posting order")
+                val own: Double = p.tickMs + p.delayMs
+                val expected: Double = if (i == 0) own else maxOf(log[i - 1].runMs, own)
+                assertEquals(expected, p.runMs, 1e-6, "seed $seed publication $i: ran at ${p.runMs}, tick ${p.tickMs} delay ${p.delayMs}")
+                if (p.runMs > own + 1e-6) clamped++
+            }
+        }
+        assertTrue(clamped > 100, "only $clamped publications were held back behind an earlier one: the rule was never exercised")
+    }
+
+    @Test
+    fun underAtPublishAJitteredHostStillRunsThePublicationsInThePostingOrderAndNeverEarly() {
+        for (seed in 1L..50L) {
+            val log: List<TimeModel.Publication> = publicationsOf(seed, jitterMaxMs = 17.0)
+            log.forEachIndexed { i: Int, p: TimeModel.Publication ->
+                assertEquals(i, p.index, "seed $seed: publication $i ran out of the posting order")
+                assertTrue(p.runMs >= p.tickMs + p.delayMs - 1e-6, "seed $seed publication $i ran early: ${p.runMs} < ${p.tickMs + p.delayMs}")
+                if (i > 0) assertTrue(p.runMs >= log[i - 1].runMs, "seed $seed publication $i ran before the one ahead of it")
+            }
+        }
+    }
+
+    @Test
+    fun theDropFractionAndTheDrawsAreTheSameUnderAtPublishAsUnderAtTick() = fxModel {
+        val clip = ClipModel(durationMs = 1_000_000.0)
+        val rig: Rig = readyRig(TimeScript().load(seed = 3L, read = SampleRead.AT_PUBLISH), clip)
+        rig.onFx { rig.player.play() }
+
+        rig.advance(100_000)
+
+        assertEquals(1_000, rig.time.samplesTaken, "one sample per 100 ms of 100 s (seed 3)")
+        assertTrue(rig.time.samplesDropped in 50..150, "samples dropped ${rig.time.samplesDropped} of ${rig.time.samplesTaken} (seed 3)")
+        val atTick: TimeScript = TimeScript().load(seed = 3L)
+        val atPublish: TimeScript = TimeScript().load(seed = 3L, read = SampleRead.AT_PUBLISH)
+        assertEquals(List(500) { atTick.nextPublishDelayMs() }, List(500) { atPublish.nextPublishDelayMs() })
+        val posted: Int = rig.time.samplesTaken - rig.time.samplesDropped
+        assertTrue(rig.time.publications.size in (posted - 10)..posted, "${rig.time.publications.size} publications ran of $posted posted (seed 3)")
+    }
+
+    @Test
+    fun theReadOptionDefaultsToAtTickAndIsKeptByACopy() {
+        assertEquals(SampleRead.AT_TICK, TimeScript().sampleRead)
+        assertEquals(SampleRead.AT_TICK, TimeScript().load(seed = 1L).sampleRead)
+        assertEquals(SampleRead.AT_PUBLISH, TimeScript().load(seed = 1L, read = SampleRead.AT_PUBLISH).copy().sampleRead)
+        assertEquals(SampleRead.AT_TICK, TimeScript().apply { publishDelayMs = 5.0 }.sampleRead)
+    }
+
     // -- B5: seeks land on key frames --
 
     @Test
