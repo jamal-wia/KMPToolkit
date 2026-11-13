@@ -11,8 +11,14 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
@@ -85,5 +91,41 @@ class LoadCancellationOfItsOwnFixD1R11Test {
             player.prepareNow()
             assertEquals(VideoPlayerState.Ready(10_000L), player.stateFlow.value, "the next prepare works after the failure")
         }
+    }
+
+    @Test
+    fun `a caller that is cancelled mid load still gets its CancellationException and the player returns to Idle`() {
+        // The other half of the rule: only a load nobody wants any more is a cancellation.
+        val engine = ScriptedEngineD1R11()
+        withPlayer(engine) { player: VideoPlayer ->
+            val inLoad: CompletableDeferred<Unit> = CompletableDeferred()
+            engine.loadAction = {
+                inLoad.complete(Unit)
+                awaitCancellation()
+            }
+            var thrown: Throwable? = null
+            runBlocking {
+                withTimeout(HANG_BOUND_MS) {
+                    val job: Job = launch(start = CoroutineStart.UNDISPATCHED) {
+                        try {
+                            player.prepare(source)
+                        } catch (cancellation: CancellationException) {
+                            thrown = cancellation
+                            throw cancellation
+                        }
+                    }
+                    inLoad.await()
+                    job.cancel()
+                    job.join()
+                }
+            }
+            assertTrue(thrown is CancellationException, "04: the cancelled caller gets the CancellationException, was $thrown")
+            assertEquals(VideoPlayerState.Idle, player.stateFlow.value, "04: a cancelled prepare returns to Idle, not Error")
+        }
+    }
+
+    private companion object {
+        /** A hang bound in real time, never a wait for the code under test to make progress. */
+        const val HANG_BOUND_MS: Long = 10_000L
     }
 }
