@@ -23,7 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
  * | [RecorderState.Recording] | no | no | yes | no | yes | yes |
  * | [RecorderState.Paused] | no | no | no | yes | yes | yes |
  * | [RecorderState.Completed] | yes | no | no | no | no | no |
- * | [RecorderState.Interrupted] | yes | no | no | no | yes² | yes |
+ * | [RecorderState.Interrupted] | yes | no | no | no | yes² | yes³ |
  * | [RecorderState.Failed] | yes | no | no | no | no | yes¹ |
  * | [RecorderState.Released] | no | no | no | no | no | no |
  *
@@ -32,6 +32,10 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * ² `stop` from [RecorderState.Interrupted] returns the interrupted recording again as a success
  * and leaves the state unchanged — nothing is emitted, and it is not [RecorderState.Completed].
+ *
+ * ³ `cancel` from [RecorderState.Interrupted] deletes the interrupted file, although it is finalized
+ * and playable, and returns to [RecorderState.Idle]: `cancel` is the discard. To keep the file, do
+ * not call `cancel`; `prepare` starts a fresh recording and never deletes it.
  *
  * While the system's event is being finalized, [state] still shows the old value, and a call of
  * yours races with it: `start`, `pause` and `resume` return [RecorderError.IllegalState] carrying
