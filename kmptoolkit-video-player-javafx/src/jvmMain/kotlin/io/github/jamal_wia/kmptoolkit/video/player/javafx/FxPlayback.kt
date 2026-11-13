@@ -126,6 +126,13 @@ internal class FxPlayback private constructor(
     private var playGeneration: Long = 0L
 
     /**
+     * True from the moment [start] schedules a delayed `native.play()` (a resume inside the idle gap, see
+     * [idleRateWriteNanos], or the settle path's own wait) until that play is issued or [pause] or the end of the media
+     * cancels it. A second [start] in that time must not issue a play of its own: see the guard at its top.
+     */
+    private var delayedPlayPending: Boolean = false
+
+    /**
      * When the rate property was last written while the native player was not playing ([System.nanoTime]), or 0 when
      * it has not been: the paused write of [setSpeed], the held speed [pause] and the end of the source write after
      * their pause(), and the write of [giveNudge] on a player that was paused again. A play() issued within
@@ -194,6 +201,7 @@ internal class FxPlayback private constructor(
                 }
                 atEnd = true
                 playIssued = false
+                delayedPlayPending = false
                 // JavaFX leaves its status at PLAYING after the last cycle ends. The player reports
                 // Completed, and a seek from there reports Paused — so JavaFX must be paused too, or a
                 // seek would resume playback on a backend that honours the status, and the pulse
@@ -242,6 +250,11 @@ internal class FxPlayback private constructor(
 
     fun start(): Unit = host.post {
         if (disposed) return@post
+        // A start while the delayed play of an earlier start still waits is not a resume (the earlier one already issued
+        // it), so it would take the plain path below and call play() at once: right next to the rate write the wait
+        // stays clear of, the measured freeze, and then the delayed play again. The earlier start owns the play; a speed
+        // given meanwhile is held by [setSpeed] (C3), so nothing is left for this call to do.
+        if (playIssued && delayedPlayPending) return@post
         if (atEnd) {
             atEnd = false
             native.seek(native.startTimeMs)
@@ -269,8 +282,10 @@ internal class FxPlayback private constructor(
                 settleNotBeforeNanos = 0L
                 settleFrom = Double.NaN
                 val generation: Long = ++playGeneration
+                delayedPlayPending = true
                 host.after(idleWait / 1_000_000.0 + 1.0) {
                     if (disposed || !playIssued || generation != playGeneration) return@after
+                    delayedPlayPending = false
                     native.play()
                     playIssuedAtNanos = if (!hadSeek) host.nanoTime() else 0L
                 }
@@ -293,8 +308,10 @@ internal class FxPlayback private constructor(
             val generation: Long = ++playGeneration
             val wait: Long = IDLE_RATE_GAP_NANOS - (host.nanoTime() - idleRateWriteNanos)
             if (wait > 0L) {
+                delayedPlayPending = true
                 host.after(wait / 1_000_000.0 + 1.0) {
                     if (disposed || !playIssued || generation != playGeneration) return@after
+                    delayedPlayPending = false
                     native.play()
                     playIssuedAtNanos = host.nanoTime()
                 }
@@ -320,8 +337,10 @@ internal class FxPlayback private constructor(
             playIssuedAtNanos = 0L
             pendingNudge = rate
             val generation: Long = ++playGeneration
+            delayedPlayPending = true
             host.after(idleWait / 1_000_000.0 + 1.0) {
                 if (disposed || !playIssued || generation != playGeneration) return@after
+                delayedPlayPending = false
                 native.play()
                 host.postLater { host.postLater { giveNudge() } }
             }
@@ -363,6 +382,7 @@ internal class FxPlayback private constructor(
         if (disposed) return@post
         playIssued = false
         playGeneration++
+        delayedPlayPending = false
         native.pause()
         // A1: the held speed is written after the pause, never before it. OpenJFX forwards a rate change and a pause()
         // synchronously and in order, so a write ahead of the pause() lands on a decoder that is still running (the
