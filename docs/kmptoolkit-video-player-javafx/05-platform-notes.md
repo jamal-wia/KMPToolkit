@@ -200,7 +200,8 @@ decoder writes straight into memory without a render-and-read-back step.
   in the measurements). The exception is a `play()` from within about 100 ms of the start of the clip, at a speed other
   than 1 and with no seek pending: it first seeks to where it stands and plays at once, because a native seek after the
   write clears the gap. Such a write is a `setPlaybackSpeed()` on a paused player, the held speed that a `pause()` or
-  the end of a clip writes, or a speed that a `pause()` overtook before it was given, or the return to normal speed at a loop wrap that JavaFX delivers after a `pause()`. So a `setPlaybackSpeed()`
+  the end of a clip writes, or a speed that a `pause()` overtook before it was given, or the return to normal speed at a loop wrap that JavaFX delivers after a `pause()`, also when a later `play()` is still
+  waiting; a waiting `play()` checks the gap again when its wait ends, so such a write pushes it to 200 ms after the write. So a `setPlaybackSpeed()`
   immediately followed by `play()` starts up to 200 ms late, except a play near the start. A speed given while
   that `play()` waits is held and given after the play (as a settle, about 200 ms of playback later on the plain path),
   never written in front of it; a second `play()` meanwhile does nothing (the first one plays once, at the end of the
