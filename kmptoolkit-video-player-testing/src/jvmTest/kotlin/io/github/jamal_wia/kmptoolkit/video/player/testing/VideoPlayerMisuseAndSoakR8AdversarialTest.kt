@@ -26,8 +26,8 @@ import kotlinx.coroutines.withTimeout
 
 /**
  * Round 8 (breaker at): API misuse of the public types as a consumer's tool, and a long-run soak of the shared
- * player on the scriptable fake. The soak length is bounded by the system property kmptoolkit.test.soak.seconds (or
- * the system property of the same name); the committed default is a few seconds.
+ * player on the scriptable fake. The soak length is bounded by the system property kmptoolkit.test.soak.seconds; the
+ * committed default is a few seconds.
  */
 class VideoPlayerMisuseAndSoakR8AdversarialTest {
 
