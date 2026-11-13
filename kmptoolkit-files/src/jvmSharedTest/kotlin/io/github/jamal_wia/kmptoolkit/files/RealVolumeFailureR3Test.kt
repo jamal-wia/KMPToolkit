@@ -7,6 +7,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 import org.junit.Assume
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -21,8 +22,23 @@ import kotlin.test.fail
  * `NoSpace`, EROFS is `AccessDenied`, anything else is `Io`; a failure leaves no temporary file and the path untouched.
  * The volumes are disk images mounted under a directory of the test and always detached; the test is skipped on a host
  * without `hdiutil` (not macOS).
+ *
+ * Opt-in: the tests depend on the host (`hdiutil` mounts, a real kernel) and the descriptor test exhausts the
+ * descriptors of the whole test JVM, which a shared Gradle worker would pass on to every other class running in it, so
+ * the default gate skips the class. Run it with the system property `kmptoolkit.test.hostfaults` equal to `true`, which
+ * the build forwards from a Gradle property, for example
+ * `./gradlew :kmptoolkit-files:jvmTest --tests '*RealVolumeFailureR3Test' -Pkmptoolkit.test.hostfaults=true`
+ * (or `:kmptoolkit-files:testAndroidHostTest`, which runs the same source).
  */
 class RealVolumeFailureR3Test {
+    @BeforeTest
+    fun requireHostFaults() {
+        Assume.assumeTrue(
+            "opt-in: run with -Pkmptoolkit.test.hostfaults=true (real volumes through hdiutil, real descriptor exhaustion)",
+            System.getProperty("kmptoolkit.test.hostfaults") == "true",
+        )
+    }
+
     private val files: FileAccess = createFileAccess()
 
     private fun run(vararg command: String): Boolean =
