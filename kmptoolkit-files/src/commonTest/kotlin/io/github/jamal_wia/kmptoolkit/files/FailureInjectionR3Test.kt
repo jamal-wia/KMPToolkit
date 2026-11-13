@@ -173,6 +173,19 @@ class FailureInjectionR3Test {
     }
 
     @Test
+    fun `deleteRecursively reports an entry it could not examine as the first error and removes the rest`() {
+        put("t/a")
+        put("t/b")
+        put("t/z")
+        ops.failNext(Op.Metadata, FileError.AccessDenied(p("t/b")), count = 1000) { it == p("t/b") }
+        val error: FileError = failureOf(engine.deleteRecursively(p("t")))
+        assertEquals(FileError.AccessDenied(p("t/b")), error)
+        assertEquals(null, plain.metadata(p("t/a")))
+        assertEquals(null, plain.metadata(p("t/z")))
+        assertEquals(FileKind.RegularFile, plain.metadata(p("t/b"))?.kind)
+    }
+
+    @Test
     fun `deleteRecursively of a tree that vanishes entirely during the walk is Success`() {
         put("t/a")
         put("t/sub/b")
