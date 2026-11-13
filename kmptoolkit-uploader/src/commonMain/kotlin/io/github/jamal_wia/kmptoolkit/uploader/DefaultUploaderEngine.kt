@@ -544,6 +544,25 @@ internal class DefaultUploaderEngine(
         return bumpOutsideFailure(item.id)
     }
 
+    /** When the held sweep last re-read the entries it had found absent (`null`: never), see [takeHeldRecheck]. */
+    private val lastHeldRecheckMillis: MutableStateFlow<Long?> = MutableStateFlow(null)
+
+    /**
+     * Whether this sweep re-reads the remembered entries whose row it found absent: at the first sweep, once per
+     * [UploaderConfig.heartbeatInterval] after, and at once when the clock reads earlier than the last re-check (a step
+     * backwards). A manual drain racing the engine's loop may cost one extra full sweep.
+     */
+    private fun takeHeldRecheck(): Boolean {
+        val now: Long = clock.nowEpochMillis()
+        val heartbeat: Long = config.heartbeatInterval.inWholeMilliseconds
+        var due = false
+        lastHeldRecheckMillis.update { last ->
+            due = last == null || now < last || saturatingSubtract(now, last) >= heartbeat
+            if (due) now else last
+        }
+        return due
+    }
+
     /** What [sweepHeldOutOfRotation] found: the rows' [ids] and the soonest [gate] a delete is worth another try, if any. */
     private class HeldSweep(val ids: Set<String>, val gate: Long?)
 
@@ -553,7 +572,7 @@ internal class DefaultUploaderEngine(
      * state. Runs once per call, under the same turn and backoff rules as an active held row.
      */
     private suspend fun sweepHeldOutOfRotation(call: DrainCall): HeldSweep {
-        val held: List<UploaderItem> = ledger.heldOutOfRotation()
+        val held: List<UploaderItem> = ledger.heldOutOfRotation(recheckAbsent = takeHeldRecheck())
         if (held.isEmpty()) return HeldSweep(emptySet(), null)
         val nowMillis: Long = clock.nowEpochMillis()
         var gate: Long? = null

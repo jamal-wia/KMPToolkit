@@ -75,7 +75,7 @@ class RegressHeldSweepCostAdversarialTest {
 
             assertEquals(1, handler.attempts.size, "the queued item ran exactly once")
             assertTrue(first in 10_000..10_040, "first call: one point read per remembered entry plus a handful for the item, was $first")
-            assertTrue(second in 10_000..10_040, "second call: the same cost again (nothing was forgotten), was $second")
+            assertTrue(second <= 40, "entries found absent are not re-read before the heartbeat cadence, was $second")
             assertEquals(10_000, DeliveredUnconfirmed.ids().count { it.startsWith("n1-held-") }, "entries whose rows are gone stay remembered")
         } finally {
             parent.cancel()
