@@ -71,7 +71,8 @@ internal class PictureModel(
         require(width > 0 && height > 0) { "the snapshot size must be positive, was ${width}x$height" }
         require(pixels.size >= width * height) { "the array holds ${pixels.size} pixels, a ${width}x$height snapshot needs ${width * height}" }
         val first: Long? = firstPictureNanos
-        val hasPicture: Boolean = first != null && player.host.nanoTime() >= first && player.viewAttached && !disposed
+        // A difference, not a comparison of two readings: the clock has no zero and may wrap during the run.
+        val hasPicture: Boolean = first != null && player.host.nanoTime() - first >= 0L && player.viewAttached && !disposed
         pixels.fill(if (hasPicture) OPAQUE_RED else TRANSPARENT, 0, width * height)
     }
 

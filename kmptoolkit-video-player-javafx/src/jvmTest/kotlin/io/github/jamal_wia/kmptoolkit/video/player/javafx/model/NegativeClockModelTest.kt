@@ -8,6 +8,7 @@ import io.github.jamal_wia.kmptoolkit.video.player.javafx.TestClip
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -437,6 +438,97 @@ class NegativeClockModelTest {
         }
     }
 
+    // ---- 7: a settle deadline that straddles the wrap, and the picture across the wrap ----
+
+    /**
+     * A resume at a speed that no idle write preceded plays at once and holds the speed in the settle path. A native seek 50 ms
+     * after that play moves the playhead, so the settle starts over: the speed is given back only when the 300 ms window of the
+     * seek has passed AND the playhead has then moved a further 200 ms (the two are in sequence: the window delays the moment the
+     * playhead is first read, the 200 ms are counted from it). Returns how long after the seek the speed 2 reached the decoder.
+     * The seek is at 1250 ms of elapsed time, so the clock of [SETTLE_EPOCHS] that wraps at 1400 ms puts the wrap 150 ms into
+     * the window: the deadline (seek plus 300 ms) is a number below the wrapped clock reading, and a comparison of the two as
+     * numbers calls the window over.
+     */
+    private fun speedAfterSeekInSettleDelayMs(epoch: Long): Double {
+        var delay: Double = Double.NaN
+        fxModel(epochNanos = epoch) {
+            withEngine {
+                engine.start()
+                advanceToElapsed(800)
+                engine.setSpeed(2f)
+                advanceToElapsed(1_100)
+                engine.pause()
+                advanceToElapsed(1_200)
+                engine.start()
+                advanceToElapsed(1_250)
+                val seekAt: Double = nowMs()
+                engine.seekTo(1_500L)
+                advanceBy(1_500)
+
+                val given: NativeCallEntry? = native.log.calls(NativeCall.SET_RATE).firstOrNull { it.effective && it.arg == 2.0 && it.tMs >= seekAt }
+                expect(given != null) { "the speed was never given back after the seek at $seekAt ms (clock starts at $epoch ns)\n${native.trace()}" }
+                delay = given!!.tMs - seekAt
+                assertEquals(2.0, composed.hazards.effectiveRate, "the speed never reached the decoder (clock starts at $epoch ns)\n${native.trace()}")
+                assertSound("speed in the settle after a seek (clock starts at $epoch ns)")
+            }
+        }
+        return delay
+    }
+
+    /**
+     * The settle of a resume at a speed waits out the 300 ms window of a seek and then 200 ms of playhead movement, on every
+     * clock alike: the delay of the clock that wraps inside the window equals the delay of the clock that never wraps. The
+     * contract is read from the two waits (no sooner than 500 ms) and from the clock independence of D-r8.
+     */
+    @Test
+    fun aSpeedHeldInTheSettleAfterASeekWaitsOutTheWindowAndTheMovementEvenWhenTheWindowCrossesTheWrap() {
+        val delays: Map<Long, Double> = SETTLE_EPOCHS.associateWith { speedAfterSeekInSettleDelayMs(it) }
+        val reference: Double = delays.getValue(SETTLE_EPOCHS[2])
+        expect(reference >= SEEK_WINDOW_MS + RESUME_SETTLE_MS - TIME_TOLERANCE_MS) {
+            "on a clock that never wraps the speed was given back $reference ms after the seek, sooner than the window plus the movement"
+        }
+        val wrong: List<String> = delays.filter { abs(it.value - reference) > DELAY_TOLERANCE_MS }
+            .map { "[clock starts at ${it.key} ns] the speed was given back ${it.value} ms after the seek, the clock that never wraps gives it back after $reference ms" }
+        assertEquals(emptyList(), wrong, "${wrong.size} of ${SETTLE_EPOCHS.size} clocks gave the speed back at another time")
+    }
+
+    /**
+     * Frames published during one second of play, from 1500 ms to 2500 ms of elapsed time: on the clock of [EPOCHS] that wraps
+     * at 1000 ms this whole second is after the wrap.
+     */
+    private fun framesAfterTheWrap(epoch: Long): Int {
+        var changes = 0
+        fxModel(epochNanos = epoch) {
+            withEngine {
+                engine.start()
+                advanceToElapsed(1_500)
+                var last: VideoFrame? = engine.frames.value
+                repeat(200) {
+                    advanceBy(5)
+                    val now: VideoFrame? = engine.frames.value
+                    if (now != null && now !== last) changes++
+                    last = now
+                }
+            }
+        }
+        return changes
+    }
+
+    /**
+     * The picture keeps coming after the clock wrapped, as many frames in a second as on a clock that never wraps: a fake
+     * that compared the clock as a plain number would stop publishing pictures (a transparent snapshot is no new frame), and
+     * hide every cadence defect of the player after the wrap.
+     */
+    @Test
+    fun theSamePicturesComeInASecondAfterTheWrapAsOnAClockThatNeverWraps() {
+        val counts: Map<Long, Int> = EPOCHS.associateWith { framesAfterTheWrap(it) }
+        val reference: Int = counts.getValue(EPOCHS[2])
+        expect(reference >= MIN_FRAME_CHANGES) { "only $reference new frames in the second from 1500 ms on a clock that never wraps" }
+        val wrong: List<String> = counts.filter { it.value != reference }
+            .map { "[clock starts at ${it.key} ns] ${it.value} new frames in the second from 1500 ms, a clock that never wraps gets $reference" }
+        assertEquals(emptyList(), wrong, "${wrong.size} of ${EPOCHS.size} clocks published another number of frames")
+    }
+
     private companion object {
         /**
          * The clocks every case runs on: a negative start, 0, one thousand seconds (the default of the model tier), and one
@@ -462,6 +554,15 @@ class NegativeClockModelTest {
 
         /** How much later than the instant it is due a play may come: a delayed play is scheduled 1 ms past the end of its gap. */
         const val PLAY_LATE_MS: Double = 5.0
+
+        /** The clocks of the settle case: the last wraps at 1400 ms of elapsed time, 150 ms after the seek of that case. */
+        val SETTLE_EPOCHS: List<Long> = listOf(-1_000_000_000_000L, 0L, 1_000_000_000_000L, Long.MAX_VALUE - 1_400_000_000L)
+
+        /** `RESUME_RATE_SETTLE_MS` of `FxPlayback`: the playhead must have moved this much before the settle gives the speed. */
+        const val RESUME_SETTLE_MS: Double = 200.0
+
+        /** Two clocks must agree on a delay to within a millisecond: the virtual time is exact, the log rounds a little. */
+        const val DELAY_TOLERANCE_MS: Double = 1.0
 
         const val MIN_POSITION_MS: Double = 1_000.0
         const val REPLAY_POSITION_MS: Double = 1_500.0
