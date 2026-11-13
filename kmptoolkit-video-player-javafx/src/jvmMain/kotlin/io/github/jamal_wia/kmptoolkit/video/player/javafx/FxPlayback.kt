@@ -144,13 +144,22 @@ internal class FxPlayback private constructor(
     private var delayedPlayPending: Boolean = false
 
     /**
+     * Whether the native `play()` of the current [start] has been issued: false before [start], after [pause] or the end of
+     * the media, and while the delayed play of [start] still waits. In that last state [playIssued] is already true but the
+     * native player is paused by our own command, so a rate written then is a rate written while the player is not playing
+     * (see [idleRateWriteNanos]), and a status that still reads PLAYING (JavaFX reports a pause late) is stale.
+     */
+    private val nativePlayIssued: Boolean get() = playIssued && !delayedPlayPending
+
+    /**
      * When the rate property was last written while the native player was not playing ([System.nanoTime]), or null when
      * it has not been: the paused write of [setSpeed], the held speed [pause] writes after its pause(), the speed [pause]
      * flushes from a cancelled delayed play, the held speed the end of the source writes after its pause(), the write of
      * [giveNudge] on a player that was paused again, and the return to 1.0 of [deferRate] when JavaFX delivers a loop wrap
-     * after a pause(). A play() issued within [IDLE_RATE_GAP_NANOS] of such a write can freeze the playhead on macOS, so
-     * every [start] that resumes waits out the rest of the gap first (see [start]). Only a write that changes the value
-     * is stamped: the property forwards nothing otherwise.
+     * after a pause(), also while a delayed play() of a later [start] still waits. A play() issued within
+     * [IDLE_RATE_GAP_NANOS] of such a write can freeze the playhead on macOS, so every [start] that resumes waits out the
+     * rest of the gap first, and every delayed play() checks the gap again before it plays (see [start]). Only a write
+     * that changes the value is stamped: the property forwards nothing otherwise.
      */
     private var idleRateWriteNanos: Long? = null
 
@@ -297,13 +306,13 @@ internal class FxPlayback private constructor(
                 val generation: Long = ++playGeneration
                 delayedPlayPending = true
                 host.after(idleWait / 1_000_000.0 + 1.0) {
-                    if (disposed || !playIssued || generation != playGeneration) return@after
-                    delayedPlayPending = false
-                    native.play()
-                    // A seek made during the wait comes before this play, like one made before the start: no fresh-play
-                    // stamp, and the play has consumed the mark.
-                    playIssuedAtNanos = if (!hadSeek && !seekedSincePlay) host.nanoTime() else null
-                    seekedSincePlay = false
+                    playWhenGapClear(generation) {
+                        native.play()
+                        // A seek made during the wait comes before this play, like one made before the start: no fresh-play
+                        // stamp, and the play has consumed the mark.
+                        playIssuedAtNanos = if (!hadSeek && !seekedSincePlay) host.nanoTime() else null
+                        seekedSincePlay = false
+                    }
                 }
                 return@post
             }
@@ -326,12 +335,12 @@ internal class FxPlayback private constructor(
             if (wait > 0L) {
                 delayedPlayPending = true
                 host.after(wait / 1_000_000.0 + 1.0) {
-                    if (disposed || !playIssued || generation != playGeneration) return@after
-                    delayedPlayPending = false
-                    native.play()
-                    // A seek made during the wait comes before this play: no fresh-play stamp, mark consumed.
-                    playIssuedAtNanos = if (seekedSincePlay) null else host.nanoTime()
-                    seekedSincePlay = false
+                    playWhenGapClear(generation) {
+                        native.play()
+                        // A seek made during the wait comes before this play: no fresh-play stamp, mark consumed.
+                        playIssuedAtNanos = if (seekedSincePlay) null else host.nanoTime()
+                        seekedSincePlay = false
+                    }
                 }
             } else {
                 native.play()
@@ -357,12 +366,12 @@ internal class FxPlayback private constructor(
             val generation: Long = ++playGeneration
             delayedPlayPending = true
             host.after(idleWait / 1_000_000.0 + 1.0) {
-                if (disposed || !playIssued || generation != playGeneration) return@after
-                delayedPlayPending = false
-                native.play()
-                // A seek made during the wait comes before this play: the play has consumed the mark.
-                seekedSincePlay = false
-                host.postLater { host.postLater { giveNudge() } }
+                playWhenGapClear(generation) {
+                    native.play()
+                    // A seek made during the wait comes before this play: the play has consumed the mark.
+                    seekedSincePlay = false
+                    host.postLater { host.postLater { giveNudge() } }
+                }
             }
             return@post
         }
@@ -383,9 +392,13 @@ internal class FxPlayback private constructor(
 
     /** Gives the native player the speed [start] left pending, as the old nudge: away and back. */
     private fun giveNudge() {
+        if (disposed) return
+        // S20: a start whose play() still waits owns [pendingNudge] and gives it itself, after its own play(). A nudge queued
+        // by an earlier start (two FX tasks away from a start, a pause() and a delayed start may run in between) would
+        // consume it now and write 1.0 and the speed on the paused decoder.
+        if (delayedPlayPending) return
         val rate: Double = pendingNudge ?: return
         pendingNudge = null
-        if (disposed) return
         if (!playIssued) {
             // Paused again meanwhile: the property only keeps the speed for the next start.
             // C1: that is a write on a player that is not playing, so it is stamped like any other: without the stamp
@@ -575,9 +588,10 @@ internal class FxPlayback private constructor(
         deferredGauge.reset()
         deferredAfterWrap = afterWrap
         deferredNotBeforeNanos = null
-        // JavaFX can deliver the end of a cycle after a pause(): then 1.0 is written on a player that is not playing,
-        // which is stamped like any other such write, so the next play() waits out the idle gap (see [idleRateWriteNanos]).
-        if (!playIssued && native.rate != 1.0) idleRateWriteNanos = host.nanoTime()
+        // JavaFX can deliver the end of a cycle after a pause(), or after a later start() whose play() is still delayed (S20):
+        // then 1.0 is written on a player that is not playing, which is stamped like any other such write, so the next play()
+        // (or the delayed one, which checks the gap again) waits out the idle gap (see [idleRateWriteNanos]).
+        if (!nativePlayIssued && native.rate != 1.0) idleRateWriteNanos = host.nanoTime()
         native.rate = 1.0
     }
 
@@ -591,7 +605,9 @@ internal class FxPlayback private constructor(
         // playing that nothing stamps, and a play() right after it would start inside the idle gap. The speed stays
         // deferred instead: a start() that resumes at a speed other than 1 takes it from [deferredRate] and gives it on its
         // own path; a speed of 1 stays here and is given once the playhead has moved after the play.
-        if (native.status != NativeStatus.PLAYING || !playIssued) return
+        // S20: the same holds while the delayed play() of a later start() still waits: the native player is paused by our own
+        // command then, whatever the status says.
+        if (native.status != NativeStatus.PLAYING || !nativePlayIssued) return
         if (isBefore(deferredNotBeforeNanos)) return
         val position: Double = native.currentTimeMs
         if (position.isNaN()) return
@@ -616,7 +632,7 @@ internal class FxPlayback private constructor(
         // See applyDeferredRate: no rate is written on a disposed player.
         if (disposed) return
         val rate: Double = settleNudge ?: return
-        if (native.status != NativeStatus.PLAYING || !playIssued) return
+        if (native.status != NativeStatus.PLAYING || !nativePlayIssued) return
         if (isBefore(settleNotBeforeNanos)) return
         val position: Double = native.currentTimeMs
         if (position.isNaN()) return
@@ -687,6 +703,26 @@ internal class FxPlayback private constructor(
     private fun idleGapLeftNanos(): Long {
         val writeAt: Long = idleRateWriteNanos ?: return 0L
         return IDLE_RATE_GAP_NANOS - (host.nanoTime() - writeAt)
+    }
+
+    /**
+     * Runs the delayed [play] of a [start] once the idle gap is clear. Called when the wait [start] scheduled ends, with the
+     * generation of that [start]: nothing happens for a play that a [pause], a later [start] or the end of the media has
+     * cancelled or that [dispose] has dropped. A rate written while the native player was not playing during the wait (S20:
+     * the return to 1.0 of a loop wrap JavaFX delivers after a [pause], see [deferRate]) has stamped the gap again, so the
+     * wait is repeated for the rest of it, with the same generation and with [delayedPlayPending] still set. Every
+     * repetition waits out the rest of the newest gap; only a handler JavaFX queued before the pause can stamp during the
+     * wait, and the decoder is paused, so there are finitely many. The play runs exactly once.
+     */
+    private fun playWhenGapClear(generation: Long, play: () -> Unit) {
+        if (disposed || !playIssued || generation != playGeneration) return
+        val left: Long = idleGapLeftNanos()
+        if (left > 0L) {
+            host.after(left / 1_000_000.0 + 1.0) { playWhenGapClear(generation, play) }
+            return
+        }
+        delayedPlayPending = false
+        play()
     }
 
     /** Whether [deadline] is still ahead: false for null, "no deadline". Compares as a difference, which survives a wrap. */
