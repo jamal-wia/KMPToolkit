@@ -26,6 +26,7 @@ import org.robolectric.RobolectricTestRunner
 class AndroidDocsSamplesRound9Test {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
+    // timing-hygiene-ignore: TH3 name a unique store name per test, never a random choice of the scenario
     private fun unique(prefix: String): String = "$prefix${UUID.randomUUID().toString().replace("-", "")}"
 
     // Step 3 of the document, verbatim apart from the key.
