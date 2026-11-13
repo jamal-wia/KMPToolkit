@@ -48,7 +48,10 @@ import kotlinx.coroutines.withContext
  * transition is establishing ([effectiveState]: inside the writes of [pause] the player is `Paused`, inside
  * those of a failure it is `Error`), and the transition stops at the first write inside which the call changed
  * the player and calls nothing more on the engine, so the call is never undone and a failure is never lost to
- * it. The exceptions are the calls whose result is the point of the call: [unload] and [release] reset the
+ * it. What the engine reported about its source (buffered position, buffering, picture size) is not undone by
+ * a transport call either, so the last step of [prepare] writes those facts unless the source was dropped
+ * (its load replaced, [unload], [release]); in a failure every transport call is a no-op under `Error`, so none
+ * of them cuts the failure's own writes of those facts. The exceptions are the calls whose result is the point of the call: [unload] and [release] reset the
  * source flows and end in `Idle` (an [unload] leaves the state to a [prepare] a collector called from inside
  * it), and a [prepare] that has not been replaced resets them and loads. A composite call ([replay]: seek,
  * then play) stops after its seek in that case, and re-reads the state between its steps otherwise.
@@ -328,8 +331,14 @@ internal class EngineVideoPlayer(
             }
             val ready: VideoPlayerState = VideoPlayerState.Ready(duration)
             establishing(ready) {
-                if (!publish(_bufferedPositionFlow, buffered)) return@exclusive
-                if (!publish(_isBufferingFlow, stalled)) return@exclusive
+                // The buffered position and the stall are facts about the source, which no transport call changes: they
+                // stop only when the source was dropped (this load replaced, released, or a new source begun). The state
+                // is a transport write and keeps the publish guard, so a collector's play, seek or stop stands.
+                val epoch: Long = sourceEpoch.value
+                val bufferedStood: Boolean = publish(_bufferedPositionFlow, buffered)
+                if (!isCurrent(load) || sourceEpoch.value != epoch) return@exclusive
+                val bufferingStood: Boolean = publish(_isBufferingFlow, stalled)
+                if (!bufferedStood || !bufferingStood || !isCurrent(load) || sourceEpoch.value != epoch) return@exclusive
                 publish(_stateFlow, ready)
             }
         }
