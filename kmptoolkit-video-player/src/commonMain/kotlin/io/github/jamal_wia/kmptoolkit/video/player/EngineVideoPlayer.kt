@@ -48,16 +48,18 @@ import kotlinx.coroutines.withContext
  * transition is establishing ([effectiveState]: inside the writes of [pause] a call treats the player as `Paused`,
  * inside those of a failure as `Error`), even though [stateFlow], written last, still holds the state being left
  * until that final write; and the transition stops at the first write inside which the call changed the player
- * and calls nothing more on the engine, so the call is never undone and a failure is never lost to it. What the
- * engine reported about its source is not undone by a transport call either: the last step of [prepare] still
- * writes the buffered position and a stall kept during the load unless the source was dropped (its load replaced,
- * [unload], [release]), and after a transport call those writes act on the state that call published; the picture
- * size is published as soon as it is reported; in a failure every transport call is a no-op under `Error`, so none
- * of them cuts the failure's own writes. The exceptions are the calls whose result is the point of the call:
- * [unload] and [release] reset the source flows and end in `Idle` (an [unload] leaves the state, and the flows it
- * has not reset yet, to a [prepare] a collector called from inside it), and a [prepare] that has not been replaced
- * resets them and loads. A composite call ([replay]: seek, then play) stops after its seek in that case, and
- * re-reads the state between its steps otherwise.
+ * and calls nothing more on the engine, so the call is never undone and a failure is never lost to it. This holds for
+ * every call a collector makes in one update, in order: the target lasts until any transition publishes, then the
+ * published state is what a call reads, so once a call has changed the player the next one acts on the state that
+ * call published. What the engine reported about its source is not undone by a transport call either: the last
+ * step of [prepare] still writes the buffered position and a stall kept during the load unless the source was
+ * dropped (its load replaced, [unload], [release]), and after a transport call those writes act on the state that
+ * call published; the picture size is published as soon as it is reported; in a failure every transport call is a
+ * no-op under `Error`, so none of them cuts the failure's own writes. The exceptions are the calls whose result is
+ * the point of the call: [unload] and [release] reset the source flows and end in `Idle` (an [unload] leaves the
+ * state, and the flows it has not reset yet, to a [prepare] a collector called from inside it), and a [prepare]
+ * that has not been replaced resets them and loads. A composite call ([replay]: seek, then play) stops after its
+ * seek in that case, and re-reads the state between its steps otherwise.
  *
  * ### Dropped sources
  *
@@ -179,7 +181,8 @@ internal class EngineVideoPlayer(
     /**
      * The state the running transition is about to publish, set by [establishing] while it publishes the flows and the
      * state, `null` otherwise. [effectiveState] reads it, so a collector's call made from inside those writes acts on
-     * the truth rather than on the state being left. Guarded.
+     * the truth rather than on the state being left. It lasts until any transition publishes: after a nested call has
+     * changed the player the target is cleared, and a later call of the same chain reads [stateFlow]. Guarded.
      */
     private var establishing: VideoPlayerState? = null
 
@@ -707,21 +710,28 @@ internal class EngineVideoPlayer(
         return writes == mine
     }
 
-    /** Lock held. What a transition's entry reads: the state a running transition is establishing, else [stateFlow]. */
+    /**
+     * Lock held. What a transition's entry reads: the state a running transition is establishing until any transition
+     * publishes (see [establishing]), else [stateFlow], which is the truth from then on.
+     */
     private fun effectiveState(): VideoPlayerState = establishing ?: _stateFlow.value
 
     /**
      * Lock held. Runs the publishing part of a transition whose engine calls are done and whose closing state is
      * [target]: a player call a collector makes from inside these writes sees [target], not the state being left.
-     * Restored on every exit, so an exception or an early return cannot leak it.
+     * Never leaks, on an exception or an early return either. When the block published nothing (a no-op, an early
+     * return) the outer target, if any, is restored. When it published anything the target is cleared instead: the
+     * published state has replaced what an outer transition was heading for, so a later call of the same chain reads
+     * [stateFlow] (see [effectiveState]).
      */
     private inline fun <T> establishing(target: VideoPlayerState, block: () -> T): T {
         val outer: VideoPlayerState? = establishing
+        val before: Long = writes
         establishing = target
         try {
             return block()
         } finally {
-            establishing = outer
+            establishing = if (writes == before) outer else null
         }
     }
 
