@@ -24,7 +24,7 @@ what they prove and in what can make them flaky, which is why they run in differ
 | F (model) | The real `FxPlayback` and the engine over a scripted native player on a virtual clock: no media, no sleep, no real thread, every random choice from a printed seed. Asserts the contract exactly (the instants of the native calls, the speed that reaches the decoder, no frozen playhead, no violated fragile window), including seeded fuzzers and exhaustive short interleavings. | `src/jvmTest/.../javafx/model/` | `jvmTest` | on every run of the gate; seconds |
 | C (conformance) | One test per promise the engine makes about the real `MediaPlayer` (`JavaFxNativePlayerConformanceTest`, C1 to C11) and `JavaFxReferenceModelDifferentialR10AdversarialTest`, seeded public calls against a reference model on real media. Keeps the scripted native player honest. | `src/jvmTest/.../javafx/` | `jvmTest` | on every run of the gate |
 | K (real-media gate, kept) | Everything else that needs a real toolkit, real threads or real disposal: lifecycle, toolkit start and exit, source resolution, odd paths, jar and temp files, hostile media, huge pictures, leaks, storms in child JVMs, the release at the loop point, every frame owning its array, and the cases of `JavaFxVideoEngineTest`. Also the real-media sequencing classes that have no complete deterministic twin yet. | `src/jvmTest/.../javafx/` | `jvmTest` | on every run of the gate; minutes |
-| R (real-media soak) | The real-media sequencing classes whose contract an F test asserts exactly (speed after a seek, a resume, a loop wrap, calls from the FX thread). They measure with wall-clock sleeps on a real decoder, so their verdict depends on the machine; a red there is checked against the F twin first, never rerun until green. | `src/jvmTest/.../javafx/` | `jvmRealMediaTest` | before a release, after a change to `FxPlayback`, `JavaFxNativePlayer`, `FxThread` or `FxQueue`, and on an OpenJFX, macOS or JDK upgrade |
+| R (real-media soak) | The real-media sequencing classes whose contract an F test asserts exactly (speed after a seek, a resume, a loop wrap, calls from the FX thread, random operation sequences, a seek at the end of the clip, a stale playhead read under load). They measure with wall-clock sleeps on a real decoder, so their verdict depends on the machine; a red there is checked against the F twin first, never rerun until green. | `src/jvmTest/.../javafx/` | `jvmRealMediaTest` | before a release, after a change to `FxPlayback`, `JavaFxNativePlayer`, `FxThread` or `FxQueue`, and on an OpenJFX, macOS or JDK upgrade |
 | H (hazard probes) | Statistical probes (40 rounds each) of the native player's fragile windows after a play, a seek, a loop wrap and an idle rate write. They test the operating system against the assumptions of the F tier, not this code; they skip unless asked. | `JavaFxNativeHazardCharacterizationTest` | `jvmRealMediaTest` with `-Pkmptoolkit.test.hazards=true` | when the F tier's model parameters change, and on an OpenJFX or macOS upgrade |
 
 The two lists that split the module are explicit class names in `kmptoolkit-video-player-javafx/build.gradle.kts`
@@ -107,14 +107,23 @@ The deterministic F tier alone, no media and no exclusive machine needed:
 ./gradlew :kmptoolkit-video-player-javafx:jvmTest -Pjavafx.required=true --tests 'io.github.jamal_wia.kmptoolkit.video.player.javafx.model.*'
 ```
 
-The default gate (F, C and K):
+The default gate (F, C and K). It plays real media, so run it alone on an idle machine. Measured on an Apple-silicon
+Mac (J16: the 28 classes of the F tier and 57 others, 717 tests): about sixteen minutes in all, which is more than one
+command should take, so split it with `--tests` into groups of class names that each stay under ten minutes (the
+F tier and the first half of the K and C classes took 400 s; the second half took 546 s; the slowest classes are
+`JavaFxReleaseAtLoopPointAdversarialTest` at about 160 s, `JavaFxSpeedAndSeekOrderR7AdversarialTest` at about 110 s,
+`JavaFxHostileMediaR7AdversarialTest` at about 80 s and `JavaFxOddNamesPlaybackR9AdversarialTest` at about 70 s):
 
 ```sh
-./gradlew :kmptoolkit-video-player-javafx:jvmTest -Pjavafx.required=true
+./gradlew :kmptoolkit-video-player-javafx:jvmTest -Pjavafx.required=true --rerun --tests 'io.github.jamal_wia.kmptoolkit.video.player.javafx.model.*' --tests 'io.github.jamal_wia.kmptoolkit.video.player.javafx.<OneClass>' --tests '...'
 ```
 
+`jvmTest` is cached like any Gradle test task, so a second run on unchanged inputs does not run again: `--rerun` makes it
+run (it is the flag to use for every gate run; `jvmRealMediaTest` never reuses a result and needs no flag).
+
 The real-media soak (R), the classes of `realMediaSoakClasses`. It plays real media and is timing-sensitive, so
-run it alone on an idle machine, and split it with `--tests` when one command would take longer than about ten minutes:
+run it alone on an idle machine, and split it with `--tests` when one command would take longer than about ten minutes
+(all fourteen classes together took about twelve minutes on an Apple-silicon Mac, J16, so it is split in practice):
 
 ```sh
 ./gradlew :kmptoolkit-video-player-javafx:jvmRealMediaTest -Pjavafx.required=true
@@ -131,6 +140,12 @@ The hazard probes (H), about ten minutes, alone on an idle machine:
 ```sh
 ./gradlew :kmptoolkit-video-player-javafx:jvmRealMediaTest -Pjavafx.required=true -Pkmptoolkit.test.hazards=true --tests 'io.github.jamal_wia.kmptoolkit.video.player.javafx.JavaFxNativeHazardCharacterizationTest'
 ```
+
+One red is known: `JavaFxResumeAtSpeedR5AdversarialTest` "a pause and resume at a speed of two keeps the speed" reads a
+slope below its bound of 1.5 (usually 1.2 to 1.4) in roughly one run in four on the decoder; on the J16 tip it was red in
+two of three runs (slopes 0.63 and 1.31, both with the machine loaded above 8) and green in the third at a load of 5,
+while its F twin (`aPauseAndResumeAtASpeedOfTwoKeepsTheSpeed`) is green every time. Match such a red against the twin
+and a rerun on an idle machine before treating it as new.
 
 A red in the soak is not rerun until it is green: reproduce it on the F tier first (the twin of the class asserts the
 same contract on a virtual clock), and when the F tier cannot reproduce it, treat it as a gap of the model and check it
