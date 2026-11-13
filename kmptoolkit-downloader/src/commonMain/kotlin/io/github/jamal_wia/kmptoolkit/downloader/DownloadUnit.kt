@@ -47,6 +47,9 @@ public interface DownloadUnit {
      * the storage manages itself (`tmp`, `tmp/expect`, `tmp/expect-staged`, `tmp/kmptoolkit-internal`,
      * `tmp/staging-…`, or this unit's own temp files). Any other path under `tmp/` works but is
      * reserved for the storage and logs a warning.
+     *
+     * No unit's [relativePath] may lie inside another unit's resource (an archive tree): committing or deleting the
+     * outer resource replaces or removes everything under it.
      */
     public val relativePath: String
 
@@ -122,7 +125,8 @@ public sealed interface ResourceFormat {
     /**
      * A ZIP archive: committing extracts it into [DownloadUnit.relativePath] as a directory (with
      * zip-slip protection) and deletes the archive. [availabilityMarker] is a regular file the extraction
-     * is known to produce (a directory of that name, or another capitalization on a case-insensitive volume, does not count) — its presence is what proves a directory resource is complete, since an
+     * is known to produce (a directory of that name, or another capitalization on a case-insensitive volume, does not
+     * count, and a marker ending in `/` never matches) — its presence is what proves a directory resource is complete, since an
      * interrupted extraction also leaves a directory behind. Every entry is extracted, or the commit fails
      * with [ResourceIntegrityException]; an entry that would land outside the directory fails the commit, and so does an
      * archive the file system cannot hold as delivered (a name that is a file and a directory, a name or path that is too
@@ -155,6 +159,11 @@ public sealed interface ResourceFormat {
      * [rowCountTable] is a table or view name, used as a name (any characters: a keyword or a name with spaces
      * works); a value that names no table is used as SQL text, as in 3.0.0 — kept for compatibility, do not rely
      * on it. [declaredRowCountMetaKey] is a value bound as a parameter, never escaped by the host.
+     *
+     * Replacing or deleting the resource first moves the old file together with its `-wal`, `-shm` and
+     * `-journal` into the trash, so the old version's log is never replayed into the new one. Close every connection
+     * to the database before its unit is committed again or deleted: a connection left open keeps the old version and
+     * may, when it closes, remove the new version's write-ahead log.
      */
     public data class SqliteDatabase(
         public val rowCountTable: String? = null,

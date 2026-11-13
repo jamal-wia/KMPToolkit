@@ -108,7 +108,7 @@ deep inside a reader — is what this exists to prevent.
 |---|---|
 | `Opaque` | Move into place; existence is the only possible check |
 | `ZipArchive(availabilityMarker)` | Extract into a staging directory, move the old tree aside, rename the new one into place, delete the archive; the marker file is what proves completeness, since an interrupted extraction also leaves a directory behind |
-| `SqliteDatabase(rowCountTable?, declaredRowCountMetaKey?)` | Require the 16-byte SQLite header (an empty or cut body fails), open it and read its schema — which alone rejects non-databases — and, when a table and a `meta` key are given, compare the real row count against the count the file declares about itself |
+| `SqliteDatabase(rowCountTable?, declaredRowCountMetaKey?)` | Require the 16-byte SQLite header (an empty or cut body fails), open it and read its schema — which alone rejects non-databases — and, when a table and a `meta` key are given, compare the real row count against the count the file declares about itself; close the database before replacing or deleting it |
 
 The point of the self-check: nobody hardcodes an expected row count anywhere in this library — the
 file states its own expected size. Which table and which key are the host's domain knowledge —

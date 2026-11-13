@@ -95,6 +95,21 @@ abstract class DestinationBoss1Contract {
     }
 
     @Test
+    fun `a marker spelled with a trailing slash is not the regular file of that name`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = Unit1("slash", "archives/slash", ResourceFormat.ZipArchive("marker.txt/"))
+        stage(storage, unit, archive("marker.txt" to "m", "a.txt" to "a"))
+
+        val failure: Throwable? = runCatching { storage.commitResource(unit) }.exceptionOrNull()
+
+        assertTrue(
+            failure is ResourceIntegrityException && !storage.isResourceAvailable(unit),
+            "'marker.txt/' names no regular file; the commit must fail as an integrity failure (was $failure, " +
+                "available ${storage.isResourceAvailable(unit)})",
+        )
+    }
+
+    @Test
     fun `a marker below a single root directory is found after the root moves up`() = runTest {
         val storage: DownloaderStorage = newStorage()
         val unit = Unit1("nested", "archives/nested", ResourceFormat.ZipArchive("meta/ready"))

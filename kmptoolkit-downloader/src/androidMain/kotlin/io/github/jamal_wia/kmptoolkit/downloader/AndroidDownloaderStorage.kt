@@ -127,6 +127,13 @@ internal class AndroidDownloaderStorage(
         return names
     }
 
+    /**
+     * True when [marker] (relative to [dir]) is a regular file spelled exactly like that. `java.io.File` silently drops
+     * a trailing `/`, which no regular file can carry (POSIX refuses `file/`), so a marker ending in `/` never matches,
+     * as on iOS, where the stat of the spelled path fails.
+     */
+    private fun markerIsRegularFile(dir: File, marker: String): Boolean = !marker.endsWith('/') && File(dir, marker).isFile
+
     override fun isResourceAvailable(unit: DownloadUnit): Boolean {
         val path: String = try {
             getResourcePath(unit)
@@ -135,7 +142,7 @@ internal class AndroidDownloaderStorage(
         }
         return if (unit.isDirectoryResource) {
             val pagesDir = File(path)
-            pagesDir.exists() && File(pagesDir, unit.archiveMarker()).isFile
+            pagesDir.exists() && markerIsRegularFile(pagesDir, unit.archiveMarker())
         } else {
             // A plain file, or a link to one. A directory at the path (an archive unit of the same id, or a
             // stray one) is not the resource: the commit moves it aside.
@@ -348,6 +355,18 @@ internal class AndroidDownloaderStorage(
 
     override fun deleteResource(unit: DownloadUnit) {
         val target = File(getResourcePath(unit))
+        if (unit.format is ResourceFormat.SqliteDatabase) {
+            // The database moves into the trash together with its -wal, -shm and -journal, also when the file is
+            // already gone and only sidecars remain: the next download must never meet the old log. No lock, as for
+            // a tree: the renames are atomic and a commit racing this delete moves whatever it finds.
+            val quarantined: File? = quarantineDatabase(target, unit)
+            if (quarantined != null) {
+                deleteTree(quarantined)
+                sweepTrash()
+                logger.i { "Deleted resource $unit at ${target.absolutePath}" }
+            }
+            return
+        }
         if (!target.exists()) return
         if (target.isDirectory) {
             // Moved aside in one rename, then deleted: a process killed inside the walk leaves the
@@ -391,6 +410,43 @@ internal class AndroidDownloaderStorage(
         val trash: File = newTrashEntry()
         return if (rename(dir, trash)) trash else null
     }
+
+    /**
+     * Moves the database file [path] (or whatever stands at it, a directory or a link included) and then its `-wal`,
+     * `-shm` and `-journal` into one fresh trash entry and returns that entry; null when nothing was there to move (the
+     * entry is removed again). The file goes first: a process killed after it leaves the resource unavailable beside its
+     * complete temp file, which the next commit finishes, never the old file without its log. Nothing of the old
+     * version is deleted here; it leaves with the entry, after the unit lock.
+     *
+     * There is deliberately no [File.exists] pre-check (it follows links; the rename moves the link itself). A rename
+     * that fails while something still stands at its source is retried with a fresh entry, bounded: a sweep of
+     * another unit may have deleted the empty entry in between. A name that stays in place throws, never goes on:
+     * a log left at the path would be replayed into the file that is moved in next.
+     */
+    private fun quarantineDatabase(path: File, unit: DownloadUnit): File? {
+        val parts: List<File> = listOf(path) + SqliteFiles.sidecarsOf(path.path).map { sidecar: String -> File(sidecar) }
+        var movedAny = false
+        var trash: File = newTrashEntry()
+        var attempts = 0
+        while (true) {
+            attempts++
+            trash.mkdirs()
+            for (part: File in parts) {
+                // "db" for the file itself, "db-wal", "db-shm" and "db-journal" for its sidecars.
+                if (rename(part, File(trash, "db" + part.name.removePrefix(path.name)))) movedAny = true
+            }
+            if (parts.none { part: File -> presentWithoutFollowing(part) }) break
+            check(attempts < MAX_DETACH_ATTEMPTS) { "Could not move the committed $unit aside" }
+            trash = newTrashEntry()
+        }
+        if (movedAny) return trash
+        // Nothing moved into it, so it is empty.
+        trash.delete()
+        return null
+    }
+
+    /** True when something stands at [file], a dangling link included (the entry itself, never what it points to). */
+    private fun presentWithoutFollowing(file: File): Boolean = files.metadata(file.path, followLinks = false) != null
 
     override suspend fun commitResource(
         unit: DownloadUnit,
@@ -456,10 +512,10 @@ internal class AndroidDownloaderStorage(
                 // Handle nested directory: ZIP may contain a root directory prefix
                 // (e.g., entries like "pages/page001.webp" instead of "page001.webp"),
                 // causing files to land in staging/pages/ instead of staging/.
-                if (!File(stagingDir, unit.archiveMarker()).isFile) moveSingleRootUp(stagingDir, unit)
+                if (!markerIsRegularFile(stagingDir, unit.archiveMarker())) moveSingleRootUp(stagingDir, unit)
                 // The tree must be what the unit declares before anything at the final path is touched:
                 // a directory without its marker is not "ready", and it must not replace one that is.
-                if (!File(stagingDir, unit.archiveMarker()).isFile) {
+                if (!markerIsRegularFile(stagingDir, unit.archiveMarker())) {
                     throw ResourceIntegrityException("Archive of $unit has no '${unit.archiveMarker()}' after extraction")
                 }
                 // The swap, in renames only: the resource path holds the whole old tree, nothing, or the
@@ -490,6 +546,13 @@ internal class AndroidDownloaderStorage(
         } else {
             (unit.format as? ResourceFormat.SqliteDatabase)?.let { format ->
                 verifySqlite(tempFile, format)
+                // The previous database leaves WITH its -wal, -shm and -journal, before the new file takes its place:
+                // SQLite would replay an old log into the new file. Every commit of this format runs it, whether or
+                // not the file exists, so sidecars an earlier killed commit left behind are moved aside as well.
+                getResourcePath(unit).let { destinationPath: String ->
+                    File(destinationPath).parentFile?.mkdirs()
+                    quarantineDatabase(File(destinationPath), unit)?.let(onDetached)
+                }
             }
             moveFile(
                 tempFile = tempFile,
@@ -513,7 +576,7 @@ internal class AndroidDownloaderStorage(
             stagingDir.listFiles { f: File -> f.isDirectory && !f.list().isNullOrEmpty() } ?: emptyArray()
         if (candidates.size != 1) return
         val root: File = candidates[0]
-        if (!File(root, unit.archiveMarker()).isFile) return
+        if (!markerIsRegularFile(root, unit.archiveMarker())) return
         logger.i { "Detected nested directory '${root.name}', moving contents up" }
         val taken: Set<String> = (stagingDir.list().orEmpty().toList() + root.list().orEmpty().toList())
             .map { name: String -> name.lowercase() }
@@ -665,7 +728,7 @@ internal class AndroidDownloaderStorage(
             check(oldTree != null || !destination.isDirectory) { "Could not move the committed $unit aside" }
             if (oldTree != null) onDetached(oldTree)
         }
-        if (!tempFile.renameTo(destination)) {
+        if (!rename(tempFile, destination)) {
             // Fallback: copy + delete (cross-filesystem move)
             tempFile.inputStream()
                 .buffered()
