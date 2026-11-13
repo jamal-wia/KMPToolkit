@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteException
 import io.github.jamal_wia.kmptoolkit.downloader.DownloaderStorage.Companion.WRITE_BUFFER_SIZE
 import io.github.jamal_wia.kmptoolkit.files.FileAccess
+import io.github.jamal_wia.kmptoolkit.files.FileKind
 import io.github.jamal_wia.kmptoolkit.files.SqliteFiles
 import io.github.jamal_wia.kmptoolkit.files.createFileAccess
 import io.github.jamal_wia.kmptoolkit.files.getOrNull
@@ -238,8 +239,7 @@ internal class AndroidDownloaderStorage(
             unitId = layout.lockKey(unit),
             detach = {
                 val staging = File(baseDir, names.staging)
-                val trash = File(baseDir, layout.trashEntry(Random.nextLong().toULong()))
-                trash.parentFile?.mkdirs()
+                val trash: File = newTrashEntry()
                 if (staging.renameTo(trash)) trash else null
             },
             dispose = { trash: File -> deleteTree(trash) },
@@ -265,7 +265,28 @@ internal class AndroidDownloaderStorage(
      * length can make the rename into it fail.
      */
     private fun sweepTrash() {
-        File(baseDir, UnitFileLayout.TRASH_DIRECTORY).listFiles()?.forEach { entry: File -> deleteTree(entry) }
+        realTrashDirectory().listFiles()?.forEach { entry: File -> deleteTree(entry) }
+    }
+
+    /**
+     * The trash directory, after a symbolic link standing in its place has been removed as a link (never
+     * followed, its target untouched), so a sweep never deletes files outside the base directory and a
+     * move into the trash lands inside it: the next `mkdirs` creates a real directory. Runs before every use
+     * of the trash. `tmp/` and `tmp/kmptoolkit-internal/` as links are out of scope: a link there redirects
+     * every internal file, not only deletes, and no deletion goes through them.
+     */
+    private fun realTrashDirectory(): File {
+        val dir = File(baseDir, UnitFileLayout.TRASH_DIRECTORY)
+        if (files.metadata(dir.path, followLinks = false)?.kind == FileKind.SymbolicLink) files.delete(dir.path)
+        return dir
+    }
+
+    /** A fresh entry path under the real trash directory, whose parents are created. */
+    private fun newTrashEntry(): File {
+        realTrashDirectory()
+        val trash = File(baseDir, layout.trashEntry(Random.nextLong().toULong()))
+        trash.parentFile?.mkdirs()
+        return trash
     }
 
     /**
@@ -367,8 +388,7 @@ internal class AndroidDownloaderStorage(
      * The rename is atomic and stays on one volume, so [dir] holds its whole tree or nothing at every instant.
      */
     private fun detachTree(dir: File): File? {
-        val trash = File(baseDir, layout.trashEntry(Random.nextLong().toULong()))
-        trash.parentFile?.mkdirs()
+        val trash: File = newTrashEntry()
         return if (rename(dir, trash)) trash else null
     }
 

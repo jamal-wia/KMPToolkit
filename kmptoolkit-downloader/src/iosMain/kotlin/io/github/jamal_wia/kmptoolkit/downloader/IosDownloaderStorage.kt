@@ -44,6 +44,7 @@ import platform.Foundation.NSFileSize
 import platform.Foundation.NSFileType
 import platform.Foundation.NSFileTypeDirectory
 import platform.Foundation.NSFileTypeRegular
+import platform.Foundation.NSFileTypeSymbolicLink
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSNumber
 import platform.Foundation.NSString
@@ -77,6 +78,7 @@ import platform.posix.fsync
 import platform.posix.fwrite
 import platform.posix.remove
 import platform.posix.rename
+import platform.posix.stat
 import platform.zlib.Z_BUF_ERROR
 import platform.zlib.Z_NO_FLUSH
 import platform.zlib.Z_OK
@@ -295,12 +297,14 @@ internal class IosDownloaderStorage(
 
     override fun getTempFileSize(unit: DownloadUnit): Long = sizeOf("$baseDir/${names(unit).partial}")
 
-    private fun sizeOf(path: String): Long {
-        val attributes: Map<Any?, *>? = NSFileManager.defaultManager
-            .attributesOfItemAtPath(path, error = null)
-
-        val size: Long? = attributes?.get(NSFileSize) as? Long
-        return size ?: 0L
+    /**
+     * The size of what [path] names, a symbolic link followed: POSIX `stat` follows it and fails on a dangling
+     * one, which reads as 0. `attributesOfItemAtPath` is lstat and would report the length of the link text, and
+     * resolving the path first does not help, because a dangling link resolves to itself.
+     */
+    private fun sizeOf(path: String): Long = memScoped {
+        val info: stat = alloc<stat>()
+        if (stat(path, info.ptr) == 0) info.st_size else 0L
     }
 
     override fun beginTempFile(unit: DownloadUnit, expectedSha256: Sha256?) {
@@ -350,8 +354,7 @@ internal class IosDownloaderStorage(
             baseDirectory = lockScope,
             unitId = layout.lockKey(unit),
             detach = {
-                val trash = "$baseDir/${layout.trashEntry(Random.nextLong().toULong())}"
-                createParentDirectory(trash)
+                val trash: String = newTrashEntry()
                 if (rename("$baseDir/${names.staging}", trash) == 0) trash else null
             },
             dispose = { trash: String -> NSFileManager.defaultManager.removeItemAtPath(trash, error = null) },
@@ -377,10 +380,33 @@ internal class IosDownloaderStorage(
      * id's length can make the rename into it fail.
      */
     private fun sweepTrash() {
-        val trashDir = "$baseDir/${UnitFileLayout.TRASH_DIRECTORY}"
+        val trashDir: String = realTrashDirectory()
         NSFileManager.defaultManager.contentsOfDirectoryAtPath(trashDir, error = null).orEmpty().forEach { name ->
             NSFileManager.defaultManager.removeItemAtPath("$trashDir/$name", error = null)
         }
+    }
+
+    /**
+     * The trash directory, after a symbolic link standing in its place has been removed as a link (never
+     * followed, its target untouched), so a sweep never deletes files outside the base directory and a
+     * move into the trash lands inside it: the next directory creation makes a real directory. Runs before
+     * every use of the trash. `tmp/` and `tmp/kmptoolkit-internal/` as links are out of scope: a link there
+     * redirects every internal file, not only deletes, and no deletion goes through them.
+     */
+    private fun realTrashDirectory(): String {
+        val trashDir = "$baseDir/${UnitFileLayout.TRASH_DIRECTORY}"
+        // attributesOfItemAtPath is lstat: it reports the link itself, and a dangling link as well.
+        val type: String? = NSFileManager.defaultManager.attributesOfItemAtPath(trashDir, error = null)?.get(NSFileType) as? String
+        if (type == NSFileTypeSymbolicLink) NSFileManager.defaultManager.removeItemAtPath(trashDir, error = null)
+        return trashDir
+    }
+
+    /** A fresh entry path under the real trash directory, whose parents are created. */
+    private fun newTrashEntry(): String {
+        realTrashDirectory()
+        val trash = "$baseDir/${layout.trashEntry(Random.nextLong().toULong())}"
+        createParentDirectory(trash)
+        return trash
     }
 
     private fun deleteTempData(names: UnitFileLayout.Names) {
@@ -509,8 +535,7 @@ internal class IosDownloaderStorage(
      * The rename is atomic and stays on one volume, so [path] holds its whole tree or nothing at every instant.
      */
     private fun detachTree(path: String): String? {
-        val trash = "$baseDir/${layout.trashEntry(Random.nextLong().toULong())}"
-        createParentDirectory(trash)
+        val trash: String = newTrashEntry()
         return if (rename(path, trash) == 0) trash else null
     }
 

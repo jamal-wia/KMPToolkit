@@ -227,6 +227,9 @@ at a plain-file unit's path, which reads as unavailable, the same way it totals 
 missing. A symbolic link at the unit's path is followed (it is the resource, as for `isResourceAvailable`); links
 inside a directory are not followed and add nothing.
 
+A symbolic link at any path the storage names for a unit (resource, temp file) is read through: sizes and states are
+those of what it points to, and a dangling link is absent. Links inside an archive tree are not followed.
+
 `TempFileState`: `sealed interface` — `None` (no file, or an empty one), `Partial` (an unfinished
 transfer, resumed from `getTempFileSize`), `Complete` (marked by `markTempFileComplete`; the only
 state committed without a transfer). `markTempFileComplete` is atomic, idempotent once complete (also when

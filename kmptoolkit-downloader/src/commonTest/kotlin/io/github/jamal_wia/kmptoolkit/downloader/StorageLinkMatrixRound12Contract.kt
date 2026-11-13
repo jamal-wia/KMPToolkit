@@ -233,4 +233,87 @@ abstract class StorageLinkMatrixRound12Contract {
 
         assertFalse(storage.isResourceAvailable(unit), "the availability marker must be a regular file")
     }
+
+    @Test
+    fun `a link at the temp path is the temp file and deleting or beginning never touches the bytes behind it`() {
+        val storage: DownloaderStorage = newStorage()
+        val unit: LinkUnit = opaque("templink")
+        storage.beginTempFile(unit, null)
+        val outside: String = elsewhere(storage, unit, "outside.bin")
+        writeFile(outside, payload)
+        makeLink(storage.getTempFilePath(unit), outside)
+
+        assertEquals(TempFileState.Partial, storage.tempFileState(unit), "a link to a non-empty file reads as the partial it points to")
+        assertEquals(payload.size.toLong(), storage.getTempFileSize(unit))
+        storage.deleteTempFile(unit)
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertEquals(payload.toList(), readFile(outside)?.toList(), "deleteTempFile must remove the link, not the file behind it")
+
+        makeLink(storage.getTempFilePath(unit), outside)
+        storage.beginTempFile(unit, null)
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertEquals(payload.toList(), readFile(outside)?.toList(), "beginTempFile must remove the link, not the file behind it")
+    }
+
+    @Test
+    fun `a dangling link at the temp path reads as no temp file and deleting it never throws`() {
+        val storage: DownloaderStorage = newStorage()
+        val unit: LinkUnit = opaque("tempdangling")
+        storage.beginTempFile(unit, null)
+        val missing: String = elsewhere(storage, unit, "missing.bin")
+        makeLink(storage.getTempFilePath(unit), missing)
+
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertEquals(0L, storage.getTempFileSize(unit))
+        storage.deleteTempFile(unit)
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertFalse(isLink(storage.getTempFilePath(unit)), "a dangling link at the temp path is part of the temp file and must be removed")
+    }
+
+    @Test
+    fun `a link in place of the trash directory is removed as a link and never followed by a sweep`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit: LinkUnit = opaque("trashlink")
+        val outsideDir: String = elsewhere(storage, unit, "outside-trash")
+        writeFile(TestPaths.join(outsideDir, "keep.txt"), payload)
+        val trash: String = TestPaths.join(baseOf(storage, unit), "tmp/kmptoolkit-internal/trash")
+        makeLink(trash, outsideDir)
+
+        storage.deleteTempFile(unit)
+
+        assertEquals(payload.toList(), readFile(TestPaths.join(outsideDir, "keep.txt"))?.toList(), "the trash sweep must not delete through a link into a directory outside the base")
+        assertFalse(isLink(trash), "the link in place of the trash directory must be removed as a link")
+
+        // A later detach and sweep work: an archive commit over an existing tree moves the old tree aside.
+        val archiveUnit: LinkUnit = archive("aftertrashlink")
+        writeFile(TestPaths.join(storage.getResourcePath(archiveUnit), "marker.txt"), payload)
+        writeFile(TestPaths.join(storage.getResourcePath(archiveUnit), "old.txt"), payload)
+        stageTemp(storage, archiveUnit, ZipBytesRound6.build(listOf(ZipEntryRound6("marker.txt", "m"), ZipEntryRound6("new.txt", "fresh"))).bytes)
+        storage.commitResource(archiveUnit)
+        assertNotNull(readFile(TestPaths.join(storage.getResourcePath(archiveUnit), "new.txt")))
+        assertEquals(null, readFile(TestPaths.join(storage.getResourcePath(archiveUnit), "old.txt")), "the old tree must be gone after the commit")
+        assertEquals(payload.toList(), readFile(TestPaths.join(outsideDir, "keep.txt"))?.toList())
+    }
+
+    @Test
+    fun `a commit over an existing archive with a link in place of the trash directory moves the old tree into a real trash inside the base`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit: LinkUnit = archive("detachlink")
+        val tree: String = storage.getResourcePath(unit)
+        writeFile(TestPaths.join(tree, "marker.txt"), payload)
+        writeFile(TestPaths.join(tree, "old.txt"), payload)
+        val outsideDir: String = elsewhere(storage, unit, "outside-detach")
+        writeFile(TestPaths.join(outsideDir, "keep.txt"), payload)
+        val trash: String = TestPaths.join(baseOf(storage, unit), "tmp/kmptoolkit-internal/trash")
+        makeLink(trash, outsideDir)
+        stageTemp(storage, unit, ZipBytesRound6.build(listOf(ZipEntryRound6("marker.txt", "m"), ZipEntryRound6("new.txt", "fresh"))).bytes)
+
+        storage.commitResource(unit)
+
+        assertTrue(storage.isResourceAvailable(unit))
+        assertNotNull(readFile(TestPaths.join(tree, "new.txt")), "the new tree must be in place")
+        assertEquals(null, readFile(TestPaths.join(tree, "old.txt")), "the old tree must be gone")
+        assertFalse(isLink(trash), "the link in place of the trash directory must be removed as a link")
+        assertEquals(payload.toList(), readFile(TestPaths.join(outsideDir, "keep.txt"))?.toList(), "nothing outside the trash may change")
+    }
 }
