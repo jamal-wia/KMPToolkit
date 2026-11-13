@@ -165,6 +165,18 @@ class PathAlgebraR4Test {
                 assertTrue(joined.length == joint + 1 + child.length, "seed=$seed parent='$parent' child='$child' -> '$joined' length")
             }
         }
+        // Windows: a child that starts with a separator is rooted but not absolute, so it is accepted, and the joint stays single.
+        val windowsRandom: Random = Random(seed + 1)
+        repeat(5_000) {
+            val segmentCount: Int = windowsRandom.nextInt(0, 4)
+            val parent: String = "C:\\" + (0 until segmentCount).joinToString("\\") { "p$it" } + (if (segmentCount == 0) "" else listOf("", "\\", "/")[windowsRandom.nextInt(3)])
+            val child: String = listOf("\\", "/")[windowsRandom.nextInt(2)] + "x" + windowsRandom.nextInt(10)
+            val joined: String = PathRules.Windows.join(parent, child)
+            assertTrue(!joined.substring(2).contains("\\\\") && !joined.substring(2).contains("\\/") && !joined.substring(2).contains("/\\") && !joined.substring(2).contains("//"),
+                "seed=$seed windows parent='$parent' child='$child' -> '$joined' doubles the separator")
+            assertTrue(joined.endsWith(child.substring(1)), "seed=$seed windows '$joined' lost the child '$child'")
+        }
+        assertEquals("C:\\a\\x", PathRules.Windows.join("C:\\a\\", "\\x"))
         assertFailsWith<IllegalArgumentException> { PathRules.Posix.join("/a", "") }
         assertFailsWith<IllegalArgumentException> { PathRules.Posix.join("/a", "/b") }
         assertFailsWith<IllegalArgumentException> { PathRules.Windows.join("C:\\a", "D:\\b") }
@@ -205,6 +217,33 @@ class PathAlgebraR4Test {
                 assertTrue(PathRules.Posix.isAbsolute(resolved), "seed=$seed '$resolved' is not absolute")
             }
         }
+    }
+
+    @Test
+    fun `resolveInside against a relative base never climbs above it`() {
+        val seed: Long = 40_412
+        val random: Random = Random(seed)
+        val bases: List<String> = listOf(".", "", "a", "a/b", "./a", "a/./b/", "..", "../a")
+        val pieces: List<String> = listOf("a", "b", "..", ".", "", "c")
+        repeat(20_000) {
+            val base: String = bases[random.nextInt(bases.size)]
+            val relative: String = (0 until random.nextInt(0, 6)).joinToString("/") { pieces[random.nextInt(pieces.size)] }.trimStart('/')
+            val resolved: String? = PathRules.Posix.resolveInside(base, relative)
+            if (resolved == null) return@repeat
+            // path-hygiene-ignore: PH3 the lexical algebra test splits POSIX literals on purpose; no native path is involved
+            val baseSegments: List<String> = posixOracle(base).split('/').filter { it.isNotEmpty() && it != "." }
+            // path-hygiene-ignore: PH3 the lexical algebra test splits POSIX literals on purpose; no native path is involved
+            val resolvedSegments: List<String> = posixOracle(resolved).split('/').filter { it.isNotEmpty() && it != "." }
+            assertTrue(resolvedSegments.size >= baseSegments.size && baseSegments.indices.all { resolvedSegments[it] == baseSegments[it] },
+                "seed=$seed base='$base' relative='$relative' -> '$resolved' is not under the base")
+            // Past the base nothing may climb: the part of the result below the base holds no '..'.
+            assertFalse(resolvedSegments.drop(baseSegments.size).contains(".."), "seed=$seed base='$base' relative='$relative' -> '$resolved' climbs out of the base")
+        }
+        assertNull(PathRules.Posix.resolveInside(".", "../x"))
+        assertNull(PathRules.Posix.resolveInside("", "a/../../x"))
+        assertNull(PathRules.Posix.resolveInside("a", "../../x"))
+        assertEquals("a/b", PathRules.Posix.resolveInside("a", "b"))
+        assertEquals("x", PathRules.Posix.resolveInside(".", "a/../x"))
     }
 
     @Test
@@ -304,15 +343,20 @@ class PathAlgebraR4Test {
         val random: Random = Random(seed)
         val pieces: List<String> = listOf(
             "a", "A", "k", "\u212a", "K", "s", "S", "\u017f", "\u00df", "\u1e9e", "ss", "\u03c3", "\u03c2", "\u03a3", "\u00e9", "e\u0301", "E\u0301",
-            "\u00c5", "\u212b", "A\u030a", "\u1e9b\u0323", "\u0130", "i", "I", "\u0131", "\u01c5", "\u01c4", "\u01c6", "x", "y", "..", ".", "z",
+            "\u00c5", "\u212b", "A\u030a", "\u1e9b\u0323", "\u0345", "\u1fb7", "\u1fc7", "\u1ff7", "\u03b1\u0345", "\u1fb3", "\u1fbc\u0342", "\u1fcc\u0342", "\u1ffc\u0342", "\u0130", "i", "I", "\u0131", "\u01c5", "\u01c4", "\u01c6", "x", "y", "..", ".", "z",
         )
         repeat(20_000) {
             val path: String = "/" + (0 until random.nextInt(1, 6)).joinToString("/") { pieces[random.nextInt(pieces.size)] + pieces[random.nextInt(pieces.size)] }
             val key: String = PathKey.of(path, CaseFolding.Always)
             assertEquals(key, PathKey.of(normalizeNfc(path), CaseFolding.Always), "seed=$seed NFC spelling of '$path'")
             assertEquals(key, PathKey.of(normalizeNfd(path), CaseFolding.Always), "seed=$seed NFD spelling of '$path'")
-            assertEquals(key, PathKey.of(path.lowercase(), CaseFolding.Always), "seed=$seed lower case of '$path'")
-            assertEquals(key, PathKey.of(path.uppercase(), CaseFolding.Always), "seed=$seed upper case of '$path'")
+            // A capital with a prosgegrammeni followed by a perispomeni changes which letter carries the mark when the whole
+            // string is upper-cased (a different name, not a case spelling of the same one): kept out of the case variants.
+            val caseVariantsApply: Boolean = path.none { it == '\u1fbc' || it == '\u1fcc' || it == '\u1ffc' }
+            if (caseVariantsApply) {
+                assertEquals(key, PathKey.of(path.lowercase(), CaseFolding.Always), "seed=$seed lower case of '$path'")
+                assertEquals(key, PathKey.of(path.uppercase(), CaseFolding.Always), "seed=$seed upper case of '$path'")
+            }
             // path-hygiene-ignore: PH4 the lexical algebra test builds POSIX literals on purpose; no native path is involved
             assertEquals(key, PathKey.of("$path///", CaseFolding.Always), "seed=$seed trailing separators of '$path'")
             assertEquals(key, PathKey.of(path.replace("/", "//"), CaseFolding.Always), "seed=$seed doubled separators of '$path'")
