@@ -612,4 +612,234 @@ class HazardModelTest {
         val bare: ScriptedNativePlayer = onFx { ScriptedNativePlayer(host) }
         assertEquals(null, bare.hazardModel)
     }
+
+    // -- MUST-1: a write of the rate the decoder already plays at is no native change --
+
+    /** A rig whose property holds 2.0 while the decoder plays at 1.0 (B4): the play was made at 2.0, windows closed. */
+    private fun FxModelScope.unityDecoderRig(): Rig {
+        val rig: Rig = rig()
+        rig.rate(2.0)
+        rig.advanceMs(300)
+        rig.play()
+        assertEquals(1.0, rig.hazards.effectiveRate)
+        assertEquals(2.0, rig.player.rate)
+        return rig
+    }
+
+    @Test
+    fun aWriteEqualToTheEffectiveRateInsideWPlayIsNoViolation() = fxModel {
+        val rig: Rig = unityDecoderRig()
+        assertEquals(setOf(FragileWindow.PLAY), rig.hazards.openWindows)
+
+        rig.rate(1.0)
+
+        assertTrue(rig.hazards.violations.isEmpty())
+        assertFalse(rig.hazards.frozen)
+        assertEquals(1.0, rig.hazards.effectiveRate)
+    }
+
+    @Test
+    fun aDifferentWriteInsideWPlayIsAViolation() = fxModel {
+        val rig: Rig = unityDecoderRig()
+
+        rig.rate(3.0)
+
+        assertEquals(FragileWindow.PLAY, rig.hazards.violations.single().window)
+        assertTrue(rig.hazards.frozen)
+    }
+
+    @Test
+    fun aWriteEqualToTheEffectiveRateInsideWWrapIsNoViolationAndADifferentOneIs() = fxModel {
+        val rig: Rig = runningRig()
+        rig.rate(2.0)
+        rig.scope.onFx { rig.hazards.onLoopWrap(rig.player) }
+        assertEquals(setOf(FragileWindow.WRAP), rig.hazards.openWindows)
+        assertEquals(1.0, rig.hazards.effectiveRate)
+
+        // The loop wrap's own write: the property goes 2.0 -> 1.0 while the decoder already plays at 1.0.
+        rig.advanceNanos(100 * MS - 1)
+        rig.rate(1.0)
+        assertTrue(rig.hazards.violations.isEmpty())
+        assertFalse(rig.hazards.frozen)
+
+        rig.rate(2.0)
+        assertEquals(FragileWindow.WRAP, rig.hazards.violations.single().window)
+        assertTrue(rig.hazards.frozen)
+    }
+
+    @Test
+    fun aWriteEqualToTheEffectiveRateInsideWSeekRunIsNoViolationAndADifferentOneIs() = fxModel {
+        val rig: Rig = unityDecoderRig()
+        rig.advanceMs(500)
+        rig.seek(0.0)
+        assertEquals(setOf(FragileWindow.SEEK_RUN), rig.hazards.openWindows)
+
+        rig.advanceNanos(300 * MS - 1)
+        rig.rate(1.0)
+        assertTrue(rig.hazards.violations.isEmpty())
+        assertFalse(rig.hazards.frozen)
+
+        rig.rate(2.0)
+        assertEquals(FragileWindow.SEEK_RUN, rig.hazards.violations.single().window)
+    }
+
+    @Test
+    fun aWriteEqualToTheEffectiveRateRecordsNoStrictHitEither() = fxModel {
+        val rig: Rig = rig()
+        rig.rate(2.0)
+        rig.advanceMs(300)
+        rig.seek(0.0)
+        rig.play()
+        assertEquals(1.0, rig.hazards.effectiveRate)
+
+        rig.rate(1.0)
+
+        assertTrue(rig.hazards.strictHits.isEmpty(), "the decoder did not change, so no reading counts it")
+        assertTrue(rig.hazards.violations.isEmpty())
+
+        rig.rate(2.0)
+        assertEquals(FragileWindow.SEEK_RUN, rig.hazards.strictHits.single().window)
+    }
+
+    @Test
+    fun aWriteEqualToTheEffectiveRateIsNoViolationUnderTheStrictReadingToo() = fxModel {
+        val rig: Rig = rig(HazardConfig(seekReading = SeekHazardReading.STRICT))
+        rig.rate(2.0)
+        rig.advanceMs(300)
+        rig.seek(0.0)
+        rig.play()
+
+        rig.rate(1.0)
+
+        assertTrue(rig.hazards.violations.isEmpty())
+        assertFalse(rig.hazards.frozen)
+    }
+
+    // -- MUST-2: a native seek between the idle write and the play clears the gap under DEFAULT --
+
+    @Test
+    fun underTheDefaultReadingASeekAfterAnIdleRateWriteClearsTheGapAndTheCloseReplayIsOnlyAStrictHit() = fxModel {
+        val rig: Rig = rig()
+        rig.rate(2.0)
+        rig.seek(0.0)
+        rig.play()
+
+        assertTrue(rig.hazards.violations.isEmpty())
+        assertFalse(rig.hazards.frozen)
+        val hit: HazardViolation = rig.hazards.strictHits.single()
+        assertEquals(FragileWindow.IDLE, hit.window)
+        assertEquals(NativeCall.PLAY, hit.trigger)
+        assertTrue(hit.strictOnly)
+        assertEquals(50.0, hit.openedAtMs)
+        assertEquals(50.0, hit.tMs)
+    }
+
+    @Test
+    fun theIdleStrictHitNeedsAPlayOneNanosecondInsideTheGapAfterTheSeek() = fxModel {
+        val inside: Rig = rig().also {
+            it.rate(2.0)
+            it.seek(0.0)
+            it.advanceNanos(200 * MS - 1)
+            it.play()
+        }
+        assertEquals(FragileWindow.IDLE, inside.hazards.strictHits.single().window)
+        assertTrue(inside.hazards.violations.isEmpty())
+    }
+
+    @Test
+    fun aPlayExactlyAtTheGapAfterASeekIsNoStrictHit() = fxModel {
+        val rig: Rig = rig()
+        rig.rate(2.0)
+        rig.seek(0.0)
+        rig.advanceNanos(200 * MS)
+
+        rig.play()
+
+        assertTrue(rig.hazards.strictHits.isEmpty())
+        assertTrue(rig.hazards.violations.isEmpty())
+    }
+
+    @Test
+    fun underTheStrictReadingASeekKeepsTheIdleGapAndThePlayFreezes() = fxModel {
+        val rig: Rig = rig(HazardConfig(seekReading = SeekHazardReading.STRICT))
+        rig.rate(2.0)
+        rig.seek(0.0)
+        rig.play()
+
+        val violation: HazardViolation = rig.hazards.violations.single()
+        assertEquals(FragileWindow.IDLE, violation.window)
+        assertFalse(violation.strictOnly)
+        assertTrue(rig.hazards.strictHits.isEmpty())
+        assertTrue(rig.hazards.frozen)
+    }
+
+    @Test
+    fun aRateWriteAfterTheSeekStartsAFreshGapThatFreezesAPlayInsideIt() = fxModel {
+        val rig: Rig = rig()
+        rig.rate(2.0)
+        rig.seek(0.0)
+        rig.advanceMs(100)
+        rig.rate(3.0)
+
+        rig.advanceNanos(200 * MS - 1)
+        rig.play()
+
+        val violation: HazardViolation = rig.hazards.violations.single()
+        assertEquals(FragileWindow.IDLE, violation.window)
+        assertEquals(150.0, violation.openedAtMs, "the gap is counted from the newest property change")
+        assertTrue(rig.hazards.strictHits.isEmpty(), "the superseded shadow is not reported")
+    }
+
+    @Test
+    fun aSeekWithNoIdleRateWriteBeforeItLeavesNoIdleShadow() = fxModel {
+        val rig: Rig = rig()
+        rig.seek(0.0)
+        rig.play()
+
+        assertTrue(rig.hazards.strictHits.none { it.window == FragileWindow.IDLE })
+        assertTrue(rig.hazards.violations.isEmpty())
+    }
+
+    @Test
+    fun theIdleShadowIsConsumedByThePlayThatReportedIt() = fxModel {
+        val rig: Rig = rig()
+        rig.rate(2.0)
+        rig.seek(0.0)
+        rig.play()
+        rig.pause()
+
+        rig.play()
+
+        assertEquals(1, rig.hazards.strictHits.count { it.window == FragileWindow.IDLE })
+    }
+
+    // -- MINOR-7: a pause closes every window; the strict list is recorded --
+
+    @Test
+    fun aWindowOpenAtAPauseDoesNotSurviveTheNextPlay() = fxModel {
+        val rig: Rig = runningRig()
+        rig.seek(0.0)
+        rig.pause()
+        rig.advanceMs(20)
+        rig.seek(0.0)
+        rig.play()
+        rig.advanceMs(150)
+
+        rig.rate(2.0)
+
+        assertTrue(rig.hazards.violations.isEmpty(), "the SEEK-RUN of before the pause is closed")
+        assertFalse(rig.hazards.frozen)
+    }
+
+    @Test
+    fun aStrictHitIsListedWithoutFailingAndTheListSurvivesTheDecoderStopping() = fxModel {
+        val rig: Rig = rig()
+        rig.seek(0.0)
+        rig.play()
+        rig.rate(2.0)
+        rig.pause()
+
+        assertEquals(1, rig.hazards.strictHits.size)
+        assertTrue(rig.hazards.violations.isEmpty())
+    }
 }

@@ -125,10 +125,15 @@ internal data class HazardViolation(
  * status, because the native status lags a command (B2) while the decoder does not. A pause also closes every window.
  *
  * WINDOWS (B6). Only a native rate change while the decoder runs is checked against [FragileWindow.PLAY],
- * [FragileWindow.WRAP] and [FragileWindow.SEEK_RUN]. A rate change while the decoder does not run is a property
- * change only; it starts the W-IDLE gap, and a `play()` less than the gap later freezes. A window of width W opened
- * at t is open for a change at t' with t' - t < W, so a change exactly W later is safe. A new seek while running
- * restarts W-SEEK-RUN (S9: the seek-during-wrap hazard is the same predicate).
+ * [FragileWindow.WRAP] and [FragileWindow.SEEK_RUN], and only a REAL one: a write of the rate the decoder already plays
+ * at ([effectiveRate]) is a property change with nothing native behind it (B1), so it judges no window and records no
+ * strict hit (the loop wrap's unity write at a speed is such a write, B8). A rate change while the decoder does not
+ * run is a property change only; it starts the W-IDLE gap, and a `play()` less than the gap later freezes, unless a
+ * native seek came in between: under [SeekHazardReading.DEFAULT] a seek of a player that does not run clears the gap
+ * (the measured W-IDLE is the plain resume, with no seek), and a `play()` inside the cleared gap is only a strict-only
+ * IDLE hit in [strictHits]; STRICT keeps the gap. A window of width W opened at t is open for a change at t' with
+ * t' - t < W, so a change exactly W later is safe. A new seek while running restarts W-SEEK-RUN (S9: the
+ * seek-during-wrap hazard is the same predicate).
  *
  * B4. A `play()` from not-running sets [effectiveRate] to 1.0 (see [HazardConfig.decoderStartsAtUnity]); only a
  * later effective property change sets it again. A loop wrap resets it to 1.0 too ([onLoopWrap], B8).
@@ -154,6 +159,7 @@ internal class HazardModel(
     private val observers: MutableList<(HazardViolation) -> Unit> = mutableListOf()
     private var idleChangeNanos: Long? = null
     private var shadowSeekNanos: Long? = null
+    private var shadowIdleNanos: Long? = null
     private var seekSinceLastPlay: Boolean = false
     private var playPending: Boolean = false
     private var recoverOnPlay: Boolean = false
@@ -218,6 +224,14 @@ internal class HazardModel(
     override fun onSeek(player: ScriptedNativePlayer, millis: Double) {
         val now: Long = host.nanoTime()
         seekSinceLastPlay = true
+        if (!decoderRunning && config.seekReading == SeekHazardReading.DEFAULT) {
+            // MUST-2: a native seek of a player that does not run clears the idle gap; the gap stays as a shadow.
+            val idle: Long? = idleChangeNanos
+            if (idle != null) {
+                shadowIdleNanos = idle
+                idleChangeNanos = null
+            }
+        }
         when {
             decoderRunning -> {
                 openedAt[FragileWindow.SEEK_RUN] = now
@@ -232,8 +246,12 @@ internal class HazardModel(
         val now: Long = host.nanoTime()
         if (!decoderRunning) {
             idleChangeNanos = now
+            shadowIdleNanos = null
             return
         }
+        // MUST-1 (B1, B6: a native rate change is a real change only): the decoder already plays at this rate, so the
+        // property write changes nothing native. No window is judged and no strict hit is recorded.
+        if (new == effectiveRate) return
         val hits: MutableList<HazardViolation> = mutableListOf()
         for (window: FragileWindow in listOf(FragileWindow.PLAY, FragileWindow.WRAP, FragileWindow.SEEK_RUN)) {
             if (isOpen(window, now)) hits += violation(window, openedAt.getValue(window), now, NativeCall.SET_RATE, new, false)
@@ -273,6 +291,11 @@ internal class HazardModel(
         idleChangeNanos = null
         if (idle != null && withinWidth(idle, now, config.idleGapMs)) {
             hits += violation(FragileWindow.IDLE, idle, now, NativeCall.PLAY, null, false)
+        }
+        val idleShadow: Long? = shadowIdleNanos
+        shadowIdleNanos = null
+        if (idleShadow != null && withinWidth(idleShadow, now, config.idleGapMs)) {
+            recordedStrict += violation(FragileWindow.IDLE, idleShadow, now, NativeCall.PLAY, null, true)
         }
         if (!seekedSinceLastPlay) openedAt[FragileWindow.PLAY] = now
         report(hits)
