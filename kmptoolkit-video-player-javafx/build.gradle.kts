@@ -119,7 +119,6 @@ val realMediaSoakClasses: List<String> = listOf(
     "JavaFxResumeSettlesAtSpeedR5FixerTest",
     "JavaFxSeekAtSpeedFreezeR6AdversarialTest",
     "JavaFxSpeedAfterSeekFreezeAdversarialTest",
-    "JavaFxSpeedAndSeekOrderR7AdversarialTest",
     "JavaFxSpeedInReadyThroughCoreR6AdversarialTest",
     "JavaFxSpeedThroughCoreR6AdversarialTest",
 ).map { "$testPackage.$it" }

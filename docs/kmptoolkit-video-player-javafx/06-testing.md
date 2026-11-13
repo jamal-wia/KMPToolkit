@@ -113,7 +113,7 @@ The default gate (F, C and K):
 ./gradlew :kmptoolkit-video-player-javafx:jvmTest -Pjavafx.required=true
 ```
 
-The real-media soak (R), the twelve classes of `realMediaSoakClasses`. It plays real media and is timing-sensitive, so
+The real-media soak (R), the eleven classes of `realMediaSoakClasses`. It plays real media and is timing-sensitive, so
 run it alone on an idle machine, and split it with `--tests` when one command would take longer than about ten minutes:
 
 ```sh
