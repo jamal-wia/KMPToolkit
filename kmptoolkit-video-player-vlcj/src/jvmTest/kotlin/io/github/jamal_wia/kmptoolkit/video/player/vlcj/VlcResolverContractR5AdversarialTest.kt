@@ -20,9 +20,11 @@ class VlcResolverContractR5AdversarialTest {
     @Test
     fun `an unreadable file fails with FileNotFoundException and a readable one does not`() {
         val file: File = File.createTempFile("kmptoolkit-unreadable", ".mp4").also { it.deleteOnExit() }
+        // path-hygiene-ignore: PH2 guarded: the next line assumes the file is no longer readable, so a host without POSIX modes (Windows) skips the test
         file.setReadable(false)
         Assume.assumeFalse("the file is still readable here (root, or a platform without POSIX modes)", file.canRead())
         assertFailsWith<FileNotFoundException> { VlcMediaResolver.resolve(VideoSource.File(file.absolutePath), loader) }
+        // path-hygiene-ignore: PH2 guarded: only reached after the assumption above held, so the POSIX modes were honoured; this restores the read bit
         file.setReadable(true)
         assertEquals(file.absolutePath, VlcMediaResolver.resolve(VideoSource.File(file.absolutePath), loader).mrl)
     }

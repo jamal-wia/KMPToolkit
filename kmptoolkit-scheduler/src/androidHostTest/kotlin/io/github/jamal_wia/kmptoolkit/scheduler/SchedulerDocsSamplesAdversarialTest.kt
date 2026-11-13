@@ -190,11 +190,13 @@ class SchedulerDocsSamplesAdversarialTest {
             OrderRecordingShadow.cancelled.clear()
             // Not a palindrome, so a reversed or sorted order cannot pass: c before a before b.
             scheduler.cancelAll(listOf("c", "never-armed", "a", "b"))
+            // path-hygiene-ignore: PH3 the value is the data URI of a pending intent (scheme and id), a logical name split on '/', not a host path
             val order: List<String> = OrderRecordingShadow.cancelled.map { it.substringAfterLast('/') }
             assertEquals(listOf("c", "a", "b"), order, "cancelled pending intents, in the order of the ids passed")
 
             OrderRecordingShadow.cancelled.clear()
             scheduler.cancelAll(listOf("d", "d"))
+            // path-hygiene-ignore: PH3 the value is the data URI of a pending intent (scheme and id), a logical name split on '/', not a host path
             assertEquals(listOf("d"), OrderRecordingShadow.cancelled.map { it.substringAfterLast('/') }, "a repeated id cancels once")
         }
         val left: Set<String> = shadowAlarmManager.scheduledAlarms
