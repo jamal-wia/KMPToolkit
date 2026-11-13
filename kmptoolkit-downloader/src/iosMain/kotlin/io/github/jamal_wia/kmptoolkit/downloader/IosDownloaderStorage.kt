@@ -461,8 +461,37 @@ internal class IosDownloaderStorage(
     override fun deleteResource(unit: DownloadUnit) {
         val path: String = getResourcePath(unit)
         if (!fileExists(path)) return
-        NSFileManager.defaultManager.removeItemAtPath(path, error = null)
+        if (isDirectoryAt(path)) {
+            // Moved aside in one rename, then deleted: a process killed inside the walk leaves the
+            // partial tree under trash/, never at the resource path, where a surviving marker would
+            // read as a complete resource with files missing. No lock: the rename is atomic, and a
+            // commit racing this delete finds either the whole tree or nothing to move aside.
+            val detached: String? = detachTree(path)
+            if (detached != null) {
+                NSFileManager.defaultManager.removeItemAtPath(detached, error = null)
+                sweepTrash()
+            } else if (fileExists(path)) {
+                // Unreachable on a sandbox volume, and this call has never thrown: fall back to the
+                // in-place delete rather than start now.
+                logger.w { "Could not move $unit aside; deleting it in place" }
+                NSFileManager.defaultManager.removeItemAtPath(path, error = null)
+            }
+        } else {
+            NSFileManager.defaultManager.removeItemAtPath(path, error = null)
+        }
         logger.i { "Deleted resource $unit at $path" }
+    }
+
+    /**
+     * Renames [path] to a fresh entry of the trash directory (`tmp/kmptoolkit-internal/trash/`) and returns
+     * it; null when [path] is absent or the rename failed (the caller tells them apart by [fileExists]).
+     * The rename is atomic and stays on one volume, so [path] holds its whole tree or nothing at every instant.
+     */
+    private fun detachTree(path: String): String? {
+        if (!fileExists(path)) return null
+        val trash = "$baseDir/${layout.trashEntry(Random.nextLong().toULong())}"
+        createParentDirectory(trash)
+        return if (rename(path, trash) == 0) trash else null
     }
 
     override suspend fun commitResource(
@@ -474,29 +503,44 @@ internal class IosDownloaderStorage(
         val names: UnitFileLayout.Names = names(unit)
         // Serialized per unit across every instance over this directory — see UnitCommitLocks for
         // who races here. Everything below is decided only once the lock is held.
-        UnitCommitLocks.withUnitLock(lockScope, layout.lockKey(unit)) {
-            val tempFilePath = "$baseDir/${names.complete}"
-            if (!fileExists(tempFilePath) && isResourceAvailable(unit)) {
-                // A concurrent commit finalized the unit while this one waited. Its record is
-                // already gone, and one present now belongs to a newer transfer: touch nothing.
-                logger.i { "$unit was already committed by a concurrent commit" }
-                return@withUnitLock
+        // An old archive tree replaced by this commit is only renamed away under the lock; it is deleted
+        // after the lock is released (UnitCommitLocks), also when the commit failed after the rename.
+        var detached: String? = null
+        try {
+            UnitCommitLocks.withUnitLock(lockScope, layout.lockKey(unit)) {
+                val tempFilePath = "$baseDir/${names.complete}"
+                if (!fileExists(tempFilePath) && isResourceAvailable(unit)) {
+                    // A concurrent commit finalized the unit while this one waited. Its record is
+                    // already gone, and one present now belongs to a newer transfer: touch nothing.
+                    logger.i { "$unit was already committed by a concurrent commit" }
+                    return@withUnitLock
+                }
+                check(fileExists(tempFilePath)) {
+                    "No complete temp file for $unit — a partial transfer is resumed, never committed"
+                }
+                try {
+                    commitCompleteTempFile(unit, tempFilePath, names) { tree: String -> detached = tree }
+                } finally {
+                    // The record belongs to the temp file. Once the file is gone — committed, or deleted
+                    // by a failed check — the record goes with it, last. A failure that left the file in
+                    // place keeps its record, so the retry is still checked against it.
+                    if (!fileExists(tempFilePath)) remove("$baseDir/${names.record}")
+                }
             }
-            check(fileExists(tempFilePath)) {
-                "No complete temp file for $unit — a partial transfer is resumed, never committed"
-            }
-            try {
-                commitCompleteTempFile(unit, tempFilePath, names)
-            } finally {
-                // The record belongs to the temp file. Once the file is gone — committed, or deleted
-                // by a failed check — the record goes with it, last. A failure that left the file in
-                // place keeps its record, so the retry is still checked against it.
-                if (!fileExists(tempFilePath)) remove("$baseDir/${names.record}")
+        } finally {
+            detached?.let { tree: String ->
+                NSFileManager.defaultManager.removeItemAtPath(tree, error = null)
+                sweepTrash()
             }
         }
     }
 
-    private fun commitCompleteTempFile(unit: DownloadUnit, tempFilePath: String, names: UnitFileLayout.Names) {
+    private fun commitCompleteTempFile(
+        unit: DownloadUnit,
+        tempFilePath: String,
+        names: UnitFileLayout.Names,
+        onDetached: (String) -> Unit,
+    ) {
         verifySha256(tempFilePath, unit, names)
         if (unit.isDirectoryResource) {
             val targetDir: String = getResourcePath(unit)
@@ -516,27 +560,25 @@ internal class IosDownloaderStorage(
                 if (!markerIsFile(stagingDir, unit.archiveMarker())) {
                     throw ResourceIntegrityException("Archive of $unit has no '${unit.archiveMarker()}' after extraction")
                 }
-                // Atomic swap: remove old target, rename staging to target
-                NSFileManager.defaultManager.removeItemAtPath(targetDir, error = null)
-                // moveItemAtPath and copyItemAtPath both fail when the parent is missing, which a
-                // nested relativePath (e.g. "archives/pages") leaves it on first use.
+                // The swap, in renames only: the resource path holds the whole old tree, nothing, or the
+                // whole new tree, so a process killed at any step never leaves a marker over a partial tree.
+                // The parent of a nested relativePath (e.g. "archives/pages") is absent on a first commit.
                 createParentDirectory(targetDir)
+                if (fileExists(targetDir)) {
+                    // The old tree moves into the trash; it is never renamed back (a sweep of another unit
+                    // may already be deleting it) and never deleted in place.
+                    val oldTree: String? = detachTree(targetDir)
+                    check(oldTree != null || !fileExists(targetDir)) { "Could not move the committed $unit aside" }
+                    if (oldTree != null) onDetached(oldTree)
+                }
+                // No copy fallback: staging and target both sit under baseDir, one volume. A copy writes
+                // top-down, so it could land the marker before the rest.
                 val moved: Boolean = NSFileManager.defaultManager.moveItemAtPath(
                     srcPath = stagingDir,
                     toPath = targetDir,
                     error = null,
                 )
-                if (!moved) {
-                    // Fallback: copy + delete. A failed copy must not be followed by the deletes: the
-                    // staging directory and the temp file are all that is left of the download.
-                    val copied: Boolean = NSFileManager.defaultManager
-                        .copyItemAtPath(stagingDir, targetDir, null)
-                    if (!copied) {
-                        NSFileManager.defaultManager.removeItemAtPath(targetDir, error = null)
-                        throw IllegalStateException("Could not move the extracted $unit into place")
-                    }
-                    NSFileManager.defaultManager.removeItemAtPath(stagingDir, error = null)
-                }
+                check(moved) { "Could not move the extracted $unit into place" }
             } catch (e: ResourceIntegrityException) {
                 // Bytes that are not what the unit declares: the temp file is worthless, and one fresh download
                 // is the fix. Everything above ran before the committed resource was touched.
