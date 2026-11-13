@@ -123,6 +123,34 @@ class LoopModelTest {
         assertFalse(loop.isPublishHeld())
     }
 
+    /**
+     * The hold of the published time is a span of the clock, so it lasts the same 300 ms wherever the clock stands: on one that
+     * starts negative, at 0, at one thousand seconds, and on the two that wrap during the hold (100 ms below the wrap, and at
+     * the wrap itself), where the end of the hold is a number below the reading at the start of it.
+     */
+    @Test
+    fun thePublishedTimeHoldsFor300MsOnEveryClockEvenWhenTheHoldCrossesTheWrap() {
+        val epochs: List<Long> = listOf(-1_000_000_000_000L, 0L, 1_000_000_000_000L, Long.MAX_VALUE - 100_000_000L, Long.MAX_VALUE)
+        for (epoch: Long in epochs) {
+            fxModel(epochNanos = epoch) {
+                val (_, loop) = loopRig()
+                assertFalse(loop.isPublishHeld(), "no hold before the first wrap (clock starts at $epoch ns)")
+
+                onFx { loop.endCycle() }
+                assertTrue(loop.isPublishHeld(), "held at the wrap (clock starts at $epoch ns)")
+
+                advanceBy(299)
+                assertTrue(loop.isPublishHeld(), "held 299 ms after the wrap (clock starts at $epoch ns)")
+                host.advanceByNanos(999_999)
+                assertTrue(loop.isPublishHeld(), "held 1 ns short of 300 ms after the wrap (clock starts at $epoch ns)")
+                host.advanceByNanos(1)
+                assertFalse(loop.isPublishHeld(), "still held 300 ms after the wrap (clock starts at $epoch ns)")
+                advanceBy(5_000)
+                assertFalse(loop.isPublishHeld(), "held again long after the wrap (clock starts at $epoch ns)")
+            }
+        }
+    }
+
     @Test
     fun theHeldValueIsTheStartTimeOfTheNewCycle() = fxModel {
         val (rig, loop) = loopRig()
