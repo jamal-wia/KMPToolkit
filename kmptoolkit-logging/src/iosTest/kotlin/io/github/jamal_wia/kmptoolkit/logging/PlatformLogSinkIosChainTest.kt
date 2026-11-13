@@ -9,8 +9,9 @@ import kotlin.test.assertTrue
  * `throwable.stackTraceToString()` itself, so a long or cyclic cause chain must neither hang nor
  * throw out of the sink, and the rendering it prints must keep the deepest cause and end a cycle.
  *
- * Standard output cannot be captured here, so the sink call proves "returns without throwing" and the
- * rendering the sink prints is checked through the same `stackTraceToString()` call on the same chain.
+ * Standard output is not captured here (`PlatformLogSinkIosConcurrencyTest` redirects it), so the sink
+ * call proves "returns without throwing" and the rendering the sink prints is checked through the same
+ * `stackTraceToString()` call on the same chain.
  * A cycle cannot be built with constructors on Kotlin/Native (the `cause` of a `Throwable` is a
  * constructor value), so [Node] overrides `cause`, which `Throwable` declares open.
  */
