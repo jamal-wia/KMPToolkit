@@ -350,7 +350,7 @@ class HazardModelTest {
         val rig: Rig = rig()
         rig.seek(0.0)
         rig.play()
-        rig.advanceMs(10)
+        rig.advanceMs(StatusScript.DEFAULT_STATUS_LATENCY_MS.toLong())
         rig.seek(0.0)
 
         rig.rate(2.0)
@@ -403,7 +403,7 @@ class HazardModelTest {
     fun aChangeInTwoOpenWindowsIsReportedForBothAndFreezesOnce() = fxModel {
         val rig: Rig = rig()
         rig.play()
-        rig.advanceMs(10)
+        rig.advanceMs(StatusScript.DEFAULT_STATUS_LATENCY_MS.toLong())
         rig.seek(0.0)
         rig.advanceMs(10)
 
@@ -413,7 +413,7 @@ class HazardModelTest {
             listOf(FragileWindow.PLAY, FragileWindow.SEEK_RUN),
             rig.hazards.violations.map { it.window },
         )
-        assertEquals(70.0, rig.hazards.frozenAtMs)
+        assertEquals(50.0 + StatusScript.DEFAULT_STATUS_LATENCY_MS + 10.0, rig.hazards.frozenAtMs)
     }
 
     @Test
@@ -453,6 +453,7 @@ class HazardModelTest {
     fun aPauseStopsTheDecoderAtOnceAndClosesEveryWindow() = fxModel {
         val rig: Rig = rig()
         rig.play()
+        rig.advanceMs(StatusScript.DEFAULT_STATUS_LATENCY_MS.toLong())
         rig.seek(0.0)
         assertEquals(setOf(FragileWindow.PLAY, FragileWindow.SEEK_RUN), rig.hazards.openWindows)
 
@@ -841,5 +842,203 @@ class HazardModelTest {
 
         assertEquals(1, rig.hazards.strictHits.size)
         assertTrue(rig.hazards.violations.isEmpty())
+    }
+
+    // -- Ruling 4: the three scenarios above, unchanged, under the STRICT reading (MUST-3 changes nothing there) --
+
+    @Test
+    fun aPauseClosesEveryWindowUnderTheStrictReading() = fxModel {
+        val rig: Rig = rig(HazardConfig(seekReading = SeekHazardReading.STRICT))
+        rig.play()
+        rig.seek(0.0)
+        assertEquals(setOf(FragileWindow.PLAY, FragileWindow.SEEK_RUN), rig.hazards.openWindows)
+
+        rig.pause()
+
+        assertFalse(rig.hazards.decoderRunning)
+        assertTrue(rig.hazards.openWindows.isEmpty())
+    }
+
+    @Test
+    fun aChangeInTwoOpenWindowsIsReportedForBothUnderTheStrictReading() = fxModel {
+        val rig: Rig = rig(HazardConfig(seekReading = SeekHazardReading.STRICT))
+        rig.play()
+        rig.advanceMs(10)
+        rig.seek(0.0)
+        rig.advanceMs(10)
+
+        rig.rate(2.0)
+
+        assertEquals(
+            listOf(FragileWindow.PLAY, FragileWindow.SEEK_RUN),
+            rig.hazards.violations.map { it.window },
+        )
+        assertEquals(70.0, rig.hazards.frozenAtMs)
+    }
+
+    @Test
+    fun aSeekAfterAPlayIsAViolationUnderTheStrictReading() = fxModel {
+        val rig: Rig = rig(HazardConfig(seekReading = SeekHazardReading.STRICT))
+        rig.seek(0.0)
+        rig.play()
+        rig.advanceMs(10)
+        rig.seek(0.0)
+
+        rig.rate(2.0)
+
+        assertEquals(FragileWindow.SEEK_RUN, rig.hazards.violations.single().window)
+        assertTrue(rig.hazards.strictHits.isEmpty())
+    }
+
+    // -- MUST-3: the decoder STARTED (status PLAYING landed), not only commanded --
+
+    @Test
+    fun theDecoderStartsWhenTheStatusLandsAndNotBefore() = fxModel {
+        val rig: Rig = rig()
+        rig.play()
+        assertTrue(rig.hazards.decoderRunning)
+        assertFalse(rig.hazards.decoderStarted)
+
+        rig.advanceNanos(30 * MS - 1)
+        assertFalse(rig.hazards.decoderStarted)
+        rig.advanceNanos(1)
+
+        assertTrue(rig.hazards.decoderStarted)
+    }
+
+    @Test
+    fun aPlayBeforeReadyStartsTheDecoderAndMarksItStartedAtTheReadyEdge() = fxModel {
+        val rig: Rig = rig(waitForReady = false)
+        rig.play()
+        rig.advanceMs(50)
+
+        assertTrue(rig.hazards.decoderRunning)
+        assertTrue(rig.hazards.decoderStarted)
+    }
+
+    @Test
+    fun aPauseAndANewPlayClearStarted() = fxModel {
+        val rig: Rig = runningRig()
+        assertTrue(rig.hazards.decoderStarted)
+
+        rig.pause()
+        assertFalse(rig.hazards.decoderStarted)
+        rig.advanceMs(500)
+        rig.play()
+
+        assertTrue(rig.hazards.decoderRunning)
+        assertFalse(rig.hazards.decoderStarted)
+    }
+
+    @Test
+    fun underTheDefaultReadingASeekBeforeTheStatusLandsOpensNoWindowAndCancelsWPlay() = fxModel {
+        val rig: Rig = rig()
+        rig.play()
+        rig.advanceNanos(30 * MS - 1)
+        assertEquals(setOf(FragileWindow.PLAY), rig.hazards.openWindows)
+
+        rig.seek(0.0)
+
+        assertTrue(rig.hazards.openWindows.isEmpty())
+        assertTrue(rig.hazards.violations.isEmpty())
+    }
+
+    @Test
+    fun aSeekOnceTheStatusHasLandedOpensWSeekRun() = fxModel {
+        val rig: Rig = rig()
+        rig.play()
+        rig.advanceMs(30)
+
+        rig.seek(0.0)
+
+        assertEquals(setOf(FragileWindow.PLAY, FragileWindow.SEEK_RUN), rig.hazards.openWindows)
+        rig.rate(2.0)
+        assertEquals(
+            listOf(FragileWindow.PLAY, FragileWindow.SEEK_RUN),
+            rig.hazards.violations.map { it.window },
+        )
+    }
+
+    @Test
+    fun aSeekFarAfterAPlayStillOpensWSeekRun() = fxModel {
+        val rig: Rig = runningRig()
+        rig.seek(0.0)
+
+        assertEquals(setOf(FragileWindow.SEEK_RUN), rig.hazards.openWindows)
+    }
+
+    @Test
+    fun aPlaySeekPlayRateInOneInstantIsNoViolationUnderDefaultAndHasTwoStrictHits() = fxModel {
+        val rig: Rig = rig()
+        rig.scope.onFx {
+            rig.player.play()
+            rig.player.seek(0.0)
+            rig.player.play()
+            rig.player.rate = 2.0
+        }
+
+        assertTrue(rig.hazards.violations.isEmpty())
+        assertFalse(rig.hazards.frozen)
+        assertEquals(
+            listOf(FragileWindow.SEEK_RUN, FragileWindow.PLAY),
+            rig.hazards.strictHits.map { it.window },
+        )
+        assertTrue(rig.hazards.strictHits.all { it.strictOnly })
+    }
+
+    @Test
+    fun aPlaySeekPlayRateInOneInstantIsAViolationUnderStrict() = fxModel {
+        val rig: Rig = rig(HazardConfig(seekReading = SeekHazardReading.STRICT))
+        rig.scope.onFx {
+            rig.player.play()
+            rig.player.seek(0.0)
+            rig.player.play()
+            rig.player.rate = 2.0
+        }
+
+        assertTrue(rig.hazards.frozen)
+        assertEquals(
+            setOf(FragileWindow.PLAY, FragileWindow.SEEK_RUN),
+            rig.hazards.violations.map { it.window }.toSet(),
+        )
+        assertTrue(rig.hazards.strictHits.isEmpty())
+    }
+
+    @Test
+    fun theShadowWPlayHitNeedsTheRateInsideTheWidthOfThePlay() = fxModel {
+        val inside: Rig = rig().also {
+            it.play()
+            it.seek(0.0)
+            it.advanceNanos(100 * MS - 1)
+            it.rate(2.0)
+        }
+        assertEquals(listOf(FragileWindow.PLAY), inside.hazards.strictHits.filter { it.window == FragileWindow.PLAY }.map { it.window })
+
+        val atWidth: Rig = rig().also {
+            it.play()
+            it.seek(0.0)
+            it.advanceNanos(100 * MS)
+            it.rate(2.0)
+        }
+        assertTrue(atWidth.hazards.strictHits.none { it.window == FragileWindow.PLAY })
+        assertTrue(atWidth.hazards.violations.isEmpty())
+    }
+
+    @Test
+    fun aSeekBeforeTheStatusLandsMakesTheNextPlayAPlayAfterASeek() = fxModel {
+        val rig: Rig = rig()
+        rig.play()
+        rig.seek(0.0)
+        rig.pause()
+        rig.advanceMs(500)
+
+        rig.play()
+        rig.seek(0.0)
+        rig.pause()
+        rig.advanceMs(500)
+        rig.seek(0.0)
+        rig.play()
+
+        assertTrue(rig.hazards.openWindows.isEmpty(), "a play after a seek opens no W-PLAY")
     }
 }

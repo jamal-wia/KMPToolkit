@@ -135,6 +135,14 @@ internal data class HazardViolation(
  * t' - t < W, so a change exactly W later is safe. A new seek while running restarts W-SEEK-RUN (S9: the
  * seek-during-wrap hazard is the same predicate).
  *
+ * STARTED (MUST-3, Q-M1). The decoder is COMMANDED from a `play()` but has STARTED only when the status PLAYING lands
+ * ([decoderStarted]; a play before READY starts at that landing). Under [SeekHazardReading.DEFAULT] a seek of a decoder
+ * that runs but has not started opens no W-SEEK-RUN: it is a shadow seek (strict list), and it cancels the W-PLAY that
+ * the play opened, kept as a strict-only shadow, so a rate change inside that W-PLAY width is a strict-only PLAY hit and
+ * the next `play()` is a play after a seek. This is the case production documents as safe: a rate change right after a
+ * native seek, once a `play()` issued after the seek has been given, while the native player is not yet playing. STRICT
+ * is unchanged: any seek opens W-SEEK-RUN. The time part keeps moving the playhead from the command, not from this flag.
+ *
  * B4. A `play()` from not-running sets [effectiveRate] to 1.0 (see [HazardConfig.decoderStartsAtUnity]); only a
  * later effective property change sets it again. A loop wrap resets it to 1.0 too ([onLoopWrap], B8).
  *
@@ -160,12 +168,20 @@ internal class HazardModel(
     private var idleChangeNanos: Long? = null
     private var shadowSeekNanos: Long? = null
     private var shadowIdleNanos: Long? = null
+    private var shadowPlayNanos: Long? = null
     private var seekSinceLastPlay: Boolean = false
     private var playPending: Boolean = false
     private var recoverOnPlay: Boolean = false
 
     /** Whether the native decoder runs (see the class KDoc for what starts and stops it). */
     var decoderRunning: Boolean = false
+        private set
+
+    /**
+     * Whether the decoder has STARTED: its `play()` is followed by the status PLAYING (the native player is playing,
+     * not only commanded to). False from a `play()` out of not-running until that status lands, and while it does not run.
+     */
+    var decoderStarted: Boolean = false
         private set
 
     /** The rate the decoder plays at; moved by B4 at a play, by an effective rate change while running, by a wrap. */
@@ -233,12 +249,21 @@ internal class HazardModel(
             }
         }
         when {
-            decoderRunning -> {
+            config.seekReading == SeekHazardReading.STRICT -> {
+                openedAt[FragileWindow.SEEK_RUN] = now
+                if (decoderRunning) shadowSeekNanos = null
+            }
+            decoderRunning && decoderStarted -> {
                 openedAt[FragileWindow.SEEK_RUN] = now
                 shadowSeekNanos = null
             }
-            config.seekReading == SeekHazardReading.STRICT -> openedAt[FragileWindow.SEEK_RUN] = now
-            else -> shadowSeekNanos = now
+            else -> {
+                // MUST-3: a decoder that is commanded but has not started is not seeked while running. The seek is a
+                // shadow seek, and it cancels the W-PLAY of the play before it, which is kept as a shadow too.
+                shadowSeekNanos = now
+                val playOpened: Long? = openedAt.remove(FragileWindow.PLAY)
+                if (playOpened != null) shadowPlayNanos = playOpened
+            }
         }
     }
 
@@ -260,13 +285,21 @@ internal class HazardModel(
         if (shadow != null && withinWidth(shadow, now, config.seekRunWindowMs)) {
             recordedStrict += violation(FragileWindow.SEEK_RUN, shadow, now, NativeCall.SET_RATE, new, true)
         }
+        val playShadow: Long? = shadowPlayNanos
+        if (playShadow != null && withinWidth(playShadow, now, config.playWindowMs)) {
+            recordedStrict += violation(FragileWindow.PLAY, playShadow, now, NativeCall.SET_RATE, new, true)
+        }
         effectiveRate = new
         report(hits)
     }
 
     override fun onStatusChange(player: ScriptedNativePlayer, old: NativeStatus, new: NativeStatus) {
         when {
-            new == NativeStatus.PLAYING && playPending -> startDecoder(player)
+            new == NativeStatus.PLAYING && playPending -> {
+                startDecoder(player)
+                decoderStarted = true
+            }
+            new == NativeStatus.PLAYING && decoderRunning -> decoderStarted = true
             new == NativeStatus.HALTED -> stopDecoder()
         }
     }
@@ -280,6 +313,8 @@ internal class HazardModel(
         if (decoderRunning) return
         val now: Long = host.nanoTime()
         decoderRunning = true
+        decoderStarted = false
+        shadowPlayNanos = null
         effectiveRate = if (config.decoderStartsAtUnity) 1.0 else player.rate
         if (recoverOnPlay) {
             recoverOnPlay = false
@@ -304,6 +339,8 @@ internal class HazardModel(
     private fun stopDecoder() {
         playPending = false
         decoderRunning = false
+        decoderStarted = false
+        shadowPlayNanos = null
         openedAt.clear()
     }
 
