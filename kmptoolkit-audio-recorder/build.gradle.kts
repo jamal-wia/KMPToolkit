@@ -43,6 +43,9 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
             // Not published; the path converter and host assumptions for the file-system tests.
             implementation(project(":test-support"))
+            // Test scope only (never in the published POM): the fake-versus-real differential runs the real
+            // recorder over its stand-ins and FakeAudioRecorder through one scenario table in one source set.
+            implementation(project(":kmptoolkit-audio-recorder-testing"))
         }
     }
 }
