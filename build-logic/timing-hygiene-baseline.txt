@@ -189,7 +189,6 @@ kmptoolkit-systembars/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/
 kmptoolkit-systembars/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/systembars/WakeLockStarvationTest.kt:TH1:1
 kmptoolkit-systembars/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/systembars/WakeLockSubscriptionsTest.kt:TH1:1
 kmptoolkit-systembars/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/systembars/WakeLockWindowsThreadsStormTest.kt:TH2:2
-kmptoolkit-systembars/src/commonTest/kotlin/io/github/jamal_wia/kmptoolkit/systembars/PeriodicSampleGateTest.kt:TH3:1
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/ProtocolModelHarnessRound7.kt:TH2:2
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/ProtocolModelHarnessRound7.kt:TH3:1
 kmptoolkit-uploader-sqldelight/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/sqldelight/Rows400CompatRound10AdversarialTest.kt:TH3:1
@@ -276,7 +275,6 @@ kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/up
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeChurnAdversarialTest.kt:TH2:1
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeSchedulerLifecycleAdversarialTest.kt:TH1:2
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeSchedulerLifecycleAdversarialTest.kt:TH2:5
-kmptoolkit-uploader/src/commonTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/RetryArithmeticRound7AdversarialTest.kt:TH3:1
 kmptoolkit-uploader/src/iosTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/BackgroundUploadTransportTest.kt:TH4:3
 kmptoolkit-uploader/src/iosTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/IosCancelLaunchStormRound5AdversarialTest.kt:TH3:2
 kmptoolkit-uploader/src/iosTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/IosCancelLaunchStormRound5AdversarialTest.kt:TH4:1

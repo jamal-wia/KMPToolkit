@@ -264,6 +264,52 @@ class TimingHygieneScannerTest {
     }
 
     @Test
+    fun `TH6 flags the intArrayOf form and any non bracket sdk value`() {
+        assertEquals(listOf("TH6"), rules(test, "@Config(sdk = intArrayOf(36))"))
+        assertEquals(listOf("TH6"), rules(test, "@Config(sdk = intArrayOf(24, 25, 26, 27, 28, 29, 30))"))
+        assertEquals(listOf("TH6"), rules(test, "@Config(sdk = intArrayOf(34))"))
+        assertEquals(listOf("TH6"), rules(test, "@Config(sdk = SDKS)"))
+    }
+
+    @Test
+    fun `TH6 reads a fully qualified Config annotation`() {
+        assertEquals(listOf("TH6"), rules(test, "@org.robolectric.annotation.Config(sdk = [36])"))
+        assertEquals(emptyList(), rules(test, "@org.robolectric.annotation.Config(sdk = [34])"))
+        assertEquals(emptyList(), rules(test, "@org.robolectric.annotation.Config(shadows = [X::class])"))
+    }
+
+    @Test
+    fun `TH3 allows a Random subclass in supertype position`() {
+        assertEquals(emptyList(), rules(test, "val r: Random = object : Random() { override fun nextBits(bitCount: Int): Int = 0 }"))
+        assertEquals(emptyList(), rules(test, "class Fixed : java.util.Random() {"))
+        assertEquals(emptyList(), rules(test, "class Fixed : Random()"))
+        assertEquals(listOf("TH3"), rules(test, "val r = Random()"))
+        assertEquals(listOf("TH3"), rules(test, "foo(Random())"))
+        assertEquals(listOf("TH3"), rules(test, "val r: Random = Random()"))
+    }
+
+    @Test
+    fun `TH2 flags java time now and a no argument Date`() {
+        for (sample in listOf("val t = Instant.now()", "val t = java.time.Instant.now()", "val d = LocalDate.now()", "val d = ZonedDateTime.now()", "val d = Date()", "val d = java.util.Date()")) {
+            assertEquals(listOf("TH2"), rules(test, sample), sample)
+        }
+        assertEquals(emptyList(), rules(test, "val t = Instant.now(clock)", "val d = Date(0L)", "val x = candidate()"))
+    }
+
+    @Test
+    fun `TH2 measure helpers are flagged as calls only`() {
+        assertEquals(listOf("TH2"), rules(test, "val d = kotlin.time.measureTime { work() }"))
+        assertEquals(listOf("TH2"), rules(test, "val ms = kotlin.system.measureTimeMillis { work() }"))
+        assertEquals(emptyList(), rules(test, "val d = testTimeSource.measureTime { work() }", "val measureTime = 5", "val n = measureTimeouts()"))
+    }
+
+    @Test
+    fun `an aliased or commented Thread sleep import still arms the static sleep check`() {
+        assertEquals(listOf("TH1"), rules(test, "import java.lang.Thread.sleep as nap", "nap(50)"))
+        assertEquals(listOf("TH1"), rules(test, "import java.lang.Thread.sleep // why", "sleep(50)"))
+    }
+
+    @Test
     fun `TH6 joins a multi line annotation`() {
         assertEquals(
             listOf(2),

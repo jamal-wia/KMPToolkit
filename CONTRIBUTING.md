@@ -142,7 +142,7 @@ Review checklist beyond the scan: a `delay(` on a real dispatcher (`runBlocking`
 busy spin (`Thread.yield()`, `Thread.onSpinWait()`) used as a wait are not flagged and are rejected in review.
 
 The scan is lexical and per line: it cannot see a wait hidden behind a helper, a delay on a real
-dispatcher (`delay` is not flagged), or a literal level passed through a constant. It stops new flaky tests;
+dispatcher (`delay` is not flagged), or a level hidden in a file other than the test (`robolectric.properties` is not scanned); a level passed through a constant is a TH6 hit. It stops new flaky tests;
 it does not prove a test deterministic. Before committing a new or changed test, run the class repeatedly
 alone and under CPU load; a single failure means the test is not ready. The scanner's unit tests run
 through `./gradlew checkBuildLogic`, like those of the path-hygiene scan.

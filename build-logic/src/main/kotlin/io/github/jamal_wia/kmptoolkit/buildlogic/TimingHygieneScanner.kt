@@ -29,7 +29,7 @@ internal enum class TimingHygieneRule(val id: String, val advice: String) {
     ),
     TH6(
         "TH6",
-        "a Robolectric SDK level outside the allowed list, or more than six levels on one annotation (ruling " +
+        "a Robolectric SDK level outside the allowed list, or more than six levels in one class (ruling " +
             "R-8); extending it needs its own ruling, so this rule has no suppression category",
     ),
 }
@@ -96,7 +96,10 @@ internal object TimingHygieneScanner {
     /** The Robolectric levels the suite already loads (ruling R-8); a level outside the list needs its own ruling. */
     val ALLOWED_SDK_LEVELS: Set<Int> = setOf(24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35)
 
-    /** At most this many levels on one `@Config(sdk = [...])` (ruling R-8). */
+    /**
+     * At most this many levels per test class (ruling R-8). Known limits: the union is taken per file, not per
+     * class, and `robolectric.properties` is not scanned.
+     */
     const val MAX_SDK_LEVELS: Int = 6
 
     /** Source-set name prefixes of native test source sets, where the posix `sleep` and `getenv` forms are scanned. */
@@ -114,13 +117,18 @@ internal object TimingHygieneScanner {
         """\bThread\.sleep\(|\bTimeUnit\.\w+\.sleep\(|\bLockSupport\.parkNanos\(|""" +
             """\b(NANOSECONDS|MICROSECONDS|MILLISECONDS|SECONDS|MINUTES|HOURS|DAYS)\.sleep\(|(?<![\w.])parkNanos\(""",
     )
-    private val th1StaticSleep: Regex = Regex("""(?<![\w.])sleep\(""")
-    private val threadSleepImport: Regex = Regex("""^\s*import\s+java\.lang\.Thread\.(sleep|\*)\s*$""")
+    private val threadSleepImport: Regex =
+        Regex("""^\s*import\s+java\.lang\.Thread\.(sleep|\*)(?:\s+as\s+(\w+))?\s*(//.*)?$""")
+    private val supertypeRandom: Regex = Regex(""":\s*(?:[\w.]+\.)?Random\(\s*\)""")
     private val th1Native: Regex = Regex("""(?<![\w])(usleep|sleep)\(""")
     private val th2: Regex = Regex(
         """\bSystem\.currentTimeMillis\(\)|\bSystem\.nanoTime\(\)|\bTimeSource\.Monotonic\b|""" +
             """\bClock\.System\.now\(\)|\bNSDate\(\)|\bCFAbsoluteTimeGetCurrent\b|""" +
-            """\bSystem::(nanoTime|currentTimeMillis)\b|\bmeasure(TimeMillis|NanoTime|Time|TimedValue)\b""",
+            """\bSystem::(nanoTime|currentTimeMillis)\b|""" +
+            """(?<![\w.])measure(TimeMillis|NanoTime|Time|TimedValue)\s*[({]|""" +
+            """\bkotlin\.(system|time)\.measure(TimeMillis|NanoTime|Time|TimedValue)\b|""" +
+            """\b(Instant|LocalDateTime|LocalDate|ZonedDateTime|OffsetDateTime)\.now\(\s*\)|""" +
+            """(?<![\w.])Date\(\s*\)|\.Date\(\s*\)""",
     )
     private val th3: Regex = Regex(
         """\bRandom\.(next\w*|Default)\b|\bThreadLocalRandom\b|\bMath\.random\(|\.shuffled\(\s*\)|""" +
@@ -130,7 +138,8 @@ internal object TimingHygieneScanner {
     private val th4: Regex = Regex(""""java\.io\.tmpdir"|\bNSTemporaryDirectory\(""")
     private val th5: Regex = Regex("""\bSystem\.getenv\(""")
     private val th5Native: Regex = Regex("""(?<![\w])getenv\(""")
-    private val configStart: Regex = Regex("""@Config\(""")
+    private val configStart: Regex = Regex("""@(?:[\w.]+\.)?Config\(""")
+    private val configSdkAny: Regex = Regex("""\bsdk\s*=""")
     private val configSdk: Regex = Regex("""\bsdk\s*=\s*\[([^\]]*)]""")
     private val configMin: Regex = Regex("""\bminSdk\s*=\s*([^,)\s]+)""")
     private val configMax: Regex = Regex("""\bmaxSdk\s*=\s*([^,)\s]+)""")
@@ -224,7 +233,10 @@ internal object TimingHygieneScanner {
             }
         }
 
-        val staticSleep: Boolean = lines.any { threadSleepImport.containsMatchIn(it) }
+        val sleepNames: List<String> = lines.mapNotNull { threadSleepImport.find(it) }
+            .map { it.groupValues[2].ifEmpty { "sleep" } }
+        val th1StaticSleep: Regex? =
+            if (sleepNames.isEmpty()) null else Regex("""(?<![\w.])(${sleepNames.joinToString("|")})\(""")
         val codeLines: List<String> = lines.map { raw ->
             if (declarationOnly.containsMatchIn(raw) || commentOnly.containsMatchIn(raw)) "" else raw.replace(trailingComment, "")
         }
@@ -236,12 +248,12 @@ internal object TimingHygieneScanner {
                 found += TimingHygieneViolation(relativePath, index + 1, rule.id, rule.advice)
             }
             if (th1.containsMatchIn(line) || (native && th1Native.containsMatchIn(line)) ||
-                (staticSleep && th1StaticSleep.containsMatchIn(line))
+                (th1StaticSleep != null && th1StaticSleep.containsMatchIn(line))
             ) {
                 hit(TimingHygieneRule.TH1)
             }
             if (th2.containsMatchIn(line)) hit(TimingHygieneRule.TH2)
-            if (th3.containsMatchIn(line)) hit(TimingHygieneRule.TH3)
+            if (th3.containsMatchIn(line.replace(supertypeRandom, ""))) hit(TimingHygieneRule.TH3)
             if (th4.containsMatchIn(line)) hit(TimingHygieneRule.TH4)
             if (th5.containsMatchIn(line) || (native && th5Native.containsMatchIn(line))) hit(TimingHygieneRule.TH5)
         }
@@ -283,6 +295,8 @@ internal object TimingHygieneScanner {
             val body: String = text.toString()
             var bad: Boolean = false
             val levels: MutableList<Int> = mutableListOf()
+            // Any `sdk =` that is not a bracket list (intArrayOf(...), a constant) cannot be read: a hit.
+            if (configSdkAny.containsMatchIn(body) && !configSdk.containsMatchIn(body)) bad = true
             configSdk.find(body)?.let { m ->
                 val items: List<String> = m.groupValues[1].split(',').map { it.trim() }.filter { it.isNotEmpty() }
                 for (item in items) {
