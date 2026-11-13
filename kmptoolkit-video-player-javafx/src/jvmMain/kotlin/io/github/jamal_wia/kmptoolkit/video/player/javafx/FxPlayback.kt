@@ -77,7 +77,11 @@ internal class FxPlayback private constructor(
      */
     private var playIssued: Boolean = false
 
-    /** Whether a native seek has been posted since the last [start]'s play() (see [start]). */
+    /**
+     * Whether a native seek has been posted since the last [start]'s play() (see [start]). A play that [start] delays
+     * consumes a seek made during its wait, as a play issued at once consumes one made before it: the delayed play clears
+     * the mark, or a later resume would take the seek path with no native seek behind it.
+     */
     private var seekedSincePlay: Boolean = false
 
     /**
@@ -287,7 +291,10 @@ internal class FxPlayback private constructor(
                     if (disposed || !playIssued || generation != playGeneration) return@after
                     delayedPlayPending = false
                     native.play()
-                    playIssuedAtNanos = if (!hadSeek) host.nanoTime() else 0L
+                    // A seek made during the wait comes before this play, like one made before the start: no fresh-play
+                    // stamp, and the play has consumed the mark.
+                    playIssuedAtNanos = if (!hadSeek && !seekedSincePlay) host.nanoTime() else 0L
+                    seekedSincePlay = false
                 }
                 return@post
             }
@@ -313,7 +320,9 @@ internal class FxPlayback private constructor(
                     if (disposed || !playIssued || generation != playGeneration) return@after
                     delayedPlayPending = false
                     native.play()
-                    playIssuedAtNanos = host.nanoTime()
+                    // A seek made during the wait comes before this play: no fresh-play stamp, mark consumed.
+                    playIssuedAtNanos = if (seekedSincePlay) 0L else host.nanoTime()
+                    seekedSincePlay = false
                 }
             } else {
                 native.play()
@@ -342,6 +351,8 @@ internal class FxPlayback private constructor(
                 if (disposed || !playIssued || generation != playGeneration) return@after
                 delayedPlayPending = false
                 native.play()
+                // A seek made during the wait comes before this play: the play has consumed the mark.
+                seekedSincePlay = false
                 host.postLater { host.postLater { giveNudge() } }
             }
             return@post
