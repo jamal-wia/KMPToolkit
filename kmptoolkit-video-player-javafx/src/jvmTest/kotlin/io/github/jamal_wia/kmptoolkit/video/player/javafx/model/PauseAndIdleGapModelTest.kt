@@ -520,6 +520,100 @@ class PauseAndIdleGapModelTest {
         }
     }
 
+    // ---- 9: a seek during the wait of a delayed play, then a pause and a quick resume (finding F1 of the D-pi review) ----
+
+    /** The shapes of [aSeekDuringTheWaitOfADelayedPlayLeavesNoStaleMarkForALaterResume]: the resume path of the first start. */
+    private enum class StaleMarkCase(val path: StartPath, val sharedPlayerOrder: Boolean, val speed: Float) {
+        PLAIN(StartPath.PLAIN, sharedPlayerOrder = false, speed = 1.5f),
+        SETTLE(StartPath.SETTLE, sharedPlayerOrder = false, speed = 2f),
+        SEEK(StartPath.SEEK, sharedPlayerOrder = false, speed = 2f),
+        SETTLE_AS_THE_SHARED_PLAYER_CALLS(StartPath.SETTLE, sharedPlayerOrder = true, speed = 2f),
+    }
+
+    /**
+     * A resume inside the idle gap (its play is delayed), a `seekTo` 30 ms into the wait, about 800 ms of play, then a
+     * `pause()` and a `start()` 10 ms later. The delayed play comes after the seek, so it consumes it: the seek is behind
+     * the player, and the later resume has no native seek pending. A resume that takes the seek path on a seek that was
+     * already consumed gives the speed (the nudge: 1.0, then the speed) in the same instant as its play, a rate change
+     * right after a plain play on a decoder whose status still reads running: the measured freeze. The contract: no later
+     * resume takes the seek path without a native seek, so the decoder neither freezes nor sees a violated window, and the
+     * speed the caller gave reaches it. [StaleMarkCase.SETTLE_AS_THE_SHARED_PLAYER_CALLS] gives the speed the way the
+     * shared player does, with a `setSpeed()` after every `start()`.
+     */
+    @Test
+    fun aSeekDuringTheWaitOfADelayedPlayLeavesNoStaleMarkForALaterResume() {
+        runAll(StaleMarkCase.entries, { it.name }) { case: StaleMarkCase ->
+            fxModel {
+                withEngine {
+                    pausedWithAnIdleWrite(this, case.path)
+                    engine.start()
+                    if (case.sharedPlayerOrder) engine.setSpeed(case.speed)
+                    advanceBy(30)
+                    engine.seekTo(1_500)
+                    // The plain path holds a speed given meanwhile; the others already carry theirs.
+                    if (case.path == StartPath.PLAIN) engine.setSpeed(case.speed)
+                    advanceBy(800)
+                    engine.pause()
+                    advanceBy(10)
+                    engine.start()
+                    if (case.sharedPlayerOrder) engine.setSpeed(case.speed)
+                    advanceBy(2_000)
+
+                    assertEquals(
+                        case.speed.toDouble(), composed.hazards.effectiveRate,
+                        "${case.name}: the speed never reached the decoder\n${native.trace()}",
+                    )
+                    assertSound(case.name)
+                }
+            }
+        }
+    }
+
+    // ---- 10: the end-of-media stamp (A2), pinned from the documented behaviour (M4 of the D-pi review) ----
+
+    /**
+     * The platform notes promise that the held speed written at the end of a clip is an idle write like any other: the next
+     * `play()` waits out its 200 ms. A non-looping clip ends 40 ms after a plain play with a speed given 20 ms into it; the
+     * speed is held and `onEndOfMedia` writes it after its `pause()`. A `start()` 40 ms after the end replays through the
+     * seek path (the replay posts its own seek), and that play must come no sooner than 200 ms after the end-of-media write.
+     * The hazard monitor cannot see this (a native seek between the write and the play is safe under the model's MUST-2
+     * reading), so the test reads the documented instants, not the monitor.
+     */
+    @Test
+    fun aReplayAfterTheEndOfAClipWaitsOutTheIdleGapOfTheSpeedTheEndWrote() {
+        runAll(listOf(2f, 0.5f), { "speed $it held at the end" }) { speed: Float ->
+            fxModel {
+                withEngine(ClipModel(keyFrameIntervalMs = 10.0)) {
+                    engine.seekTo(2_940L)
+                    engine.start()
+                    advanceBy(10)
+                    engine.pause()
+                    advanceBy(400)
+                    engine.start()
+                    advanceBy(20)
+                    engine.setSpeed(speed)
+                    advanceBy(100)
+
+                    val entries: List<NativeCallEntry> = native.log.entries
+                    val end: NativeCallEntry = native.log.calls(NativeCall.PAUSE).last()
+                    val write: NativeCallEntry = native.log.calls(NativeCall.SET_RATE)
+                        .first { it.effective && entries.indexOf(it) > entries.indexOf(end) }
+                    val playsBefore: Int = native.log.calls(NativeCall.PLAY).size
+                    assertAt(end.tMs, write.tMs, "the end of the clip did not write the held speed at once\n${native.trace()}")
+                    advanceBy(40)
+                    engine.start()
+                    advanceBy(1_000)
+
+                    val replay: NativeCallEntry = native.log.calls(NativeCall.PLAY)[playsBefore]
+                    expect(replay.tMs - write.tMs >= IDLE_GAP_MS - TIME_TOLERANCE_MS) {
+                        "the replay played ${replay.tMs - write.tMs} ms after the end-of-media rate write (idle gap $IDLE_GAP_MS ms)\n${native.trace()}"
+                    }
+                    assertSound("replay after the end of the clip")
+                }
+            }
+        }
+    }
+
     private companion object {
         const val NANOS_PER_MILLI: Double = 1_000_000.0
 
