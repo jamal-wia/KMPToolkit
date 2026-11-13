@@ -44,6 +44,10 @@ private class CountingEngine(private val inner: FakePlaybackEngine = FakePlaybac
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlayerSoakR11Test {
 
+    /** The polling coroutine of a player, or null: documented to run only while playing (pause, stop, unload, release stop it). */
+    private fun pollingJob(player: AudioPlayer): kotlinx.coroutines.Job? =
+        player.javaClass.getDeclaredField("positionJob").also { it.isAccessible = true }.get(player) as kotlinx.coroutines.Job?
+
     private fun collectGarbage() {
         repeat(5) {
             System.gc()
@@ -96,6 +100,10 @@ class PlayerSoakR11Test {
                     }
                 }
                 // Between cycles nothing is playing: the polling work stops and stays stopped.
+                if (player.stateFlow.value !is PlayerState.Playing) {
+                    val polling = pollingJob(player)
+                    assertTrue(polling == null || !polling.isActive, "cycle $cycle: a polling coroutine is alive in ${player.stateFlow.value}")
+                }
                 if (cycle % 500 == 0) {
                     player.stop()
                     val before: Int = engine.polls
@@ -113,6 +121,7 @@ class PlayerSoakR11Test {
         advanceTimeBy(10_000L)
         runCurrent()
         assertEquals(before, engine.polls, "polling after release")
+        assertTrue(pollingJob(player)?.isActive != true, "a polling coroutine survived the release")
         collectGarbage()
         val aliveSources: Int = sources.count { it.get() != null }
         val aliveErrors: Int = errors.count { it.get() != null }

@@ -361,6 +361,23 @@ class EngineFakeVersusRealR11Test {
         assertTrue(hit == expected, "categories now hit: $hit")
     }
 
+    @Test
+    fun `the real engine hands a rate to the platform only while playing and a refused call before a load is inert`() {
+        val real: RealSubject = RealSubject()
+        real.step("speed:2")
+        real.step("load")
+        real.step("speed:2")
+        assertTrue(SpeedRecordingShadowMediaPlayer.speeds.isEmpty(), "a rate was pushed to a paused platform player: ${SpeedRecordingShadowMediaPlayer.speeds}")
+        real.step("start")
+        real.step("speed:2")
+        assertTrue(SpeedRecordingShadowMediaPlayer.speeds.toList() == listOf(2f), "${SpeedRecordingShadowMediaPlayer.speeds}")
+        real.step("pause")
+        real.step("speed:3")
+        assertTrue(SpeedRecordingShadowMediaPlayer.speeds.toList() == listOf(2f), "${SpeedRecordingShadowMediaPlayer.speeds}")
+        real.engine.release()
+        shadowOf(loops).idle()
+    }
+
     private companion object {
         const val DURATION: Long = 60_000L
     }

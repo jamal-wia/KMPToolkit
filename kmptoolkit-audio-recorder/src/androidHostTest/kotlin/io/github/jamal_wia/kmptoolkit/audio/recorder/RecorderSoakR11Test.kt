@@ -109,6 +109,7 @@ class RecorderSoakR11Test {
             timeSource = timeSource,
         )
         val random = Random(SEED)
+        val registryBase: Int = registrySize()
         var deletedExpected = 0
         var kept = 0
         fun pass(d: Duration) {
@@ -130,6 +131,8 @@ class RecorderSoakR11Test {
                     0 -> { // cancel: the partial file goes
                         assertTrue(runStep(this) { recorder.cancel() }.isSuccess)
                         deletedExpected++
+                        // 04-api-reference: the claim ends when the file is deleted.
+                        assertEquals(registryBase, registrySize(), "seed $SEED cycle $cycle: a cancelled session still owns its path")
                     }
                     1 -> { // pause and resume, then stop
                         assertTrue(recorder.pause().isSuccess)
@@ -168,6 +171,7 @@ class RecorderSoakR11Test {
             recorder.release()
             runCurrent()
             assertEquals(0, jobs(), "jobs left after release")
+            assertTrue(!recorder.scope.coroutineContext[Job]!!.isActive, "release() must cancel the recorder's scope (04-api-reference)")
             assertTrue(registrySize() <= 1, "path registry after release: ${registrySize()}")
             assertNull(engine.currentListener)
         } finally {

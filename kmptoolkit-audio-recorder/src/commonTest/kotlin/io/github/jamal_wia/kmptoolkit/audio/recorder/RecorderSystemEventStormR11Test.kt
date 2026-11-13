@@ -147,6 +147,10 @@ class RecorderSystemEventStormR11Test {
                     val open: Boolean = model.kind == Kind.Ready || model.kind == Kind.Recording || model.kind == Kind.Paused
                     if (open && fixture.engine.listener == null) fail("no listener attached while ${model.kind}")
                     if (model.kind == Kind.Released && fixture.engine.listener != null) fail("a listener is left after release")
+                    // 04-api-reference: "the engine's listener is detached when its finalization starts".
+                    val finalized: Boolean = model.kind == Kind.Completed || model.kind == Kind.Interrupted ||
+                        (model.kind == Kind.Failed && model.failedWith is RecorderError.RecordingLost)
+                    if (finalized && fixture.engine.listener != null) fail("the engine listener is still attached after the session was finalized (${model.kind})")
                     if (fixture.fileSystem.deletedPaths != model.deleted) fail("deleted ${fixture.fileSystem.deletedPaths} vs ${model.deleted}")
                 }
 
