@@ -237,7 +237,7 @@ fun onScrub(fraction: Float) {
 ```
 
 `seekForward()` / `seekBackward()` default to ten seconds (`DEFAULT_SEEK_AMOUNT_MS`) and never
-overflow, whatever amount they are given. On a source whose length is not known yet (`duration` `0`, a live stream) they skip relative to the playhead instead of clamping to `0`; an absolute `seekTo` there still clamps to `0..0`. Seeking out of `Completed` lands in `Paused`. Seeking a
+overflow, whatever amount they are given; a negative amount moves the other way. On a source whose length is not known yet (`duration` `0`, a live stream) they skip relative to the playhead instead of clamping to `0`; an absolute `seekTo` there still clamps to `0..0`. Seeking out of `Completed` lands in `Paused`. Seeking a
 `Ready` player moves the playhead (`playbackPositionFlow`) and leaves it `Ready`; the next `play()`
 starts from there. `play()` with the playhead sitting on the end of the source (after a seek onto it) starts over from `0`, like `play()` from `Completed`.
 
