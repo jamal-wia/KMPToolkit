@@ -29,7 +29,7 @@ any thread.
 | Member | Initial | Contract |
 |---|---|---|
 | `stateFlow: StateFlow<VideoPlayerState>` | `Idle` | The transport state. |
-| `playbackPositionFlow: StateFlow<Long>` | `0` | Playhead, refreshed every `positionUpdateIntervalMs` while `Playing`; set directly by seeks, `stop()` and completion (to the length, or, on a source of unknown length, to where it ended); `0` after `prepare`, `unload`, `release`. |
+| `playbackPositionFlow: StateFlow<Long>` | `0` | Playhead, never above a known `duration`, refreshed every `positionUpdateIntervalMs` while `Playing`; set directly by seeks, `stop()` and completion (to the length, or, on a source of unknown length, to where it ended); `0` after `prepare`, `unload`, `release`. |
 | `bufferedPositionFlow: StateFlow<Long>` | `0` | Buffered-ahead position. Polled with the playhead while `Playing`, snapshotted when a load finishes and on `pause()`; `0` when nothing is loaded and after a playback failure. |
 | `isBufferingFlow: StateFlow<Boolean>` | `false` | Whether a **loaded** source is stalled waiting for data. Independent of `stateFlow` (a stalled stream is still `Playing`). Not shown while preparing (a stall of the just-loaded source that the engine reports before `Ready` is published is kept and shown with `Ready`); `false` when idle, on completion and on failure; a stall the engine reports after the end is ignored while the state is `Completed`. |
 | `videoSizeFlow: StateFlow<VideoSize?>` | `null` | Displayed picture size once the platform reports one — usually while `Preparing`. Kept on `Completed`; `null` again when a new `prepare` starts, on a failure, `unload`, `release`. |
@@ -65,8 +65,8 @@ Every call below is **ignored** unless the state `isPlayable`, and ignored entir
 | `fun pause()` | `Playing` → `Paused(duration, position)`, stops polling. Ignored in any other state. |
 | `fun stop()` | Any playable → `Ready(duration)` with the playhead at `0`; the source stays loaded. |
 | `fun seekTo(positionMs: Long)` | Moves the playhead, clamped to `0..duration`. `Playing` stays `Playing`, `Paused` stays `Paused`, `Completed` becomes `Paused`, `Ready` stays `Ready` (picking up a length learned since the load). |
-| `fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position + amountMs)`, saturating instead of overflowing. On a source of unknown length (`duration` `0`) there is no end to clamp to: the target is `position + amountMs` floored at `0` and capped at `Long.MAX_VALUE / 1_000_000` (about 292 years), not `0`. |
-| `fun seekBackward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position - amountMs)`, saturating instead of overflowing; on a source of unknown length the target is floored at `0` and capped at `Long.MAX_VALUE / 1_000_000`. |
+| `fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position + amountMs)`, saturating instead of overflowing. On a source of unknown length (`duration` `0`) there is no end to clamp to: the target is `position + amountMs` floored at `0` and capped at `Long.MAX_VALUE / 1_000_000` (about 292 years), not `0`. A negative `amountMs` moves the other way (`seekForward(-x)` is `seekBackward(x)`). |
+| `fun seekBackward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position - amountMs)`, saturating instead of overflowing; on a source of unknown length the target is floored at `0` and capped at `Long.MAX_VALUE / 1_000_000`. A negative `amountMs` moves forward; `Long.MIN_VALUE` saturates to the end. |
 | `fun replay()` | Seek to `0` and play, from any playable state. |
 
 ### Settings
@@ -79,7 +79,7 @@ even after `release()`, survive `prepare` and `unload`, and are pushed to every 
 | `fun setPlaybackSpeed(speed: Float)` | Clamps into `minPlaybackSpeed..maxPlaybackSpeed`; `NaN` is ignored. Reaches the platform immediately while `Playing`, otherwise on the next `play()` or load. |
 | `fun setVolume(volume: Float)` | Clamps into `0f..1f`; `NaN` is ignored. Does not change `isMutedFlow`. Reaches the platform at once while a source is loaded (as `0f` while muted). |
 | `fun setMuted(muted: Boolean)` | Mutes or unmutes, keeping the volume, so unmuting restores it. |
-| `fun setRepeatMode(mode: RepeatMode)` | Takes effect for the source already loaded. With `One`, `Completed` is never reached. |
+| `fun setRepeatMode(mode: RepeatMode)` | Takes effect for the source already loaded. With `One`, a source that plays to its end starts over instead of reaching `Completed`; a player already `Completed` when `One` is set stays there until the next `play()`. |
 
 ### Lifecycle
 

@@ -53,6 +53,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Changed
 
+- `kmptoolkit-video-player`: the published playhead (`playbackPositionFlow`, `Playing`/`Paused.currentPosition`)
+  never exceeds a known duration, although a platform can read a few milliseconds past the end of the source.
+  An unknown length (`0`) is not clamped.
 - `kmptoolkit-storage` (`jvm`) now depends on `kmptoolkit-files` (its atomic write and per-file lock). No store file
   name, file format or directory layout changes.
 - `kmptoolkit-storage` (`jvm`): when the file system refuses an atomic rename, a write now fails with
@@ -127,6 +130,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
+- `kmptoolkit-video-player` (Android): a Throwable thrown while the Media3 media source is built reaches
+  `VideoPlayerState.Error` as the same instance, also when kotlinx.coroutines stack-trace recovery is on (JUnit,
+  Robolectric).
 - `kmptoolkit-downloader`: a process killed while an archive resource is replaced or deleted, or during the first
   commit of an archive under a nested `relativePath` on Android, can no longer leave a tree that reads as available with
   files missing: the old tree is renamed into the storage's trash and deleted afterwards.

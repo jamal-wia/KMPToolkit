@@ -68,7 +68,7 @@ Nothing moves on its own — there is no wall clock inside.
 | `val isPlaying`, `val positionMs`, `val seekTargets` | Assert what the player asked the platform to do. |
 | `val appliedSpeed`, `val appliedVolume`, `val isLooping` | Assert the settings the platform received — `appliedVolume` is `0f` while the player is muted. |
 | `val loadedSources` | Every source passed to `load`, in order, including failed ones. |
-| `val releaseCount`, `val disposeCount`, `val hasListener` | Assert the release contract. `releaseCount` goes up once per unload, per cancelled load, per `prepare` that replaces a loaded or in-flight source, and for the player's own release (a first `prepare` adds none). `disposeCount` is `1` once the player is released, `0` before — never raised by an unload. |
+| `val releaseCount`, `val disposeCount`, `val hasListener` | Assert the release contract. `releaseCount` goes up once per unload, per cancelled load, per `prepare` that replaces a loaded, in-flight, failed or `Error` source, and for the player's own release (a first `prepare` adds none). `disposeCount` is `1` once the player is released, `0` before — never raised by an unload. |
 
 ## Observing position updates
 

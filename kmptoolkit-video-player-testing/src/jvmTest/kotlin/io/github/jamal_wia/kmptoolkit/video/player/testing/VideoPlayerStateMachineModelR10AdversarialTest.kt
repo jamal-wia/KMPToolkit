@@ -248,7 +248,12 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
         else -> state.toString()
     }
 
-    private fun runScript(seed: Int, steps: Int, pollMs: Long, traceSink: MutableList<String>?) = runBlocking {
+    /** The script has a hard bound: a player that never answers fails the test instead of leaving it waiting. */
+    private fun runScript(seed: Int, steps: Int, pollMs: Long, traceSink: MutableList<String>?): Unit = runBlocking {
+        withTimeout(60_000L) { runScriptBody(seed, steps, pollMs, traceSink) }
+    }
+
+    private suspend fun runScriptBody(seed: Int, steps: Int, pollMs: Long, traceSink: MutableList<String>?) {
         val fake = FakeVideoPlaybackEngine(durationMs = duration)
         val engine = LoggingEngine(fake)
         val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(positionUpdateIntervalMs = pollMs), Dispatchers.Default)
