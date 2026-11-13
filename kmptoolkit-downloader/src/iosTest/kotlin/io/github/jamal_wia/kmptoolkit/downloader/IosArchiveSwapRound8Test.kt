@@ -16,11 +16,13 @@ import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileType
 import platform.Foundation.NSFileTypeRegular
+import platform.Foundation.NSFileTypeSymbolicLink
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDomainMask
 import platform.posix.fclose
 import platform.posix.fopen
 import platform.posix.fwrite
+import platform.posix.symlink
 
 /**
  * B round 8, finding F1, iOS twin of the Android crash sweeps. A mid-walk kill cannot be injected on iOS, so this pins the
@@ -156,6 +158,60 @@ class IosArchiveSwapRound8Test {
 
         assertTrue(storage.isResourceAvailable(unit))
         assertEquals(listOf("marker.txt", "sub/a.txt"), filesUnder(storage.getResourcePath(unit)))
+        assertEquals(emptyList(), trashEntries())
+    }
+
+    private fun isSymbolicLink(path: String): Boolean =
+        (manager.attributesOfItemAtPath(path, error = null)?.get(NSFileType) as? String) == NSFileTypeSymbolicLink
+
+    /** Makes [parent] of [link] and a symbolic link at [link] to [target]; the target need not exist. */
+    private fun makeLink(link: String, target: String) {
+        manager.createDirectoryAtPath(
+            path = link.substringBeforeLast('/'),
+            withIntermediateDirectories = true,
+            attributes = null,
+            error = null,
+        )
+        assertTrue(symlink(target, link) == 0, "could not create the symbolic link $link")
+    }
+
+    /**
+     * A symbolic link at the resource path that points nowhere reads as absent to fileExistsAtPath, but the rename moves
+     * the link itself. The commit used to skip the move aside on that reading and then fail to move the staging tree onto
+     * the link, on every retry; now it replaces the link.
+     */
+    @Test
+    fun `a commit replaces a dangling symbolic link at the resource path`() = runTest {
+        val unit = ArchiveUnit(Group("g"), "archives/swap")
+        val storage: DownloaderStorage = createDownloaderStorage(config)
+        val target: String = storage.getResourcePath(unit)
+        makeLink(target, TestPaths.join(baseDirectory, "nowhere"))
+        assertFalse(manager.fileExistsAtPath(target), "the link must dangle")
+        assertTrue(isSymbolicLink(target))
+
+        commit(storage, unit, listOf(ZipEntryRound6("marker.txt", "m"), ZipEntryRound6("sub/a.txt", "a")))
+
+        assertFalse(isSymbolicLink(target), "the link survived the commit")
+        assertTrue(storage.isResourceAvailable(unit))
+        assertEquals(listOf("marker.txt", "sub/a.txt"), filesUnder(target))
+        assertEquals(emptyList(), trashEntries())
+    }
+
+    /** A link to a live directory is replaced as a link: the directory it points to keeps every file. */
+    @Test
+    fun `a commit replaces a symbolic link to a live directory without touching the directory`() = runTest {
+        val unit = ArchiveUnit(Group("g"), "archives/swap")
+        val storage: DownloaderStorage = createDownloaderStorage(config)
+        val target: String = storage.getResourcePath(unit)
+        val live: String = TestPaths.join(baseDirectory, "live-elsewhere")
+        writeFile(TestPaths.join(live, "keep.txt"), "keep".encodeToByteArray())
+        makeLink(target, live)
+
+        commit(storage, unit, listOf(ZipEntryRound6("marker.txt", "m")))
+
+        assertFalse(isSymbolicLink(target), "the link survived the commit")
+        assertEquals(listOf("marker.txt"), filesUnder(target))
+        assertEquals(listOf("keep.txt"), filesUnder(live), "the commit reached through the link")
         assertEquals(emptyList(), trashEntries())
     }
 }

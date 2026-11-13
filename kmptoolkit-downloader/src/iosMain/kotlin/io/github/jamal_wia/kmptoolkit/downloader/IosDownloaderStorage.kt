@@ -466,7 +466,17 @@ internal class IosDownloaderStorage(
             // partial tree under trash/, never at the resource path, where a surviving marker would
             // read as a complete resource with files missing. No lock: the rename is atomic, and a
             // commit racing this delete finds either the whole tree or nothing to move aside.
-            val detached: String? = detachTree(path)
+            //
+            // A rename that fails is retried while the target is still there (bounded): a commit of the same
+            // unit may have renamed our tree away first and put its new tree in place before the re-check,
+            // and that tree must be moved aside whole too, never walked in place. Only a rename that keeps
+            // failing on a present tree falls back to the in-place delete.
+            var detached: String? = null
+            var attempts = 0
+            while (detached == null && attempts < MAX_DETACH_ATTEMPTS && fileExists(path)) {
+                detached = detachTree(path)
+                attempts++
+            }
             if (detached != null) {
                 NSFileManager.defaultManager.removeItemAtPath(detached, error = null)
                 sweepTrash()
@@ -484,11 +494,12 @@ internal class IosDownloaderStorage(
 
     /**
      * Renames [path] to a fresh entry of the trash directory (`tmp/kmptoolkit-internal/trash/`) and returns
-     * it; null when [path] is absent or the rename failed (the caller tells them apart by [fileExists]).
+     * it; null when the rename failed, which includes [path] being absent (the caller tells them apart by
+     * [fileExists] after the failure). There is deliberately no [fileExists] pre-check: it follows links, so a
+     * dangling symbolic link would read as absent, while the rename moves the link itself.
      * The rename is atomic and stays on one volume, so [path] holds its whole tree or nothing at every instant.
      */
     private fun detachTree(path: String): String? {
-        if (!fileExists(path)) return null
         val trash = "$baseDir/${layout.trashEntry(Random.nextLong().toULong())}"
         createParentDirectory(trash)
         return if (rename(path, trash) == 0) trash else null
@@ -564,13 +575,13 @@ internal class IosDownloaderStorage(
                 // whole new tree, so a process killed at any step never leaves a marker over a partial tree.
                 // The parent of a nested relativePath (e.g. "archives/pages") is absent on a first commit.
                 createParentDirectory(targetDir)
-                if (fileExists(targetDir)) {
-                    // The old tree moves into the trash; it is never renamed back (a sweep of another unit
-                    // may already be deleting it) and never deleted in place.
-                    val oldTree: String? = detachTree(targetDir)
-                    check(oldTree != null || !fileExists(targetDir)) { "Could not move the committed $unit aside" }
-                    if (oldTree != null) onDetached(oldTree)
-                }
+                // The old tree moves into the trash; it is never renamed back (a sweep of another unit may
+                // already be deleting it) and never deleted in place. No fileExists pre-check decides whether
+                // to try: it follows links, so a dangling link at the path would read as absent and block
+                // the move into place forever. A failed rename with nothing at the path is nothing to detach.
+                val oldTree: String? = detachTree(targetDir)
+                check(oldTree != null || !fileExists(targetDir)) { "Could not move the committed $unit aside" }
+                if (oldTree != null) onDetached(oldTree)
                 // No copy fallback: staging and target both sit under baseDir, one volume. A copy writes
                 // top-down, so it could land the marker before the rest.
                 val moved: Boolean = NSFileManager.defaultManager.moveItemAtPath(
@@ -1256,6 +1267,8 @@ internal class IosDownloaderStorage(
         NSFileManager.defaultManager.fileExistsAtPath(path)
 }
 
+/** How often deleteResource retries moving a present tree aside before it deletes it in place. */
+private const val MAX_DETACH_ATTEMPTS: Int = 3
 private const val LOCAL_HEADER_SIZE: Int = 30
 private const val SQLITE_MIN_BYTES: Int = 100
 private const val FLAG_ENCRYPTED: Int = 0x0001
