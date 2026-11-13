@@ -311,11 +311,12 @@ internal class EngineVideoPlayer(
 
         engine.pause()
         stopPositionUpdates()
-        val position: Long = engine.positionMs()
+        val duration: Long = freshDuration(current.duration)
+        val position: Long = shownPosition(engine.positionMs(), duration)
         _playbackPositionFlow.value = position
         _bufferedPositionFlow.value = engine.bufferedPositionMs().coerceAtLeast(0L)
         _stateFlow.value = VideoPlayerState.Paused(
-            duration = freshDuration(current.duration),
+            duration = duration,
             currentPosition = position,
         )
     }
@@ -557,7 +558,7 @@ internal class EngineVideoPlayer(
         }
         engine.start()
         engine.setSpeed(_playbackSpeedFlow.value)
-        val position: Long = engine.positionMs()
+        val position: Long = shownPosition(engine.positionMs(), duration)
         // Polling first: a collector that pauses from inside the state write stops the poll it finds.
         startPositionUpdates()
         _stateFlow.value = VideoPlayerState.Playing(duration = duration, currentPosition = position)
@@ -698,10 +699,10 @@ internal class EngineVideoPlayer(
         if (released || poller == null || positionJob !== poller) return
         val current: VideoPlayerState = _stateFlow.value
         if (current !is VideoPlayerState.Playing) return
-        val position: Long = engine.positionMs()
+        val duration: Long = freshDuration(current.duration)
+        val position: Long = shownPosition(engine.positionMs(), duration)
         val buffered: Long = engine.bufferedPositionMs().coerceAtLeast(0L)
-        val refreshed: VideoPlayerState.Playing =
-            current.copy(duration = freshDuration(current.duration), currentPosition = position)
+        val refreshed: VideoPlayerState.Playing = current.copy(duration = duration, currentPosition = position)
         // The flows first and the state last, like every transition: a collector on an immediate
         // dispatcher that pauses or rewinds from inside the state write must not be overwritten by
         // this tick's older reading afterwards.
@@ -720,6 +721,15 @@ internal class EngineVideoPlayer(
      */
     private fun freshDuration(known: Long, reported: Long = engine.durationMs()): Long =
         if (reported > 0L) reported else known
+
+    /**
+     * Lock held. The playhead to publish: a platform can read a few milliseconds past the end of the
+     * source (ExoPlayer's last sample, AVPlayer's `currentTime`), so a known [duration] caps it; an
+     * unknown length (`0`) leaves the reading as it is. Completion is detected from the raw engine
+     * reading, never from this value.
+     */
+    private fun shownPosition(raw: Long, duration: Long): Long =
+        if (duration > 0L) raw.coerceIn(0L, duration) else raw
 
     /** Lock held. */
     private fun stopPositionUpdates() {
