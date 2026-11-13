@@ -210,7 +210,14 @@ archives (a stub in front of the first header) fail on their first bytes. Entry 
 or not the archive sets the UTF-8 flag; a name that is not valid UTF-8 (an archive written in a legacy code page)
 fails the commit. Android 14 and later (`targetSdk` 34+) also refuse entry names containing `..` segments or
 starting with `/` inside `java.util.zip` (Zip path validation); on those devices such archives fail as
-`Corrupted`, while older devices and iOS extract them under their normalized names.
+`Corrupted`, while older devices and iOS extract them under their normalized names. On those other
+devices an entry name with a leading `/` (`/a.txt`) is not absolute: the empty first segment is dropped and
+the file is extracted inside the tree as the relative name `a.txt`, never at the file-system root.
+
+Extraction has no bound of its own: there is no limit on the number of entries or on the extracted size (a
+highly compressed entry is extracted in full at its declared size), and a full disk fails the commit as
+`DownloadError.Storage` (see "No disk-space precondition" below). A host that wants a bound has to check the
+archive's size itself, or give the unit a `sha256` it trusts, which is checked before anything is extracted.
 
 An archive that cannot be laid out on the file system as delivered fails the commit with `ResourceIntegrityException` on both
 platforms, and its temp file is deleted (one fresh download, then `DownloadError.Corrupted`): one name that is a file in one

@@ -32,6 +32,11 @@ import io.github.jamal_wia.kmptoolkit.downloader.TempFileState
  * temp file is then consumed as a failed check deletes it, so a new [beginTempFile] is required).
  * The fake hashes nothing: it cannot tell whether a downloader passed the right hash, only that it
  * began the transfer; assert on [beganWith] for the hash itself.
+ *
+ * A partial transfer has no size or location here: [getTempFileSize] is always 0 and
+ * [getTempFilePath] is always empty, even for a unit in [TempFileState.Partial], and [getResourceSize]
+ * is the constructor's `sizeOnDisk` whether or not the unit is available. A downloader test over this
+ * fake therefore never sees a resume offset.
  */
 public class FakeDownloaderStorage(
     availableIds: Set<String> = emptySet(),
