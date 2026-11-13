@@ -425,12 +425,14 @@ internal class AndroidDownloaderStorage(
      * `-shm` and `-journal` into one fresh trash entry and returns that entry; null when nothing was there to move (the
      * entry is removed again). The file goes first: a process killed after it leaves the resource unavailable beside its
      * complete temp file, which the next commit finishes, never the old file without its log. Nothing of the old
-     * version is deleted here; it leaves with the entry, after the unit lock.
+     * version is deleted here; it leaves with the entry, after the unit lock on a commit and at once on a delete.
      *
      * There is deliberately no [File.exists] pre-check (it follows links; the rename moves the link itself). A rename
      * that fails while something still stands at its source is retried with a fresh entry, bounded: a sweep of
-     * another unit may have deleted the empty entry in between. A name that stays in place throws, never goes on:
-     * a log left at the path would be replayed into the file that is moved in next.
+     * another unit may have deleted the empty entry in between. A name that stays in place after every attempt is reported
+     * as stuck, never ignored: the commit throws on it (a log left at the path would be replayed into the file that is
+     * moved in next), the delete only logs a warning. On that path the 1 to 3 entries made (empty, or holding the old
+     * file) are not returned: after a commit's throw they wait for the next sweep of any unit, a delete sweeps at once.
      */
     private fun quarantineDatabase(path: File): DatabaseQuarantine {
         val parts: List<File> = listOf(path) + SqliteFiles.sidecarsOf(path.path).map { sidecar: String -> File(sidecar) }
