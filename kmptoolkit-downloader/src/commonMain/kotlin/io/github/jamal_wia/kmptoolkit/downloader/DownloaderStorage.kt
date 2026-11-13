@@ -214,7 +214,10 @@ public interface DownloaderStorage {
     /**
      * Removes [unit]'s committed resource, file or directory. Safe when it is not present. A directory is moved aside in
      * one step and then deleted, so it is never seen half removed. A [ResourceFormat.SqliteDatabase] goes into the trash
-     * together with its `-wal`, `-shm` and `-journal` (close every connection to it first).
+     * together with its `-wal`, `-shm` and `-journal` (close every connection to it first); it never throws for a name
+     * that stays at the path (for example a connection still writing to it): it logs a warning and leaves what stays,
+     * so the unit reads as unavailable with stray sidecars that the next commit moves aside, or as still available if
+     * the file itself could not be moved.
      */
     public fun deleteResource(unit: DownloadUnit)
 }

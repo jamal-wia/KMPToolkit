@@ -49,7 +49,8 @@ public interface DownloadUnit {
      * reserved for the storage and logs a warning.
      *
      * No unit's [relativePath] may lie inside another unit's resource (an archive tree): committing or deleting the
-     * outer resource replaces or removes everything under it.
+     * outer resource replaces or removes everything under it. Nor may it name a [ResourceFormat.SqliteDatabase] unit's
+     * `-wal`, `-shm` or `-journal`: they move with that database.
      */
     public val relativePath: String
 
@@ -162,8 +163,10 @@ public sealed interface ResourceFormat {
      *
      * Replacing or deleting the resource first moves the old file together with its `-wal`, `-shm` and
      * `-journal` into the trash, so the old version's log is never replayed into the new one. Close every connection
-     * to the database before its unit is committed again or deleted: a connection left open keeps the old version and
-     * may, when it closes, remove the new version's write-ahead log.
+     * to the database before its unit is committed again or deleted, and open none while it is: a connection left open
+     * keeps the old version and may, when it writes or closes, create or remove log files beside the new version, and
+     * one opened during the commit may find no file at the path. A name that stays at the path after the move fails the
+     * commit with [IllegalStateException] (the temp file stays complete); deleting the resource only logs a warning.
      */
     public data class SqliteDatabase(
         public val rowCountTable: String? = null,

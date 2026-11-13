@@ -89,7 +89,7 @@ compiled against) with value `equals` / `hashCode` / `toString`.
 |---|---|---|
 | `id` | `String` | Durable identity — persisted, used as a background-session id. Any string is accepted: an id that is not a plain file name (it contains `/`, NUL or an unpaired surrogate, or a derived name would pass 255 bytes) is stored under a hashed name, so it never collides with another unit or escapes `tmp/`. Ids must be unique ignoring case, and on iOS ignoring Unicode normalization too (an iOS volume may treat `Model` and `model`, or NFC and NFD spellings, as one file). Prefer `[A-Za-z0-9._-]`. |
 | `apiPath` | `String` | Opaque; resolved by your `DownloadUrlResolver`. |
-| `relativePath` | `String` | Relative to the storage's own base directory, used as written once `.`, `..` and empty segments are resolved lexically (`files/x/../a.bin` is `files/a.bin` whether or not `x` exists; a leading `/` still means inside the base). Rejected with `InvalidDownloadUnitException` when it is empty or normalizes to nothing, contains NUL, leaves the base directory, or names something the storage manages (`tmp`, `tmp/expect`, `tmp/expect-staged`, `tmp/kmptoolkit-internal`, `tmp/staging-…`, or the unit's own temp files). Any other path under `tmp/` (including `tmp/trash/…`, which 3.0.0 never used) is accepted, with a warning, and stays reserved for a future major release. No unit's `relativePath` may lie inside another unit's resource (an archive tree): committing or deleting the outer resource replaces or removes everything under it. |
+| `relativePath` | `String` | Relative to the storage's own base directory, used as written once `.`, `..` and empty segments are resolved lexically (`files/x/../a.bin` is `files/a.bin` whether or not `x` exists; a leading `/` still means inside the base). Rejected with `InvalidDownloadUnitException` when it is empty or normalizes to nothing, contains NUL, leaves the base directory, or names something the storage manages (`tmp`, `tmp/expect`, `tmp/expect-staged`, `tmp/kmptoolkit-internal`, `tmp/staging-…`, or the unit's own temp files). Any other path under `tmp/` (including `tmp/trash/…`, which 3.0.0 never used) is accepted, with a warning, and stays reserved for a future major release. No unit's `relativePath` may lie inside another unit's resource (an archive tree): committing or deleting the outer resource replaces or removes everything under it. Nor may it name a `SqliteDatabase` unit's `-wal`, `-shm` or `-journal`: they move with that database. |
 | `tempExtension` | `String` | Default `"tmp"`. Carries no meaning of its own, but it is part of the temp file's name (`tmp/<id>.<ext>`), so every instance of one id must return the same value: instances that differ see different temp files, while the expected-hash record is shared by id. |
 | `format` | `ResourceFormat` | Default `Opaque`. |
 | `sha256` | `Sha256?` | Default `null`. A constant expectation; checked at commit, and a mismatch downloads again. Do not set it for an object replaced in place — use `beginTempFile`. The engine reads it before a transfer and fails the unit with `DownloadError.Unknown` if the getter throws; storage reads it again at begin and commit. |
@@ -117,8 +117,13 @@ value that names no table is used as SQL text as in 3.0.0, kept for compatibilit
 `declaredRowCountMetaKey` is a value, bound as a parameter: write it plainly, never escaped.
 Replacing or deleting the resource first moves the old file together with its `-wal`, `-shm` and `-journal` into the
 trash, so the old version's log is never replayed into the new one. Close every connection to the database before its
-unit is committed again or deleted: a connection left open keeps the old version and may, when it closes, remove the
-new version's write-ahead log.
+unit is committed again or deleted, and open none while it is: a connection left open keeps the old version and may, when
+it writes or closes, create or remove log files beside the new version, and one opened during the commit may find no file at
+the path. A name that stays at the path after the move (a sidecar that cannot be moved, for example one a live connection
+keeps recreating) fails the commit with `IllegalStateException` and keeps its temp file `Complete`, because going on would
+put the new file beside a log that SQLite replays into it; `deleteResource` never throws for it: it logs a warning and leaves
+what stays, so the unit reads as unavailable with stray sidecars that the next commit moves aside (or as still available,
+if the file itself could not be moved).
 
 ## `ResourceGroup`
 

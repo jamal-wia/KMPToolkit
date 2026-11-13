@@ -110,6 +110,23 @@ abstract class DestinationBoss1Contract {
     }
 
     @Test
+    fun `a committed directory holding the marker file is unavailable through a marker spelled with a trailing slash`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val committed = Unit1("spelled", "archives/spelled", ResourceFormat.ZipArchive("marker.txt"))
+        stage(storage, committed, archive("marker.txt" to "m", "a.txt" to "a"))
+        storage.commitResource(committed)
+        assertTrue(storage.isResourceAvailable(committed), "the control: the plain spelling reads the committed directory as available")
+
+        // The same directory read through a unit that spells its marker with a trailing slash.
+        val slash = Unit1("slashed", "archives/spelled", ResourceFormat.ZipArchive("marker.txt/"))
+
+        assertFalse(
+            storage.isResourceAvailable(slash),
+            "'marker.txt/' names no regular file, so the directory holding marker.txt is not a complete '$slash'",
+        )
+    }
+
+    @Test
     fun `a marker below a single root directory is found after the root moves up`() = runTest {
         val storage: DownloaderStorage = newStorage()
         val unit = Unit1("nested", "archives/nested", ResourceFormat.ZipArchive("meta/ready"))
