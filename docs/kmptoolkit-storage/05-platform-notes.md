@@ -72,7 +72,8 @@ The reasoning, stated plainly because a consumer deserves to know why their APK 
   shipped; building a library's security story on an API its own maintainers have abandoned is a
   migration scheduled for an inconvenient date.
 - **The direct implementation is small enough to read.** It is one key, one transformation, one
-  framing, in about a hundred lines — small enough that a consumer auditing what happens to their
+  framing: the cipher itself is about a hundred lines (`ValueCipher.kt`, with its key source and errors, a few
+  hundred) — small enough that a consumer auditing what happens to their
   tokens can finish in a sitting, which is not true of Tink.
 
 What this trade costs, honestly:
@@ -263,7 +264,8 @@ call from the main thread and from any number of coroutines at once:
   the process restarts.
   A value that ends in a line break is stored by the plain store with one U+E000 appended, because
   the framework's XML writer indents after a trailing line break; the store removes it on read. Code
-  reading the preferences file directly sees it.
+  reading the preferences file directly sees it. A value an older version stored that itself ended in `\n` followed
+  by U+E000 reads one marker shorter; the two cannot be told apart.
 - **iOS.** `NSUserDefaults` and Keychain calls go through `cfprefsd` and `securityd`, both IPC. Two
   writers adding the same Keychain item at once — two coroutines, or an app extension sharing the
   access group — make the loser's `SecItemAdd` fail with `errSecDuplicateItem`; the store then

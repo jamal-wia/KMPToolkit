@@ -30,7 +30,7 @@ data object LanguageModel : DownloadUnit {
     override val id: String = "LANGUAGE_MODEL"
     override val apiPath: String = "models/language-model-v1"
     override val relativePath: String = "models/language-model-v1.bin"
-    override val group: ResourceGroup = MyResourceGroup.LANGUAGE_MODEL
+    override val group: ResourceGroup get() = MyResourceGroup.LANGUAGE_MODEL
 }
 ```
 
@@ -39,6 +39,8 @@ data object LanguageModel : DownloadUnit {
 - **`apiPath`** is opaque to the library; your `DownloadUrlResolver` turns it into a URL.
 - **`relativePath`** is relative to the storage's own base directory — you never construct an
   absolute path yourself.
+- **`group` is a getter** (`get() =`), not a stored value: the group's constructor lists this unit, and two
+  objects that read each other while they are being created leave one of them null.
 
 ## 3. Declare a group
 
@@ -47,12 +49,14 @@ across several units:
 
 ```kotlin
 enum class MyResourceGroup(override val units: List<DownloadUnit>) : ResourceGroup {
-    LANGUAGE_MODEL(units = listOf(LanguageModel)),
+    LANGUAGE_MODEL(units = listOf(LanguageModel));
+
+    override val key: String get() = name
 }
 ```
 
 An enum implementing `ResourceGroup` is the natural shape: a new group cannot compile without
-deciding what units it owns.
+deciding what units it owns. `key` is the stable identity (a notification tag); the enum's `name` serves.
 
 ## 4. Implement `BackgroundResourceDownloader`
 
@@ -125,7 +129,10 @@ renders a full bar before transitioning.
 ## 8. Optional — a runtime catalogue
 
 For a catalogue whose members are only known at runtime (a manifest fetched from a server), use the
-per-unit surface instead — several can be in flight at once, each with its own progress and cancel:
+per-unit surface instead — several can be in flight at once, each with its own progress and cancel.
+`MyRuntimeUnit` is a `data class` implementing `DownloadUnit`, like `ModelUnit` in
+[03-guide](03-guide.md#a-stated-hash--downloadunitsha256). It still names a `group`, which is usually one group with
+`units = emptyList()` that only titles notifications (see `ResourceGroup.units`).
 
 ```kotlin
 val unit = remember(entryId) { MyRuntimeUnit(entryId) }
