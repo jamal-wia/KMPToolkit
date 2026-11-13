@@ -938,9 +938,10 @@ internal class IosDownloaderStorage(
      * Every entry is extracted or the call fails with [ResourceIntegrityException]; nothing is skipped.
      * A truncated header, name, data or data descriptor, a size or CRC-32 that disagrees with the
      * bytes, a stream that does not end where it declares, an unsupported method, an encrypted or
-     * ZIP64 entry, a name that leaves [targetDir], two entries the volume would store as one (names that differ only
-     * in case or Unicode normalization, or one name that is a file and a directory) and a name or path the volume cannot
-     * hold all fail. A full disk is [IllegalStateException]: the bytes were fine.
+     * ZIP64 entry, a name that leaves [targetDir], a path of more than 1,023 UTF-8 bytes (PATH_MAX less the NUL;
+     * refused before anything of the entry is created), two entries the volume would store as one (names that
+     * differ only in case or Unicode normalization, or one name that is a file and a directory) and a name or
+     * path the volume cannot hold all fail. A full disk is [IllegalStateException]: the bytes were fine.
      */
     private fun extractZip(filePath: String, targetDir: String) {
         logger.i { "Extracting ZIP to $targetDir..." }
@@ -1016,6 +1017,10 @@ internal class IosDownloaderStorage(
                 val segments: List<String> = resolveEntrySegments(fileName)
                     ?: zipFail(fileName, "ZIP entry attempts path traversal")
                 if (segments.isEmpty() && !isDirectory) zipFail(fileName, "the name has no file part")
+                // Before the layout check and any directory is created: a path this long never fits a Darwin volume.
+                if (entryPathBytes(targetDir, segments) > MAX_ENTRY_PATH_BYTES) {
+                    zipFail(shortEntryName(fileName), "the path is longer than this volume allows")
+                }
                 if (segments.isNotEmpty()) {
                     val conflict: String? = entryLayout.conflict(segments, isDirectory) { path: String ->
                         fileExists("$targetDir/$path")
@@ -1303,6 +1308,9 @@ internal class IosDownloaderStorage(
 
 /** How often deleteResource retries moving a present tree aside before it deletes it in place. */
 private const val MAX_DETACH_ATTEMPTS: Int = 3
+
+/** The longest path, in UTF-8 bytes, an entry may get: PATH_MAX (1024 on Darwin) less the terminating NUL. */
+private const val MAX_ENTRY_PATH_BYTES: Int = 1023
 private const val LOCAL_HEADER_SIZE: Int = 30
 private const val SQLITE_MIN_BYTES: Int = 100
 private const val FLAG_ENCRYPTED: Int = 0x0001
