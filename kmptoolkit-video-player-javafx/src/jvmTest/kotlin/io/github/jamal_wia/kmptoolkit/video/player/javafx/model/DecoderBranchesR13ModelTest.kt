@@ -206,8 +206,11 @@ class DecoderBranchesR13ModelTest {
             engine.start()
             advanceBy(1_000)
             assertTrue(native.log.calls(NativeCall.PAUSE).size >= 2, "the clip ended\n${native.log}")
+            val givenAt: Double = nowMs()
             engine.setSpeed(4f)
-            advanceBy(300)
+            advanceBy(5)
+            assertTrue(native.writes(givenAt, 4.0).isNotEmpty(), "a speed given while Completed is written at once, on a player that is not playing\n${native.log}")
+            advanceBy(295)
             engine.start()
             advanceBy(2_000)
             assertEquals(4.0, composed.hazards.effectiveRate, "the replay runs at the speed given while Completed\n${native.log}")
@@ -269,21 +272,64 @@ class DecoderBranchesR13ModelTest {
             advanceBy(10)
             engine.setSpeed(2f)
             engine.pause()
-            advanceBy(200) // the status reads PAUSED
+            advanceBy(500) // the status reads PAUSED, and the 300 ms seek window is long over
             val pausedAt: Double = nowMs()
-            onFx { native.positionMs = 1_000.0; native.events?.onCurrentTime() }
-            advanceBy(500)
-            onFx { native.positionMs = 1_200.0; native.events?.onCurrentTime() }
-            advanceBy(100)
-            onFx { native.positionMs = 1_400.0; native.events?.onCurrentTime() }
+            onFx { native.positionMs = 1_000.0; native.events?.onCurrentTime() } // would be the anchor
+            advanceBy(250)
+            onFx { native.positionMs = 1_200.0; native.events?.onCurrentTime() } // 200 ms in 250 ms: movement the clock allows
             advanceBy(100)
             assertTrue(native.writes(pausedAt, 2.0).isEmpty(), "the speed was written on a tick while PAUSED\n${native.log}")
+        }
+    }
+
+    // ---- 9. a loop wrap during a resume that holds a speed given while it waited ----
+
+    /**
+     * The resume holds 2x in the property; a speed of 3x given while the resume waits replaces the held value only
+     * (`settleNudge`), and the clip wraps before the wait is over. The wrap gives back the speed in force (3x), not the
+     * one the property still holds.
+     */
+    @Test
+    fun aLoopWrapDuringTheWaitOfAResumeGivesBackTheSpeedGivenWhileItWaited() = fxModel {
+        rig {
+            engine.setLooping(true)
+            engine.start()
+            advanceBy(2_850)
+            engine.pause()
+            advanceBy(300)
+            engine.setSpeed(2f)
+            advanceBy(300)
+            engine.start()
+            advanceBy(20)
+            engine.setSpeed(3f)
+            advanceBy(RESUME_WRAP_OBSERVE_MS) // past the wrap and the 550 ms after it, short of the next wrap
+            assertEquals(3.0, composed.hazards.effectiveRate, "the speed given while the resume waited is the one the wrap gives back\n${native.log}")
+        }
+    }
+
+    // ---- 10. the speed comes back although the playhead passes the middle of a short clip on the way ----
+
+    /** A 900 ms loop: the first tick after the 300 ms hold of the second cycle is below the middle, the tick that completes the 200 ms of movement is above it. */
+    @Test
+    fun aLoopOf900MsStillGetsItsSpeedBackWhenTheWaitEndsPastTheMiddle() = fxModel {
+        rig(clip = ClipModel(durationMs = MID_CLIP_MS)) {
+            engine.setLooping(true)
+            engine.setSpeed(2f)
+            engine.start()
+            var reached = false
+            repeat(60) {
+                advanceBy(100)
+                if (native.writes(0.0, 2.0).any { it.tMs > 1_200.0 }) reached = true
+            }
+            assertTrue(reached, "the speed never came back on a $MID_CLIP_MS ms loop in 6 s\n${native.log.tail()}")
         }
     }
 
     private companion object {
         const val SHORT_CLIP_MS: Double = 450.0
         const val RESUME_OBSERVE_MS: Long = 320L
+        const val RESUME_WRAP_OBSERVE_MS: Long = 900L
+        const val MID_CLIP_MS: Double = 900.0
         const val FAST_SAMPLE_MS: Double = 20.0
         const val SEEK_WINDOW_MS: Double = 300.0
         const val EPSILON_MS: Double = 0.01
