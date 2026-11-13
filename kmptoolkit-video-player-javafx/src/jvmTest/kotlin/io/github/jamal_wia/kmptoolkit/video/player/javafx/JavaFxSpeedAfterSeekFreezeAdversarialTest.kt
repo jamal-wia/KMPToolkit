@@ -75,6 +75,11 @@ class JavaFxSpeedAfterSeekFreezeAdversarialTest {
                 drive(player, rnd)
                 frozenAt(engine, player, boundMs = 2_000L)?.let { failures += "$variant round $round: $it" }
             } finally {
+                // Not waiting for the code under test: the player is let run for a moment before it is released. A
+                // video player disposed right after its first frames can hit the OpenJFX CoreVideo display-link race
+                // that kills the JVM (docs/kmptoolkit-video-player-javafx/05-platform-notes.md, "Known issue"); this
+                // is the documented mitigation, a real-time pause for that native-crash workaround only.
+                Thread.sleep(300L)
                 player.release()
             }
         }
@@ -147,6 +152,11 @@ class JavaFxSpeedAfterSeekFreezeAdversarialTest {
                 }
                 frozenAt(engine, player, boundMs = 3_500L)?.let { failures += "$variant round $round: $it" }
             } finally {
+                // Not waiting for the code under test: the player is let run for a moment before it is released. A
+                // video player disposed right after its first frames can hit the OpenJFX CoreVideo display-link race
+                // that kills the JVM (docs/kmptoolkit-video-player-javafx/05-platform-notes.md, "Known issue"); this
+                // is the documented mitigation, a real-time pause for that native-crash workaround only.
+                Thread.sleep(300L)
                 player.release()
             }
         }
