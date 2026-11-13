@@ -136,7 +136,9 @@ internal class AndroidDownloaderStorage(
             val pagesDir = File(path)
             pagesDir.exists() && File(pagesDir, unit.archiveMarker()).isFile
         } else {
-            File(path).exists()
+            // A plain file, or a link to one. A directory at the path (an archive unit of the same id, or a
+            // stray one) is not the resource: the commit moves it aside.
+            File(path).isFile
         }
     }
 
@@ -461,6 +463,8 @@ internal class AndroidDownloaderStorage(
             moveFile(
                 tempFile = tempFile,
                 destinationPath = getResourcePath(unit),
+                unit = unit,
+                onDetached = onDetached,
             )
         }
     }
@@ -619,9 +623,17 @@ internal class AndroidDownloaderStorage(
         db.rawQuery(sql, arrayOf(argument)).use { cursor -> return if (cursor.moveToFirst()) cursor.getString(0) else null }
     }
 
-    private fun moveFile(tempFile: File, destinationPath: String) {
+    private fun moveFile(tempFile: File, destinationPath: String, unit: DownloadUnit, onDetached: (File) -> Unit) {
         val destination = File(destinationPath)
         destination.parentFile?.mkdirs()
+        // A directory at the path (an archive unit of the same id, or a stray one) cannot be replaced by a file
+        // rename. It moves into the trash in one rename, under the unit lock, and is deleted after the lock; it
+        // is never deleted in place. A plain file or a dangling link is still replaced by the rename itself.
+        if (destination.isDirectory) {
+            val oldTree: File? = detachTree(destination)
+            check(oldTree != null || !destination.isDirectory) { "Could not move the committed $unit aside" }
+            if (oldTree != null) onDetached(oldTree)
+        }
         if (!tempFile.renameTo(destination)) {
             // Fallback: copy + delete (cross-filesystem move)
             tempFile.inputStream()
