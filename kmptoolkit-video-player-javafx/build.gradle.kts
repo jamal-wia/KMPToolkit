@@ -69,6 +69,9 @@ kotlin {
 // `-Pjavafx.required=true` turns the real-engine tests' skip (no display, no OpenJFX) into a
 // failure; see assumeJavaFxMedia() in the tests.
 tasks.withType<Test>().configureEach {
+    // `-Pkmptoolkit.test.hazards=true` enables the opt-in native hazard probes (JavaFxNativeHazardCharacterizationTest);
+    // without it the class is skipped, so the default gate never plays them. Test JVM only.
+    providers.gradleProperty("kmptoolkit.test.hazards").orNull?.let { systemProperty("kmptoolkit.test.hazards", it) }
     // OpenJFX 27 is compiled with --release 25 and cannot load on the build's own, older JDK.
     javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(25)) })
     systemProperty(
