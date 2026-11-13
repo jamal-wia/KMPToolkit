@@ -44,7 +44,7 @@ internal class LoopModel(
     }
 
     private val watchers: MutableList<(LoopWrap) -> Unit> = mutableListOf()
-    private var holdUntilNanos: Long = NO_HOLD
+    private var holdUntilNanos: Long? = null
 
     /** The number of the cycle the playhead is in: 1 until the first wrap. */
     var cycle: Int = 1
@@ -58,7 +58,11 @@ internal class LoopModel(
     val isLooping: Boolean get() = player.cycleCount != SINGLE_CYCLE
 
     /** Whether the published time of the new cycle still holds, at the host's clock. False before the first wrap. */
-    fun isPublishHeld(): Boolean = holdUntilNanos != NO_HOLD && player.host.nanoTime() < holdUntilNanos
+    fun isPublishHeld(): Boolean {
+        val until: Long = holdUntilNanos ?: return false
+        // A difference, not a comparison of two readings: the clock has no zero and may wrap during the hold.
+        return player.host.nanoTime() - until < 0L
+    }
 
     /** Adds a watcher that runs at every wrap before `onEndOfMedia` (see the class KDoc, step 2). */
     fun onWrap(watcher: (LoopWrap) -> Unit) {
@@ -78,8 +82,9 @@ internal class LoopModel(
         player.positionMs = player.startMs
         heldValueMs = player.startMs
         val now: Long = player.host.nanoTime()
-        holdUntilNanos = now + (publishHoldMs * NANOS_PER_MILLI).toLong()
-        val wrap = LoopWrap(cycle, holdUntilNanos)
+        val until: Long = now + (publishHoldMs * NANOS_PER_MILLI).toLong()
+        holdUntilNanos = until
+        val wrap = LoopWrap(cycle, until)
         watchers.toList().forEach { it(wrap) }
         player.deliverEndOfMedia()
         return true
@@ -87,7 +92,7 @@ internal class LoopModel(
 
     override fun onStatusChange(player: ScriptedNativePlayer, old: NativeStatus, new: NativeStatus) {
         // A disposed source never wraps again; the hold ends with it.
-        if (new == NativeStatus.DISPOSED) holdUntilNanos = NO_HOLD
+        if (new == NativeStatus.DISPOSED) holdUntilNanos = null
     }
 
     companion object {
@@ -98,7 +103,6 @@ internal class LoopModel(
         const val INDEFINITE: Int = -1
 
         private const val SINGLE_CYCLE: Int = 1
-        private const val NO_HOLD: Long = Long.MIN_VALUE
         private const val NANOS_PER_MILLI: Double = 1_000_000.0
     }
 }
