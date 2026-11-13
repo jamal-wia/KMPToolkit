@@ -161,11 +161,12 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   reads one row per remembered entry, except an entry whose row it found absent: that one is read again only once
  *   per [UploaderConfig.heartbeatInterval] (at the first sweep, and at once when the clock steps backwards), so a
  *   withdrawn row or another store's row costs a read per heartbeat and not one per call. A row that comes back after
- *   it read absent is therefore rescued at the first sweep that starts at least one heartbeat interval after the last
- *   completed re-check. The sweep runs once, at the start of each drain call, so while calls end promptly that is within
- *   two heartbeat intervals of it (the cadence reads the clock at the start of a pass and the heartbeat is a monotonic
- *   delay, so a tick can fall just short of one interval and leave the re-check to the next). A call that stays busy
- *   longer (a long attempt, or a queue that keeps it looping) delays the rescue until a call that starts after it ends.
+ *   it read absent is therefore rescued at the first sweep that starts at least one heartbeat interval after the start
+ *   of the last completed re-check. The sweep runs once, at the start of each drain call, so while calls end promptly
+ *   that is within two heartbeat intervals of it (the cadence reads the clock at the start of a pass and the heartbeat
+ *   is a monotonic delay, so a tick can fall just short of one interval and leave the re-check to the next). A call that
+ *   stays busy longer (a long attempt, or a queue that keeps it looping) delays the rescue until a call that starts
+ *   after it ends.
  *   A sweep cancelled during its reads does not count as a re-check. Until then the row is PARKED, which is not run,
  *   and a verdict on it is refused.
  *   *Pinned by:* EngineBossRound4SuspectsAdversarialTest (bv4-S3a, S3b), EngineSplit1P10AdversarialTest and

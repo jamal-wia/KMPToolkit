@@ -12,7 +12,7 @@ Adding `kmptoolkit-video-player`, `kmptoolkit-audio-player` or `kmptoolkit-audio
 
 ```kotlin
 commonMain.dependencies {
-    implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+    implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
     implementation("io.github.jamal-wia:kmptoolkit-audio-player")   // brings kmptoolkit-core with it
 }
 ```
