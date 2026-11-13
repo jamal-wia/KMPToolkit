@@ -152,7 +152,9 @@ decoder writes straight into memory without a render-and-read-back step.
   the source itself, and `Completed` is never reported while it is on.
 - **End of media.** JavaFX leaves its own status at `PLAYING` when the last cycle ends; the engine
   pauses it there, so a seek from `Completed` stays `Paused` — in the state and in JavaFX — until
-  `play()`.
+  `play()`. A `stop()` or a `seekTo()` that lands in the instant between JavaFX reaching the end of the clip and
+  delivering that end to the engine (one FX-thread task) can still be followed by `Completed` after the call has
+  returned; a `play()` from there starts at the beginning. 5.0.0 does not change this.
 - **Open files after release.** JavaFX gives a `Media` no way to be closed: the file or connection
   it opened stays open after `release()` until the garbage collector reclaims it. Under the usual
   descriptor limits this matters only for an app that loads thousands of sources between two
@@ -189,6 +191,9 @@ decoder writes straight into memory without a render-and-read-back step.
   200 ms, and no sooner than 300 ms after a seek made meanwhile (a rate change within about 100 ms of a
   native seek can freeze the playhead too); the reported time of a loop's second cycle can hold still for
   about 300 ms and then catch up.
+  Those 200 ms are measured on ticks of the reported time, and the first tick of the new cycle comes only after that
+  hold, so the speed returns about 0.55 s after the wrap on an idle machine and later on a busy one (up to about 1.2 s
+  in the load measurements); meanwhile the clip plays at normal speed, and the speed is never lost.
   A speed given to a playing clip within about 300 ms of a seek (`seekTo()`, `seekForward()`/`seekBackward()` or
   `replay()` while playing, a `stop()` followed by `play()`, playing a completed clip, or the wrap of a looping clip,
   which restarts with a native seek) is not written at once,
