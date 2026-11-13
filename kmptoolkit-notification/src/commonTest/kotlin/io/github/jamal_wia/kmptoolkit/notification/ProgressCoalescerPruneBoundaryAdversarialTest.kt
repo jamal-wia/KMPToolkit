@@ -53,4 +53,24 @@ class ProgressCoalescerPruneBoundaryAdversarialTest {
         assertNotNull(coalescer.prepare("w", NotificationProgress.Determinate(10)))
         assertEquals(2, coalescer.latestCountForTest(), "an unfinished frame older than the horizon was kept")
     }
+
+    @Test
+    fun `the frame the tray still shows is kept for exactly the horizon after a terminal frame was refused and forgotten a little later`() {
+        // A refused terminal frame leaves the tray showing the earlier frame while nothing is recorded as posted.
+        // The earlier frame must stay restorable for the horizon, counted from when it was shown, edge included.
+        for ((extra: Duration, expected: Int) in listOf(Duration.ZERO to 1, 1.seconds to 0)) {
+            val clock = TestTimeSource()
+            val coalescer: ProgressCoalescer = coalescer(clock)
+            show(coalescer, "x")
+            clock += 1.seconds
+            val terminal: ProgressCoalescer.PostTicket? = coalescer.prepare("x", NotificationProgress.Determinate(100))
+            assertNotNull(terminal)
+            coalescer.rollback(terminal)
+            clock += horizon - 1.seconds + extra
+            val next: ProgressCoalescer.PostTicket? = coalescer.prepare("x", NotificationProgress.Determinate(10))
+            assertNotNull(next)
+            coalescer.rollback(next)
+            assertEquals(expected, coalescer.postedCountForTest(), "restorable frame after the horizon plus $extra")
+        }
+    }
 }
