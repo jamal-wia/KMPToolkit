@@ -25,7 +25,7 @@ public interface DownloaderStorage {
     }
 
     /**
-     * True when [unit]'s resource is present AND complete: a plain file must exist, a directory
+     * True when [unit]'s resource is present AND complete: a plain file must exist (a symbolic link to one counts; a directory at that path does not), a directory
      * resource must contain its [ResourceFormat.ZipArchive.availabilityMarker], so an extraction
      * interrupted halfway does not read as available.
      */

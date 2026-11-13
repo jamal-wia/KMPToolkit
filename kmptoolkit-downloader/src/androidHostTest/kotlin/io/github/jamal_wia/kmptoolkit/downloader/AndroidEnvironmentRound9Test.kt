@@ -372,12 +372,13 @@ class AndroidEnvironmentRound9Test {
     }
 
     /**
-     * Q2 (observation pinned as behaviour): a unit whose format changed from archive to opaque at the same path. The
-     * commit cannot move a file onto a directory: it fails with an exception, the directory tree stays whole, the temp
-     * file stays complete; deleteResource is the way out and the retry then commits.
+     * Q2: a unit whose format changed from archive to opaque at the same path (D-131, ruling b-r9-f1): the plain-file commit
+     * moves the committed archive tree into the trash and puts the file in place, so the commit succeeds, the path holds the
+     * payload, the temp file is gone, the trash is empty and the archive unit no longer reads as available. A delete and a
+     * second commit still work afterwards.
      */
     @Test
-    fun `an opaque commit onto a committed archive tree fails cleanly and a delete unblocks it`() = runBlocking<Unit> {
+    fun `an opaque commit onto a committed archive tree replaces it whole`() = runBlocking<Unit> {
         withTimeout(60_000) {
             val group = Group("g")
             val oldA: Map<String, ByteArray> = tree("old")
@@ -388,11 +389,16 @@ class AndroidEnvironmentRound9Test {
             stage(storage, unitZip, zip(oldA))
             storage.commitResource(unitZip)
             stage(storage, unitFile, payload)
-            assertFailsWith<Exception> { storage.commitResource(unitFile) }
+            storage.commitResource(unitFile)
             val target = File(storage.getResourcePath(unitFile))
-            assertTrue(target.isDirectory && sameTree(oldA, treeOf(target)), "the old tree was damaged")
-            assertEquals(TempFileState.Complete, storage.tempFileState(unitFile))
+            assertTrue(target.isFile, "the path does not hold a file")
+            assertTrue(payload.contentEquals(target.readBytes()))
+            assertEquals(TempFileState.None, storage.tempFileState(unitFile))
+            assertEquals(emptyList(), trashDir.list().orEmpty().toList(), "the detached tree was left in the trash")
+            assertFalse(storage.isResourceAvailable(unitZip))
             storage.deleteResource(unitFile)
+            assertFalse(storage.isResourceAvailable(unitFile))
+            stage(storage, unitFile, payload)
             storage.commitResource(unitFile)
             assertTrue(target.isFile)
             assertTrue(payload.contentEquals(target.readBytes()))

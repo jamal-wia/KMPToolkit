@@ -11,6 +11,7 @@ import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
+import kotlinx.cinterop.BooleanVar
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.UByteVar
@@ -21,6 +22,7 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.usePinned
+import kotlinx.cinterop.value
 import platform.CoreCrypto.CC_SHA256_CTX
 import platform.CoreCrypto.CC_SHA256_DIGEST_LENGTH
 import platform.CoreCrypto.CC_SHA256_Final
@@ -227,7 +229,10 @@ internal class IosDownloaderStorage(
         return if (unit.isDirectoryResource) {
             markerIsFile(path, unit.archiveMarker())
         } else {
-            fileExists(path)
+            // A plain file, or a link to one. A directory at the path (an archive unit of the same id, or a
+            // stray one) is not the resource: the commit moves it aside. fileExistsAtPath follows links, so
+            // a link to a file stays available (isRegularFile does not follow links).
+            existsAndIsNotDirectory(path)
         }
     }
 
@@ -605,7 +610,12 @@ internal class IosDownloaderStorage(
             (unit.format as? ResourceFormat.SqliteDatabase)?.let { format: ResourceFormat.SqliteDatabase ->
                 verifySqlite(tempFilePath, format)
             }
-            moveFile(tempFilePath = tempFilePath, destinationPath = getResourcePath(unit))
+            moveFile(
+                tempFilePath = tempFilePath,
+                destinationPath = getResourcePath(unit),
+                unit = unit,
+                onDetached = onDetached,
+            )
         }
     }
 
@@ -847,7 +857,7 @@ internal class IosDownloaderStorage(
         }
     }
 
-    private fun moveFile(tempFilePath: String, destinationPath: String) {
+    private fun moveFile(tempFilePath: String, destinationPath: String, unit: DownloadUnit, onDetached: (String) -> Unit) {
         val parentDir: String = destinationPath.substringBeforeLast('/')
         NSFileManager.defaultManager.createDirectoryAtPath(
             path = parentDir,
@@ -855,6 +865,14 @@ internal class IosDownloaderStorage(
             attributes = null,
             error = null,
         )
+        // A real directory at the path (an archive unit of the same id, or a stray one) cannot be replaced by a
+        // file rename. It moves into the trash in one rename, under the unit lock, and is deleted after the lock;
+        // it is never deleted in place. A plain file, a link or a dangling link is replaced by the rename itself.
+        if (isDirectoryAt(destinationPath)) {
+            val oldTree: String? = detachTree(destinationPath)
+            check(oldTree != null || !isDirectoryAt(destinationPath)) { "Could not move the committed $unit aside" }
+            if (oldTree != null) onDetached(oldTree)
+        }
         // POSIX rename replaces an existing destination atomically, so a resource already in place
         // is never missing, not even for a moment. The old remove-then-move removed it first, and a
         // commit whose source was already gone then deleted a committed resource and failed.
@@ -864,6 +882,7 @@ internal class IosDownloaderStorage(
             check(fileExists(tempFilePath)) {
                 "The downloaded file at $tempFilePath vanished before it could be moved into place"
             }
+            // A real directory never gets here: it was moved into the trash above, so this removes a file or a link.
             NSFileManager.defaultManager.removeItemAtPath(destinationPath, error = null)
             // Fallback: copy + delete. A failed copy must not delete the only copy of the download.
             val copied: Boolean = NSFileManager.defaultManager
@@ -1265,6 +1284,12 @@ internal class IosDownloaderStorage(
 
     private fun fileExists(path: String): Boolean =
         NSFileManager.defaultManager.fileExistsAtPath(path)
+
+    /** True when [path] exists and is not a directory; follows symbolic links, as [fileExists] does. */
+    private fun existsAndIsNotDirectory(path: String): Boolean = memScoped {
+        val isDirectory: BooleanVar = alloc<BooleanVar>()
+        NSFileManager.defaultManager.fileExistsAtPath(path, isDirectory = isDirectory.ptr) && !isDirectory.value
+    }
 }
 
 /** How often deleteResource retries moving a present tree aside before it deletes it in place. */
