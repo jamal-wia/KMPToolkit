@@ -6,6 +6,7 @@ import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.db.SqlPreparedStatement
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -189,6 +190,24 @@ internal class MarkerLookupsBoss1Checks {
         withStorage(name) { storage ->
             val superseded: UploaderItem? = storage.store.insertReplace(anItem(id = "n1", type = type, uniqueKey = key))
             assertEquals("raw-raw", superseded?.id, "the earliest holder by sequence is returned")
+            assertEquals(listOf("n1"), storage.store.getAllActive().map { it.id })
+            listOf("raw-raw", "raw-esc", "esc-raw", "esc-esc").forEach { assertNull(storage.store.getById(it), "$it was removed") }
+        }
+    }
+
+    /** A2 boss round 1, claim of 05-platform-notes "A KEEP over a parked row": the earliest parked one is returned. */
+    suspend fun keepOverEveryParkedSpellingReturnsTheEarliestAndRemovesAll() = withDatabase("a2boss1-keep-combos") { name ->
+        val type = "${marker2}type"
+        val key = "${marker2}key"
+        rawRow(name, "raw-raw", type = type, uniqueKey = key, tag = null, state = "PARKED")
+        rawRow(name, "raw-esc", type = type, uniqueKey = toStoredText(key), tag = null, state = "PARKED")
+        rawRow(name, "esc-raw", type = toStoredText(type), uniqueKey = key, tag = null, state = "PARKED")
+        rawRow(name, "esc-esc", type = toStoredText(type), uniqueKey = toStoredText(key), tag = null, state = "PARKED")
+        withStorage(name) { storage ->
+            val result: KeepResult = storage.store.insertKeep(anItem(id = "n1", type = type, uniqueKey = key))
+            val superseded: UploaderItem? = (result as? KeepResult.Inserted)?.superseded
+            assertTrue(result is KeepResult.Inserted, "a KEEP over parked holders inserts: $result")
+            assertEquals("raw-raw", superseded?.id, "the earliest parked holder by sequence is returned")
             assertEquals(listOf("n1"), storage.store.getAllActive().map { it.id })
             listOf("raw-raw", "raw-esc", "esc-raw", "esc-esc").forEach { assertNull(storage.store.getById(it), "$it was removed") }
         }
