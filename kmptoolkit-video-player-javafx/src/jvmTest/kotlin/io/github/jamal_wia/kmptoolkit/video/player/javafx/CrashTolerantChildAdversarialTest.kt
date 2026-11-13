@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.video.player.javafx
 
 import java.io.File
 import java.nio.file.Files
+import java.util.Properties
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -55,5 +56,28 @@ class CrashTolerantChildAdversarialTest {
             runChildRetryingKnownCrash(CrashRetryMain::class.java.name, listOf(marker().path, "always"), timeoutS = 60L, hsErrDir = scratch.path)
         }
         assertTrue("3 of 3" in failure.message.orEmpty(), failure.message)
+    }
+
+    @Test
+    fun `the knobs forwarded to a child JVM keep every kmptoolkit test property except the crash log directory`() {
+        val properties: Properties = Properties().apply {
+            setProperty("kmptoolkit.test.r9.rel.seeds", "20")
+            setProperty("kmptoolkit.test.seed", "777")
+            setProperty(HS_ERR_DIR_PROPERTY, File(scratch, "parent-hs-err").path)
+            setProperty("kmptoolkit.soak.steps", "5")
+            setProperty("user.dir", "somewhere")
+        }
+        assertEquals(
+            listOf("-Dkmptoolkit.test.r9.rel.seeds=20", "-Dkmptoolkit.test.seed=777"),
+            forwardedTestKnobs(properties),
+            "only the kmptoolkit.test knobs are forwarded and the parent's hs_err directory is not one of them",
+        )
+        val callerDir: String = File(scratch, "caller-hs-err").path
+        val args: List<String> = forwardedTestKnobs(properties) + childJvmCrashGuardArgs(callerDir)
+        assertEquals(
+            listOf("-D$HS_ERR_DIR_PROPERTY=$callerDir"),
+            args.filter { it.startsWith("-D$HS_ERR_DIR_PROPERTY=") },
+            "the child JVM gets exactly one hs_err directory, the caller's, in either argument order",
+        )
     }
 }
