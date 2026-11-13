@@ -32,6 +32,7 @@ class FakeVersusRealSuspectsR1Test {
         val cleanup: () -> Unit,
     )
 
+    // path-hygiene-ignore: PH1 the host separator is read only to detect a Windows host, where this POSIX-spelling differential adapts or skips; it is never joined into a path
     private val hostIsWindows: Boolean = File.separatorChar != '/'
 
     private fun hostIsCaseInsensitive(): Boolean {
@@ -94,6 +95,7 @@ class FakeVersusRealSuspectsR1Test {
         fun walk(directory: String, prefix: String) {
             val names: List<String> = world.files.list(directory).getOrNull() ?: return
             for (name: String in names) {
+                // path-hygiene-ignore: PH4 the differential feeds one deliberate POSIX '/' spelling to both the fake and the real file system, so the spelling itself is under test; the Windows JDK accepts '/'
                 val path: String = directory + "/" + name
                 val meta: io.github.jamal_wia.kmptoolkit.files.FileMetadata? = world.files.metadata(path, false)
                 when (meta?.kind) {
@@ -133,6 +135,7 @@ class FakeVersusRealSuspectsR1Test {
         }
     }
 
+    // path-hygiene-ignore: PH4 the differential feeds one deliberate POSIX '/' spelling to both the fake and the real file system, so the spelling itself is under test; the Windows JDK accepts '/'
     private fun p(world: World, relative: String): String = world.root + "/" + relative
 
     private fun put(world: World, relative: String, text: String) {

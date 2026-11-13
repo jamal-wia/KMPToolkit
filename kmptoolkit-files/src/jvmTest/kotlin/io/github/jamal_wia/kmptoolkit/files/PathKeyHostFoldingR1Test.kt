@@ -32,6 +32,7 @@ class PathKeyHostFoldingR1Test {
 
     @Test
     fun `spellings that the host treats as one entry share a key`() {
+        // path-hygiene-ignore: PH1 the separator is read only to skip the POSIX-spelling comparison on a Windows host, never joined into a path
         if (File.separatorChar != '/') return // the comparison is of POSIX spellings; Windows has its own run
         val directory: Path = Files.createTempDirectory("kmptoolkit-fold").toRealPath()
         try {

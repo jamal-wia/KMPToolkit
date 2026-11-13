@@ -16,6 +16,7 @@ import kotlin.test.assertTrue
  * hosts that are not Windows, and a no-op for an alias the host cannot create.
  */
 class WindowsAliasR2Test {
+    // path-hygiene-ignore: PH1 the separator is read only to detect a Windows host, where the alias attacks of this class run; it is never joined into a path
     private val windows: Boolean = File.separatorChar == '\\'
     private val files: FileAccess = createFileAccess()
 

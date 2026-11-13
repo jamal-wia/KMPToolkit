@@ -108,6 +108,7 @@ class FakeDocsAuditR2Test {
         assertEquals(FileResult.Success(Unit), files.writeAtomically("/d/target", ByteArray(2)))
         val replace = files.operations.filter { it.operation != FakeOperation.Metadata }
         val temp: String = replace.first { it.operation == FakeOperation.CreateNew }.path
+        // path-hygiene-ignore: PH3 the path is a logical path of FakeFileAccess, whose syntax is always POSIX '/', not a host path
         assertTrue(FileNames.isTempName(temp.substringAfterLast('/')), "temp was $temp")
         for (operation: FakeOperation in listOf(FakeOperation.Write, FakeOperation.Sync, FakeOperation.Close, FakeOperation.Rename)) {
             assertEquals(temp, replace.first { it.operation == operation }.path, "path of $operation")
