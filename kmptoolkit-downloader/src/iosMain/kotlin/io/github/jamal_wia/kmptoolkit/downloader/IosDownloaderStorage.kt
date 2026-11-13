@@ -79,6 +79,7 @@ import platform.posix.fwrite
 import platform.posix.remove
 import platform.posix.rename
 import platform.posix.stat
+import platform.posix.unlink
 import platform.zlib.Z_BUF_ERROR
 import platform.zlib.Z_NO_FLUSH
 import platform.zlib.Z_OK
@@ -397,7 +398,8 @@ internal class IosDownloaderStorage(
         val trashDir = "$baseDir/${UnitFileLayout.TRASH_DIRECTORY}"
         // attributesOfItemAtPath is lstat: it reports the link itself, and a dangling link as well.
         val type: String? = NSFileManager.defaultManager.attributesOfItemAtPath(trashDir, error = null)?.get(NSFileType) as? String
-        if (type == NSFileTypeSymbolicLink) NSFileManager.defaultManager.removeItemAtPath(trashDir, error = null)
+        // unlink(2) removes the link entry only and is never recursive, so a real directory that appears in its place meanwhile is never removed here.
+        if (type == NSFileTypeSymbolicLink) unlink(trashDir)
         return trashDir
     }
 
