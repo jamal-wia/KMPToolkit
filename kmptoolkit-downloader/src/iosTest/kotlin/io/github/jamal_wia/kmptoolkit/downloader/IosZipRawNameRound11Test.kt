@@ -28,6 +28,8 @@ class IosZipRawNameRound11Test : ZipRawNameRound11Contract() {
         deleteTestDirectory()
     }
 
+    override val entryPathLimit: Int = 1_023
+
     override fun newStorage(): DownloaderStorage = createDownloaderStorage(config)
 
     override fun writeFile(path: String, bytes: ByteArray) {

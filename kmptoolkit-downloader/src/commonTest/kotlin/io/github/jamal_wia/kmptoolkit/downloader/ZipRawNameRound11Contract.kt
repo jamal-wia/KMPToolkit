@@ -29,6 +29,9 @@ abstract class ZipRawNameRound11Contract {
     protected abstract fun pathExists(path: String): Boolean
     protected abstract fun deleteTestDirectory()
 
+    /** The longest path in UTF-8 bytes the platform's storage lets an entry have (Android 4,095, iOS 1,023). */
+    protected abstract val entryPathLimit: Int
+
     /**
      * Called first by every test with a raw name over 4,096 bytes. The Android storage resolves the RAW name with
      * `File.canonicalFile`, and an OpenJDK host refuses such a string with a plain IOException ("File name too long")
@@ -146,5 +149,25 @@ abstract class ZipRawNameRound11Contract {
         storage.commitResource(unit)
 
         assertEquals("payload\n", readFile(TestPaths.join(storage.getResourcePath(unit), "b/f.txt"))?.decodeToString())
+    }
+
+    @Test
+    fun `the extraction directory counts toward the limit so a name just over it is refused whatever its own length`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val probe = ArchiveUnit("basecounts")
+        val baseBytes: Int = stagingOf(storage, probe).encodeToByteArray().size
+        // "d/" x n + "f.bin" is 2n + 6 bytes below the extraction directory: n is chosen so that the whole path is one or two bytes
+        // over the limit, while the name alone is far under it. A refusal happens before any file system call.
+        val segments: Int = (entryPathLimit + 1 - baseBytes - 6 + 1) / 2
+        val name: String = "d/".repeat(segments) + "f.bin"
+        assertTrue(name.length < entryPathLimit - 100, "the name alone must be far under the limit: ${name.length}")
+        assertTrue(baseBytes + name.length + 1 > entryPathLimit, "the whole path must be over the limit")
+
+        assertCleanRefusal("basecounts", name)
+    }
+
+    @Test
+    fun `an over long directory entry is refused like a file entry and creates nothing`() = runTest {
+        assertCleanRefusal("longdirectory", "d/".repeat(2_100))
     }
 }

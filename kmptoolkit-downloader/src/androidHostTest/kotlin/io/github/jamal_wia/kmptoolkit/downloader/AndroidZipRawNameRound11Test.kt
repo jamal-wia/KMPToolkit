@@ -14,6 +14,8 @@ class AndroidZipRawNameRound11Test : ZipRawNameRound11Contract() {
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val config = DownloaderStorageConfig(baseDirectoryName = "zip_rawname_round11")
 
+    override val entryPathLimit: Int = 4_095
+
     override fun newStorage(): DownloaderStorage = createDownloaderStorage(context, config)
 
     override fun writeFile(path: String, bytes: ByteArray) {
