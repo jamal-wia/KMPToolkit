@@ -22,6 +22,7 @@ class SourceUrisUnreadableFileR5Test {
     fun `an unreadable file fails with FileNotFoundException before JavaFX is involved`() {
         val file: File = File.createTempFile("kmptoolkit-unreadable", ".mp4").also { it.deleteOnExit() }
         file.writeBytes(TestClip.copyToTempFile().readBytes())
+        // path-hygiene-ignore: PH2 guarded: the next line assumes the file is no longer readable, so a host without POSIX modes (Windows) skips the test
         file.setReadable(false)
         Assume.assumeFalse("the file is still readable here (root, or a platform without POSIX modes)", file.canRead())
         assertFailsWith<FileNotFoundException> { resolveSourceUri(VideoSource.File(file.absolutePath), loader) }

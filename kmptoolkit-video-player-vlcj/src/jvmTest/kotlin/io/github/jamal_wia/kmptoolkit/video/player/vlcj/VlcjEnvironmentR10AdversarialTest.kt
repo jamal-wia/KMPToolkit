@@ -186,6 +186,7 @@ class VlcjEnvironmentR10AdversarialTest {
     @Test
     fun `a jar asset with a read-only temp directory ends in Error and leaves nothing behind`() {
         val scratch: File = Files.createTempDirectory("kmptoolkit-r10-env").toFile()
+        // path-hygiene-ignore: PH2 guarded: the test returns on the next lines when the directory is still writable, so a host that ignores POSIX modes (Windows) does not run the assertions
         val readOnly = File(scratch, "ro").apply { mkdirs(); setWritable(false, false) }
         try {
             if (readOnly.canWrite()) return // running as a user the permission bits do not bind (root)
@@ -193,6 +194,7 @@ class VlcjEnvironmentR10AdversarialTest {
             check(outcome, "read-only temp dir")
             assertEquals(emptyList(), outcome.tempLeft)
         } finally {
+            // path-hygiene-ignore: PH2 guarded: this restores the write bit set under the guard above, and is harmless where the bit never changed
             readOnly.setWritable(true, false)
             scratch.deleteRecursively()
         }

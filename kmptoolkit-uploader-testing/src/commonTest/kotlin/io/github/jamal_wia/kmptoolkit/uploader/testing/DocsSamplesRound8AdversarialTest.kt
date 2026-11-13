@@ -396,6 +396,7 @@ class DocsSamplesRound8AdversarialTest {
         }
 
         override suspend fun onDelivered(payload: Avatar, response: UploadResponse?) {
+            // path-hygiene-ignore: PH3 the value is a URL from a Location header, a logical path split on '/', not a host path
             val jobId: String? = response?.header("location")?.substringAfterLast('/')
             if (jobId != null) jobIds[payload.id] = jobId
         }
