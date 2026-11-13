@@ -376,6 +376,44 @@ class NegativeClockModelTest {
         }
     }
 
+    // ---- 6: a deadline that straddles the wrap of the counter ----
+
+    /** Advances to [elapsedMs] of virtual time since the host was built, the same instant on every clock. */
+    private fun FxModelScope.advanceToElapsed(elapsedMs: Long) {
+        val left: Long = elapsedMs - host.elapsedNanos / NANOS_PER_MILLI_LONG
+        check(left >= 0L) { "the scenario is already past $elapsedMs ms of elapsed time ($host)" }
+        advanceBy(left)
+    }
+
+    /**
+     * A speed given inside the 300 ms window of a native seek of a playing clip is held until the window ends (the clip plays
+     * at 3x meanwhile, so the playhead has moved on long before the window does and only the deadline holds the speed
+     * back). On the clock that is one second below the wrap, the seek at 850 ms of elapsed time puts the end of its window
+     * past the wrap, so the deadline reads as a hugely negative number: a comparison of the two readings as numbers lets
+     * the speed through at once, a comparison of their difference does not. Every other clock sees the same instants.
+     */
+    @Test
+    fun aSpeedGivenInsideTheSeekWindowWaitsForTheEndOfItEvenWhenTheWindowCrossesTheWrap() = onEveryClock { _ ->
+        withEngine {
+            engine.start()
+            advanceToElapsed(750)
+            engine.setSpeed(3f)
+            advanceToElapsed(850)
+            val seekAt: Double = nowMs()
+            engine.seekTo(1_500L)
+            engine.setSpeed(2f)
+            advanceBy(1_500)
+
+            val given: NativeCallEntry? = native.log.calls(NativeCall.SET_RATE).firstOrNull { it.effective && it.arg == 2.0 && it.tMs >= seekAt }
+            expect(given != null) { "the speed was never written after the seek at $seekAt ms\n${native.trace()}" }
+            expect(given!!.tMs - seekAt >= SEEK_WINDOW_MS - TIME_TOLERANCE_MS) {
+                "the speed was written ${given.tMs - seekAt} ms after the seek, inside the window of $SEEK_WINDOW_MS ms\n${native.trace()}"
+            }
+            assertEquals(2.0, composed.hazards.effectiveRate, "the speed never reached the decoder\n${native.trace()}")
+            assertSound("speed inside the seek window")
+        }
+    }
+
     private companion object {
         /**
          * The clocks every case runs on: a negative start, 0, one thousand seconds (the default of the model tier), and one
