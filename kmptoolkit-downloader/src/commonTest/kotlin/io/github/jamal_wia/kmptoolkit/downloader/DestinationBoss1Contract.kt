@@ -24,8 +24,15 @@ abstract class DestinationBoss1Contract {
     protected abstract fun deletePath(path: String)
     protected abstract fun deleteTestDirectory()
 
+    /** Takes the write permission away from the directory [path], so nothing directly inside it can be deleted. */
+    protected abstract fun makeReadOnly(path: String)
+
+    /** Gives every directory under the test's base directory its write permission back, so the cleanup can delete it. */
+    protected abstract fun restoreWritable()
+
     @AfterTest
     fun cleanUp() {
+        restoreWritable()
         deleteTestDirectory()
         LegacyTempMigrations.resetForTests()
     }
@@ -97,5 +104,27 @@ abstract class DestinationBoss1Contract {
 
         assertNull(failure, "a nested marker below the single root must commit: $failure")
         assertTrue(storage.isResourceAvailable(unit))
+    }
+
+    @Test
+    fun `a stray directory whose contents cannot be deleted is replaced by the committed file in one move`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = Unit1("stray", "stray/s.bin", ResourceFormat.Opaque)
+        val resource: String = storage.getResourcePath(unit)
+        val locked: String = Paths.join(resource, "locked")
+        writeFile(Paths.join(locked, "kept.txt"), "kept".encodeToByteArray())
+        // The tree can be renamed as a whole (that needs only its parent's permission) but not deleted in place.
+        makeReadOnly(locked)
+        stage(storage, unit, "payload".encodeToByteArray())
+
+        val failure: Throwable? = runCatching { storage.commitResource(unit) }.exceptionOrNull()
+
+        assertNull(failure, "the stray tree must be moved aside in one rename, never deleted in place: $failure")
+        assertTrue(storage.isResourceAvailable(unit), "the committed file must be in place")
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        // What the trash could not delete stays there; cleanups stay quiet about it.
+        storage.deleteTempFile(unit)
+        storage.deleteResource(unit)
+        assertFalse(storage.isResourceAvailable(unit))
     }
 }

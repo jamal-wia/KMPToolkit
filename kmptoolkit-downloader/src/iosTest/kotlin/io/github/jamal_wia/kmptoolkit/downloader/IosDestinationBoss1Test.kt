@@ -9,6 +9,7 @@ import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDomainMask
+import platform.posix.chmod
 import platform.posix.fclose
 import platform.posix.fopen
 import platform.posix.fwrite
@@ -52,6 +53,21 @@ class IosDestinationBoss1Test : DestinationBoss1Contract() {
 
     override fun deleteTestDirectory() {
         NSFileManager.defaultManager.removeItemAtPath(baseDirectory(), error = null)
+    }
+
+    override fun makeReadOnly(path: String) {
+        check(chmod(path, 0x16Du.convert()) == 0) { "could not take the write permission from $path" }
+    }
+
+    override fun restoreWritable() {
+        restoreUnder(baseDirectory())
+    }
+
+    private fun restoreUnder(directory: String) {
+        chmod(directory, 0x1EDu.convert())
+        val names: List<String> = NSFileManager.defaultManager.contentsOfDirectoryAtPath(directory, error = null)
+            ?.filterIsInstance<String>() ?: return
+        for (name: String in names) restoreUnder("$directory/$name")
     }
 
     private fun baseDirectory(): String {
