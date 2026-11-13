@@ -371,7 +371,12 @@ internal class FxPlayback private constructor(
                 // the playhead on macOS. Give it the way start() gives a resume at a speed, once the native
                 // player has been playing for a moment.
                 playIssuedAtNanos = 0L
-                if (nearStart()) {
+                // The seek, play and rate change at once is [start]'s seeked path: safe while the native player has not
+                // started playing yet. Once its status is PLAYING (within the FRESH period the decoder often is) a seek
+                // followed by a rate change is the W-SEEK-RUN case, which can freeze the playhead: [start]'s comment says
+                // not to merge the two paths. A started decoder takes the settle nudge below, like a speed off the start.
+                // A stale PLAYING read only sends the call down the settle path, which is safe in every state.
+                if (nearStart() && native.status != NativeStatus.PLAYING) {
                     if (!seekedSincePlay) {
                         native.seek(native.currentTimeMs)
                         lastNativeSeekNanos = host.nanoTime()

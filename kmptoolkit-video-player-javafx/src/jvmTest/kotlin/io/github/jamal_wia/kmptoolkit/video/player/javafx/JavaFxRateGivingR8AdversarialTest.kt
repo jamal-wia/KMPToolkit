@@ -143,15 +143,64 @@ class JavaFxRateGivingR8AdversarialTest {
         }
     }
 
+    /** Waits for the loop wrap's native-seek stamp (D-b: `onEndOfMedia` stamps `lastNativeSeekNanos`); a 1x start from a loaded clip issues no seek before it. */
+    private fun awaitWrapStamp(e: JavaFxVideoEngine): Long {
+        var stamp = 0L
+        await(15_000L, "the loop wrap stamped as a native seek (lastNativeSeekNanos, D-b M2)") {
+            flushFx(e)
+            stamp = longField(e, "lastNativeSeekNanos")
+            stamp != 0L
+        }
+        return stamp
+    }
+
+    /**
+     * Outside the seek window of a wrap at 1x (300 ms after the wrap's stamp, SEEK_RATE_SETTLE_NANOS) a speed is written at
+     * once: nothing is deferred at a wrap at normal speed (J14, a 1x wrap that deferred anyway, held it until the playhead had
+     * moved on). Inside the window it is held by design (D-b): the next test.
+     */
     @Test
-    fun `a speed given right after a loop wrap at normal speed reaches the native player at once`() {
+    fun `a speed given after the seek window of a loop wrap at normal speed reaches the native player at once`() {
         val e: JavaFxVideoEngine = loaded()
         e.setLooping(true)
         e.start()
         waitForWrap(e)
+        val stamp: Long = awaitWrapStamp(e)
+        // timing-hygiene-ignore: TH2 measure R-92 the distance from the wrap's stamp (same System.nanoTime clock as the engine host), ruling fxport-rategiving-assertion-opus
+        val wait: Long = stamp + 400_000_000L - System.nanoTime()
+        if (wait > 0L) sleep(wait / 1_000_000L + 1L)
+        // timing-hygiene-ignore: TH2 measure R-92 the distance from the wrap's stamp (same System.nanoTime clock as the engine host), ruling fxport-rategiving-assertion-opus
+        val gapMs: Long = (System.nanoTime() - stamp) / 1_000_000L
         e.setSpeed(2f)
         val rate: Double = runBlocking { withTimeout(5_000L) { checkNotNull(e.inspectPlayback()).rate } }
-        assertEquals(2.0, rate, "nothing was deferred at a wrap at normal speed")
+        assertEquals(2.0, rate, "nothing was deferred at a wrap at normal speed: the speed was given $gapMs ms after the wrap's stamp, past its 300 ms seek window")
+    }
+
+    /**
+     * Inside the seek window of a wrap at 1x (D-b, M2 of the D2-PF1 review) a speed is held, not lost: the property is not
+     * touched at the wrap or at the call, and the speed is written once, no earlier than 300 ms after the wrap's stamp
+     * (SEEK_RATE_SETTLE_NANOS), with the playhead moved on about 200 ms (LOOP_RATE_SETTLE_MS).
+     */
+    @Test
+    fun `a speed given inside the seek window of a loop wrap at normal speed is given once after the window`() {
+        val e: JavaFxVideoEngine = loaded()
+        e.setLooping(true)
+        flushFx(e)
+        val events = record(e)
+        e.start()
+        val stamp: Long = awaitWrapStamp(e)
+        // timing-hygiene-ignore: TH2 measure R-92 the distance from the wrap's stamp (same System.nanoTime clock as the engine host), ruling fxport-rategiving-assertion-opus
+        val calledAt: Long = System.nanoTime()
+        e.setSpeed(2f)
+        val gapMs: Double = (calledAt - stamp) / 1e6
+        assertTrue(gapMs < 300.0, "harness: the speed was given $gapMs ms after the wrap's stamp, outside the 300 ms window this test is about")
+        await(5_000L, "the held speed given (called $gapMs ms after the wrap's stamp)") { events.any { it.rate == 2.0 } }
+        sleep(400L)
+        assertEquals(listOf(2.0), events.map { it.rate }, "one write of the speed, no drop and nothing else at a wrap at normal speed")
+        val given: RateEvent = events.single()
+        val afterStampMs: Double = (given.atNanos - stamp) / 1e6
+        assertTrue(afterStampMs >= 300.0, "the speed was written $afterStampMs ms after the wrap's stamp, inside its 300 ms seek window (called $gapMs ms after it)")
+        assertTrue(given.positionMs >= 190.0, "the speed was written with the playhead at ${given.positionMs} ms: it had not moved on 200 ms")
     }
 
     @Test

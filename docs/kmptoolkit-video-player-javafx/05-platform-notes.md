@@ -152,7 +152,9 @@ decoder writes straight into memory without a render-and-read-back step.
   the source itself, and `Completed` is never reported while it is on.
 - **End of media.** JavaFX leaves its own status at `PLAYING` when the last cycle ends; the engine
   pauses it there, so a seek from `Completed` stays `Paused` — in the state and in JavaFX — until
-  `play()`.
+  `play()`. A `stop()` or a `seekTo()` that lands in the instant between JavaFX reaching the end of the clip and
+  delivering that end to the engine (one FX-thread task) can still be followed by `Completed` after the call has
+  returned; a `play()` from there starts at the beginning. 5.0.0 does not change this.
 - **Open files after release.** JavaFX gives a `Media` no way to be closed: the file or connection
   it opened stays open after `release()` until the garbage collector reclaims it. Under the usual
   descriptor limits this matters only for an app that loads thousands of sources between two
@@ -171,7 +173,11 @@ decoder writes straight into memory without a render-and-read-back step.
   thread, where `start()` runs at once and the next call queues, the pending speed is given two FX tasks
   later, so the speed that follows still gets in front of it and the native player sees one away-and-back,
   not three rate changes next to `play()`); the same holds when the playhead stands within about 100 ms of
-  the start (the first play, a replay), where a seek to it moves nothing visible. When no seek is pending
+  the start (the first play, a replay), where a seek to it moves nothing visible, but only while the native
+  player has not started playing: a speed that arrives after its status has turned `PLAYING` (a speed changed
+  shortly after a play near the start of a clip, within about 600 ms) is given as for a resume with no seek
+  pending, below, instead, because a seek followed at once by a rate change on a started decoder can freeze the playhead, so that
+  speed takes effect after about 200 ms of playback. When no seek is pending
   and the playhead is further on, a resume at a speed other than 1
   (including a speed that arrives within about 600 ms of a plain `play()`: it was changed while paused or
   ready, or right after a play) plays from exactly where it was paused with no native seek, and the speed
@@ -185,6 +191,9 @@ decoder writes straight into memory without a render-and-read-back step.
   200 ms, and no sooner than 300 ms after a seek made meanwhile (a rate change within about 100 ms of a
   native seek can freeze the playhead too); the reported time of a loop's second cycle can hold still for
   about 300 ms and then catch up.
+  Those 200 ms are measured on ticks of the reported time, and the first tick of the new cycle comes only after that
+  hold, so the speed returns about 0.55 s after the wrap on an idle machine and later on a busy one (up to about 1.2 s
+  in the load measurements); meanwhile the clip plays at normal speed, and the speed is never lost.
   A speed given to a playing clip within about 300 ms of a seek (`seekTo()`, `seekForward()`/`seekBackward()` or
   `replay()` while playing, a `stop()` followed by `play()`, playing a completed clip, or the wrap of a looping clip,
   which restarts with a native seek) is not written at once,
@@ -194,7 +203,8 @@ decoder writes straight into memory without a render-and-read-back step.
   then moved about 200 ms of media, and then takes the new one.
   In probe runs on macOS, a speed written right after the engine's own seek to the start (the first play at a
   speed, or a resume within about 100 ms of the start) left the playhead standing still once in 120 rounds, and
-  not in 40 first plays of a fresh clip or in 120 resumes after a seek; the engine still gives that speed at once,
+  not in 40 first plays of a fresh clip or in 120 resumes after a seek; before the native player reports playing,
+  the engine still gives that speed at once (a speed after that is held as described above),
   because holding it back would play the start of every such play at normal speed for half a second or more.
   This is not changed by 5.0.0.
   A rate that is not finite and positive, or a NaN volume, is ignored at the engine (the player never

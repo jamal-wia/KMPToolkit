@@ -136,7 +136,8 @@ it there — which is why the Android factory takes a `KeyValueStorage`.
   disagree.
 - Entries that ask Android for the same permission string (or a subset of it) share what was learned: a
   refusal for good through `PhotoLibrary` reads as one through `AudioLibrary` below API 33, and through
-  `Calendar` as one through `CalendarWriteOnly`. The reverse direction is not mirrored (the full calendar
+  `Calendar` as one through `CalendarWriteOnly`, and the flags are cleared for those entries too when the
+  permission is granted. The reverse direction is not mirrored (the full calendar
   can still show a dialog for the read string), and neither is a partial answer. A `Runtime(name)` you
   build for a string a catalog entry already covers keeps its own flags, so ask through one of the two.
   `observe` follows the same model: a request through one of these entries re-reads every observer of
@@ -320,7 +321,9 @@ host is free (the stale dialog answered or abandoned) and then launches its own 
 bounded at 30 seconds (an internal constant, not configurable) and ends at once if the waiting caller
 is cancelled. When the stale dialog is still up at the bound, the waiting request fails like a refused
 launch: nothing is shown and the current status is returned. A request arriving after the wait has
-timed out is not held again; it goes straight to the host.
+timed out is not held again: it fails at once the same way, without a call to the host, for as long as
+that dialog is up (once the host reports it done, the next request launches its own), so a host never
+sees a launch while a dialog is pending.
 
 Every `createPermissionController` call without an `activityAccess` shares one activity tracker per
 `Application`, a lifecycle callback registered on first use that lives as long as the process and is

@@ -8,6 +8,7 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 import io.github.jamal_wia.kmptoolkit.video.player.javafx.EngineEvent
 import io.github.jamal_wia.kmptoolkit.video.player.javafx.FxPlayback
 import io.github.jamal_wia.kmptoolkit.video.player.javafx.JavaFxVideoEngine
+import io.github.jamal_wia.kmptoolkit.video.player.javafx.NativeStatus
 import io.github.jamal_wia.kmptoolkit.video.player.javafx.RecordingListener
 import io.github.jamal_wia.kmptoolkit.video.player.javafx.TestClip
 import kotlin.test.Test
@@ -499,15 +500,19 @@ class FxCallerFamilyModelTest {
     }
 
     /**
-     * Twin of `a speed changed a short while after a play keeps the playhead moving at that speed` (delays 250 and 400 ms; the
-     * real class also has 150 ms, which the model flags as a W-SEEK-RUN violation on the current code: a `Question:` of the
-     * report, no test here until the advisor rules): a speed of 2 given that long after a plain play (inside the fresh-play window, so it is given as a nudge after the
-     * decoder ran for a moment, never inside W-PLAY) keeps the playhead moving, reads 2 as the rate property and reaches the
-     * decoder exactly once.
+     * Twin of `a speed changed a short while after a play keeps the playhead moving at that speed` (delays 150, 250 and 400
+     * ms, as the real class): a speed of 2 given that long after a plain play (inside the fresh-play window, so it is given
+     * as a nudge after the decoder ran for a moment, never inside W-PLAY) keeps the playhead moving, reads 2 as the rate
+     * property and reaches the decoder exactly once. At 150 ms the decoder has started (status PLAYING lands 30 ms after the
+     * play) while the published playhead still reads at most 100 ms, so the near-start test of `FxPlayback.setSpeed` holds:
+     * a seek, play and rate change posted at once there is the W-SEEK-RUN case (a seek on a started decoder followed at once
+     * by a rate change), the Opus ruling D-ns on the J11b question. The fix gives that case the settle nudge, like the 250
+     * and 400 ms cases; the shared player's own order, a speed right after `start()` before any status lands, keeps the
+     * seek path: [theSpeedRightAfterAFirstPlayBeforeTheDecoderHasStartedKeepsTheSeekPathOrder].
      */
     @Test
     fun aSpeedChangedAShortWhileAfterAPlayKeepsThePlayheadMovingAtThatSpeedOrder() {
-        for (delayMs: Long in listOf(250L, 400L)) {
+        for (delayMs: Long in listOf(150L, 250L, 400L)) {
             fxModel {
                 withPlayer {
                     player.play()
@@ -523,6 +528,50 @@ class FxCallerFamilyModelTest {
                     assertEquals(2.0, inspect()?.rate, "delay $delayMs: the rate property reads 2.0\n${native.log}")
                     assertEquals(2.0, hazards.effectiveRate, "delay $delayMs: the speed reached the decoder\n${native.log}")
                     assertFalse(hazards.frozen, native.log.tail())
+                }
+            }
+        }
+    }
+
+    /**
+     * The guard of the fix D-ns, and the order of the shared player (its `play()` calls `engine.start()` and then
+     * `engine.setSpeed` in one FX task or in two queued tasks) on a fresh clip: the speed arrives before any status can land
+     * (the status PLAYING of the scripted decoder lands 30 ms after the play, the speed 0 ms after it), so the decoder has
+     * not started and the near-start branch of `setSpeed` keeps its seek, play and away-and-back, all at the instant of the
+     * speed. This pins FIRSTPLAY (and the two R6 contract assertions D-89 protects): a fix of the started case must not
+     * defer this one. No window is violated and the decoder does not freeze.
+     */
+    @Test
+    fun theSpeedRightAfterAFirstPlayBeforeTheDecoderHasStartedKeepsTheSeekPathOrder() {
+        for (fromFx: Boolean in listOf(true, false)) {
+            fxModel {
+                withEngine {
+                    val mark: Int = native.log.size
+                    val calls: () -> Unit = {
+                        engine.start()
+                        engine.setSpeed(2f)
+                    }
+                    if (fromFx) onFx(calls) else calls()
+                    advanceBy(0)
+                    val label: String = if (fromFx) "from the FX thread" else "from another thread"
+
+                    val entries: List<NativeCallEntry> = native.log.entries.drop(mark)
+                    val firstPlay: Int = entries.indexOfFirst { it.call == NativeCall.PLAY }
+                    assertTrue(firstPlay >= 0, "$label: no play\n${native.log}")
+                    val afterPlay: List<NativeCallEntry> = entries.drop(firstPlay + 1)
+                    assertEquals(
+                        listOf(NativeCall.SEEK, NativeCall.PLAY, NativeCall.SET_RATE, NativeCall.SET_RATE),
+                        afterPlay.map { it.call },
+                        "$label: the speed right after the first play takes the seek path\n${native.log}",
+                    )
+                    assertEquals(listOf<Double?>(1.0, 2.0), afterPlay.drop(2).map { it.arg }, "$label: away and back\n${native.log}")
+                    assertTrue(afterPlay.all { it.tMs == afterPlay.first().tMs }, "$label: all at the instant of the speed\n${native.log}")
+                    assertTrue(afterPlay.all { it.status != NativeStatus.PLAYING }, "$label: the decoder had not started\n${native.log}")
+                    assertFalse(hazards.frozen, "$label\n${native.log.tail()}")
+                    assertEquals(emptyList(), hazards.violations.filterNot { it.strictOnly }, "$label: a violation of the default reading\n${native.log}")
+                    advanceBy(1_500)
+                    assertEquals(2.0, hazards.effectiveRate, "$label: the speed reached the decoder\n${native.log}")
+                    assertFalse(hazards.frozen, "$label\n${native.log.tail()}")
                 }
             }
         }
