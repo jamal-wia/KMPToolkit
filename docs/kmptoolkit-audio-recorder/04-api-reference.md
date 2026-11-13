@@ -521,7 +521,7 @@ public data class RecordingStorage(
 )
 ```
 
-- `directoryPath` — absolute directory (absolute on the file system the code runs on: `/…` on Android and iOS, `C:\…` or `\\server\share\…` on a Windows JVM, which is where host tests of an Android module run); a blank or relative path is rejected in `init`. On a Windows JVM a `/…` path is drive-relative, not absolute, so it is rejected too (since 4.1.0; earlier a host test on Windows could pass one): build the path from the host, for example `File(tempDir, "rec").absolutePath`. On Android and iOS nothing changes. `null` means `<app-private files>/<directoryName>`.
+- `directoryPath` — absolute directory (absolute on the file system the code runs on: `/…` on Android and iOS, `C:\…` or `\\server\share\…` on a Windows JVM, which is where host tests of an Android module run); a blank or relative path is rejected in `init`. On a Windows JVM a `/…` path is drive-relative, not absolute, so it is rejected too (since 5.0.0; earlier a host test on Windows could pass one): build the path from the host, for example `File(tempDir, "rec").absolutePath`. On Android and iOS nothing changes. `null` means `<app-private files>/<directoryName>`.
 - `directoryName` — relative directory under the app-private base; may be nested (`a/b`) but must not start with `/` or contain a `.` or `..` segment; rejected in `init`. `null` means the consumer's own
   application id / bundle identifier. Ignored when `directoryPath` is set.
 - `fileNamePrefix` — leading part of a generated name (`<prefix>_<epochMillis>_<token>.<ext>`). Must not be

@@ -81,7 +81,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-downloader` now depends on `kmptoolkit-files` (its lock registries, the Android tree walk, the no-replace
   rename and the SQLite sidecar names). The on-disk format and directory layout do not change; a unit whose id has an unpaired surrogate now
   gets hashed file names (Android could not create files named by such an id before).
-- `kmptoolkit-audio-recorder` now depends on `kmptoolkit-files`. No file name or directory layout changes.
+- `kmptoolkit-audio-recorder` now depends on `kmptoolkit-files`. No file name or directory layout changes. It creates
+  its directories through it (`createDirectories`), then checks that the path is a directory with links followed and
+  writable: a link to a directory is accepted, a dangling link is not.
+- `kmptoolkit-audio-recorder`: `RecordingStorage(directoryPath = ...)` and an explicit output path must be absolute for
+  the file system the code runs on. On a Windows JVM, where host tests of an Android module run, a `/...` path is
+  drive-relative and is rejected, like a blank or a relative one; Android and iOS are unchanged.
+  `kmptoolkit-audio-recorder-testing`: `FakeAudioRecorder` accepts a host-absolute `directory` and explicit path as well
+  as a POSIX-style one.
 - `kmptoolkit-audio-recorder`: `stop()` fails with `EngineFailure(STOP)` and the state `Failed(error, outputPath)` when the
   output file is no longer a regular file once the encoder has finished (deleted, or replaced by a directory);
   `Completed` never names such a path.
