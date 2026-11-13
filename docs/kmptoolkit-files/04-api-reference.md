@@ -234,7 +234,7 @@ No file I/O; thread-safe.
 
 | Member | Contract |
 |---|---|
-| `isAbsolute` | POSIX: starts with `/`. Windows: `C:\`, `C:/`, `\\server\share`, `//server/share`; `\x` and `C:x` are not. Empty: `false` |
+| `isAbsolute` | POSIX: starts with `/`. Windows: `C:\`, `C:/`, `\\server\share`, `//server/share`; `\x` and `C:x` are not, and neither is a path that starts with three or more separators (an empty server name: it is rooted like `\x`, not a UNC path). Empty: `false` |
 | `join` | `parent` + one host separator + `child`, without doubling a separator at the joint. **Throws** `IllegalArgumentException` if `child` is empty or absolute |
 | `parentOf` | The path without its last segment (trailing separators ignored); `null` for a root, an empty path, or a single relative segment |
 | `normalizeLexically` | Resolves `.`, `..` and repeated separators and drops a trailing separator. `..` above a root stays at the root; leading `..` of a relative path are kept; an empty result is `.`. Never changes whether a path is absolute or rooted: a relative Windows result whose first segment looks like a drive (`C:`) keeps a leading `.\`. Windows: accepts both separators, writes `\`. Does not know about symbolic links |

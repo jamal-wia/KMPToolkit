@@ -107,8 +107,6 @@ class PathAlgebraR4Test {
         val rules: PathRules = PathRules.Windows
         repeat(30_000) {
             val path: String = windowsPath(random)
-            // SUSPECT G16 (adversarial/G/suspects/r4-G16-*): three leading separators change isAbsolute; reported, not asserted here.
-            if (path.length >= 3 && path.take(3).all { rules.isSeparator(it) }) return@repeat
             val normalized: String = rules.normalizeLexically(path)
             val flipped: String = path.replace('/', '\\')
             assertEquals(normalized, rules.normalizeLexically(flipped), "seed=$seed path='$path' separators flipped")
