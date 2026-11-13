@@ -96,10 +96,11 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
   `prepare()` succeeds and removed before `stop()` and in `release()`; on Android 10+ an
   `AudioRecordingMonitor` callback reports a silenced input too. See "When the system ends a
   recording" below.
-- **Free space** comes from `File.usableSpace` on the output directory, which respects per-user
-  quotas. A directory that does not exist, or a path that throws, is reported as unknown, and an
-  unknown skips the check rather than failing the recording — `usableSpace` answers `0` for a
-  missing path, which would otherwise be indistinguishable from a genuinely full volume.
+- **Free space** comes from `kmptoolkit-files` (`FileAccess.freeSpaceBytes`) on the output directory, asked only
+  after the path is confirmed to be an existing directory; it respects per-user quotas. A path that is not an
+  existing directory, or one the platform cannot answer for, is reported as unknown, and an unknown skips the
+  check rather than failing the recording — a bare `0` for a missing path would be indistinguishable from a
+  genuinely full volume.
 - **Directory creation** goes through `kmptoolkit-files` (`createDirectories`), then checks that the path is a
   directory (links followed) and `canWrite()`. A `SecurityException` from a path outside the sandbox is exactly
   the "not writable" answer, so it is reported as `DirectoryNotWritable`, not thrown.
