@@ -8,6 +8,10 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.SemanticsActions
@@ -154,6 +158,37 @@ abstract class VideoPlayerConsumerScreenR9Tests {
             assertEquals(listOf("start"), tp.calls)
             tp.player.release()
         }
+
+    // --- 03-guide "Keep screen on, background, lifecycle": the pause comes at ON_STOP, not before -------
+
+    private class HostLifecycleR9 : LifecycleOwner {
+        val registry: LifecycleRegistry = LifecycleRegistry.createUnsafe(this).apply {
+            currentState = Lifecycle.State.RESUMED
+        }
+        override val lifecycle: Lifecycle get() = registry
+    }
+
+    @Test
+    fun `a screen that is paused but still visible keeps playing and only a stop pauses it`() = runComposeUiTest {
+        val host = HostLifecycleR9()
+        val tp = TestPlayer().playing(0L)
+        setContent {
+            CompositionLocalProvider(LocalLifecycleOwner provides host) {
+                TestHost { VideoPlayer(tp.player, controlsAutoHideDelayMs = NEVER_HIDE_MS) }
+            }
+        }
+        waitForIdle()
+
+        // RESUMED to STARTED sends ON_PAUSE only: a dialog or a second window in front, the picture still shown.
+        runOnIdle { host.registry.currentState = Lifecycle.State.STARTED }
+        assertTrue(tp.state is VideoPlayerState.Playing, "paused by an ON_PAUSE: ${tp.state} ${tp.calls}")
+        assertEquals(emptyList(), tp.calls)
+
+        // STARTED to CREATED sends ON_STOP: now the player pauses.
+        runOnIdle { host.registry.currentState = Lifecycle.State.CREATED }
+        assertTrue(tp.state is VideoPlayerState.Paused, "not paused by the stop: ${tp.state} ${tp.calls}")
+        tp.player.release()
+    }
 
     // --- Q4: recomposition counts of a controls slot per position tick ----------------------------
 
