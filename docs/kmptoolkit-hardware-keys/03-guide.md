@@ -70,10 +70,15 @@ enforces.
 
 - **Both `ACTION_DOWN` and `ACTION_UP`**, and repeats. Consume both halves of a key you care about;
   consuming only the down leaves an unpaired up for the dialog.
-- **Only keys delivered to the dialog's window.** A key pressed while the Activity's own window has
-  focus goes to the Activity.
-- **Before the dialog's content.** A consumed key never reaches a `Modifier.onKeyEvent` inside the
-  dialog, nor the dialog's own back handling if you consume `KEYCODE_BACK`. Return `false` for the
+- **Only keys delivered to the window that runs the effect.** A key pressed while the Activity's own
+  window has focus goes to the Activity first; on API 28 and higher the effect in Activity content
+  sees only what the Activity and its views left unhandled.
+- **Before the dialog's content, in a dialog window.** In a window with a `DialogWindowProvider` (a
+  `Dialog`, `ModalBottomSheet`, `DatePickerDialog`) a consumed key never reaches a `Modifier.onKeyEvent`
+  inside the dialog, nor the dialog's own back handling if you consume `KEYCODE_BACK`. In a focusable
+  `Popup` and in Activity content (API 28+) the interceptor runs after the view tree, so a
+  `Modifier.onKeyEvent` has already seen the key and consuming it stops only the platform's own fallback.
+  Return `false` for the
   back key unless you intend to disable dismissing by back — and do not rely on consuming it: with
   predictive back on Android 16+ the gesture never arrives as a key event (see
   [`05-platform-notes.md`](05-platform-notes.md#the-back-key)).

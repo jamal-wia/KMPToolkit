@@ -165,8 +165,9 @@ controller. Whatever the controller set on the activity's window does not reach 
 over an open sheet fall back to the platform default — dark icons, which are invisible on a light
 app bar and unreadable in dark mode.
 
-`DialogWindowSystemBarsEffect(controller)` at the top of the dialog's content lambda fixes it. It
-detects the dialog window through Compose's `DialogWindowProvider` and does nothing when there is
+`DialogWindowSystemBarsEffect(controller)` at the top of the dialog's content lambda fixes the icon
+styles (it applies the two icon styles to the dialog window, not bar visibility or the hidden-bar
+behaviour). It detects the dialog window through Compose's `DialogWindowProvider` and does nothing when there is
 none, so it is harmless if you call it somewhere that turns out not to be a dialog.
 
 ### Behaviour of a hidden bar

@@ -130,6 +130,11 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
+- `kmptoolkit-logging` (Android): the Android log sink no longer loses the stack trace of a cause chain with an
+  `UnknownHostException` beyond the 64th link and no longer hands a cyclic cause chain to `android.util.Log`, which
+  looped forever. The chain is now walked to its end with an identity-based visited set; a chain that holds an
+  `UnknownHostException` or repeats a throwable is rendered by the sink with `stackTraceToString()` and no throwable
+  is passed on, every other chain is passed through unchanged.
 - `kmptoolkit-video-player` (Android): a Throwable thrown while the Media3 media source is built reaches
   `VideoPlayerState.Error` as the same instance, also when kotlinx.coroutines stack-trace recovery is on (JUnit,
   Robolectric).

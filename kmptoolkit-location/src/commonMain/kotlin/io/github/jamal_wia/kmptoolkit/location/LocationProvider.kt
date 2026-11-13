@@ -22,8 +22,9 @@ public interface LocationProvider {
     /**
      * Returns a single location fix, or `null` if none could be obtained.
      *
-     * Prefers the freshest cached fix the platform already has (on Android, across the GPS and network
-     * providers that are switched on); falls back to requesting a fresh one, capped
+     * On Android, prefers the freshest cached fix the platform already has (across the GPS and network
+     * providers that are switched on) and falls back to requesting a fresh one; on iOS it always
+     * requests a fresh one and never reads a cached fix. The request is capped
      * by [LocationProviderConfig.singleFixTimeoutMillis] so a device with no signal cannot hang
      * this call forever. Never throws for a missing permission or a disabled location service —
      * both come back as `null`.

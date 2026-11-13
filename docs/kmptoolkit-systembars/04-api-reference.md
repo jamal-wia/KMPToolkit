@@ -179,9 +179,10 @@ The intended way to use the controller from a screen.
 public fun DialogWindowSystemBarsEffect(controller: SystemBarsController)
 ```
 
-Applies the controller's current configuration to a Compose surface rendering into its own platform
-window — `Dialog`, `Popup`, `ModalBottomSheet`, `BasicAlertDialog`. Call it once at the top of the
-dialog's content lambda.
+Applies the controller's current status-bar and navigation-bar icon styles (and only those two) to a
+Compose surface rendering into its own platform window — `Dialog`, `Popup`, `ModalBottomSheet`,
+`BasicAlertDialog`. Bar visibility and the hidden-bar behaviour of the configuration are not applied to
+the dialog's window. Call it once at the top of the dialog's content lambda.
 
 On Android such a surface has an insets controller of its own that the activity-level configuration
 never reaches, so without this the bars over an open sheet revert to the platform default. Outside

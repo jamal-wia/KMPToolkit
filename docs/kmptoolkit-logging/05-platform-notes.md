@@ -31,7 +31,10 @@ Things to know:
   prints the message and no trace. For such a throwable the sink appends
   `throwable.stackTraceToString()` (the whole chain, causes included) to the message on its own
   lines and passes no `Throwable` to `android.util.Log`; every other throwable is passed through
-  unchanged. The trace is then part of the message text; logcat splits it into entries at line breaks as it does a platform-rendered trace.
+  unchanged. The whole chain is searched however long it is, and a cyclic chain (a throwable that is
+  its own indirect cause, which `initCause` can build) is rendered the same way, because
+  `android.util.Log.getStackTraceString` never returns on a cycle and `stackTraceToString()` prints
+  `CIRCULAR REFERENCE` for the repeated throwable and stops. The trace is then part of the message text; logcat splits it into entries at line breaks as it does a platform-rendered trace.
   to logcat's per-entry length limit like any long message.
 - **Logcat has its own filter.** `android.util.Log` applies the device's per-tag log level on top of
   this module's `minLevel`. An event this module passes can still be dropped by the platform —
@@ -45,7 +48,10 @@ Things to know:
   building its message is not.
 - **`android.util.Log` is not available on a plain JVM.** In a local unit test without Robolectric,
   calling it throws `"not mocked"`. Tests should use their own sink or an empty sink list — this
-  module's own tests never touch `platformLogSink()` for exactly this reason.
+  module's common tests never touch `platformLogSink()` for exactly this reason. The only tests that
+  create it are the Android host tests (`PlatformLogSinkStackTraceTest`, `PlatformLogSinkLongChainTest`),
+  which run under Robolectric, where `android.util.Log` is a working shadow that records what the sink
+  passes to it.
 
 ## iOS
 

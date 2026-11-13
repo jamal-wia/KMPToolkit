@@ -55,7 +55,8 @@ Dialog(onDismissRequest = onDismiss) {
 - **Not a key-mapping policy.** It ships no rule about which keys matter. There is no "kiosk mode"
   here, only the seam a kiosk mode needs.
 - **Not the Activity half.** Keys delivered to the Activity's own window are handled where you
-  already handle them. The module only closes the gap the dialog windows open.
+  already handle them. The module only closes the gap the dialog windows open (on API 28 and higher
+  the effect in Activity content sees only the keys the Activity left unhandled).
 - **Not an iOS or desktop feature.** iOS does not deliver the hardware volume buttons to apps and
   sheets share the root view controller; desktop has no equivalent per-window routing. On both, the
   effect compiles and does nothing — see [`05-platform-notes.md`](05-platform-notes.md).
