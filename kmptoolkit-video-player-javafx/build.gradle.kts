@@ -166,6 +166,8 @@ tasks.register<Test>("jvmRealMediaTest") {
     testClassesDirs = gate.testClassesDirs
     classpath = gate.classpath
     maxParallelForks = 1
+    // Its verdict depends on the machine (the OS media stack), which no task input records: a cached or up-to-date result would stand in for a run.
+    doNotTrackState("Real-media soak: its verdict depends on the machine, never reuse an earlier result")
     filter {
         (realMediaSoakClasses + hazardProbeClasses).forEach { name: String -> includeTestsMatching(name) }
         isFailOnNoMatchingTests = true

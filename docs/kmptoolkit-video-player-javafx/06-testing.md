@@ -38,7 +38,7 @@ A class moves from the gate to the soak only when every scenario of it has an F 
 red three times out of three on the production code (and green three times once restored), and the class has no
 unexplained failure rate when run alone.
 
-Tier K and C, the `jvmTest` gate, run the real engine against real JavaFX Media:
+The real-media classes (tiers C, K and R) run the real engine against real JavaFX Media:
 
 - **A checked-in clip** — `src/jvmTest/resources/red-64x48-3s.mp4`, 64×48 solid red, 3 s,
   H.264 baseline + silent AAC, about 4 KB. Solid red lets a test assert that frames carry the
@@ -113,7 +113,7 @@ The default gate (F, C and K):
 ./gradlew :kmptoolkit-video-player-javafx:jvmTest -Pjavafx.required=true
 ```
 
-The real-media soak (R), the eleven classes of `realMediaSoakClasses`. It plays real media and is timing-sensitive, so
+The real-media soak (R), the classes of `realMediaSoakClasses`. It plays real media and is timing-sensitive, so
 run it alone on an idle machine, and split it with `--tests` when one command would take longer than about ten minutes:
 
 ```sh
