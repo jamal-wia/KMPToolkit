@@ -214,9 +214,13 @@ request queue meanwhile. Cancel pending requests (or the scope that runs them) b
   mutex, the batch de-duplication, the shared Bluetooth and calendar authorizations, the upgrade from a
   limited grant, the two-step background location request, the missing-purpose-string rule and its
   single warning, a refused prompt reading permanently denied, the re-read after a request, `observe`
-  (activation, repeats, unregistering) and a caller cancelled while a prompt is up. What no test
-  reaches, because it needs a device: the adapter's one-line delegations, the grace period that decides
-  whether a location prompt was shown, the location and Bluetooth delegates, the real `Info.plist`
-  lookup, `openURL`, and the real prompt of every entry.
+  (activation, repeats, unregistering) and a caller cancelled while a prompt is up. The decision of
+  the location prompt wait (which event ends it, that it ends once, cancellation included) runs against
+  a test of its own. What no test reaches, because it needs a device: the adapter's one-line
+  delegations, the timer and app-state notifications that drive that wait, the location and Bluetooth
+  delegates, the real `Info.plist` lookup, the `canOpenURL` check before opening settings and
+  `openURL`, the choice between EventKit's split (iOS 17+) and legacy requests and the matching
+  purpose-string keys (whose iOS 15/16 branch no simulator test reaches), and the real prompt of every
+  entry.
 - **`kmptoolkit-permission-testing`**: the fixture's own contract, including each place it claims to
   model the OS.
