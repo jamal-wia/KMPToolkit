@@ -12,6 +12,8 @@ import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
 import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -24,6 +26,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.Assume
 import org.junit.runner.RunWith
 
 /**
@@ -87,13 +90,37 @@ class AndroidSwapCrashRound8Test {
         return buffer.toByteArray()
     }
 
-    private fun newStorage(files: FileAccess? = null): DownloaderStorage {
+    private fun newStorage(
+        files: FileAccess? = null,
+        rename: ((from: File, to: File) -> Boolean)? = null,
+    ): DownloaderStorage {
         LegacyTempMigrations.resetForTests()
-        return if (files == null) {
-            AndroidDownloaderStorage(context, config, NoopLogger)
+        val realFiles: FileAccess = files ?: createFileAccess()
+        return if (rename == null) {
+            AndroidDownloaderStorage(context, config, NoopLogger, files = realFiles)
         } else {
-            AndroidDownloaderStorage(context, config, NoopLogger, files = files)
+            AndroidDownloaderStorage(context, config, NoopLogger, files = realFiles, rename = rename)
         }
+    }
+
+    /**
+     * `rename(2)` as Android's libc has it: a directory is never renamed onto a non-directory, so a symbolic link at the
+     * destination makes it fail with ENOTDIR. Some host JVMs (JetBrains Runtime) replace the link instead, so the host
+     * rename is wrapped to keep the test about the storage and not about the JVM it happens to run on.
+     */
+    private val posixRename: (File, File) -> Boolean = { from: File, to: File ->
+        if (from.isDirectory && Files.isSymbolicLink(to.toPath())) false else from.renameTo(to)
+    }
+
+    /** A symbolic link at [link] pointing to [target], or null when this host does not let the test user create one. */
+    private fun linkOrNull(link: File, target: File): File? = try {
+        link.parentFile!!.mkdirs()
+        Files.createSymbolicLink(link.toPath(), target.toPath())
+        link
+    } catch (e: IOException) {
+        null
+    } catch (e: UnsupportedOperationException) {
+        null
     }
 
     private val oldTree: Map<String, ByteArray> =
@@ -315,6 +342,131 @@ class AndroidSwapCrashRound8Test {
             storage.deleteResource(unit)
             assertFalse(storage.isResourceAvailable(unit))
             assertFalse(File(storage.getResourcePath(unit)).exists())
+        }
+    }
+
+    /**
+     * deleteResource sees the tree, a commit of the same unit renames it away and lands its new tree before the
+     * re-check, so the first rename fails (modelled by the rename seam) with a different tree now at the path. That
+     * tree must be moved aside whole by a retry, never walked in place without a lock: the in-place walk is the shape
+     * a kill turns into a marker over a partial tree.
+     */
+    @Test
+    fun `deleteResource retries the move aside when a commit landed a new tree between the check and the retry`() = runBlocking<Unit> {
+        withTimeout(60_000) {
+            val group = Group("g")
+            val oldZip: ByteArray = zip(oldTree)
+            val unit: TestUnit = unitFor(group, oldZip)
+            val target = File(newStorage().also { commit(it, unit, oldZip) }.getResourcePath(unit))
+            val recording = RecordingFiles(createFileAccess())
+            var calls = 0
+            val raced: (File, File) -> Boolean = { from: File, to: File ->
+                if (calls++ == 0) {
+                    // The interleaving: the commit's S2 moves the old tree away, its S3 puts the new tree in place.
+                    assertTrue(from.renameTo(File(root, "elsewhere")), "could not model the commit's detach")
+                    File(from, "marker.txt").apply { parentFile!!.mkdirs() }.writeText("new")
+                    false
+                } else {
+                    from.renameTo(to)
+                }
+            }
+            newStorage(recording, raced).deleteResource(unit)
+            assertEquals(2, calls, "the second attempt must be the retry that moves the new tree aside")
+            assertFalse(target.exists(), "the tree that the racing commit landed is still at the resource path")
+            assertFalse(recording.deleted.any { it == target.absoluteFile }, "a tree at the resource path was walked in place: ${recording.deleted}")
+            assertEquals(emptyList(), trashDir.list().orEmpty().toList(), "the detached tree was not deleted and swept")
+        }
+    }
+
+    /** The retry is bounded: a rename that keeps failing on a present tree ends in the in-place delete after three attempts. */
+    @Test
+    fun `deleteResource gives up moving a tree aside after three attempts and deletes it in place`() = runBlocking<Unit> {
+        withTimeout(60_000) {
+            val group = Group("g")
+            val oldZip: ByteArray = zip(oldTree)
+            val unit: TestUnit = unitFor(group, oldZip)
+            val target = File(newStorage().also { commit(it, unit, oldZip) }.getResourcePath(unit))
+            var calls = 0
+            val storage: DownloaderStorage = newStorage(rename = { _: File, _: File -> calls++; false })
+            storage.deleteResource(unit)
+            assertEquals(3, calls)
+            assertFalse(target.exists())
+            assertFalse(storage.isResourceAvailable(unit))
+        }
+    }
+
+    /**
+     * A symbolic link at the resource path that points nowhere reads as absent to exists(), but the rename moves the link
+     * itself. The commit used to skip the move aside on that reading and then fail to rename the staging tree onto the
+     * link, on every retry; now it replaces the link.
+     */
+    @Test
+    fun `a commit replaces a dangling symbolic link at the resource path`() = runBlocking<Unit> {
+        withTimeout(60_000) {
+            val group = Group("g")
+            val archive: ByteArray = zip(newTree)
+            val unit: TestUnit = unitFor(group, archive)
+            val storage: DownloaderStorage = newStorage(rename = posixRename)
+            val target = File(storage.getResourcePath(unit))
+            Assume.assumeTrue("this host cannot create symbolic links", linkOrNull(target, File(root, "nowhere")) != null)
+            assertFalse(target.exists(), "the link must dangle")
+            assertTrue(Files.isSymbolicLink(target.toPath()))
+            commit(storage, unit, archive)
+            assertFalse(Files.isSymbolicLink(target.toPath()), "the link survived the commit")
+            assertTrue(sameTree(newTree, treeOf(target)), "the committed tree is not the archive")
+            assertTrue(storage.isResourceAvailable(unit))
+            assertEquals(emptyList(), trashDir.list().orEmpty().toList())
+        }
+    }
+
+    /** A link to a live directory is replaced as a link: the directory it points to keeps every file. */
+    @Test
+    fun `a commit replaces a symbolic link to a live directory without touching the directory`() = runBlocking<Unit> {
+        withTimeout(60_000) {
+            val group = Group("g")
+            val archive: ByteArray = zip(newTree)
+            val unit: TestUnit = unitFor(group, archive)
+            val storage: DownloaderStorage = newStorage(rename = posixRename)
+            val target = File(storage.getResourcePath(unit))
+            val live = File(root, "live-elsewhere").apply { mkdirs() }
+            File(live, "keep.txt").writeText("keep")
+            Assume.assumeTrue("this host cannot create symbolic links", linkOrNull(target, live) != null)
+            commit(storage, unit, archive)
+            assertFalse(Files.isSymbolicLink(target.toPath()), "the link survived the commit")
+            assertTrue(sameTree(newTree, treeOf(target)))
+            assertEquals("keep", File(live, "keep.txt").readText(), "the commit reached through the link")
+            assertEquals(emptyList(), trashDir.list().orEmpty().toList())
+        }
+    }
+
+    /**
+     * The S2..S3 kill row: the old tree is renamed aside and the process dies before the staging tree is renamed into
+     * place. The resource path then holds nothing, the complete temp file and its record are still there, and a new
+     * storage's retry commits the new tree with no transfer.
+     */
+    @Test
+    fun `a death between moving the old tree aside and moving the new tree in leaves no resource and a retry commits`() = runBlocking<Unit> {
+        withTimeout(60_000) {
+            val group = Group("g")
+            val oldZip: ByteArray = zip(oldTree)
+            val newZip: ByteArray = zip(newTree)
+            val oldUnit: TestUnit = unitFor(group, oldZip)
+            val unit: TestUnit = unitFor(group, newZip)
+            val first: DownloaderStorage = newStorage()
+            commit(first, oldUnit, oldZip)
+            stage(first, unit, newZip)
+            val target = File(first.getResourcePath(unit))
+            val dying: DownloaderStorage = newStorage(rename = { from: File, to: File ->
+                if (to.absoluteFile == target.absoluteFile) throw ProcessDeath("moving the new tree in") else from.renameTo(to)
+            })
+            assertFailsWith<ProcessDeath> { dying.commitResource(unit) }
+            val after: DownloaderStorage = newStorage()
+            assertFalse(after.isResourceAvailable(unit))
+            assertFalse(target.exists(), "something is left at the resource path")
+            assertEquals(TempFileState.Complete, after.tempFileState(unit))
+            after.commitResource(unit)
+            assertTrue(after.isResourceAvailable(unit))
+            assertTrue(sameTree(newTree, treeOf(target)), "the retry did not commit the new tree")
         }
     }
 }
