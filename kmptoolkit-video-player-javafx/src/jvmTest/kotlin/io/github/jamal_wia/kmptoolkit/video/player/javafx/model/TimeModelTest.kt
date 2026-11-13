@@ -1,0 +1,876 @@
+package io.github.jamal_wia.kmptoolkit.video.player.javafx.model
+
+import io.github.jamal_wia.kmptoolkit.video.player.javafx.NativeStatus
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
+
+/**
+ * The time and seek part of the scripted native player, one group per behaviour of design section 4.1: B3 (the
+ * sampled and published playhead), B5 (key-frame seeks), B7 (the end without looping), plus the `LOAD` profile and
+ * the hooks the hazard part uses. Every wait is virtual; the checked-in clip's numbers are the defaults
+ * (3000 ms long, key frames 1000 ms apart, ready after 50 ms, status lag 30 ms).
+ */
+class TimeModelTest {
+
+    private class Rig(
+        val scope: FxModelScope,
+        val player: ScriptedNativePlayer,
+        val time: TimeModel,
+        val events: RecordingNativeEvents,
+        val loop: LoopModel? = null,
+    ) {
+        fun advance(ms: Long) = scope.advanceBy(ms)
+
+        fun <T> onFx(block: () -> T): T = scope.onFx(block)
+
+        fun now(): Double = scope.host.elapsedNanos / 1_000_000.0
+
+        /** Millisecond times of the `currentTime` events so far. */
+        fun tickTimes(): List<Double> = events.events.filter { it.name == "currentTime" }.map { it.tMs }
+
+        fun count(name: String): Int = events.names.count { it == name }
+    }
+
+    /** A player with a time part, built the way `FxPlayback` builds one, not yet ready. */
+    private fun FxModelScope.rig(
+        script: TimeScript = TimeScript(),
+        clip: ClipModel = ClipModel(),
+        status: StatusScript = StatusScript(),
+        withLoop: Boolean = false,
+    ): Rig {
+        val events = RecordingNativeEvents(host)
+        val (player: ScriptedNativePlayer, time: TimeModel) = onFx {
+            val p = ScriptedNativePlayer(host, clip, status)
+            p.setEvents(events)
+            val loop: LoopModel? = if (withLoop) LoopModel(p).also { p.loop = it } else null
+            p to TimeModel(p, script, loop)
+        }
+        return Rig(this, player, time, events, player.loop as? LoopModel)
+    }
+
+    /** A rig advanced to the ready edge (t=50) with the event record cleared. */
+    private fun FxModelScope.readyRig(
+        script: TimeScript = TimeScript(),
+        clip: ClipModel = ClipModel(),
+    ): Rig = rig(script, clip).also {
+        it.advance(50)
+        it.events.clear()
+    }
+
+    // -- the part fills its slot --
+
+    @Test
+    fun theTimeModelInstallsItselfInTheTimeSlot() = fxModel {
+        val rig: Rig = rig()
+
+        assertTrue(rig.player.time === rig.time)
+    }
+
+    // -- B3: the playhead is sampled and published --
+
+    @Test
+    fun aPausedPlayerDoesNotMoveAndPublishesNothing() = fxModel {
+        val rig: Rig = readyRig()
+
+        rig.advance(5_000)
+
+        assertEquals(0.0, rig.player.currentTimeMs)
+        assertEquals(0, rig.count("currentTime"))
+        assertEquals(0, rig.scope.host.pendingCount)
+    }
+
+    @Test
+    fun aPlayingPlayerPublishesTheNativePositionEvery100Ms() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+
+        rig.advance(299)
+
+        // play() at t=50: samples at 150, 250, 350 carry 100, 200, 300
+        assertEquals(listOf(150.0, 250.0), rig.tickTimes())
+        assertEquals(200.0, rig.player.currentTimeMs)
+        rig.advance(1)
+        assertEquals(listOf(150.0, 250.0, 350.0), rig.tickTimes())
+        assertEquals(300.0, rig.player.currentTimeMs)
+    }
+
+    @Test
+    fun thePublishedPositionHoldsTheLastSampleBetweenSamples() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+
+        rig.advance(100) // t=150: the first sample
+        assertEquals(100.0, rig.player.currentTimeMs)
+        rig.advance(99) // t=249: one before the next sample
+
+        assertEquals(100.0, rig.player.currentTimeMs)
+        assertEquals(199.0, rig.time.nativePositionMs)
+    }
+
+    @Test
+    fun theSampleIntervalIsConfigurable() = fxModel {
+        val rig: Rig = readyRig(TimeScript().apply { sampleIntervalMs = 50.0 })
+        rig.onFx { rig.player.play() }
+
+        rig.advance(150)
+
+        assertEquals(listOf(100.0, 150.0, 200.0), rig.tickTimes())
+        assertEquals(150.0, rig.player.currentTimeMs)
+    }
+
+    @Test
+    fun aSampleIsPublishedByASeparateQueuedBlockNotAtTheMomentItIsTaken() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+
+        rig.advance(99) // t=149: the status landing at t=80 is behind us, the first sample is next
+        assertTrue(rig.scope.step(), "the sample tick of t=150")
+        assertEquals(0.0, rig.player.currentTimeMs, "taken, not published yet")
+        assertTrue(rig.scope.step(), "the publication of that sample")
+
+        assertEquals(100.0, rig.player.currentTimeMs)
+    }
+
+    @Test
+    fun theListenerRunsOnTheFxThreadAndOnlyForAChangedValue() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.seek(1_540.0) }
+        rig.advance(0)
+        rig.onFx { rig.player.seek(1_999.0) } // lands on the same key frame: the same value
+        rig.advance(0)
+
+        assertEquals(1, rig.count("currentTime"))
+        assertTrue(rig.events.events.single { it.name == "currentTime" }.onFxThread)
+    }
+
+    @Test
+    fun aPublishDelayHoldsASampleInTheQueue() = fxModel {
+        val rig: Rig = readyRig(TimeScript().apply { publishDelayMs = 70.0 })
+        rig.onFx { rig.player.play() }
+
+        rig.advance(169) // t=219
+        assertEquals(0.0, rig.player.currentTimeMs)
+        rig.advance(1)
+
+        // the sample taken at t=150 carries 100 and lands at t=220
+        assertEquals(100.0, rig.player.currentTimeMs)
+        assertEquals(listOf(220.0), rig.tickTimes())
+    }
+
+    @Test
+    fun aSampleTakenBeforeASeekLandsAfterItAndPutsTheOldPositionBack() = fxModel {
+        val rig: Rig = readyRig(TimeScript().apply { publishDelayMs = 70.0 })
+        rig.onFx { rig.player.play() }
+        rig.advance(130) // t=180: the sample of t=150 (value 100) is in flight until t=220
+        rig.onFx { rig.player.seek(1_540.0) } // lands on 1000 at t=180; its own sample lands at t=250
+
+        rig.advance(39)
+        assertEquals(0.0, rig.player.currentTimeMs)
+        rig.advance(1) // t=220
+        assertEquals(100.0, rig.player.currentTimeMs, "the stale sample is published after the seek")
+        rig.advance(30) // t=250
+        assertEquals(1_000.0, rig.player.currentTimeMs)
+        rig.advance(70) // t=320: the sample of t=250 carries 1070
+        assertEquals(1_070.0, rig.player.currentTimeMs)
+    }
+
+    // -- B3: the LOAD profile --
+
+    @Test
+    fun theLoadProfileDrawsDelaysInTheWindowAndDropsAboutATenth() {
+        val script: TimeScript = TimeScript().load(seed = 7L)
+        val draws: List<Double?> = List(10_000) { script.nextPublishDelayMs() }
+
+        val dropped: Int = draws.count { it == null }
+        assertTrue(dropped in 800..1_200, "dropped $dropped of 10000, expected about a tenth (seed 7)")
+        val kept: List<Double> = draws.filterNotNull()
+        assertTrue(kept.all { it >= 50.0 && it <= 400.0 }, "a delay left the 50-400 ms window (seed 7)")
+        assertTrue(kept.minOrNull()!! < 60.0 && kept.maxOrNull()!! > 390.0, "the delays do not cover the window (seed 7)")
+    }
+
+    @Test
+    fun theLoadProfileIsDeterministicPerSeed() {
+        val a: List<Double?> = TimeScript().load(seed = 11L).let { s -> List(200) { s.nextPublishDelayMs() } }
+        val b: List<Double?> = TimeScript().load(seed = 11L).let { s -> List(200) { s.nextPublishDelayMs() } }
+        val c: List<Double?> = TimeScript().load(seed = 12L).let { s -> List(200) { s.nextPublishDelayMs() } }
+
+        assertEquals(a, b)
+        assertNotEquals(a, c)
+    }
+
+    @Test
+    fun aCopyOfALoadedScriptRestartsFromTheSeed() {
+        val script: TimeScript = TimeScript().load(seed = 5L)
+        script.nextPublishDelayMs()
+        script.nextPublishDelayMs()
+
+        val copy: TimeScript = script.copy()
+
+        assertTrue(copy.isLoaded)
+        assertEquals(TimeScript().load(seed = 5L).nextPublishDelayMs(), copy.nextPublishDelayMs())
+    }
+
+    @Test
+    fun underLoadNoSampleIsPublishedBeforeItsMinimumDelayAndSomeAreDropped() = fxModel {
+        val clip = ClipModel(durationMs = 1_000_000.0)
+        val rig: Rig = readyRig(TimeScript().load(seed = 3L), clip)
+        rig.onFx { rig.player.play() }
+
+        rig.advance(100_000)
+
+        assertEquals(1_000, rig.time.samplesTaken, "one sample per 100 ms of 100 s (seed 3)")
+        assertTrue(rig.time.samplesDropped in 50..150, "samples dropped ${rig.time.samplesDropped} of ${rig.time.samplesTaken} (seed 3)")
+        assertTrue(rig.tickTimes().first() >= 200.0, "the first sample of t=150 cannot land before t=200 (seed 3)")
+    }
+
+    @Test
+    fun theSameSeedGivesTheSameEventTraceUnderLoad() {
+        fun trace(): List<Pair<String, Double>> {
+            val out: MutableList<Pair<String, Double>> = mutableListOf()
+            fxModel(seed = 99L) {
+                val rig: Rig = readyRig(TimeScript().load(seed = 99L))
+                rig.onFx { rig.player.play() }
+                rig.advance(2_000)
+                out += rig.events.events.map { it.name to it.tMs }
+            }
+            return out
+        }
+
+        assertEquals(trace(), trace())
+    }
+
+    // -- B5: seeks land on key frames --
+
+    @Test
+    fun aSeekLandsOnTheKeyFrameAtOrBeforeTheTarget() = fxModel {
+        val rig: Rig = readyRig()
+        val landed: MutableList<Double> = mutableListOf()
+
+        for (target in listOf(1_540.0, 999.0, 1_000.0, 2_999.0, 1_001.0)) {
+            rig.onFx { rig.player.seek(target) }
+            rig.advance(0)
+            landed += rig.player.currentTimeMs
+        }
+
+        assertEquals(listOf(1_000.0, 0.0, 1_000.0, 2_000.0, 1_000.0), landed)
+    }
+
+    @Test
+    fun aSeekBeyondTheDurationLandsOnTheLastKeyFrameThatFitsAndNeverBeyond() = fxModel {
+        val rig: Rig = readyRig(clip = ClipModel(durationMs = 2_500.0))
+
+        rig.onFx { rig.player.seek(9_999.0) }
+        rig.advance(0)
+
+        assertEquals(2_000.0, rig.player.currentTimeMs)
+        rig.onFx { rig.player.seek(-5.0) }
+        rig.advance(0)
+        assertEquals(0.0, rig.player.currentTimeMs)
+    }
+
+    @Test
+    fun aSeekWithinTheStartWindowLandsOnZeroWhateverTheKeyFrames() = fxModel {
+        val rig: Rig = readyRig(clip = ClipModel(keyFrameIntervalMs = 40.0))
+
+        rig.onFx { rig.player.seek(100.0) }
+        rig.advance(0)
+        assertEquals(0.0, rig.player.currentTimeMs, "100 ms is inside the start window")
+        rig.onFx { rig.player.seek(101.0) }
+        rig.advance(0)
+        assertEquals(80.0, rig.player.currentTimeMs, "101 ms is outside it: the key frame at 80")
+    }
+
+    @Test
+    fun theStartWindowIsConfigurable() = fxModel {
+        val rig: Rig = readyRig(TimeScript().apply { nearStartMs = 0.0 }, ClipModel(keyFrameIntervalMs = 40.0))
+
+        rig.onFx { rig.player.seek(30.0) }
+        rig.advance(0)
+
+        assertEquals(0.0, rig.player.currentTimeMs, "the key frame at or before 30 is 0 anyway")
+        rig.onFx { rig.player.seek(90.0) }
+        rig.advance(0)
+        assertEquals(80.0, rig.player.currentTimeMs)
+    }
+
+    @Test
+    fun aSeekOnAPausedPlayerPublishesTheLandingThroughTheQueueNotAtOnce() = fxModel {
+        val rig: Rig = readyRig()
+
+        rig.onFx {
+            rig.player.seek(1_540.0)
+            assertEquals(0.0, rig.player.currentTimeMs, "not published inside the call")
+        }
+        assertEquals(0, rig.count("currentTime"))
+        rig.advance(0)
+
+        assertEquals(1_000.0, rig.player.currentTimeMs)
+        assertEquals(1, rig.count("currentTime"))
+        assertEquals(1_000.0, rig.time.nativePositionMs)
+    }
+
+    @Test
+    fun aSeekToTheValueAlreadyPublishedFiresNoEvent() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.seek(1_540.0) }
+        rig.advance(0)
+        rig.events.clear()
+
+        rig.onFx { rig.player.seek(1_900.0) }
+        rig.advance(0)
+
+        assertEquals(0, rig.count("currentTime"))
+        assertEquals(1_000.0, rig.player.currentTimeMs)
+    }
+
+    @Test
+    fun aSeekWhilePlayingContinuesFromTheLanding() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(100) // t=150: the first sample is 100
+        rig.onFx { rig.player.seek(1_540.0) }
+
+        rig.advance(100) // t=250: the grid sample carries 1000 + 100
+
+        assertEquals(1_100.0, rig.player.currentTimeMs)
+        assertEquals(1_100.0, rig.time.nativePositionMs)
+    }
+
+    @Test
+    fun aSeekBeforeReadyAndASeekToNaNDoNothing() = fxModel {
+        val rig: Rig = rig()
+        rig.onFx { rig.player.seek(1_540.0) }
+        rig.advance(50)
+        assertEquals(0.0, rig.time.nativePositionMs)
+
+        rig.onFx { rig.player.seek(Double.NaN) }
+        rig.advance(0)
+
+        assertEquals(0.0, rig.player.currentTimeMs)
+        assertEquals(0.0, rig.time.nativePositionMs)
+        assertEquals(0, rig.count("currentTime"))
+    }
+
+    // -- the decoder: play, pause, rate, ready --
+
+    @Test
+    fun aPlayBeforeReadyStartsTheDecoderAtReady() = fxModel {
+        val rig: Rig = rig()
+        rig.onFx { rig.player.play() }
+
+        rig.advance(49)
+        assertEquals(0.0, rig.time.nativePositionMs)
+        rig.advance(1) // ready at t=50
+        rig.advance(100)
+
+        assertEquals(100.0, rig.time.nativePositionMs)
+        assertEquals(100.0, rig.player.currentTimeMs)
+        assertEquals(NativeStatus.PLAYING, rig.player.status)
+    }
+
+    @Test
+    fun aPauseStopsTheDecoderAtTheCommandWhileTheStatusLags() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(250)
+        rig.onFx { rig.player.pause() }
+
+        rig.advance(10)
+        assertEquals(NativeStatus.PLAYING, rig.player.status, "the status lags a pause")
+        rig.advance(5_000)
+
+        assertEquals(250.0, rig.time.nativePositionMs)
+        assertEquals(200.0, rig.player.currentTimeMs, "the last published sample, up to 100 ms behind")
+        assertEquals(0, rig.scope.host.pendingCount)
+    }
+
+    @Test
+    fun aResumeGoesOnFromWhereThePauseStoodAndRestartsTheSampleGrid() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(250)
+        rig.onFx { rig.player.pause() }
+        rig.advance(1_000)
+        rig.events.clear()
+        rig.onFx { rig.player.play() }
+
+        rig.advance(100)
+
+        assertEquals(350.0, rig.player.currentTimeMs)
+        assertEquals(listOf(1_400.0), rig.tickTimes())
+    }
+
+    @Test
+    fun aStalePlayingStatusLandingAfterAPauseDoesNotRestartTheDecoder() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(10)
+        rig.onFx { rig.player.pause() } // t=60; the PLAYING status lands at t=80, behind the pause command
+
+        rig.advance(1_000)
+
+        assertEquals(10.0, rig.time.nativePositionMs)
+        assertEquals(NativeStatus.PAUSED, rig.player.status)
+    }
+
+    @Test
+    fun theDecoderFollowsTheRatePropertyFromAPlay() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx {
+            rig.player.rate = 2.0
+            rig.player.play()
+        }
+
+        rig.advance(100)
+
+        assertEquals(200.0, rig.time.nativePositionMs)
+        assertEquals(200.0, rig.player.currentTimeMs)
+    }
+
+    @Test
+    fun aRateChangeWhilePlayingKeepsThePositionAndChangesTheSlope() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(200)
+        rig.onFx { rig.player.rate = 2.0 }
+
+        rig.advance(100)
+
+        assertEquals(400.0, rig.time.nativePositionMs)
+        assertEquals(400.0, rig.player.currentTimeMs)
+    }
+
+    @Test
+    fun aRateWriteOfTheHeldValueDoesNotRestartAnything() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(100)
+        val pending: Int = rig.scope.host.pendingCount
+
+        rig.onFx { rig.player.rate = 1.0 }
+
+        assertEquals(pending, rig.scope.host.pendingCount)
+        assertEquals(1.0, rig.time.effectiveRate)
+    }
+
+    @Test
+    fun withTheHazardPartAPlainPlayStartsTheDecoderAtOneWhateverThePropertySays() = fxModel {
+        val rig: Rig = readyRig()
+        val hazard = HazardModel(rig.scope.host)
+        rig.onFx {
+            rig.player.hazard = hazard
+            rig.player.rate = 2.0
+        }
+        rig.advance(250) // outside the idle gap of 200 ms
+        rig.onFx { rig.player.play() }
+
+        rig.advance(100)
+        assertEquals(1.0, rig.time.effectiveRate)
+        assertEquals(100.0, rig.time.nativePositionMs)
+        rig.onFx { rig.player.rate = 3.0 } // exactly 100 ms after the play: the window is closed
+        rig.advance(100)
+
+        assertEquals(3.0, rig.time.effectiveRate)
+        assertEquals(400.0, rig.time.nativePositionMs)
+        assertTrue(hazard.violations.isEmpty(), "violations: ${hazard.violations.map { it.describe() }}")
+    }
+
+    @Test
+    fun aFrozenDecoderHoldsItsPositionPublishesTheHeldValueOnceAndNeverEnds() = fxModel {
+        val rig: Rig = readyRig()
+        val hazard = HazardModel(rig.scope.host)
+        rig.onFx { rig.player.hazard = hazard }
+        rig.onFx { rig.player.play() }
+        rig.advance(10)
+        rig.onFx { rig.player.rate = 2.0 } // 10 ms after a plain play: W-PLAY freezes the decoder
+
+        rig.advance(10_000)
+
+        assertTrue(hazard.frozen)
+        assertEquals(10.0, rig.time.nativePositionMs)
+        assertEquals(10.0, rig.player.currentTimeMs)
+        assertEquals(1, rig.count("currentTime"), "the held value is published once, then the samples carry the same value")
+        assertEquals(0, rig.count("endOfMedia"))
+        assertEquals(NativeStatus.PLAYING, rig.player.status)
+        assertTrue(rig.time.isRunning && rig.time.isHeld)
+    }
+
+    @Test
+    fun aFrozenDecoderThatRecoversOnPausePlayMovesAgainFromWhereItStood() = fxModel {
+        val rig: Rig = readyRig()
+        val hazard = HazardModel(rig.scope.host, HazardConfig(recovery = FreezeRecovery.PAUSE_PLAY))
+        rig.onFx { rig.player.hazard = hazard }
+        rig.onFx { rig.player.play() }
+        rig.advance(10)
+        rig.onFx { rig.player.rate = 2.0 }
+        rig.advance(500)
+        rig.onFx {
+            rig.player.pause()
+            rig.player.play()
+        }
+
+        rig.advance(100)
+
+        assertFalse(hazard.frozen)
+        assertEquals(110.0, rig.time.nativePositionMs)
+    }
+
+    @Test
+    fun aStalledPlayerHoldsThePlayheadUntilItResumes() = fxModel {
+        val rig: Rig = readyRig()
+        val stall = StallModel(rig.player)
+        rig.onFx { rig.player.loop = stall }
+        rig.onFx { rig.player.play() }
+        rig.advance(200) // t=250, native 200
+        rig.onFx { stall.stallAt(0.0) }
+
+        rig.advance(1_000)
+
+        assertEquals(NativeStatus.STALLED, rig.player.status)
+        assertEquals(200.0, rig.time.nativePositionMs)
+        assertEquals(0, rig.count("endOfMedia"))
+        rig.onFx { stall.resumeAt(0.0) }
+        rig.advance(100)
+        assertEquals(NativeStatus.PLAYING, rig.player.status)
+        assertEquals(300.0, rig.time.nativePositionMs)
+    }
+
+    @Test
+    fun aLoopingSourceWrapsAtTheEndOfEveryCycleHoldsThePublishedTimeAndCatchesUp() = fxModel {
+        val rig: Rig = rig(withLoop = true).also { it.advance(50) }
+        val loop: LoopModel = checkNotNull(rig.loop)
+        val time: TimeModel = rig.time
+        rig.events.clear()
+        rig.onFx {
+            rig.player.cycleCount = LoopModel.INDEFINITE
+            rig.player.play()
+        }
+
+        rig.advance(3_000) // t=3050: the end of the first cycle
+        assertEquals(2, loop.cycle)
+        assertEquals(1, rig.count("endOfMedia"), "one end per cycle")
+        assertEquals(0, time.endsReached, "a wrap is not an end")
+        assertEquals(0.0, rig.player.currentTimeMs)
+        rig.advance(249) // t=3299: samples of the hold land and are ignored
+        assertEquals(0.0, rig.player.currentTimeMs)
+        rig.advance(51) // t=3350: the hold is over and the sample of that instant catches up
+        assertEquals(300.0, rig.player.currentTimeMs)
+        assertEquals(300.0, time.nativePositionMs)
+        rig.advance(2_700) // t=6050: the second wrap
+        assertEquals(3, loop.cycle)
+        assertEquals(2, rig.count("endOfMedia"))
+    }
+
+    @Test
+    fun aRateOfZeroMovesNothingAndNeverEnds() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx {
+            rig.player.rate = 0.0
+            rig.player.play()
+        }
+
+        rig.advance(10_000)
+
+        assertEquals(0.0, rig.time.nativePositionMs)
+        assertEquals(0, rig.count("endOfMedia"))
+    }
+
+    // -- B7: the end without looping --
+
+    @Test
+    fun theEndFiresOnceAtTheDurationAndTheStatusStaysPlaying() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+
+        rig.advance(3_000)
+
+        val end: RecordingNativeEvents.Event = rig.events.events.single { it.name == "endOfMedia" }
+        assertEquals(3_050.0, end.tMs)
+        assertTrue(end.onFxThread)
+        assertEquals(NativeStatus.PLAYING, rig.player.status)
+        assertEquals(3_000.0, rig.player.currentTimeMs)
+        assertEquals(3_000.0, rig.time.nativePositionMs)
+        assertEquals(1, rig.time.endsReached)
+    }
+
+    @Test
+    fun theFinalPositionIsPublishedBeforeTheEndIsDelivered() = fxModel {
+        val rig: Rig = readyRig(TimeScript().apply { publishDelayMs = 80.0 })
+        val readAtEnd: MutableList<Double> = mutableListOf()
+        rig.onFx {
+            rig.player.setEvents(
+                object : io.github.jamal_wia.kmptoolkit.video.player.javafx.NativeEvents by rig.events {
+                    override fun onEndOfMedia() {
+                        readAtEnd += rig.player.currentTimeMs
+                        rig.events.onEndOfMedia()
+                    }
+                },
+            )
+            rig.player.play()
+        }
+
+        rig.advance(3_000)
+
+        assertEquals(listOf(3_000.0), readAtEnd, "the position the end handler reads")
+    }
+
+    @Test
+    fun theEndComesEarlierAtAHigherRate() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx {
+            rig.player.rate = 2.0
+            rig.player.play()
+        }
+
+        rig.advance(1_500)
+
+        assertEquals(listOf(1_550.0), rig.events.events.filter { it.name == "endOfMedia" }.map { it.tMs })
+    }
+
+    @Test
+    fun aRateChangeMovesTheEnd() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(1_000)
+        rig.onFx { rig.player.rate = 2.0 }
+
+        rig.advance(999)
+        assertEquals(0, rig.count("endOfMedia"))
+        rig.advance(1)
+
+        assertEquals(1, rig.count("endOfMedia"))
+        assertEquals(2_050.0, rig.now())
+    }
+
+    @Test
+    fun afterTheEndThePositionHoldsSamplingStopsAndTheQueueIsIdle() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(3_000)
+        rig.events.clear()
+
+        rig.advance(10_000)
+
+        assertEquals(3_000.0, rig.player.currentTimeMs)
+        assertEquals(3_000.0, rig.time.nativePositionMs)
+        assertEquals(0, rig.count("currentTime"))
+        assertEquals(0, rig.scope.host.pendingCount)
+    }
+
+    @Test
+    fun aPauseBeforeTheEndPreventsIt() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(2_000)
+        rig.onFx { rig.player.pause() }
+
+        rig.advance(10_000)
+
+        assertEquals(0, rig.count("endOfMedia"))
+        assertEquals(2_000.0, rig.time.nativePositionMs)
+    }
+
+    @Test
+    fun aClearedEndOfMediaHandlerHearsNothingButThePositionStillReachesTheEnd() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx {
+            rig.player.clearEndOfMedia()
+            rig.player.play()
+        }
+
+        rig.advance(3_000)
+
+        assertEquals(0, rig.count("endOfMedia"))
+        assertEquals(3_000.0, rig.player.currentTimeMs)
+        assertEquals(1, rig.time.endsReached)
+    }
+
+    @Test
+    fun aSeekBackAfterTheEndAndAPlayEndsAgain() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(3_000)
+        rig.onFx {
+            rig.player.pause()
+            rig.player.seek(0.0)
+        }
+        rig.advance(0)
+        assertEquals(0.0, rig.player.currentTimeMs)
+        rig.onFx { rig.player.play() }
+
+        rig.advance(3_000)
+
+        assertEquals(2, rig.count("endOfMedia"))
+        assertEquals(3_000.0, rig.player.currentTimeMs)
+    }
+
+    @Test
+    fun aPlayWhileThePositionStandsAtTheEndEndsAgainAtOnce() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(3_000)
+        rig.onFx { rig.player.pause() }
+        rig.advance(100)
+        assertEquals(1, rig.count("endOfMedia"))
+
+        rig.onFx { rig.player.play() }
+        rig.advance(0)
+
+        assertEquals(2, rig.count("endOfMedia"))
+        assertEquals(3_000.0, rig.player.currentTimeMs)
+    }
+
+    @Test
+    fun aSeekToTheEndWhilePlayingEndsAtOnceThroughTheQueue() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(100)
+        rig.events.clear()
+        val before: Double = rig.now()
+
+        rig.onFx {
+            rig.player.seek(5_000.0)
+            assertEquals(0, rig.count("endOfMedia"), "queued, not run inside the call")
+        }
+        rig.advance(0)
+
+        assertEquals(1, rig.count("endOfMedia"))
+        assertEquals(3_000.0, rig.player.currentTimeMs)
+        assertEquals(before, rig.now())
+    }
+
+    @Test
+    fun aSeekToTheEndWhilePausedDoesNotEndUntilThePlay() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.seek(5_000.0) }
+        rig.advance(1_000)
+        assertEquals(0, rig.count("endOfMedia"))
+        assertEquals(3_000.0, rig.player.currentTimeMs)
+
+        rig.onFx { rig.player.play() }
+        rig.advance(0)
+
+        assertEquals(1, rig.count("endOfMedia"))
+    }
+
+    @Test
+    fun theNativePositionNeverPassesTheDurationUnderAJitteredHost() = fxModel(jitterMaxMs = 17.0) {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+
+        rig.advance(3_100)
+
+        assertEquals(3_000.0, rig.time.nativePositionMs)
+        assertEquals(3_000.0, rig.player.currentTimeMs)
+        assertEquals(1, rig.count("endOfMedia"))
+        val end: Double = rig.events.events.single { it.name == "endOfMedia" }.tMs
+        assertTrue(end >= 3_050.0 && end <= 3_050.0 + 3 * 17.0, "end at $end with seed ${rig.scope.host.seed}")
+    }
+
+    // -- failure and dispose --
+
+    @Test
+    fun aDisposeStopsEverythingAndDropsWhatWasInFlight() = fxModel {
+        val rig: Rig = readyRig(TimeScript().apply { publishDelayMs = 70.0 })
+        rig.onFx { rig.player.play() }
+        rig.advance(160) // a sample of t=150 is in flight until 220
+        rig.onFx { rig.player.dispose() }
+        rig.events.clear()
+
+        rig.advance(10_000)
+
+        assertEquals(0.0, rig.player.currentTimeMs)
+        assertEquals(0, rig.count("currentTime"))
+        assertEquals(0, rig.count("endOfMedia"))
+        assertEquals(0, rig.scope.host.pendingCount)
+        assertFalse(rig.time.isRunning)
+    }
+
+    @Test
+    fun aFailureStopsTheDecoder() = fxModel {
+        val rig: Rig = readyRig()
+        rig.onFx { rig.player.play() }
+        rig.advance(250)
+        rig.onFx { rig.player.failAt(0.0, IllegalStateException("boom")) }
+        rig.advance(0)
+        rig.events.clear()
+
+        rig.advance(10_000)
+
+        assertEquals(NativeStatus.HALTED, rig.player.status)
+        assertEquals(0, rig.count("currentTime"))
+        assertEquals(0, rig.count("endOfMedia"))
+        assertEquals(250.0, rig.time.nativePositionMs)
+    }
+
+    // -- the script --
+
+    @Test
+    fun theScriptRefusesNumbersThatCannotBeTimes() {
+        assertFailsWith<IllegalArgumentException> { TimeScript().sampleIntervalMs = 0.0 }
+        assertFailsWith<IllegalArgumentException> { TimeScript().publishDelayMs = -1.0 }
+        assertFailsWith<IllegalArgumentException> { TimeScript().nearStartMs = Double.NaN }
+        assertFailsWith<IllegalArgumentException> { TimeScript().load(minDelayMs = 100.0, maxDelayMs = 50.0) }
+        assertFailsWith<IllegalArgumentException> { TimeScript().load(dropFraction = 1.5) }
+    }
+
+    @Test
+    fun aScriptWithoutTheLoadProfileUsesThePublishDelayForEverySample() {
+        val script: TimeScript = TimeScript().apply { publishDelayMs = 25.0 }
+
+        assertFalse(script.isLoaded)
+        assertEquals(List(5) { 25.0 }, List(5) { script.nextPublishDelayMs() })
+    }
+
+    // -- the backend that gives every player a time part --
+
+    @Test
+    fun aTimedBackendGivesEveryPlayerItsOwnTimeModelAndScriptCopy() = fxModel {
+        val inner = ScriptedBackend(host)
+        val backend = TimedBackend(inner, TimeScript().apply { publishDelayMs = 10.0 })
+
+        val (a: ScriptedNativePlayer, b: ScriptedNativePlayer) = onFx {
+            val source = backend.probe("clip.mp4")
+            backend.create(source) as ScriptedNativePlayer to backend.create(source) as ScriptedNativePlayer
+        }
+
+        assertEquals(2, backend.models.size)
+        assertTrue(a.time === backend.models[0] && b.time === backend.models[1])
+        assertTrue(backend.models[0].script !== backend.models[1].script)
+        assertEquals(10.0, backend.models[0].script.publishDelayMs)
+        assertTrue(backend.lastModel === backend.models[1])
+        assertEquals(listOf("clip.mp4"), inner.probed)
+    }
+
+    // -- a smoke of the whole sequence a player is put through: ready, play, seek, complete --
+
+    @Test
+    fun readyPlaySeekAndCompleteRunToTheEndInVirtualTimeOnly() = fxModel {
+        val backend = TimedBackend(ScriptedBackend(host))
+        val events = RecordingNativeEvents(host)
+        val player: ScriptedNativePlayer = onFx {
+            (backend.create(backend.probe("clip.mp4")) as ScriptedNativePlayer).also { it.setEvents(events) }
+        }
+        advanceBy(50)
+        assertEquals(NativeStatus.READY, player.status)
+
+        onFx { player.play() }
+        advanceBy(500)
+        onFx { player.seek(1_540.0) }
+        advanceBy(100)
+        assertEquals(NativeStatus.PLAYING, player.status)
+        assertEquals(1_100.0, player.currentTimeMs)
+        runUntilIdle()
+
+        assertEquals(1, events.names.count { it == "endOfMedia" })
+        assertEquals(3_000.0, player.currentTimeMs)
+        assertEquals(NativeStatus.PLAYING, player.status)
+        assertEquals(0, host.pendingCount)
+        // 50 ready + 500 + the 2000 ms left after the seek to the key frame at 1000: the end is at t=2550
+        assertTrue(events.events.single { it.name == "endOfMedia" }.tMs == 2_550.0, "events: ${events.events}")
+    }
+}
