@@ -10,6 +10,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
@@ -101,7 +102,10 @@ class StaleDialogQueueTest {
 
         // Not held for another full wait: the next caller fails at once, and makes no launch call (a host
         // is promised one request in flight, so it is not asked while the stale dialog is up).
-        val third: PermissionStatus = withTimeout(5_000) { controller.request(CommonPermission.Microphone) }
+        val thirdCall: Deferred<PermissionStatus> =
+            async(start = CoroutineStart.UNDISPATCHED) { controller.request(CommonPermission.Microphone) }
+        assertTrue(thirdCall.isCompleted, "the third caller was held for another wait")
+        val third: PermissionStatus = withTimeout(5_000) { thirdCall.await() }
         assertEquals(PermissionStatus.NotDetermined, third)
         assertEquals(0, host.refused)
         assertEquals(1, host.launches.size)

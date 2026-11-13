@@ -668,13 +668,15 @@ internal class AndroidPermissionController(
      * Opens [access]'s screen and suspends until the user is back in the app, then re-reads it.
      *
      * Already granted, or not available: nothing is opened. A screen that could not be opened returns
-     * the status unchanged, at once.
+     * the status unchanged, at once. Behind a cancelled caller's dialog that is still up it waits for
+     * that dialog first, like any request, so Settings never opens over it.
      */
     private suspend fun requestSpecialAccess(access: AndroidPermission.SpecialAccess, waits: CallWaits): PermissionStatus {
         val current: PermissionStatus = specialAccesses.status(access)
         if (current !is PermissionStatus.Denied) return current
         val candidates: List<Intent> = specialAccesses.candidates(access)
         if (candidates.isEmpty()) return current
+        if (!awaitStaleDialog("The settings screen for $access")) return current
         awaitLaunchableOnce(waits)
         val returned: Boolean = openAndAwaitReturn(SystemScreenRequest(candidates, context, PermissionScreen(access)), access)
         return if (returned) specialAccesses.status(access) else current

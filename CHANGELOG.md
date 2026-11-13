@@ -178,6 +178,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-permission` (Android): after a cancelled request's dialog stayed up past the 30 second wait, later
   requests no longer launch on the host while that dialog is still pending (a host of your own that keeps one
   callback slot could otherwise deliver the old answer to the new request); they fail at once like a refused launch.
+- `kmptoolkit-permission` (Android): a special-access request made while a cancelled request's permission dialog is
+  still up now waits for that dialog (at most 30 seconds) instead of opening its Settings screen over it.
 - `kmptoolkit-permission` (Android): the default host no longer leaves a request code in the activity's result registry
   (and its saved state) for every finished dialog.
 - `kmptoolkit-video-player-javafx`: on macOS a speed given to a playing player right after a seek (`seekTo()`,
