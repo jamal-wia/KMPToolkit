@@ -22,6 +22,7 @@ import io.github.jamal_wia.kmptoolkit.uploader.createUploaderEngine
 import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.milliseconds
@@ -35,18 +36,22 @@ import kotlin.random.Random
 import kotlin.test.assertEquals
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderEngineRegistry
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.test.TestCoroutineScheduler
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Delay
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.Runnable
+import kotlinx.coroutines.test.TestDispatcher
+import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
 
 /**
  * Round 7 (A1): a deterministic scheduler over the REAL SQLite store. Every call the engine, an operation or a handler
@@ -59,7 +64,21 @@ class ActorElement(val name: String) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<ActorElement>
 }
 
-class Sched(val testScheduler: TestCoroutineScheduler) {
+/**
+ * The test dispatcher with a completion signal: every task dispatched to it, from any thread (a store call that
+ * finished on the database thread resumes its caller through here), releases a permit on [wake]. [Sched.settle]
+ * waits on that permit instead of sleeping, so the end of a store call, not a count of sleeps, ends the wait.
+ * Time (delay, timeouts) is the delegate's virtual time.
+ */
+@OptIn(InternalCoroutinesApi::class)
+class SignalingDispatcher(private val delegate: TestDispatcher, val wake: Semaphore) : CoroutineDispatcher(), Delay by delegate {
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        delegate.dispatch(context, block)
+        wake.release()
+    }
+}
+
+class Sched(val testScheduler: TestCoroutineScheduler, private val wake: Semaphore) {
     class Parked(val actor: String, val what: String, val gate: CompletableDeferred<Unit>, val seq: Int)
 
     val parked: MutableList<Parked> = ArrayList()
@@ -79,7 +98,15 @@ class Sched(val testScheduler: TestCoroutineScheduler) {
     val log: MutableList<String> = ArrayList()
 
     suspend fun <T> atom(what: String, body: suspend () -> T): T {
-        if (open) return body()
+        if (open) {
+            // Scheduling is off, the call still has to be waited for by settle().
+            active++
+            try {
+                return body()
+            } finally {
+                active--
+            }
+        }
         val actor: String = currentCoroutineContext()[ActorElement]?.name ?: "?"
         val p = Parked(actor, what, CompletableDeferred(), seq++)
         parked += p
@@ -110,16 +137,19 @@ class Sched(val testScheduler: TestCoroutineScheduler) {
         midAction = null
     }
 
+    /**
+     * Drives the test dispatcher until no released call is outstanding and nothing is due now. A store call
+     * finishes on the database thread and resumes its caller through [SignalingDispatcher], which releases a
+     * permit: the wait is on that completion signal, bounded only by a real-time hang guard of 30 seconds that
+     * fails with its own message.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun settle() {
-        var waited = 0
         while (true) {
+            wake.drainPermits()
             testScheduler.runCurrent()
             if (!awaiting && active == 0) return
-            // The store call finishes on the database thread; spin briefly before sleeping, it is usually microseconds.
-            if (waited < 400) Thread.yield() else withContext(Dispatchers.Default) { delay(1) }
-            waited++
-            check(waited < 8_400) { "a released store call never completed (log=$log)" }
+            check(wake.tryAcquire(30, TimeUnit.SECONDS)) { "a released store call never completed (log=$log)" }
         }
     }
 }
@@ -311,6 +341,15 @@ class ScenarioRunner(
     private val parentScope: CoroutineScope,
     private val scenario: Scenario,
 ) {
+    /** Completion signal of this runner's dispatcher, shared with every [Sched] it creates. */
+    private val wake: Semaphore = Semaphore(0)
+
+    /** [parentScope]'s context with its test dispatcher replaced by one that signals every dispatch. */
+    private val signalingContext: CoroutineContext = parentScope.coroutineContext.let { parent: CoroutineContext ->
+        val dispatcher: TestDispatcher = parent[ContinuationInterceptor] as TestDispatcher
+        parent.minusKey(ContinuationInterceptor) + SignalingDispatcher(dispatcher, wake)
+    }
+
     private val config: UploaderConfig = UploaderConfig(
         heartbeatInterval = 30.seconds,
         minAlarmDelay = 100.milliseconds,
@@ -319,7 +358,7 @@ class ScenarioRunner(
 
     suspend fun run(prefix: List<Int>, random: kotlin.random.Random? = null): RunResult {
         storage.store.clearAll()
-        val sched = Sched(testScheduler)
+        val sched = Sched(testScheduler, wake)
         val observed = Observed()
         // A later start for every run: the harness reuses the id and payload of seed row A in every run of the JVM, and a
         // withdrawn row whose delete failed stays remembered process-wide (D-34), so a run's A must not carry the exact
@@ -329,7 +368,7 @@ class ScenarioRunner(
         var counter = 0
         val ids: () -> String = { "g${counter++}" }
         val job = Job(parentScope.coroutineContext[Job])
-        val scope = CoroutineScope(parentScope.coroutineContext + job)
+        val scope = CoroutineScope(signalingContext + job)
         val engines: MutableList<Triple<String, UploaderEngine, UploaderHandler<String>>> = ArrayList()
         val owners: MutableMap<String, Job> = HashMap()
         var engineSeq = 0
@@ -343,7 +382,7 @@ class ScenarioRunner(
             val engine: UploaderEngine = createUploaderEngine(
                 store = gated,
                 handlers = listOf(handler),
-                scope = CoroutineScope(parentScope.coroutineContext + owners.getValue(tag)) + ActorElement(tag),
+                scope = CoroutineScope(signalingContext + owners.getValue(tag)) + ActorElement(tag),
                 config = config,
                 clock = clock,
                 idGenerator = ids,
@@ -514,8 +553,7 @@ class ScenarioRunner(
             }
             clock.millis += 5_000L
             testScheduler.advanceTimeBy(5_000L)
-            sched.settle()
-            withContext(Dispatchers.Default) { delay(2) }
+            // Every store call is tracked, so settle() returns once the work of this round has completed.
             sched.settle()
             val left: List<UploaderItem> = storage.store.getAllActive()
             if (left.isEmpty()) {
@@ -616,17 +654,19 @@ abstract class InterleavingTestBase {
     }
 
     protected fun open(): UploaderStorage {
-        val name = "adv.a1r7.${Random.nextLong(0L, Long.MAX_VALUE)}"
+        val name = "adv.a1r7.${Random.nextLong(0L, Long.MAX_VALUE)}" // a database file name only, not a scenario choice
         files += name
         return createUploaderStorage(application(), UploaderDatabaseConfig(name)).also { storages += it }
     }
 
     /**
      * The suite runs every scenario with no preemption of an actor that still has a call to make (a few hundred
-     * orderings each). The deep run, with the marker file `kmptoolkit-r7-deep` in the system temp directory, uses the
-     * bound each scenario was written with (up to about twelve thousand orderings each, minutes per scenario).
+     * orderings each) and explores every one of them: there is no wall-clock budget, a hang is bounded by the
+     * real-time guard of [explore]. The deep run, with `-Pkmptoolkit.r7.deep=true` (forwarded by the module's build
+     * file as the system property of the same name), uses the bound each scenario was written with (up to about
+     * twelve thousand orderings each, minutes per scenario) and stops at a wall budget of 150 seconds per scenario.
      */
-    private val deep: Boolean = java.io.File(System.getProperty("java.io.tmpdir"), "kmptoolkit-r7-deep").exists()
+    private val deep: Boolean = System.getProperty("kmptoolkit.r7.deep") == "true"
 
     protected fun explore(declared: Scenario, cap: Int, inMemory: Boolean = false) = runBlocking { withTimeout(280.seconds) {
         val scenario: Scenario = if (deep) declared else declared.withBound(0)
@@ -639,7 +679,7 @@ abstract class InterleavingTestBase {
         var explored = 0
         val failures: MutableList<String> = mutableListOf()
         val started: Long = System.nanoTime()
-        while (pending.isNotEmpty() && explored < cap && System.nanoTime() - started < 150_000_000_000L) {
+        while (pending.isNotEmpty() && explored < cap && (!deep || System.nanoTime() - started < 150_000_000_000L)) {
             val prefix: List<Int> = pending.removeLast()
             val result: RunResult = runner.run(prefix)
             explored++
