@@ -63,9 +63,9 @@ class StaleReadingDeferredR12ModelTest {
     // ---- S18: the speed given after a seek while playing ----
 
     /**
-     * A stale pre-seek reading (the time from before the seek, 500 ms) as the first tick after the 300 ms settle is not the
-     * anchor of the count: the fresh tick after it is a jump of seconds in no time, which restarts the count. The speed
-     * comes 300 ms plus 200 ms of real movement after the seek at the earliest.
+     * A stale pre-seek reading (the time from before the seek, 500 ms) right after the first tick past the 300 ms settle
+     * steps back from that anchor and becomes the new one; the fresh tick after it is a jump of seconds in no time, which
+     * restarts the count again. The speed comes 300 ms plus 200 ms of real movement after the seek at the earliest.
      */
     @Test
     fun aStaleTickAfterTheSettleOfASpeedGivenAfterASeekIsNotTheAnchor() = fxModel {
