@@ -26,7 +26,9 @@ import org.junit.runner.RunWith
  * as safe when the resource is not present and never throws for this, it logs a warning and leaves what stays; a
  * retry after the obstacle is gone ends with the new database and no sidecar of the old one. A second test pins the
  * bounded retry: a sweep of another unit may delete the fresh, still empty trash entry between its creation and the
- * renames.
+ * renames. A third pair of tests refuses the move of the database file itself while the `-wal` move would succeed:
+ * the quarantine then moves no sidecar either, so version 1 stays available with its log intact, on a commit (which
+ * throws) and on a delete (which warns).
  */
 @RunWith(AndroidJUnit4::class)
 class AndroidSqliteStuckRenameBoss1Test {
@@ -93,6 +95,21 @@ class AndroidSqliteStuckRenameBoss1Test {
         )
     }
 
+    /** A storage whose `rename` refuses every move of the database file itself and does the others for real. */
+    private fun stuckFileStorage(logger: Logger): AndroidDownloaderStorage {
+        LegacyTempMigrations.resetForTests()
+        return AndroidDownloaderStorage(
+            context, config, logger,
+            rename = { from: File, to: File -> if (from.name == File(dbUnit.relativePath).name) false else from.renameTo(to) },
+        )
+    }
+
+    /** Every regular file anywhere under the trash directory, by name. */
+    private fun trashedFileNames(): List<String> {
+        val trash: File = File(File(File(root, "tmp"), "kmptoolkit-internal"), "trash")
+        return trash.walkTopDown().filter { entry: File -> entry.isFile }.map { entry: File -> entry.name }.sorted().toList()
+    }
+
     private fun stage(storage: DownloaderStorage, unit: DownloadUnit, bytes: ByteArray) {
         storage.beginTempFile(unit, null)
         File(storage.getTempFilePath(unit)).apply { parentFile!!.mkdirs() }.writeBytes(bytes)
@@ -154,12 +171,60 @@ class AndroidSqliteStuckRenameBoss1Test {
             assertFalse(after.isResourceAvailable(dbUnit), "the unit reads as unavailable")
             assertFalse(resource.exists(), "the database file was moved away before the log refused")
             assertContentEquals(old.wal, File(resource.path + "-wal").readBytes(), "the log that refused to move stays")
+            assertEquals(emptyList(), trashedFileNames().filter { name: String -> name.startsWith("db") }, "the stuck delete must sweep the trash, nothing of version 1 may wait in it")
 
             // The next download's commit moves the stray log and ends with exactly what was verified.
             stage(after, dbUnit, fixtures.freshDatabase(rows = 2))
             after.commitResource(dbUnit)
             assertEquals(emptyList(), sidecarsAt(resource), "the stray log survived the next download")
             assertEquals(listOf("new0", "new1"), fixtures.payloadsOrFailure(resource.path))
+        }
+    }
+
+    @Test
+    fun `a commit whose database file cannot be moved throws and leaves version 1 available with its log`() = runBlocking<Unit> {
+        withTimeout(60_000) {
+            val old: WalSnapshotBoss1 = committedWithLog(plainStorage())
+            stage(plainStorage(), dbUnit, fixtures.freshDatabase(rows = 3))
+            val resource = File(plainStorage().getResourcePath(dbUnit))
+
+            val failure: IllegalStateException =
+                assertFailsWith { stuckFileStorage(WarningRecorder()).commitResource(dbUnit) }
+
+            assertTrue("Could not move" in failure.message.orEmpty(), "the failure names the unmoved database: $failure")
+            val after: AndroidDownloaderStorage = plainStorage()
+            assertEquals(TempFileState.Complete, after.tempFileState(dbUnit), "the temp file must stay complete for the retry")
+            assertTrue(after.isResourceAvailable(dbUnit), "version 1 is still the resource")
+            assertContentEquals(old.main, resource.readBytes(), "the database file stays where it was")
+            assertContentEquals(old.wal, File(resource.path + "-wal").readBytes(), "the log of version 1 must not have been moved")
+            assertContentEquals(old.shm, File(resource.path + "-shm").readBytes(), "the shared memory file of version 1 must not have been moved")
+            assertEquals(emptyList(), trashedFileNames().filter { name: String -> name.endsWith("-wal") }, "no log of version 1 may sit in the trash")
+
+            // The obstacle is gone: the retry ends with the new database and no sidecar of the old one.
+            after.commitResource(dbUnit)
+            assertEquals(emptyList(), sidecarsAt(resource), "a sidecar of version 1 survived the retry")
+            assertEquals(listOf("new0", "new1", "new2"), fixtures.payloadsOrFailure(resource.path))
+        }
+    }
+
+    @Test
+    fun `a delete whose database file cannot be moved does not throw and leaves version 1 available with its log`() = runBlocking<Unit> {
+        withTimeout(60_000) {
+            val old: WalSnapshotBoss1 = committedWithLog(plainStorage())
+            val resource = File(plainStorage().getResourcePath(dbUnit))
+            val logger = WarningRecorder()
+
+            stuckFileStorage(logger).deleteResource(dbUnit)
+
+            assertEquals(1, logger.warnings.size, "one warning for the delete that could not finish: ${logger.warnings}")
+            assertTrue("Could not move" in logger.warnings.single(), "the warning says what failed: ${logger.warnings}")
+            // Nothing of version 1 moved: it stays the resource, whole, and the sweep finds nothing of it.
+            val after: AndroidDownloaderStorage = plainStorage()
+            assertTrue(after.isResourceAvailable(dbUnit), "version 1 is still the resource")
+            assertContentEquals(old.main, resource.readBytes(), "the database file stays where it was")
+            assertContentEquals(old.wal, File(resource.path + "-wal").readBytes(), "the log of version 1 must not have been moved or swept")
+            assertContentEquals(old.shm, File(resource.path + "-shm").readBytes(), "the shared memory file of version 1 must not have been moved")
+            assertEquals(emptyList(), trashedFileNames().filter { name: String -> name.startsWith("db") }, "nothing of version 1 may sit in the trash")
         }
     }
 

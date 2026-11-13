@@ -68,7 +68,7 @@ The tree is only renamed to `tmp/kmptoolkit-internal/trash/<random number>` unde
 deleted after it is released, so a large extraction never stalls other units' commits (the entry is
 named by a number alone, so no id's length can make the rename fail). If the process dies or the
 delete fails midway, the remainder stays in `tmp/kmptoolkit-internal/trash/`; every later
-`deleteTempFile`, every commit that replaced a tree or moved a `SqliteDatabase` aside, and every `deleteResource` of a directory or of a `SqliteDatabase` that found something at its path, for any unit, sweeps that directory (nothing ever commits from it, so no lock is needed). A symbolic link in place of the trash
+`deleteTempFile`, every commit that replaced a tree or moved a `SqliteDatabase` aside, and every `deleteResource` of a directory or of a `SqliteDatabase` that found something at its path or beside it, for any unit, sweeps that directory (nothing ever commits from it, so no lock is needed). A symbolic link in place of the trash
 directory is removed as a link, never followed. A replaced
 or deleted archive tree passes through the same directory: it is renamed there in one step and deleted afterwards,
 so a process killed inside that delete leaves its partial tree in the trash and never at the resource path, where a
