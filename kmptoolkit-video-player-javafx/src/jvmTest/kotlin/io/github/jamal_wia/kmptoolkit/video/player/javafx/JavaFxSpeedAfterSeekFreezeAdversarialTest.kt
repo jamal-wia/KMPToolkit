@@ -79,6 +79,7 @@ class JavaFxSpeedAfterSeekFreezeAdversarialTest {
                 // video player disposed right after its first frames can hit the OpenJFX CoreVideo display-link race
                 // that kills the JVM (docs/kmptoolkit-video-player-javafx/05-platform-notes.md, "Known issue"); this
                 // is the documented mitigation, a real-time pause for that native-crash workaround only.
+                // timing-hygiene-ignore: TH1 inject the CoreVideo release window: a pause that is the native-crash workaround, not a wait for a condition
                 Thread.sleep(300L)
                 player.release()
             }
@@ -156,6 +157,7 @@ class JavaFxSpeedAfterSeekFreezeAdversarialTest {
                 // video player disposed right after its first frames can hit the OpenJFX CoreVideo display-link race
                 // that kills the JVM (docs/kmptoolkit-video-player-javafx/05-platform-notes.md, "Known issue"); this
                 // is the documented mitigation, a real-time pause for that native-crash workaround only.
+                // timing-hygiene-ignore: TH1 inject the CoreVideo release window: a pause that is the native-crash workaround, not a wait for a condition
                 Thread.sleep(300L)
                 player.release()
             }
