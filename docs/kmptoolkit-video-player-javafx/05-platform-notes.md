@@ -187,8 +187,8 @@ decoder writes straight into memory without a render-and-read-back step.
   the clock allows: the first reported time after a resume can be stale, and a tick that runs ahead of the clock (or
   behind its anchor) restarts the count; the speed is given on a tick of the playhead, so a little later). For that
   time the playhead advances at normal speed, then the reported time catches up; right after the speed is given, the
-  reported time can stand still for about 0.2 s before it advances at the new speed (macOS, in about two resumes in
-  three in the probe runs), and the reported time right after a pause can lag the decoder by about 0.4 s; a pause
+  reported time stood still for about a quarter of a second (0.24 to 0.32 s, estimated from the 2x line after it) in
+  all 14 resumes of the probe run before it advanced at the new speed (macOS), and the reported time right after a pause can lag the decoder by about 0.4 s; a pause
   meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait. The clock bound has a limit on
   macOS, where the decoder runs at normal speed until the speed is given while the bound allows the held speed: a
   stale reading that lags by L ms is recognised only if the fresh one follows within (L - 50) / (speed - 1) ms (for the
@@ -208,7 +208,7 @@ decoder writes straight into memory without a render-and-read-back step.
   `pause()` or of the end of a clip is written after the native pause, never on the decoder that still runs, so it is
   a write on a player that is not playing and the next `play()` waits out its 200 ms too.
   After a loop wrap the speed is given again as one change once the playhead has wrapped and moved about
-  200 ms, and no sooner than 300 ms after a seek made meanwhile (a rate change within about 100 ms of a
+  200 ms (counted the same way), and no sooner than 300 ms after a seek made meanwhile (a rate change within about 100 ms of a
   native seek can freeze the playhead too); the reported time of a loop's second cycle can hold still for
   about 300 ms and then catch up.
   Those 200 ms are measured on ticks of the reported time, and the first tick of the new cycle comes only after that
@@ -220,7 +220,8 @@ decoder writes straight into memory without a render-and-read-back step.
   because on macOS that can leave the player `Playing` with its playhead standing at the seek position for good;
   this also holds for a speed given soon after a resume (or a first play) and then a seek.
   On every platform the native player keeps its old speed until 300 ms after the seek and until the playhead has
-  then moved about 200 ms of media, and then takes the new one.
+  then moved about 200 ms of media (counted as for a resume: a reading that runs ahead of the clock or steps back
+  restarts the count), and then takes the new one.
   In probe runs on macOS, a speed written right after the engine's own seek to the start (the first play at a
   speed, or a resume within about 100 ms of the start) left the playhead standing still once in 120 rounds, and
   not in 40 first plays of a fresh clip or in 120 resumes after a seek; before the native player reports playing,
