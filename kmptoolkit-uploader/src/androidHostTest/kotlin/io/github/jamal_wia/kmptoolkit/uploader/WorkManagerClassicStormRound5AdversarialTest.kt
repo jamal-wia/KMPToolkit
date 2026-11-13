@@ -150,12 +150,27 @@ class WorkManagerClassicStormRound5AdversarialTest {
     /** No job of the item is counted in the hand-off ledger any more. */
     private fun ledgerIdle(ids: List<String>): Boolean = ids.all { (UploadHandOffLedger.shared.entry(it)?.activeJobs ?: 0) == 0 }
 
+    /** No attempt of these items is running in the engine (a cancelled attempt may still be launching). */
+    private fun engineIdle(ids: List<String>): Boolean {
+        val running: DefaultUploaderEngine = checkNotNull(engine as? DefaultUploaderEngine) { "no engine to observe" }
+        return ids.all { running.runningAttemptStamp(it) == null }
+    }
+
+    private fun describeQuiet(ids: List<String>): String {
+        val running: DefaultUploaderEngine? = engine as? DefaultUploaderEngine
+        return ids.joinToString(prefix = "items [", postfix = "]") {
+            "$it: stamp=${running?.runningAttemptStamp(it)} ledger=${UploadHandOffLedger.shared.entry(it)}"
+        }
+    }
+
     /**
-     * The barrier before an absence assertion ("no stray upload"): every job of the tag has finished and the ledger
-     * is drained. A job that finished has already recorded its request, so the count read after it is complete.
+     * The barrier before an absence assertion ("no stray upload"): the engine runs no attempt of the ids, every job of
+     * the tag has finished and the ledger is drained, in that order (see [awaitWorkQuiescent]).
      */
-    private fun awaitQuiet(ids: List<String>, what: String) =
-        awaitWorkQuiescent(WorkManager.getInstance(context), TAG, 30_000L, what) { ledgerIdle(ids) }
+    private fun awaitQuiet(ids: List<String>, what: String) = awaitWorkQuiescent(
+        WorkManager.getInstance(context), TAG, 30_000L, what,
+        first = { engineIdle(ids) }, describe = { describeQuiet(ids) }, extra = { ledgerIdle(ids) },
+    )
 
     private fun attemptsOf(id: String): List<Int> = synchronized(requests) { requests.filter { it.first == id }.map { it.second } }
 
@@ -223,8 +238,11 @@ class WorkManagerClassicStormRound5AdversarialTest {
             }
         }
         runBlocking { withTimeout(10_000L) { repeat(10) { started.enqueue(handler, "payload-$it") } } }
-        // The storm is a fixed number of cancellations, not a stretch of wall time.
-        awaitTrue(30_000L, "$STORM_CANCELS cancellations of the tag") { cancels.get() >= STORM_CANCELS }
+        // The storm is a fixed number of cancellations over the existing items, not a stretch of wall time.
+        val base: Int = cancels.get()
+        awaitTrue(30_000L, "$STORM_CANCELS cancellations of the tag after the enqueue") {
+            cancels.get() - base >= STORM_CANCELS
+        }
         stop.set(true)
         canceller.join(10_000L)
         check(!canceller.isAlive) { "the canceller did not stop" }

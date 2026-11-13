@@ -114,13 +114,19 @@ class WorkManagerRound4LifecycleAdversarialTest {
         awaitCondition(timeoutMillis, what, condition)
 
     /**
-     * The barrier before an absence assertion: every job of the tag has finished and the item's ledger entry has no
-     * active job. A job that finished has already counted its connection, so a count read after it is complete.
+     * The barrier before an absence assertion: the engine runs no attempt of the item (a cancelled attempt may still
+     * be launching), every job of the tag has finished and the item's ledger entry has no active job, in that order
+     * (see [awaitWorkQuiescent]). A job that finished has already counted its connection.
      */
-    private fun awaitQuiet(id: String, what: String) =
-        awaitWorkQuiescent(WorkManager.getInstance(context), TAG, 15_000L, what) {
-            (UploadHandOffLedger.shared.entry(id)?.activeJobs ?: 0) == 0
-        }
+    private fun awaitQuiet(id: String, what: String) {
+        val running: DefaultUploaderEngine = checkNotNull(engine as? DefaultUploaderEngine) { "no engine to observe" }
+        awaitWorkQuiescent(
+            WorkManager.getInstance(context), TAG, 15_000L, what,
+            first = { running.runningAttemptStamp(id) == null },
+            describe = { "$id: stamp=${running.runningAttemptStamp(id)} ledger=${UploadHandOffLedger.shared.entry(id)}" },
+            extra = { (UploadHandOffLedger.shared.entry(id)?.activeJobs ?: 0) == 0 },
+        )
+    }
 
     private class ZeroBackoff : RetryPolicy {
         override val maxDelayMillis: Long = 1L

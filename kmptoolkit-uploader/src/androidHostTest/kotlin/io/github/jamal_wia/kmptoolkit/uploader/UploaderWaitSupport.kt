@@ -31,23 +31,43 @@ internal fun awaitCondition(timeoutMillis: Long = 15_000L, what: String = "condi
     check(pollUntil(timeoutMillis, condition)) { "timed out after $timeoutMillis ms waiting for $what" }
 }
 
-/** True when no work spec carrying [tag] is running, enqueued or blocked: every job of the tag has finished. */
-internal fun isWorkQuiescent(workManager: WorkManager, tag: String): Boolean =
-    workManager.getWorkInfosByTag(tag).get().all { it.state.isFinished }
+/**
+ * True when at least one work spec carries [tag] and none of them is running, enqueued or blocked. An empty tag is
+ * NOT quiescent: a renamed tag must keep the barrier closed, never open it vacuously.
+ */
+internal fun isWorkQuiescent(workManager: WorkManager, tag: String): Boolean {
+    val infos: List<androidx.work.WorkInfo> = workManager.getWorkInfosByTag(tag).get()
+    return infos.isNotEmpty() && infos.all { it.state.isFinished }
+}
+
+/** The state of every work spec of [tag], for the message of a barrier that timed out. */
+internal fun describeWork(workManager: WorkManager, tag: String): String =
+    workManager.getWorkInfosByTag(tag).get().joinToString(prefix = "[", postfix = "]") { "${it.id.toString().take(8)}=${it.state}" }
 
 /**
  * The quiescence barrier that replaces a sleep before an absence assertion ("a stray extra upload would land
- * here"): waits until every job of [tag] has finished AND [extra] holds (a ledger drained, a row gone). A job
- * that finished has already read its answer, so a request it made is already recorded; a job still alive keeps
- * the barrier closed. The remaining blind spot, work enqueued after the barrier opened, is a hand-off the engine
- * would have to make for a row it no longer owns.
+ * here"). It opens when, checked in this order: [first] holds (the engine runs no attempt of the items: a cancelled
+ * attempt may still be about to launch, and its launch enqueues synchronously before the attempt ends), then every
+ * job of [tag] has finished (and at least one existed), then [extra] holds (a ledger drained, a row gone). A job
+ * that finished has already read its answer, so a request it made is already recorded; a job still alive keeps the
+ * barrier closed. [describe] adds the state of the engine and the ledger to the message of a timeout.
+ *
+ * Remaining blind spots: work enqueued after the barrier opened, which needs a hand-off for a row the engine no
+ * longer owns; and a JDK-internal reconnect left in a server's accept backlog, which only a server that counts at
+ * `accept` (not at the end of the request) can miss, and which needs a reset during the request head that these
+ * peers never send.
  */
 internal fun awaitWorkQuiescent(
     workManager: WorkManager,
     tag: String,
     timeoutMillis: Long = 15_000L,
     what: String = "work of tag $tag to finish",
+    first: () -> Boolean = { true },
+    describe: () -> String = { "" },
     extra: () -> Boolean = { true },
 ) {
-    awaitCondition(timeoutMillis, what) { isWorkQuiescent(workManager, tag) && extra() }
+    val opened: Boolean = pollUntil(timeoutMillis) { first() && isWorkQuiescent(workManager, tag) && extra() }
+    check(opened) {
+        "timed out after $timeoutMillis ms waiting for $what; work of tag $tag: ${describeWork(workManager, tag)}; ${describe()}"
+    }
 }

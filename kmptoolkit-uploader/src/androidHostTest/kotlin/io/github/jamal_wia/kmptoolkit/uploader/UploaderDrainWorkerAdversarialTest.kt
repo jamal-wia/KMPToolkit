@@ -6,12 +6,14 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
+import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import java.util.concurrent.TimeUnit
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +64,7 @@ class UploaderDrainWorkerAdversarialTest {
     private fun UploaderDrainWorker.runToEnd(): ListenableWorker.Result = startWork().get(30, TimeUnit.SECONDS)
 
     private fun engineOver(
-        store: TestUploaderStore,
+        store: UploaderStore,
         handler: TestHandler,
         parent: Job = job,
     ): UploaderEngine = testEngine(
@@ -128,14 +130,26 @@ class UploaderDrainWorkerAdversarialTest {
         val engine = engineOver(store, handler)
         runBlocking { engine.enqueue(handler, "blocked") }
         engine.start()
-        UploaderEngineRegistry.register(engine)
+        // The registry takes any engine: a delegating one tells when a worker is inside awaitDrained and when it left.
+        val inWait = CompletableDeferred<Unit>()
+        val waitEnded = CompletableDeferred<Unit>()
+        val observed: UploaderEngine = object : UploaderEngine by engine {
+            override suspend fun awaitDrained(timeout: Duration): Boolean {
+                inWait.complete(Unit)
+                try {
+                    return engine.awaitDrained(timeout)
+                } finally {
+                    waitEnded.complete(Unit)
+                }
+            }
+        }
+        UploaderEngineRegistry.register(observed)
 
         val first = worker(engineWaitMillis = 2_000, drainBudgetMillis = 20_000).startWork()
-        // The engine is draining: its handler is inside the blocked attempt the first worker waits on.
-        runBlocking { withTimeout(10_000) { executing.await() } }
+        // The engine is draining (its handler is inside the blocked attempt) AND the worker is waiting on it.
+        runBlocking { withTimeout(10_000) { executing.await(); inWait.await() } }
         first.cancel(true) // WorkManager stops the job: constraints lost, or the platform deadline hit
-        // timing-hygiene-ignore: TH1 inject grace for the stop to reach the worker; no event of the worker is observable
-        Thread.sleep(200)
+        runBlocking { withTimeout(10_000) { waitEnded.await() } } // the stop reached the worker's wait
         gate.complete(Unit)
 
         val second = worker(engineWaitMillis = 2_000, drainBudgetMillis = 10_000).startWork()
@@ -153,11 +167,15 @@ class UploaderDrainWorkerAdversarialTest {
         val store = TestUploaderStore()
         val handler = TestHandler()
         val parent = Job()
-        val engine = engineOver(store, handler, parent)
+        // The drain pass reads the store: a delegating store tells that the engine's loop is live before the owner dies.
+        val firstPass = CompletableDeferred<Unit>()
+        val observedStore: UploaderStore = object : UploaderStore by store {
+            override suspend fun getAllActive(): List<UploaderItem> = store.getAllActive().also { firstPass.complete(Unit) }
+        }
+        val engine = engineOver(observedStore, handler, parent)
         engine.start()
         UploaderEngineRegistry.register(engine)
-        // No event tells that the engine's loop is already running; a cancel that reaches it before or after its first
-        // pass leaves the same end state (a dead owner), which is what the worker is asked about below.
+        runBlocking { withTimeout(10_000) { firstPass.await() } } // the engine's loop has run a pass: it is live
         parent.cancel() // the owner is gone; nothing will ever drain through this engine again
         // Every coroutine of the owner has ended, so nothing can drain the item enqueued next.
         runBlocking { withTimeout(10_000) { parent.join() } }
