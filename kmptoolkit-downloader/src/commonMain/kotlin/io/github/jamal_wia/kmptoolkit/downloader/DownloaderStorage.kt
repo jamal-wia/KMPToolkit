@@ -197,7 +197,10 @@ public interface DownloaderStorage {
     /** Bytes [unit] occupies on disk (summed recursively for a directory), or 0 when absent. */
     public fun getResourceSize(unit: DownloadUnit): Long
 
-    /** Removes [unit]'s committed resource, file or directory. Safe when it is not present. */
+    /**
+     * Removes [unit]'s committed resource, file or directory. Safe when it is not present. A directory is moved aside in
+     * one step and then deleted, so it is never seen half removed.
+     */
     public fun deleteResource(unit: DownloadUnit)
 }
 

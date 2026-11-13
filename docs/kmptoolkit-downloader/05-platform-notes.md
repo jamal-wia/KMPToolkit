@@ -68,7 +68,10 @@ The tree is only renamed to `tmp/kmptoolkit-internal/trash/<random number>` unde
 deleted after it is released, so a large extraction never stalls other units' commits (the entry is
 named by a number alone, so no id's length can make the rename fail). If the process dies or the
 delete fails midway, the remainder stays in `tmp/kmptoolkit-internal/trash/`; every later
-`deleteTempFile`, for any unit, sweeps that directory (nothing ever commits from it, so no lock is needed). A plain file
+`deleteTempFile`, for any unit, sweeps that directory (nothing ever commits from it, so no lock is needed). A replaced
+or deleted archive tree passes through the same directory: it is renamed there in one step and deleted afterwards,
+so a process killed inside that delete leaves its partial tree in the trash and never at the resource path, where a
+surviving marker would read as a complete resource. A plain file
 is moved into place by an atomic rename that replaces the old file, on both platforms, so a
 committed resource never goes missing while it is replaced. The lock is per process: a
 `BackgroundResourceDownloader` that commits from a separate Android process is not covered by it. The hash a transfer must have (`beginTempFile`) is a one-line file at
