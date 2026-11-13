@@ -286,6 +286,11 @@ val notifier = createNotifier(context, permissions, config, foregroundIds = setO
 notifier.post("playback", nowPlaying.copy(body = nextTrack), options)
 ```
 
+End a run with a terminal frame or `cancel(id)` before the service starts the next one: the service's
+starting frame is shown without the notifier knowing, so if a run was abandoned and the service starts
+again within the abandoned-run horizon, a frame in the old bar position can answer `Coalesced` while the
+tray still shows the service's starting frame.
+
 Leave an id out of `foregroundIds` and its `post` shows a *second* notification beside the service's,
 under the tag. Two entries may not share an id or a `platformId`. `ForegroundNotificationId` exists
 only on Android: iOS has no foreground services.
