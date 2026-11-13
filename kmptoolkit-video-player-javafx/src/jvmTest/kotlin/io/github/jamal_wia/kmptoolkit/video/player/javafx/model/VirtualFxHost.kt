@@ -18,8 +18,9 @@ import kotlin.random.Random
  * drives time. Nothing runs by itself; no real time passes.
  *
  * CLOCK: [nanoTime] is [epochNanos] plus the virtual time elapsed, which moves only when a queued block
- * with a later due time is taken. The default epoch is [DEFAULT_EPOCH_NANOS], far from 0, because
- * `FxPlayback` uses 0 as "none" in four fields; pass a negative epoch to check a clock that is.
+ * with a later due time is taken. The default epoch is [DEFAULT_EPOCH_NANOS]; `NegativeClockModelTest` runs the
+ * scenarios of the player on a negative epoch, on 0 and near `Long.MAX_VALUE` too, because `System.nanoTime()` may
+ * start anywhere and `FxPlayback` may depend on none of it.
  *
  * QUEUE: one priority queue ordered by due time, then by the order of enqueueing. A block queued by
  * [post], [postLater] or [call] is due now; [after] is due `delay` later, plus a seeded jitter of up to
