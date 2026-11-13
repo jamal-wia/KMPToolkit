@@ -178,5 +178,5 @@ race a reconfiguration. Reconfiguring means building another factory, or gating 
 |---|---|
 | `LoggerFactory` / `Logger` from `createLoggerFactory` | Immutable; safe to share across threads |
 | `NoopLogger` | Stateless |
-| `platformLogSink()` | Stateless; the underlying platform APIs are themselves thread-safe |
+| `platformLogSink()` | Stateless and safe from several threads: on Android each event is one `android.util.Log` call; on iOS each event (line and stack trace) is written to standard output in one step under a lock shared by every instance, so concurrent events never interleave |
 | Your own `LogSink` | **Your** responsibility |

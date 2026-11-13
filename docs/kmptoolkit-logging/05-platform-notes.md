@@ -49,10 +49,11 @@ Things to know:
   building its message is not.
 - **`android.util.Log` is not available on a plain JVM.** In a local unit test without Robolectric,
   calling it throws `"not mocked"`. Tests should use their own sink or an empty sink list — this
-  module's common tests never touch `platformLogSink()` for exactly this reason. The only tests that
+  module's common tests never touch `platformLogSink()` for exactly this reason. The tests that
   create it are the Android host tests (`PlatformLogSinkStackTraceTest`, `PlatformLogSinkLongChainTest`),
   which run under Robolectric, where `android.util.Log` is a working shadow that records what the sink
-  passes to it.
+  passes to it, and the iOS tests (`PlatformLogSinkIosChainTest`, `PlatformLogSinkIosConcurrencyTest`),
+  where standard output is real and is redirected to a file.
 
 ## iOS
 
@@ -64,6 +65,11 @@ D/UserRepository: loading user 42
 
 The prefix is the level's initial (`V`, `D`, `I`, `W`, `E`), then the tag, then the message. A
 non-null `Throwable` is followed by `throwable.stackTraceToString()` on its own lines.
+
+Each event, its line and its stack trace, is written in one step under a lock shared by every
+instance of the sink, so loggers on several threads never glue lines together or separate a trace
+from its event. Anything else that writes to standard output (`println` elsewhere in the app,
+`NSLog`) does not take that lock, so its output is not ordered against the sink's.
 
 **Why `println` and not `NSLog` or `os_log`:**
 
