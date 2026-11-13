@@ -567,23 +567,22 @@ internal class DefaultUploaderEngine(
         return bumpOutsideFailure(item.id)
     }
 
-    /** When the held sweep last re-read the entries it had found absent (`null`: never), see [takeHeldRecheck]. */
+    /** When the held sweep last COMPLETED a re-read of the entries it had found absent (`null`: never), see [heldRecheckDueAt]. */
     private val lastHeldRecheckMillis: MutableStateFlow<Long?> = MutableStateFlow(null)
 
     /**
-     * Whether this sweep re-reads the remembered entries whose row it found absent: at the first sweep, once per
-     * [UploaderConfig.heartbeatInterval] after, and at once when the clock reads earlier than the last re-check (a step
-     * backwards). A manual drain racing the engine's loop may cost one extra full sweep.
+     * The clock reading at which this sweep re-reads the entries whose row it found absent, or `null`: at the first
+     * sweep, once per [UploaderConfig.heartbeatInterval] after the last completed re-check, and at once when the clock
+     * reads earlier than it (a step backwards). Writes nothing: the sweep records the re-check only after its reads
+     * finished, so a sweep cancelled during them leaves the next one due. Overlapping sweeps (a manual drain racing the
+     * engine's loop) may each re-check, which costs a read, never a later rescue.
      */
-    private fun takeHeldRecheck(): Boolean {
+    private fun heldRecheckDueAt(): Long? {
         val now: Long = clock.nowEpochMillis()
         val heartbeat: Long = config.heartbeatInterval.inWholeMilliseconds
-        var due = false
-        lastHeldRecheckMillis.update { last ->
-            due = last == null || now < last || saturatingSubtract(now, last) >= heartbeat
-            if (due) now else last
-        }
-        return due
+        val last: Long? = lastHeldRecheckMillis.value
+        val due: Boolean = last == null || now < last || saturatingSubtract(now, last) >= heartbeat
+        return if (due) now else null
     }
 
     /** What [sweepHeldOutOfRotation] found: the rows' [ids] and the soonest [gate] a delete is worth another try, if any. */
@@ -593,10 +592,12 @@ internal class DefaultUploaderEngine(
      * Rule P7 for the rows [drainPass]'s active list never offers: a row this process holds as delivered that a verdict
      * parked (before the delivery's delete failed, or while it was failing) is still owed its delete, whatever its
      * state. Runs once per call, under the same turn and backoff rules as an active held row; the entries it found
-     * absent are re-read once per heartbeat ([takeHeldRecheck]).
+     * absent are re-read once per heartbeat ([heldRecheckDueAt]).
      */
     private suspend fun sweepHeldOutOfRotation(call: DrainCall): HeldSweep {
-        val held: List<UploaderItem> = ledger.heldOutOfRotation(recheckAbsent = takeHeldRecheck())
+        val recheckAt: Long? = heldRecheckDueAt()
+        val held: List<UploaderItem> = ledger.heldOutOfRotation(recheckAbsent = recheckAt != null)
+        if (recheckAt != null) lastHeldRecheckMillis.value = recheckAt // recorded only after the reads: boss5-S2
         if (held.isEmpty()) return HeldSweep(emptySet(), null)
         val nowMillis: Long = clock.nowEpochMillis()
         var gate: Long? = null
