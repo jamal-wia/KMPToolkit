@@ -152,8 +152,8 @@ class DocsNormativeRound11AdversarialTest {
             store.failures = if (failDelete) 1 else 0
 
             runCatching { UploadGateway.complete(id, UploadResponse(201, emptyMap(), ByteArray(0), false), 1.seconds) }
-            // The drain confirms the held delete once the hand-off's lease has ended (see suspect r11-S1 for the
-            // unexpired-lease reading of the docs); every existing pin of the held delete advances the clock the same way.
+            // The drain confirms the held delete once the hand-off's lease has ended (the documented order: the lease
+            // first); every existing pin of the held delete advances the clock the same way.
             clock.millis += 61_000L
             engine.drain()
 

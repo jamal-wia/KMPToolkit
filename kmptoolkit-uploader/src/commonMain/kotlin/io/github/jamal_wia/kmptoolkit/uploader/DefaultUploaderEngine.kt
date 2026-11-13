@@ -129,9 +129,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   through [settle] (an executor's own report, the upload channel's included), an upload preparation's `Drop`. A
  *   delete that fails is **remembered for this process** ([DeliveredUnconfirmed], also seen by an engine built to
  *   replace this one) and a delete that succeeds forgets it, so the row is never handed out again: the drain's next
- *   turn for it only retries the delete, and the call that reported the effect still throws the store's failure (a
- *   repeated `settle` is harmless). The funnel is for a row whose effect is a fact; a withdrawal (P8) and the drain's
- *   own confirming retry are not calls to it: the first never remembers or forgets, the second is the retry itself.
+ *   turn for it (for an in-flight row, once its lease has ended) only retries the delete, and the call that reported
+ *   the effect still throws the store's failure (a repeated `settle` is harmless). The funnel is for a row whose
+ *   effect is a fact; a withdrawal (P8) and the drain's own confirming retry are not calls to it: the first never
+ *   remembers or forgets, the second is the retry itself.
  *   *Pinned by:* EngineBossRound3SuspectsAdversarialTest (bn3-S2a and its fix tests), the boss round 1 and 2 suites of
  *   the delivered memory, UploadHandlerTest.
  * - **P9, Turn.** In one call of `drain()` (and in one pass of the engine's own loop) an item gets **at most one
@@ -149,8 +150,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   process still holds as delivered ([RowLedger.holds]): [RowLedger.park] and [RowLedger.recordFailure], the only two
  *   verdict writers, run the P7 confirming delete instead (forget on success, held on failure) and report the verdict as
  *   not applied: a stale `settle` (`applied = false`), no `onSettled` and a dropped journal entry for an upload. The
- *   drain asks nothing else of a held row before it retries its delete: the check for it follows the gates and the
- *   turn and precedes the handler lookup, the constraints and the backoff gate. The order of the two does not matter: a
+ *   drain asks nothing else of a held row before it retries its delete: the check for it follows the gates (an
+ *   unexpired lease of an in-flight row, the in-memory backoff of a failure outside the handler) and the turn and
+ *   precedes the handler lookup, the constraints and the backoff gate. The order of the two does not matter: a
  *   verdict that landed **first** (the row is PARKED, out of the active list the drain reads) is rescued too, because
  *   a row held as delivered is confirmed in whatever state it is: once per call, ahead of the empty-queue check,
  *   [RowLedger.heldOutOfRotation] names the parked held rows and the drain retries their delete under the same turn
@@ -453,8 +455,8 @@ internal class DefaultUploaderEngine(
                     continue
                 }
                 // P10: a row held as delivered is confirmed before anything else is asked of it: whether its type still has a
-                // handler, whether its constraints hold or its gate has opened are questions about running the effect again,
-                // and a delete needs none of them.
+                // handler, whether its constraints hold or its backoff gate has opened are questions about running the
+                // effect again, and a delete needs none of them.
                 if (ledger.holds(item)) {
                     // The effect succeeded in this process (in this engine or one it replaced) and only its
                     // confirming delete failed: repeating the effect would send it twice, so only the delete is retried.
