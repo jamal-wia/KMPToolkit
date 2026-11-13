@@ -44,18 +44,19 @@ import kotlinx.coroutines.withContext
  *
  * **Every transition does its engine calls first, then publishes its flows and writes [stateFlow] last, and
  * every write of a source flow or of [stateFlow] goes through [publish].** A collector on an immediate
- * dispatcher runs inside a write and may call the player back. Such a call sees the state the running
- * transition is establishing ([effectiveState]: inside the writes of [pause] the player is `Paused`, inside
- * those of a failure it is `Error`), and the transition stops at the first write inside which the call changed
- * the player and calls nothing more on the engine, so the call is never undone and a failure is never lost to
- * it. What the engine reported about its source (buffered position, buffering, picture size) is not undone by
- * a transport call either, so the last step of [prepare] writes those facts unless the source was dropped
- * (its load replaced, [unload], [release]); in a failure every transport call is a no-op under `Error`, so none
- * of them cuts the failure's own writes of those facts. The exceptions are the calls whose result is the point
- * of the call: [unload] and [release] reset the source flows and end in `Idle` (an [unload] leaves the state,
- * and the flows it has not reset yet, to a [prepare] a collector called from inside it), and a [prepare] that
- * has not been replaced resets them and loads. A composite call ([replay]: seek, then play) stops after its
- * seek in that case, and re-reads the state between its steps otherwise.
+ * dispatcher runs inside a write and may call the player back. Such a call acts on the state the running
+ * transition is establishing ([effectiveState]: inside the writes of [pause] a call treats the player as `Paused`,
+ * inside those of a failure as `Error`), even though [stateFlow], written last, still holds the state being left
+ * until that final write; and the transition stops at the first write inside which the call changed the player
+ * and calls nothing more on the engine, so the call is never undone and a failure is never lost to it. What the
+ * engine reported about its source (buffered position, buffering, picture size) is not undone by a transport call
+ * either, so the last step of [prepare] writes those facts unless the source was dropped (its load replaced,
+ * [unload], [release]); in a failure every transport call is a no-op under `Error`, so none of them cuts the
+ * failure's own writes of those facts. The exceptions are the calls whose result is the point of the call:
+ * [unload] and [release] reset the source flows and end in `Idle` (an [unload] leaves the state, and the flows it
+ * has not reset yet, to a [prepare] a collector called from inside it), and a [prepare] that has not been replaced
+ * resets them and loads. A composite call ([replay]: seek, then play) stops after its seek in that case, and
+ * re-reads the state between its steps otherwise.
  *
  * ### Dropped sources
  *
@@ -280,6 +281,7 @@ internal class EngineVideoPlayer(
                 // released check and its installing itself in currentLoad, so the identity holds again
                 // here while the engine is already released and disposed, and nothing of it may be
                 // called after dispose.
+                // Not in establishing(Idle): every consumer call treats Preparing like the Idle this closes on.
                 if (isCurrent(load)) {
                     freeEngineSource()
                     if (resetSourceFlows()) publish(_stateFlow, VideoPlayerState.Idle)
