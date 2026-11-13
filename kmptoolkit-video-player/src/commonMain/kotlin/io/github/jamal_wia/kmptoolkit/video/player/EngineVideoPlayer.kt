@@ -42,9 +42,11 @@ import kotlinx.coroutines.withContext
  * lock; engine callbacks and poll ticks never wait, they are handed to the thread holding it (see
  * [StateMachineLock] for why). Everything marked "guarded" below is touched only under that lock.
  *
- * **Every transition writes [stateFlow] last.** A collector on an immediate dispatcher runs inside that
- * write and may call the player back; nothing of the transition may run after it, or it would undo what
- * the collector did. A composite call ([replay]: seek, then play) re-reads the state between its steps.
+ * **Every transition writes [stateFlow] last, and every write of a source flow or of [stateFlow] goes
+ * through [publish].** A collector on an immediate dispatcher runs inside a write and may call the player
+ * back; the transition stops at the first write inside which such a call changed the player, and calls
+ * nothing more on the engine, or it would undo what the collector did. A composite call ([replay]: seek,
+ * then play) stops after its seek in that case, and re-reads the state between its steps otherwise.
  *
  * ### Dropped sources
  *
@@ -157,6 +159,12 @@ internal class EngineVideoPlayer(
     private val _videoSizeFlow: MutableStateFlow<VideoSize?> = MutableStateFlow(null)
     override val videoSizeFlow: StateFlow<VideoSize?> = _videoSizeFlow.asStateFlow()
 
+    /**
+     * Bumped by every [publish]. A transition that hands a value to a collector compares it before and after the write
+     * to see whether the collector called the player and that call changed something. Guarded.
+     */
+    private var writes: Long = 0L
+
     // Clamped like every later value: a configured range that excludes 1.0 must not start outside itself.
     private val _playbackSpeedFlow: MutableStateFlow<Float> =
         MutableStateFlow(NORMAL_PLAYBACK_SPEED.coerceIn(config.minPlaybackSpeed, config.maxPlaybackSpeed))
@@ -183,7 +191,7 @@ internal class EngineVideoPlayer(
 
     override suspend fun prepare(source: VideoSource) {
         val refused: Boolean = gate.exclusive {
-            if (released) _stateFlow.value = VideoPlayerState.Error(VideoPlayerReleasedException())
+            if (released) publish(_stateFlow, VideoPlayerState.Error(VideoPlayerReleasedException()))
             released
         }
         if (refused) return
@@ -206,16 +214,18 @@ internal class EngineVideoPlayer(
                     } catch (@Suppress("TooGenericExceptionCaught") cause: Throwable) {
                         // An engine that cannot drop its source is broken, but prepare never throws on
                         // failure: it settles on Error (the epoch was bumped, so its reports are stale).
-                        resetSourceFlows()
-                        _stateFlow.value = VideoPlayerState.Error(cause)
+                        if (resetSourceFlows()) publish(_stateFlow, VideoPlayerState.Error(cause))
                         return@exclusive false
                     }
                 } else {
                     sourceEpoch.update { it + 1 }
                 }
+                // Not stopped by the write guard: a collector of one of these flows may have called the player, but
+                // this prepare is a request of its own and goes on unless it was replaced or the player released.
                 resetSourceFlows()
+                if (!isCurrent(load)) return@exclusive false
                 engineHoldsSource = true
-                _stateFlow.value = VideoPlayerState.Preparing
+                publish(_stateFlow, VideoPlayerState.Preparing)
                 true
             }
             if (!started) return
@@ -226,10 +236,7 @@ internal class EngineVideoPlayer(
             val failure: Throwable? = withContext(load.job) { loadCatching(source) }
             if (failure != null) {
                 gate.exclusive {
-                    if (isCurrent(load)) {
-                        resetSourceFlows()
-                        _stateFlow.value = VideoPlayerState.Error(failure)
-                    }
+                    if (isCurrent(load) && resetSourceFlows()) publish(_stateFlow, VideoPlayerState.Error(failure))
                 }
                 return
             }
@@ -250,8 +257,7 @@ internal class EngineVideoPlayer(
                 // called after dispose.
                 if (isCurrent(load)) {
                     freeEngineSource()
-                    resetSourceFlows()
-                    _stateFlow.value = VideoPlayerState.Idle
+                    if (resetSourceFlows()) publish(_stateFlow, VideoPlayerState.Idle)
                 }
             }
             throw cancellation
@@ -269,8 +275,7 @@ internal class EngineVideoPlayer(
             val failed: Throwable? = preparingFailure
             if (failed != null) {
                 // The loaded source failed before it could be published: the failure wins.
-                resetSourceFlows()
-                _stateFlow.value = VideoPlayerState.Error(failed)
+                if (resetSourceFlows()) publish(_stateFlow, VideoPlayerState.Error(failed))
                 return@exclusive
             }
             val stalled: Boolean = preparingBuffering
@@ -292,13 +297,12 @@ internal class EngineVideoPlayer(
                 } catch (@Suppress("TooGenericExceptionCaught") releaseFailure: Throwable) {
                     cause.addSuppressed(releaseFailure)
                 }
-                resetSourceFlows()
-                _stateFlow.value = VideoPlayerState.Error(cause)
+                if (resetSourceFlows()) publish(_stateFlow, VideoPlayerState.Error(cause))
                 return@exclusive
             }
-            _bufferedPositionFlow.value = buffered
-            _isBufferingFlow.value = stalled
-            _stateFlow.value = VideoPlayerState.Ready(duration)
+            if (!publish(_bufferedPositionFlow, buffered)) return@exclusive
+            if (!publish(_isBufferingFlow, stalled)) return@exclusive
+            publish(_stateFlow, VideoPlayerState.Ready(duration))
         }
     }
 
@@ -313,11 +317,14 @@ internal class EngineVideoPlayer(
         stopPositionUpdates()
         val duration: Long = freshDuration(current.duration)
         val position: Long = shownPosition(engine.positionMs(), duration)
-        _playbackPositionFlow.value = position
-        _bufferedPositionFlow.value = engine.bufferedPositionMs().coerceAtLeast(0L)
-        _stateFlow.value = VideoPlayerState.Paused(
-            duration = duration,
-            currentPosition = position,
+        if (!publish(_playbackPositionFlow, position)) return@exclusive
+        if (!publish(_bufferedPositionFlow, engine.bufferedPositionMs().coerceAtLeast(0L))) return@exclusive
+        publish(
+            _stateFlow,
+            VideoPlayerState.Paused(
+                duration = duration,
+                currentPosition = position,
+            ),
         )
     }
 
@@ -330,8 +337,8 @@ internal class EngineVideoPlayer(
         stopPositionUpdates()
         engine.seekTo(0L)
         transportEpoch.update { it + 1 }
-        _playbackPositionFlow.value = 0L
-        _stateFlow.value = VideoPlayerState.Ready(freshDuration(current.duration ?: 0L))
+        if (!publish(_playbackPositionFlow, 0L)) return@exclusive
+        publish(_stateFlow, VideoPlayerState.Ready(freshDuration(current.duration ?: 0L)))
     }
 
     override fun seekTo(positionMs: Long): Unit = gate.exclusive { seekToLocked(positionMs) }
@@ -354,7 +361,8 @@ internal class EngineVideoPlayer(
     override fun replay(): Unit = gate.exclusive {
         if (released) return@exclusive
         if (!_stateFlow.value.isPlayable) return@exclusive
-        seekToLocked(0L)
+        // The seek and the play are one transition: a collector that changed the player during the seek ends it.
+        if (!seekToLocked(0L)) return@exclusive
         playLocked()
     }
 
@@ -397,8 +405,9 @@ internal class EngineVideoPlayer(
         try {
             abandonLoad(dispose = false)
         } finally {
+            // Idle is what this call promises, so a collector's call during the reset does not stop it.
             resetSourceFlows()
-            _stateFlow.value = VideoPlayerState.Idle
+            publish(_stateFlow, VideoPlayerState.Idle)
         }
     }
 
@@ -416,8 +425,9 @@ internal class EngineVideoPlayer(
                 abandonLoad(dispose = true)
             }
         } finally {
+            // Idle is what this call promises, so a collector's call during the reset does not stop it.
             resetSourceFlows()
-            _stateFlow.value = VideoPlayerState.Idle
+            publish(_stateFlow, VideoPlayerState.Idle)
         }
     }
 
@@ -463,25 +473,25 @@ internal class EngineVideoPlayer(
                 is VideoPlayerState.Playing -> {
                     engine.seekTo(0L)
                     engine.start()
-                    _playbackPositionFlow.value = 0L
+                    if (!publish(_playbackPositionFlow, 0L)) return
                     startPositionUpdates()
-                    _stateFlow.value = VideoPlayerState.Playing(duration = known, currentPosition = 0L)
+                    publish(_stateFlow, VideoPlayerState.Playing(duration = known, currentPosition = 0L))
                 }
                 is VideoPlayerState.Paused -> {
                     engine.seekTo(0L)
-                    _playbackPositionFlow.value = 0L
-                    _stateFlow.value = VideoPlayerState.Paused(duration = known, currentPosition = 0L)
+                    if (!publish(_playbackPositionFlow, 0L)) return
+                    publish(_stateFlow, VideoPlayerState.Paused(duration = known, currentPosition = 0L))
                 }
                 else -> Unit
             }
             return
         }
         stopPositionUpdates()
-        _isBufferingFlow.value = false
+        if (!publish(_isBufferingFlow, false)) return
         // A source of unknown length that played to its end has a length now: where it ended.
         val end: Long = if (known > 0L) known else engine.positionMs().takeIf { it > 0L } ?: _playbackPositionFlow.value
-        _playbackPositionFlow.value = end
-        _stateFlow.value = VideoPlayerState.Completed(end)
+        if (!publish(_playbackPositionFlow, end)) return
+        publish(_stateFlow, VideoPlayerState.Completed(end))
     }
 
     override fun onFailed(cause: Throwable) {
@@ -498,10 +508,10 @@ internal class EngineVideoPlayer(
         }
         if (!_stateFlow.value.isPlayable) return
         stopPositionUpdates()
-        _isBufferingFlow.value = false
-        _videoSizeFlow.value = null
-        _bufferedPositionFlow.value = 0L
-        _stateFlow.value = VideoPlayerState.Error(cause)
+        if (!publish(_isBufferingFlow, false)) return
+        if (!publish(_videoSizeFlow, null)) return
+        if (!publish(_bufferedPositionFlow, 0L)) return
+        publish(_stateFlow, VideoPlayerState.Error(cause))
     }
 
     override fun onBufferingChanged(isBuffering: Boolean) {
@@ -521,7 +531,7 @@ internal class EngineVideoPlayer(
         val current: VideoPlayerState = _stateFlow.value
         // A stall after the end describes nothing the viewer waits for: Completed is never buffering.
         if (!current.isPlayable || current is VideoPlayerState.Completed) return
-        _isBufferingFlow.value = isBuffering
+        publish(_isBufferingFlow, isBuffering)
     }
 
     override fun onVideoSizeChanged(size: VideoSize?) {
@@ -534,7 +544,7 @@ internal class EngineVideoPlayer(
         if (released) return
         val current: VideoPlayerState = _stateFlow.value
         if (current != VideoPlayerState.Preparing && !current.isPlayable) return
-        _videoSizeFlow.value = size
+        publish(_videoSizeFlow, size)
     }
 
     // --- Transitions shared by several entry points. Lock held. ---
@@ -554,20 +564,24 @@ internal class EngineVideoPlayer(
             // completing again).
             engine.seekTo(0L)
             transportEpoch.update { it + 1 }
-            _playbackPositionFlow.value = 0L
+            if (!publish(_playbackPositionFlow, 0L)) return
         }
         engine.start()
         engine.setSpeed(_playbackSpeedFlow.value)
         val position: Long = shownPosition(engine.positionMs(), duration)
         // Polling first: a collector that pauses from inside the state write stops the poll it finds.
         startPositionUpdates()
-        _stateFlow.value = VideoPlayerState.Playing(duration = duration, currentPosition = position)
+        publish(_stateFlow, VideoPlayerState.Playing(duration = duration, currentPosition = position))
     }
 
-    private fun seekToLocked(positionMs: Long, relative: Boolean = false) {
-        if (released) return
+    /**
+     * Lock held. Returns whether the seek ran to its end without a collector's call changing the player; a seek that
+     * has nothing to do (released, not playable) also returns true: there was nothing to interrupt.
+     */
+    private fun seekToLocked(positionMs: Long, relative: Boolean = false): Boolean {
+        if (released) return true
         val current: VideoPlayerState = _stateFlow.value
-        if (!current.isPlayable) return
+        if (!current.isPlayable) return true
 
         val duration: Long = freshDuration(current.duration ?: 0L)
         // A length of 0 means the platform has not reported one yet (a live stream, a header not parsed).
@@ -583,9 +597,9 @@ internal class EngineVideoPlayer(
         engine.seekTo(target)
         // A seek onto the end does not make an earlier completion stale; a seek anywhere else does.
         if (duration <= 0L || target < duration) transportEpoch.update { it + 1 }
-        _playbackPositionFlow.value = target
+        if (!publish(_playbackPositionFlow, target)) return false
 
-        _stateFlow.value = when (current) {
+        val next: VideoPlayerState = when (current) {
             is VideoPlayerState.Playing -> current.copy(duration = duration, currentPosition = target)
             is VideoPlayerState.Paused -> current.copy(duration = duration, currentPosition = target)
             // A Ready player picks up a length the platform learned since the load.
@@ -595,6 +609,7 @@ internal class EngineVideoPlayer(
             is VideoPlayerState.Completed -> VideoPlayerState.Paused(duration, target)
             else -> current
         }
+        return publish(_stateFlow, next)
     }
 
     private fun pushVolume() {
@@ -602,14 +617,28 @@ internal class EngineVideoPlayer(
         if (_stateFlow.value.isPlayable) engine.setVolume(effectiveVolume)
     }
 
-    /** Resets everything that describes a source — never the settings, which outlive sources. */
-    private fun resetSourceFlows() {
-        _playbackPositionFlow.value = 0L
-        _bufferedPositionFlow.value = 0L
-        _isBufferingFlow.value = false
-        _videoSizeFlow.value = null
+    /**
+     * Lock held. Publishes [value] for the running transition. False when a collector called the player from inside
+     * this write and that call changed something: the transition stops there (no later write, no engine call), so
+     * the collector's call is never undone. A call that writes nothing does not interrupt.
+     */
+    private fun <T> publish(flow: MutableStateFlow<T>, value: T): Boolean {
+        val mine: Long = ++writes
+        flow.value = value
+        return writes == mine
+    }
+
+    /**
+     * Resets everything that describes a source — never the settings, which outlive sources. False when a collector's
+     * call changed the player in the middle (see [publish]); the pending fields are cleared either way.
+     */
+    private fun resetSourceFlows(): Boolean {
         preparingFailure = null
         preparingBuffering = false
+        if (!publish(_playbackPositionFlow, 0L)) return false
+        if (!publish(_bufferedPositionFlow, 0L)) return false
+        if (!publish(_isBufferingFlow, false)) return false
+        return publish(_videoSizeFlow, null)
     }
 
     /**
@@ -725,8 +754,8 @@ internal class EngineVideoPlayer(
         // The flows first and the state last, like every transition: a collector on an immediate
         // dispatcher that pauses or rewinds from inside the state write must not be overwritten by
         // this tick's older reading afterwards.
-        _playbackPositionFlow.value = position
-        _bufferedPositionFlow.value = buffered
+        if (!publish(_playbackPositionFlow, position)) return
+        if (!publish(_bufferedPositionFlow, buffered)) return
         // Compare-and-set as well as the lock: under the lock it can only fail because a collector of one
         // of the two flows above re-entered and changed the state, and then that transition's writes stand.
         _stateFlow.compareAndSet(current, refreshed)
