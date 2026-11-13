@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.logging.overlay
 
 import io.github.jamal_wia.kmptoolkit.logging.LogLevel
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -11,6 +12,10 @@ import kotlin.test.assertTrue
  * throwable whose own `toString()` or `message` fails with an Error the logger contains (Kotlin's `TODO()`
  * raises a `NotImplementedError`, a failed assertion an `AssertionError`) must neither surface from the
  * sink nor cost the overlay the event; any other Error keeps propagating, exactly as through the logger.
+ *
+ * One documented difference from the logger, deliberately not in the parity table: a sink's
+ * `CancellationException` is rethrown by the logger, but a `CancellationException` raised by a throwable's own
+ * description is contained by the overlay like any other `Exception`.
  */
 class OverlayDescriptionErrorContainmentTest {
 
@@ -21,6 +26,10 @@ class OverlayDescriptionErrorContainmentTest {
     private class FailedAssertionDescription : RuntimeException() {
         override fun toString(): String = throw AssertionError("describe failed an assertion")
         override val message: String get() = throw AssertionError("message failed an assertion")
+    }
+
+    private class CancelledMessage : RuntimeException() {
+        override val message: String get() = throw CancellationException("message read a cancelled future")
     }
 
     private class Fatal : Error("vm level failure")
@@ -51,6 +60,17 @@ class OverlayDescriptionErrorContainmentTest {
         assertEquals("boom", record.message)
         val text: String = record.throwableText.orEmpty()
         assertTrue(text.contains("FailedAssertionDescription"), "the class is not named: $text")
+        assertTrue(text.contains("stack trace unavailable"), "no unavailable marker: $text")
+    }
+
+    @Test
+    fun `a throwable whose message throws a CancellationException is contained and keeps the event`() {
+        val state = LogOverlayState()
+        state.record(LogLevel.ERROR, "T", "boom", CancelledMessage())
+        val record: LogRecord = state.records.value.single()
+        assertEquals("boom", record.message)
+        val text: String = record.throwableText.orEmpty()
+        assertTrue(text.contains("CancelledMessage"), "the class is not named: $text")
         assertTrue(text.contains("stack trace unavailable"), "no unavailable marker: $text")
     }
 
