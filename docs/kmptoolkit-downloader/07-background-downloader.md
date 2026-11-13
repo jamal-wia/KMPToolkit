@@ -296,7 +296,8 @@ storage.markTempFileComplete(unit)   // the temp path now holds exactly the fini
 ```
 
 On success the move replaced whatever stood at the temp path atomically, so the mark applies to the new bytes only.
-`files` is a `FileAccess` from `createFileAccess()`, and `reportFailure` stands for your downloader's own failure event.
+`files` is a `FileAccess` from `createFileAccess()`, `location` is the path of the finished file your
+downloader received (a `String`), and `reportFailure` stands for your downloader's own failure event.
 The storage has no method for this on purpose: its temp path may be a hashed one under `tmp/`, and only
 `getTempFilePath(unit)` names it.
 
@@ -306,6 +307,9 @@ The shape most Android implementations converge on: a foreground service so the 
 the process mid-transfer, streaming with a plain HTTP client, 1% progress throttling so the engine
 is not flooded, and marking the temp file complete on success so a transfer that finishes while the
 UI process is dead is committed — not resumed — on the next `ensureAvailable`.
+
+Imports omitted: `MutableSharedFlow`, `MutableStateFlow`, and the `filter` and `update` extensions from
+`kotlinx.coroutines.flow`.
 
 ```kotlin
 class MyBackgroundResourceDownloader(
@@ -450,6 +454,9 @@ handle it:
       delay(60.seconds)
   }
   ```
+
+  `taskIsStillListedBySystem` stands for your own check that the `URLSession` still lists the task
+  (`getAllTasks`); `60.seconds` needs `import kotlin.time.Duration.Companion.seconds`.
 
   The flow must **deliver equal values**: a `MutableSharedFlow` does, a `StateFlow` does not (it
   conflates a repeat of the same `Progress`, the timer is never restarted, and the engine cancels a

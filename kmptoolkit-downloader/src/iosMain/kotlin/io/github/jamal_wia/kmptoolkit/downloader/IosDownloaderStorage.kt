@@ -925,9 +925,12 @@ internal class IosDownloaderStorage(
         var size: Long = 0L
     }
 
-    /** Logs and throws: the archive cannot be extracted as delivered (bytes that are not what a valid archive holds). */
+    /**
+     * Logs and throws: the archive cannot be extracted as delivered (bytes that are not what a valid archive holds).
+     * The entry name is cut for the log line and the message ([shortEntryName]): it can be 64 kB long and hold line breaks.
+     */
     private fun zipFail(entry: String?, reason: String): Nothing {
-        val message: String = if (entry == null) "ZIP archive: $reason" else "ZIP entry '$entry': $reason"
+        val message: String = if (entry == null) "ZIP archive: $reason" else "ZIP entry '${shortEntryName(entry)}': $reason"
         logger.e { message }
         throw ResourceIntegrityException(message)
     }
@@ -1023,7 +1026,7 @@ internal class IosDownloaderStorage(
                 if (segments.isEmpty() && !isDirectory) zipFail(fileName, "the name has no file part")
                 // Before the layout check and any directory is created: a path this long never fits a Darwin volume.
                 if (entryPathBytes(targetDir, segments) > MAX_ENTRY_PATH_BYTES) {
-                    zipFail(shortEntryName(fileName), "the path is longer than this volume allows")
+                    zipFail(fileName, "the path is longer than this volume allows")
                 }
                 if (segments.isNotEmpty()) {
                     val conflict: String? = entryLayout.conflict(segments, isDirectory) { path: String ->
