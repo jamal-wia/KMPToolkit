@@ -46,6 +46,7 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class UploaderStorageStormRound3AdversarialTest {
+    private val seed: Long = testSeed(20261113L)
 
     private val storages: MutableList<UploaderStorage> = mutableListOf()
     private val engines: MutableList<UploaderEngine> = mutableListOf()
@@ -105,6 +106,7 @@ class UploaderStorageStormRound3AdversarialTest {
     }
 
     private fun open(): UploaderStorage {
+        // timing-hygiene-ignore: TH3 name a unique database file name, not a scenario choice
         val name = "adv.a1r3.${Random.nextLong(0L, Long.MAX_VALUE)}"
         files += name
         return createUploaderStorage(application(), UploaderDatabaseConfig(name)).also { storages += it }
@@ -151,10 +153,11 @@ class UploaderStorageStormRound3AdversarialTest {
             }
         }
         val cancellers: List<Deferred<Unit>> = List(3) { n ->
+            val random = Random(seed + n) // one Random per canceller: none is shared between coroutines
             async {
                 start.await()
                 repeat(40) { step ->
-                    if (step % 2 == 0) engine.cancelByTag("t${(n + step) % 3}") else storage.store.getAllActive().randomOrNull()?.let { engine.cancel(it.id) }
+                    if (step % 2 == 0) engine.cancelByTag("t${(n + step) % 3}") else storage.store.getAllActive().randomOrNull(random)?.let { engine.cancel(it.id) }
                     yield()
                 }
             }
@@ -162,9 +165,9 @@ class UploaderStorageStormRound3AdversarialTest {
         start.complete(Unit)
         (enqueuers + cancellers).awaitAll()
 
-        assertTrue(engine.awaitDrained(30.seconds), "the queue never drained: ${storage.store.getAllActive().size} left")
+        assertTrue(engine.awaitDrained(30.seconds), "the queue never drained: ${storage.store.getAllActive().size} left (seed=$seed)")
         val ran: List<String> = handler.executed.value
-        assertEquals(ran.size, ran.toSet().size, "a payload ran twice")
+        assertEquals(ran.size, ran.toSet().size, "a payload ran twice (seed=$seed)")
         engine.close()
         storage.close()
         awaitCondition { dbThreads() == 0 }
@@ -226,18 +229,18 @@ class UploaderStorageStormRound3AdversarialTest {
             val engine: UploaderEngine = engineOver(storage, handler)
             val ids: List<String> = List(200) { assertNotNull(engine.enqueue(handler, "w$it", tag = "acct")) }
             engine.start()
-            delay(Random.nextLong(0, 15))
+            delay(Random(seed + iteration).nextLong(0, 15))
             engine.cancelByTag("acct")
             delay(300) // let a drain that read the queue before the wipe finish whatever it does
 
-            assertEquals(emptyList(), storage.store.getAllActive().map { it.id }, "iteration $iteration: rows survived the wipe")
+            assertEquals(emptyList(), storage.store.getAllActive().map { it.id }, "iteration $iteration: rows survived the wipe (seed=$seed)")
             val events: List<String> = transport.events.value
             for (id in ids) {
                 val lastLaunch: Int = events.indexOfLast { it == "launch:$id" }
                 if (lastLaunch >= 0) {
                     assertTrue(
                         events.drop(lastLaunch + 1).any { it == "cancel:$id" },
-                        "iteration $iteration: $id was launched and never cancelled after the wipe",
+                        "iteration $iteration: $id was launched and never cancelled after the wipe (seed=$seed)",
                     )
                 }
             }
@@ -247,6 +250,7 @@ class UploaderStorageStormRound3AdversarialTest {
 
     @Test
     fun `eight threads opening a fresh database file at the same moment all end up with a working storage`() = realTest {
+        // timing-hygiene-ignore: TH3 name a unique database file name, not a scenario choice
         val name = "adv.a1r3.open.${Random.nextLong(0L, Long.MAX_VALUE)}"
         files += name
         val start = CompletableDeferred<Unit>()
@@ -315,6 +319,7 @@ class UploaderStorageStormRound3AdversarialTest {
     @Test
     fun `four threads healing the same corrupt file at once leave no acknowledged write lost`() = realTest {
         repeat(5) { iteration ->
+            // timing-hygiene-ignore: TH3 name a unique database file name, not a scenario choice
             val name = "adv.a1r3.heal.$iteration.${Random.nextLong(0L, Long.MAX_VALUE)}"
             files += name
             val file = application().getDatabasePath(uploaderDatabaseFileName(name)).also { it.parentFile?.mkdirs() }

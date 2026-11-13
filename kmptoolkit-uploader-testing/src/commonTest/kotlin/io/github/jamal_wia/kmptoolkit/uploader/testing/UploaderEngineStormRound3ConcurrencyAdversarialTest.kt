@@ -33,6 +33,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -46,6 +47,13 @@ import kotlinx.coroutines.yield
  * Every test is bounded by a real-time timeout and closes every engine in a finally.
  */
 class UploaderEngineStormRound3ConcurrencyAdversarialTest {
+    /**
+     * The seed of the clock chaos: the jumps of the clock test are drawn from `Random(seed + iteration)` and the
+     * reading jitter of call number n from `Random(seed + iteration + n)`. A constant because common test code has no
+     * system properties; to explore another sequence edit it. The clock test quotes it in its failures. Which thread
+     * makes call number n stays free.
+     */
+    private val seed: Long = 20261113L
 
     private object QuickPolicy : RetryPolicy {
         override val maxDelayMillis: Long = 50L
@@ -69,9 +77,10 @@ class UploaderEngineStormRound3ConcurrencyAdversarialTest {
         }
     }
 
-    private class ChaosClock : UploaderClock {
+    private class ChaosClock(private val seed: Long) : UploaderClock {
         private val reading: MutableStateFlow<Long> = MutableStateFlow(BASE)
         private val chaos: MutableStateFlow<Boolean> = MutableStateFlow(true)
+        private val calls: MutableStateFlow<Long> = MutableStateFlow(0L)
         fun jump(to: Long) {
             reading.value = to
         }
@@ -81,7 +90,7 @@ class UploaderEngineStormRound3ConcurrencyAdversarialTest {
             reading.value = at
         }
 
-        override fun nowEpochMillis(): Long = if (chaos.value) reading.value + Random.nextLong(-1_000L, 1_000L) else reading.value
+        override fun nowEpochMillis(): Long = if (chaos.value) reading.value + Random(seed + calls.updateAndGet { it + 1 }).nextLong(-1_000L, 1_000L) else reading.value
 
         companion object {
             const val BASE: Long = 1_700_000_000_000L
@@ -122,13 +131,14 @@ class UploaderEngineStormRound3ConcurrencyAdversarialTest {
                     }
                 }
                 val cancellers: List<Deferred<Unit>> = List(3) { n ->
+                    val random = Random(seed + iteration + n) // one Random per canceller: none is shared between coroutines
                     async {
                         start.await()
                         repeat(60) { step ->
                             if (step % 2 == 0) {
                                 engine.cancelByTag("t${(n + step) % 3}")
                             } else {
-                                store.snapshot().randomOrNull()?.let { engine.cancel(it.id) }
+                                store.snapshot().randomOrNull(random)?.let { engine.cancel(it.id) }
                             }
                             yield()
                         }
@@ -137,10 +147,10 @@ class UploaderEngineStormRound3ConcurrencyAdversarialTest {
                 start.complete(Unit)
                 (enqueuers + cancellers).awaitAll()
 
-                assertTrue(engine.awaitDrained(30.seconds), "iteration $iteration: the queue never drained: ${store.snapshot().size} left")
+                assertTrue(engine.awaitDrained(30.seconds), "iteration $iteration: the queue never drained: ${store.snapshot().size} left (seed=$seed)")
                 assertEquals(emptyList(), store.snapshot())
                 val ran: List<String> = handler.executed.value
-                assertEquals(ran.size, ran.toSet().size, "iteration $iteration: a payload ran twice")
+                assertEquals(ran.size, ran.toSet().size, "iteration $iteration: a payload ran twice (seed=$seed)")
                 engine.enqueue(handler, "after-storm")
                 awaitCondition("after-storm ran") { "after-storm" in handler.executed.value }
             } finally {
@@ -256,7 +266,7 @@ class UploaderEngineStormRound3ConcurrencyAdversarialTest {
     @Test
     fun `a clock that jumps wildly while gates and leases are written never leaves an item stuck once it settles`() = realTest(120) {
         repeat(3) { iteration ->
-            val clock = ChaosClock()
+            val clock = ChaosClock(seed + iteration)
             val store = InMemoryUploaderStore()
             val leases: List<Long> = listOf(1L, 60_000L, 24L * 3_600_000L + 1, 30L * 24 * 3_600_000L, Long.MAX_VALUE)
             val handler = StormHandler(
@@ -275,10 +285,11 @@ class UploaderEngineStormRound3ConcurrencyAdversarialTest {
             try {
                 engine.start()
                 val start = CompletableDeferred<Unit>()
+                val jumps = Random(seed + iteration)
                 val jumper: Deferred<Unit> = async {
                     start.await()
                     repeat(300) {
-                        clock.jump(ChaosClock.BASE + Random.nextLong(-300L * 24 * 3_600_000, 200L * 365 * 24 * 3_600_000))
+                        clock.jump(ChaosClock.BASE + jumps.nextLong(-300L * 24 * 3_600_000, 200L * 365 * 24 * 3_600_000))
                         delay(1)
                     }
                 }
@@ -299,8 +310,8 @@ class UploaderEngineStormRound3ConcurrencyAdversarialTest {
                         delay(20)
                     }
                 }
-                assertEquals(emptyList(), store.snapshot(), "iteration $iteration")
-                assertEquals(240, handler.executed.value.toSet().size, "iteration $iteration: items lost")
+                assertEquals(emptyList(), store.snapshot(), "iteration $iteration (seed=$seed)")
+                assertEquals(240, handler.executed.value.toSet().size, "iteration $iteration: items lost (seed=$seed)")
             } finally {
                 engine.close()
                 job.cancel()
