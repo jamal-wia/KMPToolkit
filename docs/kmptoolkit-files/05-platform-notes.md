@@ -184,6 +184,13 @@ Two differences remain:
   directory by a symbolic link while the walk is inside it (a link-swap race) is not defended against
   — the same limit as `rm -r`. Do not run it on a directory another process can write to with
   hostile intent.
+- `readBytes` checks the kind before the open, so a pipe that replaces the regular file between the
+  check and the open is opened by the blocking open, and the call then blocks the calling I/O thread
+  until a writer appears (a race the engines cannot close).
+- `sweep` checks the kind before the remove, so an empty directory that replaces an aged matching
+  file between the check and the remove is removed (a race the engines cannot close).
+- `list` and `sweep` answer `NotADirectory(f/x)`, naming the path given, for a path below a regular
+  file `f`, on every engine; every other function treats such a path as absent.
 - Locks (`KeyedMutex`, `PathLocks`) cover coroutines in one process. The atomic replace keeps a file
   whole for other processes but does not order two writers.
 - A crash can leave a temporary file; `sweep` by `FileNames.isTempName` and an age.
