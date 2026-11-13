@@ -8,6 +8,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performTouchInput
@@ -60,6 +62,14 @@ abstract class VideoSeekBarCancelledDragTests {
 
             assertEquals(null, scrubs.last(), "the scrub never ended: $scrubs")
             assertEquals(emptyList(), seeks, "a cancelled drag seeked")
+            val info: ProgressBarRangeInfo = onNodeWithContentDescription("Flip")
+                .fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo]
+            assertEquals(
+                0.1f,
+                info.current,
+                0.001f,
+                "the handle stayed at the finger instead of returning to positionMs: ${info.current}",
+            )
         }
 
     @Test
@@ -94,5 +104,13 @@ abstract class VideoSeekBarCancelledDragTests {
 
             assertEquals(null, scrubs.last(), "the scrub never ended: $scrubs")
             assertEquals(emptyList(), seeks, "a cancelled drag seeked")
+            val info: ProgressBarRangeInfo = onNodeWithContentDescription("Thumb")
+                .fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo]
+            assertEquals(
+                0.1f,
+                info.current,
+                0.001f,
+                "the handle stayed at the finger instead of returning to positionMs: ${info.current}",
+            )
         }
 }

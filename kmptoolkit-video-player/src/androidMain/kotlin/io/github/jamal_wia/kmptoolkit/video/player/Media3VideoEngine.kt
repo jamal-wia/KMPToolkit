@@ -228,11 +228,12 @@ internal class Media3VideoEngine(
                 // nothing half-loaded may outlive this call. This runs on the looper thread — the
                 // dispatcher resumes there even when the cancellation came from elsewhere.
                 pendingLoad = null
-                // A cleanup that itself throws must not replace the failure: it rides along as suppressed.
+                // A cleanup that itself throws must not replace the failure: it rides along as suppressed,
+                // and never onto itself.
                 try {
                     resetPlayer(current)
                 } catch (cleanup: Throwable) {
-                    failure.addSuppressed(cleanup)
+                    if (cleanup !== failure) failure.addSuppressed(cleanup)
                 }
                 failure
             }
