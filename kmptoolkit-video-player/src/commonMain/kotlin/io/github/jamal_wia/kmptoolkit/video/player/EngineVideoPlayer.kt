@@ -51,10 +51,11 @@ import kotlinx.coroutines.withContext
  * it. What the engine reported about its source (buffered position, buffering, picture size) is not undone by
  * a transport call either, so the last step of [prepare] writes those facts unless the source was dropped
  * (its load replaced, [unload], [release]); in a failure every transport call is a no-op under `Error`, so none
- * of them cuts the failure's own writes of those facts. The exceptions are the calls whose result is the point of the call: [unload] and [release] reset the
- * source flows and end in `Idle` (an [unload] leaves the state to a [prepare] a collector called from inside
- * it), and a [prepare] that has not been replaced resets them and loads. A composite call ([replay]: seek,
- * then play) stops after its seek in that case, and re-reads the state between its steps otherwise.
+ * of them cuts the failure's own writes of those facts. The exceptions are the calls whose result is the point
+ * of the call: [unload] and [release] reset the source flows and end in `Idle` (an [unload] leaves the state,
+ * and the flows it has not reset yet, to a [prepare] a collector called from inside it), and a [prepare] that
+ * has not been replaced resets them and loads. A composite call ([replay]: seek, then play) stops after its
+ * seek in that case, and re-reads the state between its steps otherwise.
  *
  * ### Dropped sources
  *
@@ -446,9 +447,10 @@ internal class EngineVideoPlayer(
             abandonLoad(placeholder, dispose = false)
         } finally {
             // Idle is what this call promises, so a collector's call during the reset does not stop the reset. A
-            // prepare a collector called from inside it replaced the placeholder and owns the state now.
+            // prepare a collector called from inside it replaced the placeholder and owns the source and the state now:
+            // the reset stops there, or it would overwrite what that prepare published for its own source.
             establishing(VideoPlayerState.Idle) {
-                resetSourceFlowsFully()
+                resetSourceFlowsFully { currentLoad.value === placeholder }
                 if (currentLoad.value === placeholder) publish(_stateFlow, VideoPlayerState.Idle)
             }
         }
@@ -726,15 +728,23 @@ internal class EngineVideoPlayer(
     }
 
     /**
-     * Resets everything that describes a source like [resetSourceFlows], but always writes all four flows and ignores
-     * the write guard: for the calls whose promise is the reset itself (a [prepare] start, [unload], [release]).
+     * Resets everything that describes a source like [resetSourceFlows], but writes all four flows and ignores the write
+     * guard: for the calls whose promise is the reset itself (a [prepare] start, [unload], [release]). [whileHeld] is
+     * checked before the pending fields are cleared and before each write, and the reset stops at the first `false`:
+     * for an [unload] it says the placeholder is still the current load, so the reset does not overwrite what a
+     * [prepare] a collector called from inside it published for its own source.
      */
-    private fun resetSourceFlowsFully() {
+    private fun resetSourceFlowsFully(whileHeld: () -> Boolean = { true }) {
+        if (!whileHeld()) return
         preparingFailure = null
         preparingBuffering = false
+        if (!whileHeld()) return
         publish(_playbackPositionFlow, 0L)
+        if (!whileHeld()) return
         publish(_bufferedPositionFlow, 0L)
+        if (!whileHeld()) return
         publish(_isBufferingFlow, false)
+        if (!whileHeld()) return
         publish(_videoSizeFlow, null)
     }
 
