@@ -1128,6 +1128,24 @@ class TimeModelTest {
     }
 
     @Test
+    fun ticksInsideTheWaitForTheFreshSampleFindTheStaleValueStanding() = fxModel {
+        val rig: Rig = readyRig(staleScript(lagMs = 60.0, freshAfterMs = 150.0))
+        rig.onFx { rig.player.play() }
+
+        rig.advance(100) // t=150: the stale value, native 100 less 60
+        assertEquals(40.0, rig.player.currentTimeMs)
+        rig.advance(99) // t=249: the tick at 250 has not come yet
+        rig.advance(1) // t=250: a tick inside the wait (the fresh sample is due at 300) publishes nothing
+        assertEquals(40.0, rig.player.currentTimeMs)
+        assertEquals(listOf(150.0), rig.tickTimes())
+        rig.advance(50) // t=300: the fresh sample, native 250
+        assertEquals(250.0, rig.player.currentTimeMs)
+        assertEquals(listOf(150.0, 300.0), rig.tickTimes())
+        rig.advance(50) // t=350: an ordinary tick again, native 300
+        assertEquals(300.0, rig.player.currentTimeMs)
+    }
+
+    @Test
     fun aSeekSampleDoesNotUseUpTheStaleFirstPublication() = fxModel {
         val rig: Rig = readyRig(staleScript(lagMs = 60.0, freshAfterMs = 3.0))
         rig.onFx { rig.player.play() }

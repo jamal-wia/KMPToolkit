@@ -72,7 +72,7 @@ internal class TimeScript {
      * about a clip's worth behind the decoder (424 ms in the probe). With this set, the first sample TAKEN BY A TICK
      * after a `play()` that started a decoder which was not running publishes `max(0, native - lagMs)` instead of the
      * native position, and a second, ordinary sample (the load profile applies to it) is taken [StaleFirstPublication.freshAfterMs]
-     * later. Later ticks are unchanged.
+     * later. Ticks that fall inside that wait publish nothing (the stale value stands), later ticks are ordinary.
      */
     var staleFirstPublicationAfterPlay: StaleFirstPublication? = null
 
@@ -233,6 +233,9 @@ internal class TimeModel(
 
     // A play() started a decoder that was not running and the first tick after it has not taken its stale sample yet.
     private var staleFirstArmed: Boolean = false
+
+    // The fresh sample of a stale first publication is due at this instant; ticks before it find the stale value standing.
+    private var staleHoldUntilNanos: Long = 0L
 
     /** How many samples were taken so far, dropped ones included. */
     var samplesTaken: Int = 0
@@ -398,12 +401,14 @@ internal class TimeModel(
     private fun takeSample(fromTick: Boolean = false) {
         val value: Double = nativePositionMs
         samplesTaken++
+        if (fromTick && host.elapsedNanos < staleHoldUntilNanos) return
         val stale: TimeScript.StaleFirstPublication? = script.staleFirstPublicationAfterPlay
         if (fromTick && staleFirstArmed && stale != null) {
             // A stale first publication (see TimeScript.staleFirstPublicationAfterPlay): the old value now, a fresh sample soon after.
             staleFirstArmed = false
             val staleValue: Double = (value - stale.lagMs).coerceAtLeast(0.0)
             host.after(script.publishDelayMs) { publish(staleValue) }
+            staleHoldUntilNanos = host.elapsedNanos + (stale.freshAfterMs * NANOS_PER_MILLI).toLong()
             host.after(stale.freshAfterMs) { takeSample() }
             return
         }
