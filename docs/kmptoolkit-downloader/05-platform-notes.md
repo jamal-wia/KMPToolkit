@@ -72,9 +72,13 @@ delete fails midway, the remainder stays in `tmp/kmptoolkit-internal/trash/`; ev
 directory is removed as a link, never followed. A replaced
 or deleted archive tree passes through the same directory: it is renamed there in one step and deleted afterwards,
 so a process killed inside that delete leaves its partial tree in the trash and never at the resource path, where a
-surviving marker would read as a complete resource. A plain file
+surviving marker would read as a complete resource. A process killed after an archive commit's final rename and before
+its temp file is deleted leaves that complete temp file; it is reclaimed by the next `beginTempFile` or `deleteTempFile`,
+and a `deleteResource` followed by a request commits those same bytes again without a transfer. A plain file
 is moved into place by an atomic rename that replaces the old file, on both platforms, so a
-committed resource never goes missing while it is replaced. A directory found at a plain-file resource's path (an
+committed resource never goes missing while it is replaced — except a `SqliteDatabase` unit, whose old file and sidecars are
+first moved into the trash together: the path holds the old database with its log, nothing, or the new database alone, and a
+process killed in between leaves it unavailable beside its complete temp file, which the next request commits. A directory found at a plain-file resource's path (an
 archive unit of the same id, or a stray one) reads as unavailable and is moved into the trash by the commit, the same
 way a replaced archive tree is. The two platforms read a path that is neither a regular file nor a directory
 differently: Android's availability check is `File.isFile`, which is false for a FIFO, a socket or a device node,
@@ -234,7 +238,7 @@ entries that differ only in case or Unicode normalization on a volume that treat
 volume is case-insensitive by default; an Android device's `filesDir` is case-sensitive, so both are extracted there). The
 same entry name twice is not a conflict: the later bytes win, as in every unzip. The availability marker must be a regular
 file, spelled exactly like `availabilityMarker`: a directory of that name, or `MARKER.TXT` for `marker.txt` on a
-case-insensitive volume, does not make the resource available.
+case-insensitive volume, does not make the resource available, and neither does a marker ending in `/`.
 
 When the marker is not at the top and the archive holds exactly one non-empty top-level directory that
 contains it, that directory's contents are moved up; files and empty directories beside it stay where they
@@ -243,7 +247,10 @@ directory of the same name is replaced; a non-empty directory is never deleted.
 
 Verifying a `SqliteDatabase` leaves nothing beside the temp file: the `-wal`, `-shm` and `-journal` files SQLite keeps
 for a database in write-ahead-log mode are removed before and after the check (a stale one would otherwise be replayed
-into the next download of the unit), on both platforms.
+into the next download of the unit), on both platforms, and the same is done beside the resource when it is replaced or
+deleted: the old file and its `-wal`, `-shm` and `-journal` are moved into the trash together, a `SqliteDatabase` that is
+already gone but left a log is cleaned by the next commit or delete of the unit, and a file named like a sidecar beside any
+other format is never touched.
 
 A `SqliteDatabase` file must be at least 100 bytes long and start with the 16-byte SQLite header
 (`SQLite format 3` and a NUL); an empty or cut body fails the commit, before the database is opened. The row
