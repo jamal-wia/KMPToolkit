@@ -129,7 +129,7 @@ class JavaFxEngineBoundaryAdversarialTest {
         val uri: String = TestClip.copyToTempFile().toURI().toString()
         val startedAt: Long = System.nanoTime()
         val playback: FxPlayback = withTimeout(20_000L) {
-            FxPlayback.open(uri, QuietSink(), maxFrameRate = 30, readyTimeoutMs = 15_000L, onCreated = {
+            FxPlayback.open(uri, QuietSink(), maxFrameRate = 30, readyTimeoutMs = 15_000L, backend = JavaFxBackend, onCreated = {
                 // On the FX thread, right after the player exists and before JavaFX reported it ready.
                 Thread.sleep(2_600L)
             })
