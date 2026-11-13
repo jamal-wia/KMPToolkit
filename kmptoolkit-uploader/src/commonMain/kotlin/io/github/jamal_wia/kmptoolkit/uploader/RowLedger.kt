@@ -14,6 +14,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
 /**
@@ -43,6 +45,12 @@ internal class RowLedger(
     private val transactionRunner: TransactionRunner,
     private val logger: Logger,
 ) {
+
+    /**
+     * Ids of [DeliveredUnconfirmed] entries whose row this ledger's last read of them did not find (see
+     * [heldOutOfRotation]). Per ledger, so a replacement engine starts with none.
+     */
+    private val absent: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     // ---- reads -----------------------------------------------------------------------------------------------------
 
@@ -165,24 +173,48 @@ internal class RowLedger(
      * the PARKED ones (a verdict parked the row before, or while, the delivery's delete failed). Rule P7 confirms a held
      * row in whatever state it is, and the drain reads only the active rows, so it asks here as well.
      *
-     * One point read per remembered entry. An entry whose row is gone (a withdrawal keeps its entry on purpose) or whose
-     * row carries another fingerprint (another store of this process) is skipped and never forgotten; a read that fails
-     * is skipped for this call. Only a cancellation of the caller is rethrown.
+     * One point read per remembered entry, except the entries this ledger already found absent: an id whose read
+     * returned `null` is kept in a per-ledger set and is not read again while [recheckAbsent] is `false` (the engine
+     * passes `true` once per heartbeat), so a withdrawn row, or another live store's row, costs a read per heartbeat
+     * instead of one per pass for the life of the process. A read that finds a row takes the id out of the set; a read
+     * that fails never puts it in (it is tried again at the next call); the set is cut to the ids still remembered at
+     * every call, so it is bounded by [DeliveredUnconfirmed]. A new ledger starts empty, so an engine built to replace
+     * another reads everything at its first sweep. An entry whose row is gone (a withdrawal keeps its entry on purpose)
+     * or whose row carries another fingerprint (another store of this process) is skipped and never forgotten; a read
+     * that fails is skipped for this call and logged once per call, with the number of failed reads and the first
+     * failure. Only a cancellation of the caller is rethrown.
      */
-    suspend fun heldOutOfRotation(): List<UploaderItem> {
+    suspend fun heldOutOfRotation(recheckAbsent: Boolean): List<UploaderItem> {
+        val ids: Set<String> = DeliveredUnconfirmed.ids()
+        val skipped: Set<String> = if (recheckAbsent) emptySet() else absent.value
+        // Collected here and merged in one update: a copy of the set per id would make the sweep quadratic.
+        val nowAbsent: MutableSet<String> = HashSet()
+        val nowPresentOrFailed: MutableSet<String> = HashSet()
         val held: MutableList<UploaderItem> = ArrayList()
-        for (id in DeliveredUnconfirmed.ids()) {
+        var failures = 0
+        var firstFailure: Throwable? = null
+        for (id in ids) {
+            if (id in skipped) continue
             val row: UploaderItem? = try {
                 store.getById(id)
-            } catch (e: CancellationException) {
-                currentCoroutineContext().ensureActive()
-                logger.e(e) { "Reading the held row $id leaked a cancellation; skipping it this call." }
-                null
             } catch (e: Throwable) {
-                logger.e(e) { "Reading the held row $id failed; skipping it this call." }
-                null
+                // A cancellation of the caller ends the sweep; one a store leaked is a failed read like any other.
+                if (e is CancellationException) currentCoroutineContext().ensureActive()
+                failures++
+                if (firstFailure == null) firstFailure = e
+                nowPresentOrFailed += id
+                continue
             }
-            if (row != null && row.state == UploaderItemState.PARKED && holds(row)) held += row
+            if (row == null) {
+                nowAbsent += id
+            } else {
+                nowPresentOrFailed += id
+                if (row.state == UploaderItemState.PARKED && holds(row)) held += row
+            }
+        }
+        absent.update { previous -> (previous intersect ids) - nowPresentOrFailed + nowAbsent }
+        if (firstFailure != null) {
+            logger.e(firstFailure) { "Reading $failures held row(s) failed; skipping them this call (the first failure is attached)." }
         }
         return held
     }

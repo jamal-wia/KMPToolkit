@@ -155,7 +155,12 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   a row held as delivered is confirmed in whatever state it is: once per call, ahead of the empty-queue check,
  *   [RowLedger.heldOutOfRotation] names the parked held rows and the drain retries their delete under the same turn
  *   and backoff rules, keeps an alarm armed for them when the queue is otherwise empty (the platform wake stays
- *   disarmed: the memory dies with the process), and `settle` triggers a pass even when its delete throws.
+ *   disarmed: the memory dies with the process), and `settle` triggers a pass even when its delete throws. The sweep
+ *   reads one row per remembered entry, except an entry whose row it found absent: that one is read again only once
+ *   per [UploaderConfig.heartbeatInterval] (at the first sweep, and at once when the clock steps backwards), so a
+ *   withdrawn row or another store's row costs a read per heartbeat and not one per call. A row that comes back after
+ *   it read absent is therefore rescued at the heartbeat cadence at the latest; until then it is PARKED, which is not
+ *   run, and a verdict on it is refused.
  *   *Pinned by:* EngineBossRound4SuspectsAdversarialTest (bv4-S3a, S3b), EngineSplit1P10AdversarialTest and
  *   EngineSplit1HeldRescueAdversarialTest (a verdict that came first).
  * - **P11, One attempt per item.** The engine never starts an attempt for an item while it is still running one for
@@ -558,16 +563,36 @@ internal class DefaultUploaderEngine(
         return bumpOutsideFailure(item.id)
     }
 
+    /** When the held sweep last re-read the entries it had found absent (`null`: never), see [takeHeldRecheck]. */
+    private val lastHeldRecheckMillis: MutableStateFlow<Long?> = MutableStateFlow(null)
+
+    /**
+     * Whether this sweep re-reads the remembered entries whose row it found absent: at the first sweep, once per
+     * [UploaderConfig.heartbeatInterval] after, and at once when the clock reads earlier than the last re-check (a step
+     * backwards). A manual drain racing the engine's loop may cost one extra full sweep.
+     */
+    private fun takeHeldRecheck(): Boolean {
+        val now: Long = clock.nowEpochMillis()
+        val heartbeat: Long = config.heartbeatInterval.inWholeMilliseconds
+        var due = false
+        lastHeldRecheckMillis.update { last ->
+            due = last == null || now < last || saturatingSubtract(now, last) >= heartbeat
+            if (due) now else last
+        }
+        return due
+    }
+
     /** What [sweepHeldOutOfRotation] found: the rows' [ids] and the soonest [gate] a delete is worth another try, if any. */
     private class HeldSweep(val ids: Set<String>, val gate: Long?)
 
     /**
      * Rule P7 for the rows [drainPass]'s active list never offers: a row this process holds as delivered that a verdict
      * parked (before the delivery's delete failed, or while it was failing) is still owed its delete, whatever its
-     * state. Runs once per call, under the same turn and backoff rules as an active held row.
+     * state. Runs once per call, under the same turn and backoff rules as an active held row; the entries it found
+     * absent are re-read once per heartbeat ([takeHeldRecheck]).
      */
     private suspend fun sweepHeldOutOfRotation(call: DrainCall): HeldSweep {
-        val held: List<UploaderItem> = ledger.heldOutOfRotation()
+        val held: List<UploaderItem> = ledger.heldOutOfRotation(recheckAbsent = takeHeldRecheck())
         if (held.isEmpty()) return HeldSweep(emptySet(), null)
         val nowMillis: Long = clock.nowEpochMillis()
         var gate: Long? = null
