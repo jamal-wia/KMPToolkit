@@ -89,6 +89,12 @@ createLoggerFactory(minLevel = LogLevel.INFO, sinks = listOf(osLogSink))
 
 The sink interface exists precisely so this stays your decision rather than the library's.
 
+## Limitation: a throwable that cannot render itself (both platform sinks)
+
+A throwable whose `toString()` or `getCause()` throws costs the whole event on that platform sink,
+header and message included, not only the trace; the logger contains the error (for the failures it
+contains, see the `LogSink` KDoc) and the other sinks still get the event.
+
 ## Behavior that is identical on both platforms
 
 Everything else: level filtering, lazy message evaluation, fan-out order across sinks, the
