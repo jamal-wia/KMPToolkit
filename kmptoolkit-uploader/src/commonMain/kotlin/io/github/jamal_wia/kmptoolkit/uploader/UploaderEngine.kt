@@ -68,6 +68,10 @@ public interface UploaderEngine : Uploader {
      * A [close] during a drain you called yourself stops it like the engine's own pass, and the call returns; a
      * cancelled caller still gets its cancellation. A closed engine runs nothing, however it is called.
      *
+     * An item whose attempt the engine is running is never started again by another pass, so a `drain()` called from
+     * inside a handler's attempt does not run that item twice. It still breaks single-flight for everything else: use
+     * [trigger].
+     *
      * **You almost never call this.** It exists for tests that want a deterministic pass, and for
      * diagnostics. Calling it on a started engine breaks the single-flight guarantee — use
      * [trigger] there instead.
