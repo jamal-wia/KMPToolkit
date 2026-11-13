@@ -351,6 +351,7 @@ class CalibrationModelTest {
             assertEquals(emptyList(), hazards.violations.map { it.describe() })
             assertEquals(2.0, hazards.effectiveRate, "the speed reached the decoder\n${native.log}")
             assertTrue(covered >= 1_500.0, "covered $covered ms of media in 1 s at speed 2\n${native.log}")
+            // D-89: H0 NEARSTART 1/120, FIRSTPLAY 0/40, NUDGE 0/120; D-q rejected, stays report-only.
             println("STRICT[firstPlayAtSpeed] ${monitor.strictReport()}")
         }
     }

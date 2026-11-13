@@ -92,7 +92,8 @@ internal class FxPlayback private constructor(
      * source at a wrap counts as one (see `onEndOfMedia`). A speed given while playing
      * within [SEEK_RATE_SETTLE_NANOS] of it is not written at once (see [setSpeed]): on macOS a rate change that close
      * to a native seek can leave the native player PLAYING with its playhead standing at the seek target for good, and
-     * a player in that state is never kicked again.
+     * a player in that state is never kicked again. Only [setSpeed] holds a speed back for the wrap; the speed a wrap
+     * gives back follows [deferRate]'s own wait (W-WRAP is 100 ms), not this window.
      */
     private var lastNativeSeekNanos: Long = 0L
 

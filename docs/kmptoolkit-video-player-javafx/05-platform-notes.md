@@ -196,6 +196,11 @@ decoder writes straight into memory without a render-and-read-back step.
   this also holds for a speed given soon after a resume (or a first play) and then a seek.
   On every platform the native player keeps its old speed until 300 ms after the seek and until the playhead has
   then moved about 200 ms of media, and then takes the new one.
+  In probe runs on macOS, a speed written right after the engine's own seek to the start (the first play at a
+  speed, or a resume within about 100 ms of the start) left the playhead standing still once in 120 rounds, and
+  not in 40 first plays of a fresh clip or in 120 resumes after a seek; the engine still gives that speed at once,
+  because holding it back would play the start of every such play at normal speed for half a second or more.
+  This is not changed by 5.0.0.
   A rate that is not finite and positive, or a NaN volume, is ignored at the engine (the player never
   passes one).
 - **Buffering** is reported from JavaFX's `STALLED` status; the buffered position comes from
