@@ -181,6 +181,28 @@ assertEquals(PlayerState.Idle, player.stateFlow.value)   // Idle, not Error — 
 assertEquals(1, engine.releaseCount)                     // the half-loaded engine was freed
 ```
 
+## Where the fake differs from the real Android engine
+
+The fake models an engine with a source loaded. It does not filter calls the way the platform does, so a
+test that drives it directly (not through `createAudioPlayer`) can see six differences from the real
+Android engine (`MediaPlayerEngine`). Through an `AudioPlayer` you do not meet them: the player never
+makes these calls, or clamps and rewinds first.
+
+| Situation | `FakePlaybackEngine` | Real Android engine |
+|---|---|---|
+| `durationMs()` with nothing loaded: before any load, after a failed or cancelled load, after `release()` | the configured `durationMs` | `0` (unknown) |
+| `start()` or `seekTo(n)` with nothing loaded | `isPlaying` becomes `true`; the playhead moves to `n` | both ignored (there is no platform handle) |
+| `seekTo(n)` beyond the length | keeps `n` | clamps to the length |
+| `start()` after completion | the playhead stays at the end | restarts from `0` (the player seeks to `0` first, so both mean the same through it) |
+| `setSpeed(rate)` while not playing | `appliedSpeed` records it | dropped; the rate is pushed only while playing (the player pushes it again on `play()`) |
+| `completePlayback()` or `failPlayback(cause)` after the engine's own `release()`, listener still attached | the listener is called | the listener is never called after a release |
+
+The last row cannot happen through a player: its `release()` detaches the listener first, so a late
+completion is ignored (see `completePlayback()` above). Everything else the two engines were compared on — the
+outcome of a load that succeeds, fails or is cancelled, `start`, `pause` and `seekTo` inside the length,
+playing to the end, an error callback, every call after an error, releasing twice, loading after a
+release — agrees. The comparison is `EngineFakeVersusRealR11Test` in the player module's `androidHostTest`.
+
 ## What is not covered by these tests
 
 `FakePlaybackEngine` substitutes the platform, so nothing below it is exercised: `MediaPlayer`'s and

@@ -19,6 +19,11 @@ import kotlinx.coroutines.delay
  *
  * This class is not thread-safe, matching the player it feeds — drive it from the test's thread.
  *
+ * It models an engine with a source loaded and does not filter calls the way the real Android engine does
+ * (an engine with nothing loaded, a seek beyond the length, a rate while paused, callbacks after the
+ * engine's own `release()`); the six differences are listed in `docs/kmptoolkit-audio-player/06-testing.md`,
+ * "Where the fake differs from the real Android engine".
+ *
  * ```kotlin
  * val engine = FakePlaybackEngine(durationMs = 30_000)
  * val player: AudioPlayer = createAudioPlayer(engine, coroutineContext = StandardTestDispatcher(testScheduler))

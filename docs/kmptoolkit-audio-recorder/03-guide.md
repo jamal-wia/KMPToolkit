@@ -30,7 +30,8 @@ prose because they are the ones people guess wrong:
 1. **`start` never resumes.** From `Paused` you call `resume`; `start` is refused. "Start" always
    means "start from zero", so a mis-wired button cannot silently append to an old recording.
 2. **`cancel` is for abandoning, `release` is for disposing.** `cancel` deletes the partial file and
-   returns to `Idle`, ready to record again. `release` frees the native handle forever and **keeps**
+   returns to `Idle`, ready to record again; from `Interrupted` that file is already finalized and
+   playable, and `cancel` deletes it all the same. `release` frees the native handle forever and **keeps**
    the file — losing the screen is not a decision that the audio was unwanted. (Releasing from
    `Ready` does delete: that file holds nothing, and nothing could clean it up later.)
 3. **An illegal call is inert.** It returns `RecorderError.IllegalState` and changes nothing: not
