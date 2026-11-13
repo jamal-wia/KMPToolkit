@@ -39,6 +39,7 @@ class JvmLibraryConventionPlugin : Plugin<Project> {
 
             shortenWindowsTestTmpDir()
             registerPathHygieneCheck()
+            registerTimingHygieneCheck()
 
             extensions.configure<KotlinMultiplatformExtension> {
                 explicitApi()
