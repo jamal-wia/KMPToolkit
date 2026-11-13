@@ -33,8 +33,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -350,18 +350,35 @@ class UploadHandlerWorkerChaosAdversarialTest {
         startEngine(backing, handler)
         OutcomeJournal(AndroidOutcomeStorage.forContext(context)).record("item-1", sent())
 
+        val transports: MutableList<UploadTransport> = java.util.Collections.synchronizedList(mutableListOf())
         val threads: List<Thread> = List(4) {
-            thread { repeat(5) { createWorkManagerUploadHandlerTransport(context, config) } }
+            thread { repeat(5) { transports += createWorkManagerUploadHandlerTransport(context, config) } }
         }
         threads.forEach { it.join(20_000) }
-        awaitTrue("the orphan is replayed") { handler.delivered.isNotEmpty() && journalFiles().isEmpty() }
-        // NEGATIVE kept as a real-time wait: the sweeps are fire-and-forget coroutines of the transport, no signal tells
-        // that the last of the twenty has ended (T6b: needs a production seam or an advisor ruling).
-        runBlocking { delay(500L) }
+        check(threads.none { it.isAlive }) { "a transport creation did not return" }
+        assertEquals(20, transports.size)
+        // Every one of the twenty startup sweeps has ended: nothing is left that could replay the answer again.
+        runBlocking { withTimeout(15_000L) { transports.map { (it as WorkManagerUploadHandlerTransport).sweep }.joinAll() } }
+        assertTrue(journalFiles().isEmpty(), "the orphan is still on disk after every sweep ended")
 
         assertEquals(1, handler.delivered.size, "replayed exactly once")
         assertEquals(1, handler.settled.get())
         assertEquals(0, connections.get())
+    }
+
+    @Test
+    fun `a transport whose startup sweep ended has replayed the orphaned answer`() {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        val handler = ChaosHandler()
+        startEngine(TestUploaderStore(), handler)
+        OutcomeJournal(AndroidOutcomeStorage.forContext(context)).record("item-1", sent())
+
+        val transport = createWorkManagerUploadHandlerTransport(context, config) as WorkManagerUploadHandlerTransport
+        runBlocking { withTimeout(15_000L) { transport.sweep.join() } }
+
+        // No polling: an ended sweep has already replayed (or found nothing owed).
+        assertEquals(1, handler.delivered.size, "the sweep ended without replaying the orphan")
+        assertTrue(journalFiles().isEmpty())
     }
 
     @Test

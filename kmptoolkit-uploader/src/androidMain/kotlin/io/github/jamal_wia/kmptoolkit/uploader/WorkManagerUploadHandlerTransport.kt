@@ -86,14 +86,15 @@ internal class WorkManagerUploadHandlerTransport(
 
     override val leaseMillis: Long = config.leaseMillis
 
-    init {
-        // Outcomes a dead process journaled and nobody collected: replay them to the engine, or delete the
-        // expired ones. The engine may not be registered yet, so this waits for it off the caller's thread.
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            runCatching {
-                journal.sweep(gatewaySettle(config.engineWait))
-            }.onFailure { failure -> this@WorkManagerUploadHandlerTransport.logger.w(failure) { "The upload outcome journal sweep failed." } }
-        }
+    /**
+     * The startup sweep: outcomes a dead process journaled and nobody collected are replayed to the engine, or the
+     * expired ones deleted. The engine may not be registered yet, so this waits for it off the caller's thread.
+     * Joined only by tests.
+     */
+    internal val sweep: Job = CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+        runCatching {
+            journal.sweep(gatewaySettle(config.engineWait))
+        }.onFailure { failure -> this@WorkManagerUploadHandlerTransport.logger.w(failure) { "The upload outcome journal sweep failed." } }
     }
 
     override fun launch(itemId: String, request: UploadRequest) {
