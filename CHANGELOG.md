@@ -179,6 +179,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   until at least 300 ms after the seek and the playhead has moved on, so it takes effect up to about half a second
   later. This includes a speed given soon after a resume (or a first play) and then a seek, and a speed given right
   after the wrap of a looping clip (which restarts with a native seek), which used to be written at once.
+- `kmptoolkit-video-player-javafx`: on macOS a speed changed shortly after a play near the start of a clip can no
+  longer freeze the playhead; for that moment the speed arrives after about 200 ms of playback.
 
 ## [4.0.0]
 
