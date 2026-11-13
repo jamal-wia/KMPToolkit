@@ -413,6 +413,113 @@ class PauseAndIdleGapModelTest {
         }
     }
 
+    // ---- 7 and 8: a second start while the delayed play of the first one waits ----
+
+    /** Which resume path the first `start()` takes: the three paths that wait out the idle gap. */
+    private enum class StartPath { PLAIN, SETTLE, SEEK }
+
+    /**
+     * Brings the model to a paused player with a rate write 'just made' (an idle write) and returns the instant of that
+     * write, for [path]: PLAIN writes 1.0 (the plain path plays at rate 1), SETTLE writes 2 on a paused clip whose playhead
+     * has moved away from the start (the settle path), SEEK writes 2 after a pending seek (the seek path).
+     */
+    private fun FxModelScope.pausedWithAnIdleWrite(rig: Rig, path: StartPath): Double {
+        val engine: JavaFxVideoEngine = rig.engine
+        advanceBy(100)
+        when (path) {
+            StartPath.PLAIN -> {
+                engine.setSpeed(2f)
+                advanceBy(300)
+                engine.setSpeed(1f)
+            }
+            StartPath.SETTLE -> {
+                engine.start()
+                advanceBy(700)
+                engine.pause()
+                advanceBy(300)
+                engine.setSpeed(2f)
+            }
+            StartPath.SEEK -> {
+                engine.seekTo(900)
+                advanceBy(300)
+                engine.setSpeed(2f)
+            }
+        }
+        advanceBy(20)
+        return rig.native.idleWrites().map { it.second }.last().tMs
+    }
+
+    /**
+     * What a consumer may rely on when `start()` is called twice while the delayed play of the first call waits out the
+     * idle gap: the PLAY is issued exactly once, no sooner than the end of the gap (a play right next to a rate write is the
+     * measured freeze), the hazard monitor stays clean, and a speed given in the meantime reaches the decoder.
+     */
+    private fun Rig.assertOnePlayAfterTheGap(writeAt: Double, wantedSpeed: Double?, what: String) {
+        val plays: List<NativeCallEntry> = native.log.calls(NativeCall.PLAY).filter { it.tMs >= writeAt - TIME_TOLERANCE_MS }
+        expect(plays.size == 1) { "$what: ${plays.size} PLAY commands after the idle write, expected one: ${plays.map { it.tMs - writeAt }} ms after it\n${native.trace()}" }
+        expect(plays.single().tMs - writeAt >= IDLE_GAP_MS - TIME_TOLERANCE_MS) {
+            "$what: the play came ${plays.single().tMs - writeAt} ms after the idle write (gap $IDLE_GAP_MS ms)\n${native.trace()}"
+        }
+        assertEquals(null, native.playInsideTheIdleGap(writeAt), "$what: a play inside the idle gap\n${native.trace()}")
+        if (wantedSpeed != null) {
+            assertEquals(wantedSpeed, composed.hazards.effectiveRate, "$what: the speed given during the wait never reached the decoder\n${native.trace()}")
+        }
+        assertSound(what)
+    }
+
+    /**
+     * A second `start()` 20 ms after the first, both inside the idle gap of a rate written while paused, on each of the
+     * three resume paths. The second call is not a resume (the first already issued it), so it must not play at once: the
+     * delayed play of the first call is the only one. The part-2 probe of D-pi found it playing 40 ms after the write.
+     */
+    @Test
+    fun aSecondStartWhileTheDelayedPlayWaitsDoesNotPlayInsideTheIdleGap() {
+        runAll(StartPath.entries, { "first start on the $it path" }) { path: StartPath ->
+            fxModel {
+                withEngine {
+                    val writeAt: Double = pausedWithAnIdleWrite(this, path)
+                    engine.start()
+                    advanceBy(20)
+                    engine.start()
+                    advanceBy(2_500)
+
+                    assertOnePlayAfterTheGap(writeAt, if (path == StartPath.PLAIN) 1.0 else 2.0, "second start")
+                }
+            }
+        }
+    }
+
+    private enum class DuringTheWait { SEEK_TO, SET_SPEED, PAUSE }
+
+    /**
+     * A start, then a seekTo, a setSpeed or a pause while its play waits, then a second start. Whatever the caller does in
+     * between, the PLAY is issued once and not before the gap is out (after the pause the second start is a new resume of the
+     * same plain path, which waits out the gap itself), and the speed given during the wait (the plain path holds it, it is
+     * never written to the property in front of the play) reaches the decoder.
+     */
+    @Test
+    fun aSeekASpeedOrAPauseDuringTheWaitAndThenAStartPlaysOnceAfterTheGap() {
+        runAll(DuringTheWait.entries, { "start, $it, start" }) { during: DuringTheWait ->
+            fxModel {
+                withEngine {
+                    val writeAt: Double = pausedWithAnIdleWrite(this, StartPath.PLAIN)
+                    engine.start()
+                    advanceBy(20)
+                    when (during) {
+                        DuringTheWait.SEEK_TO -> engine.seekTo(1_500)
+                        DuringTheWait.SET_SPEED -> engine.setSpeed(1.5f)
+                        DuringTheWait.PAUSE -> engine.pause()
+                    }
+                    advanceBy(20)
+                    engine.start()
+                    advanceBy(2_500)
+
+                    assertOnePlayAfterTheGap(writeAt, if (during == DuringTheWait.SET_SPEED) 1.5 else 1.0, "start, $during, start")
+                }
+            }
+        }
+    }
+
     private companion object {
         const val NANOS_PER_MILLI: Double = 1_000_000.0
 
