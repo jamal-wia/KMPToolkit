@@ -15,19 +15,25 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.fail
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Delay
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.TestScope
 
 /**
  * Round 7 (breaker hf), Q2 + Q3 of unit D1.
  *
  * Q3: every ordered sequence of public calls and engine events up to length 3 (all 13 actions) and
- * length 4 (a 7-action subset), applied to one player over the scriptable fake with held loads, on a
+ * length 4 (a 9-action subset), applied to one player over the scriptable fake with held loads, on a
  * deterministic scheduler (a StandardTestDispatcher whose queue only the test runs). After every action
  * and at the end of every world: no public call threw, nothing reached the engine after its dispose,
  * a released player publishes nothing but Idle (and Error(VideoPlayerReleasedException) for a later
@@ -125,6 +131,22 @@ class VideoPlayerInterleavingAndBudgetR7AdversarialTest {
         }
     }
 
+    /**
+     * The test scheduler's dispatcher that counts every delay a coroutine asks it for. A poll that keeps
+     * running after its player was released asks for another delay on every wake-up; a stopped one never does.
+     */
+    @OptIn(InternalCoroutinesApi::class)
+    private class DelayCountingDispatcher(private val inner: TestDispatcher) : CoroutineDispatcher(), Delay {
+        var delays: Int = 0
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) = inner.dispatch(context, block)
+
+        override fun scheduleResumeAfterDelay(timeMillis: Long, continuation: CancellableContinuation<Unit>) {
+            delays++
+            (inner as Delay).scheduleResumeAfterDelay(timeMillis, continuation)
+        }
+    }
+
     private enum class Act {
         PrepareA, PrepareB, CancelLastPrepare, Release, Seek, Play, Pause, Stop, Unload, FinishLoad, FailLoad,
         FailPlayback, CompletePlayback,
@@ -135,7 +157,7 @@ class VideoPlayerInterleavingAndBudgetR7AdversarialTest {
 
     private class World(scope: TestScope) {
         val engine: WatchedEngine = WatchedEngine().also { it.fake.suspendLoads = true }
-        val poll = StandardTestDispatcher(scope.testScheduler)
+        val poll: DelayCountingDispatcher = DelayCountingDispatcher(StandardTestDispatcher(scope.testScheduler))
         val caller = StandardTestDispatcher(scope.testScheduler)
         val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(positionUpdateIntervalMs = 100L), poll)
         val prepares: MutableList<Job> = mutableListOf()
@@ -241,8 +263,10 @@ class VideoPlayerInterleavingAndBudgetR7AdversarialTest {
         }
         assertEquals(1, world.engine.fake.disposeCount, "dispose count at the end $where")
         val readsBefore: Int = world.engine.reads
+        val delaysBefore: Int = world.poll.delays
         testScheduler.advanceTimeBy(10_000L)
         testScheduler.runCurrent()
+        assertEquals(delaysBefore, world.poll.delays, "a poll kept waking up after the release $where")
         assertEquals(readsBefore, world.engine.reads, "a poll kept reading the engine after release $where")
         assertEquals(emptyList(), world.engine.lateCalls, "late engine calls at the end $where")
     }
@@ -290,16 +314,17 @@ class VideoPlayerInterleavingAndBudgetR7AdversarialTest {
     }
 
     @Test
-    fun `all 2401 sequences of four of the main calls keep the documented states`() {
+    fun `all 6561 sequences of four of nine main calls keep the documented states`() {
         val alphabet: List<Act> = listOf(
-            Act.PrepareA, Act.PrepareB, Act.Release, Act.FinishLoad, Act.Play, Act.FailPlayback, Act.CancelLastPrepare,
+            Act.PrepareA, Act.PrepareB, Act.Release, Act.FinishLoad, Act.Play, Act.Pause, Act.Stop, Act.FailPlayback,
+            Act.CancelLastPrepare,
         )
         var worlds = 0
         for (trace: List<Act> in sequences(alphabet, 4)) {
             runWorld(trace)
             worlds++
         }
-        assertEquals(2401, worlds)
+        assertEquals(6561, worlds)
     }
 
     /**
