@@ -157,8 +157,9 @@ internal class FxPlayback private constructor(
     private var deferredNotBeforeNanos: Long? = null
 
     /**
-     * The speed to give the native player after a loop wrap, while the rate property holds 1.0 until then
-     * (see [deferRate]). Null when the property holds the speed.
+     * The speed to give the native player once the playhead has really moved: after a loop wrap (the property holds 1.0
+     * until then, see [deferRate]) or after a speed given right after a native seek while playing (the property keeps the
+     * old speed, see [setSpeed]). Null when the property holds the speed.
      */
     private var deferredRate: Double? = null
 
@@ -584,7 +585,8 @@ internal class FxPlayback private constructor(
             if (position > native.durationMs / 2.0) return
             deferredAfterWrap = false
         }
-        // A seek during the wait resets the gauge in [seekTo], so a step back here is a stale reading, not a seek.
+        // A seek through [seekTo] resets the gauge, so a step back here is a stale reading, or a native seek this class
+        // did not count (the wrap of a looping source before its end handler runs): either way it is not movement.
         if (!deferredGauge.moved(position, host.nanoTime(), native.rate, LOOP_RATE_SETTLE_MS)) return
         deferredRate = null
         native.rate = rate
@@ -619,8 +621,10 @@ internal class FxPlayback private constructor(
      * behind the decoder), followed within a few milliseconds by a fresh one; taken as two ticks of one playhead the pair
      * is a jump of hundreds of milliseconds that happened in almost no time, which would give the speed about 0.17 s after
      * the play(), inside the native start-up that the wait exists to avoid. A reading from before a seek, landing after it,
-     * is the same shape. Until the speed is given the decoder runs no faster than the rate it was started at: normal speed
-     * on macOS, where play() ignores the rate property, and at most the property's rate elsewhere. A tick that reports
+     * is stale too: behind the playhead after a seek forward (the same shape), ahead of it after a seek back (the fresh
+     * reading then steps back). Until the speed is given the decoder runs no faster than `max(1.0, rateBound)` times the
+     * wall clock: after a resume, normal speed on macOS, where play() ignores the rate property, and at most the
+     * property's rate elsewhere; after a loop wrap or a seek while playing, the rate the property holds. A tick that reports
      * the playhead behind its anchor, or ahead of the anchor by more than the wall time since the anchor times
      * `max(1.0, rate)` plus [RATE_SETTLE_CLOCK_SLACK_MS], is not movement of the playhead: it becomes the new anchor
      * (position and time) and the wait starts again from it. The factor keeps a decoder that really runs at a held speed

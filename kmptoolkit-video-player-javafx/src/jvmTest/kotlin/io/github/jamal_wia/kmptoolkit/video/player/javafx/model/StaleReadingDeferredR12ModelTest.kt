@@ -63,9 +63,9 @@ class StaleReadingDeferredR12ModelTest {
     // ---- S18: the speed given after a seek while playing ----
 
     /**
-     * A stale pre-seek reading (the time from before the seek, 500 ms) as the first tick after the 300 ms settle is not the
-     * anchor of the count: the fresh tick after it is a jump of seconds in no time, which restarts the count. The speed
-     * comes 300 ms plus 200 ms of real movement after the seek at the earliest.
+     * A stale pre-seek reading (the time from before the seek, 500 ms) right after the first tick past the 300 ms settle
+     * steps back from that anchor and becomes the new one; the fresh tick after it is a jump of seconds in no time, which
+     * restarts the count again. The speed comes 300 ms plus 200 ms of real movement after the seek at the earliest.
      */
     @Test
     fun aStaleTickAfterTheSettleOfASpeedGivenAfterASeekIsNotTheAnchor() = fxModel {
@@ -110,6 +110,39 @@ class StaleReadingDeferredR12ModelTest {
                 given.single().tMs - seekAt >= SEEK_SETTLE_MS + SETTLE_MS - EPSILON_MS,
                 "the speed came ${given.single().tMs - seekAt} ms after the seek\n${native.log}",
             )
+        }
+    }
+
+    /**
+     * A seek BACK while playing, a speed within 300 ms, and a stale pre-seek reading that lands after the settle and is
+     * AHEAD of the playhead (the clip played to about 2 500 ms before the seek to 500 ms). The first tick past the settle
+     * anchors near 800 ms; the stale reading (2 500 ms) is a jump above the clock and becomes the anchor; the fresh ticks
+     * after it step back from it. Counting that step back as a re-anchor gives the speed 200 ms of real movement after the
+     * fresh reading; without the re-anchor the anchor stays at 2 500 ms and the speed waits until the playhead has passed
+     * 2 700 ms (never, on a short loop). The speed must come once, no later than the seek window, the 200 ms and two
+     * ticks after the seek (the bound `RateGivingModelTest` uses for a seek while the speed is deferred).
+     */
+    @Test
+    fun aStaleReadingAheadOfThePlayheadAfterASeekBackDoesNotHoldTheSpeedBackForGood() = fxModel {
+        rig {
+            engine.start()
+            advanceBy(2_500)
+            engine.seekTo(500L)
+            val seekAt: Double = nowMs()
+            advanceBy(10)
+            engine.setSpeed(2f)
+            advanceBy(SEEK_SETTLE_MS.toLong() - 10 + 1) // the first tick after the 300 ms settle has anchored near 800 ms
+            injectTick(native, STALE_BEFORE_SEEK_BACK_MS)
+            advanceBy(1_000) // short of the end of the 3 s clip, which writes the held speed again
+            val given: List<NativeCallEntry> = native.effectiveRateWrites(seekAt, 2.0)
+            assertEquals(1, given.size, "the speed was given once\n${native.rateCalls()}\n${native.log}")
+            val after: Double = given.single().tMs - seekAt
+            assertTrue(after >= SEEK_SETTLE_MS + SETTLE_MS - EPSILON_MS, "the speed came $after ms after the seek, before 200 ms of movement\n${native.log}")
+            assertTrue(
+                after <= SEEK_SETTLE_MS + SETTLE_MS + 2 * TICK_MS + EPSILON_MS,
+                "the speed came only $after ms after the seek: the stale reading ahead of the playhead held it back\n${native.log}",
+            )
+            assertEquals(2.0, composed.hazards.effectiveRate, "the speed reached the decoder\n${native.log}")
         }
     }
 
@@ -199,6 +232,8 @@ class StaleReadingDeferredR12ModelTest {
         const val SETTLE_MS: Double = 200.0
         const val SEEK_SETTLE_MS: Double = 300.0
         const val STALE_BEFORE_SEEK_MS: Double = 500.0
+        const val STALE_BEFORE_SEEK_BACK_MS: Double = 2_500.0
+        const val TICK_MS: Double = 100.0
         const val FIRST_LAG_MS: Double = 424.0
         const val SECOND_LAG_MS: Double = 200.0
         const val SLOW_PLAY_STATUS_MS: Double = 400.0
