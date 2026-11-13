@@ -275,7 +275,8 @@ access.
 A runtime request cancelled while its system dialog is up leaves that dialog on screen too. A request
 queued behind it waits (up to 30 seconds) for the user to answer it, then shows its own dialog; if the
 dialog is still up after that, the request returns the unchanged status without showing anything, as
-for any launch the host refuses. Cancelling the waiting request ends its wait at once.
+for any launch the host refuses, and so do the requests after it until that dialog is answered (they do not
+wait again). Cancelling the waiting request ends its wait at once.
 
 ## Any other Android permission: `Runtime(name)`
 
