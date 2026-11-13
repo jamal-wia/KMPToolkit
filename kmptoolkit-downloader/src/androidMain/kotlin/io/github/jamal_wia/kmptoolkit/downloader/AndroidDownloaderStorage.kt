@@ -127,6 +127,13 @@ internal class AndroidDownloaderStorage(
         return names
     }
 
+    /**
+     * True when [marker] (relative to [dir]) is a regular file spelled exactly like that. `java.io.File` silently drops
+     * a trailing `/`, which no regular file can carry (POSIX refuses `file/`), so a marker ending in `/` never matches,
+     * as on iOS, where the stat of the spelled path fails.
+     */
+    private fun markerIsRegularFile(dir: File, marker: String): Boolean = !marker.endsWith('/') && File(dir, marker).isFile
+
     override fun isResourceAvailable(unit: DownloadUnit): Boolean {
         val path: String = try {
             getResourcePath(unit)
@@ -135,7 +142,7 @@ internal class AndroidDownloaderStorage(
         }
         return if (unit.isDirectoryResource) {
             val pagesDir = File(path)
-            pagesDir.exists() && File(pagesDir, unit.archiveMarker()).isFile
+            pagesDir.exists() && markerIsRegularFile(pagesDir, unit.archiveMarker())
         } else {
             // A plain file, or a link to one. A directory at the path (an archive unit of the same id, or a
             // stray one) is not the resource: the commit moves it aside.
@@ -505,10 +512,10 @@ internal class AndroidDownloaderStorage(
                 // Handle nested directory: ZIP may contain a root directory prefix
                 // (e.g., entries like "pages/page001.webp" instead of "page001.webp"),
                 // causing files to land in staging/pages/ instead of staging/.
-                if (!File(stagingDir, unit.archiveMarker()).isFile) moveSingleRootUp(stagingDir, unit)
+                if (!markerIsRegularFile(stagingDir, unit.archiveMarker())) moveSingleRootUp(stagingDir, unit)
                 // The tree must be what the unit declares before anything at the final path is touched:
                 // a directory without its marker is not "ready", and it must not replace one that is.
-                if (!File(stagingDir, unit.archiveMarker()).isFile) {
+                if (!markerIsRegularFile(stagingDir, unit.archiveMarker())) {
                     throw ResourceIntegrityException("Archive of $unit has no '${unit.archiveMarker()}' after extraction")
                 }
                 // The swap, in renames only: the resource path holds the whole old tree, nothing, or the
@@ -569,7 +576,7 @@ internal class AndroidDownloaderStorage(
             stagingDir.listFiles { f: File -> f.isDirectory && !f.list().isNullOrEmpty() } ?: emptyArray()
         if (candidates.size != 1) return
         val root: File = candidates[0]
-        if (!File(root, unit.archiveMarker()).isFile) return
+        if (!markerIsRegularFile(root, unit.archiveMarker())) return
         logger.i { "Detected nested directory '${root.name}', moving contents up" }
         val taken: Set<String> = (stagingDir.list().orEmpty().toList() + root.list().orEmpty().toList())
             .map { name: String -> name.lowercase() }
