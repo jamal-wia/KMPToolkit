@@ -342,6 +342,21 @@ internal class FxPlayback private constructor(
             pendingNudge != null -> pendingNudge = rate
             settleNudge != null -> settleNudge = rate
             deferredRate != null -> deferredRate = rate
+            rate != native.rate && playIssued && lastNativeSeekNanos != 0L &&
+                host.nanoTime() - lastNativeSeekNanos < SEEK_RATE_SETTLE_NANOS -> {
+                // A native seek was posted a moment ago on a player that is playing (replay() or seekTo() while
+                // Playing, or a stop() followed by a play()): a rate written now can leave the native player PLAYING
+                // with the playhead standing at the seek target for good (macOS, AVFoundation). Keep the property as
+                // it is and hand the speed to the deferred-rate machinery: it is given once the player is PLAYING,
+                // the settle time since the seek has passed and the playhead has moved on (see [applyDeferredRate]).
+                // For those few hundred milliseconds the native player keeps its old speed. This branch is ahead of
+                // the FRESH one on purpose: no rate is written within the window of a native seek while playing, also
+                // when the seek follows a plain play() by less than FRESH_PLAY_NANOS.
+                deferredRate = rate
+                deferredFrom = Double.NaN
+                deferredAfterWrap = false
+                deferredNotBeforeNanos = lastNativeSeekNanos + SEEK_RATE_SETTLE_NANOS
+            }
             rate != native.rate && rate != 1.0 && playIssued && playIssuedAtNanos != 0L &&
                 host.nanoTime() - playIssuedAtNanos < FRESH_PLAY_NANOS -> {
                 // A play() has just been issued (the shared player gives the speed right after start(), so a
@@ -363,19 +378,6 @@ internal class FxPlayback private constructor(
                     settleNotBeforeNanos = 0L
                     settleFrom = Double.NaN
                 }
-            }
-            rate != native.rate && playIssued && lastNativeSeekNanos != 0L &&
-                host.nanoTime() - lastNativeSeekNanos < SEEK_RATE_SETTLE_NANOS -> {
-                // A native seek was posted a moment ago on a player that is playing (replay() or seekTo() while
-                // Playing, or a stop() followed by a play()): a rate written now can leave the native player PLAYING
-                // with the playhead standing at the seek target for good (macOS, AVFoundation). Keep the property as
-                // it is and hand the speed to the deferred-rate machinery: it is given once the player is PLAYING,
-                // the settle time since the seek has passed and the playhead has moved on (see [applyDeferredRate]).
-                // For those few hundred milliseconds the native player keeps its old speed.
-                deferredRate = rate
-                deferredFrom = Double.NaN
-                deferredAfterWrap = false
-                deferredNotBeforeNanos = lastNativeSeekNanos + SEEK_RATE_SETTLE_NANOS
             }
             else -> {
                 if (!playIssued && native.rate != rate) idleRateWriteNanos = host.nanoTime()
