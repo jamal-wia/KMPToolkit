@@ -230,8 +230,8 @@ abstract class VideoPlayerConsumerScreenR9Tests {
             "duration ${counts.duration - before.duration}, muted ${counts.muted - before.muted} over $TICKS ticks"
         assertTrue(counts.position - before.position >= TICKS, "the harness does not see ticks: $message")
         assertEquals(0, counts.muted - before.muted, message)
-        // isPlaying and durationMs are NOT asserted here: a reader of either is recomposed on every tick although
-        // its value does not change (suspect r9-RC1, adversarial/D1/suspects/r9-RC1.kt).
+        assertEquals(0, counts.isPlaying - before.isPlaying, message)
+        assertEquals(0, counts.duration - before.duration, message)
         assertFalse(tp.player.stateFlow.value !is VideoPlayerState.Playing)
         tp.player.release()
     }
