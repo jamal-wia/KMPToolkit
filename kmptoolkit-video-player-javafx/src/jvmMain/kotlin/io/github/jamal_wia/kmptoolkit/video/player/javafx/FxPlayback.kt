@@ -293,13 +293,6 @@ internal class FxPlayback private constructor(
         FxThread.postLater { FxThread.postLater { giveNudge() } }
     }
 
-    /**
-     * Whether a native seek was posted within [SEEK_RATE_SETTLE_NANOS] ([lastNativeSeekNanos]). Checked before the
-     * fresh-play branch of [setSpeed], so a seek after a plain play() does not let a speed skip the seek settle.
-     */
-    private fun inSeekSettle(): Boolean =
-        lastNativeSeekNanos != 0L && System.nanoTime() - lastNativeSeekNanos < SEEK_RATE_SETTLE_NANOS
-
     /** Gives the native player the speed [start] left pending, as the old nudge: away and back. */
     private fun giveNudge() {
         val rate: Double = pendingNudge ?: return
@@ -363,7 +356,7 @@ internal class FxPlayback private constructor(
             pendingNudge != null -> pendingNudge = rate
             settleNudge != null -> settleNudge = rate
             deferredRate != null -> deferredRate = rate
-            rate != player.rate && rate != 1.0 && playIssued && playIssuedAtNanos != 0L && !inSeekSettle() &&
+            rate != player.rate && rate != 1.0 && playIssued && playIssuedAtNanos != 0L &&
                 System.nanoTime() - playIssuedAtNanos < FRESH_PLAY_NANOS -> {
                 // A play() has just been issued (the shared player gives the speed right after start(), so a
                 // speed changed while paused arrives here): a rate change right after a plain play() can freeze
@@ -385,7 +378,8 @@ internal class FxPlayback private constructor(
                     settleFrom = Double.NaN
                 }
             }
-            rate != player.rate && playIssued && inSeekSettle() -> {
+            rate != player.rate && playIssued && lastNativeSeekNanos != 0L &&
+                System.nanoTime() - lastNativeSeekNanos < SEEK_RATE_SETTLE_NANOS -> {
                 // A native seek was posted a moment ago on a player that is playing (replay() or seekTo() while
                 // Playing, or a stop() followed by a play()): a rate written now can leave the native player PLAYING
                 // with the playhead standing at the seek target for good (macOS, AVFoundation). Keep the property as
