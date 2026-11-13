@@ -134,6 +134,31 @@ class SurvivorKillersR14ModelTest {
         }
     }
 
+    /**
+     * Mutant I: a tick of the playhead while the player is not playing keeps the pulse copying for another refresh window
+     * (the picture of a seek can arrive after the first window). A seek while paused, a tick 400 ms later, and the pulse is
+     * still running at 700 ms, past the 500 ms the seek alone gave it, and stops after the extended window.
+     */
+    @Test
+    fun aTickOfThePlayheadWhilePausedKeepsThePulseCopyingForAnotherWindow() = fxModel {
+        rig {
+            engine.start()
+            advanceBy(1_500)
+            engine.pause()
+            advanceBy(2_000)
+            assertTrue(!native.pulsing, "the pulse stopped once nothing was left to copy\n${native.log.tail()}")
+            engine.seekTo(9_000L)
+            advanceBy(400)
+            assertEquals(NativeStatus.PAUSED, native.status, "the player is paused at the tick")
+            val events: NativeEvents = checkNotNull(native.events)
+            onFx { events.onCurrentTime() }
+            advanceBy(300)
+            assertTrue(native.pulsing, "the tick at +400 ms extended the window to +900 ms, so the pulse runs at +700 ms\n${native.log.tail()}")
+            advanceBy(1_000)
+            assertTrue(!native.pulsing, "the pulse stops after the extended window\n${native.log.tail()}")
+        }
+    }
+
     private companion object {
         const val NANOS_PER_MS: Double = 1_000_000.0
         const val EPSILON_MS: Double = 0.01
