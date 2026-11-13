@@ -154,8 +154,8 @@ class WorkManagerClassicPlainHandlerAdversarialTest {
 
     private fun runUntilDelivered(rows: TestUploaderStore, started: UploaderEngine, handler: UploaderHandler<String>) {
         runBlocking { withTimeout(10_000L) { started.enqueue(handler, "payload") } }
-        val deadline: Long = System.nanoTime() + 12_000_000_000L
-        while (rows.find("item-1") != null && System.nanoTime() < deadline) Thread.sleep(20)
+        // The caller asserts the outcome with its own message, so a miss of the bound is not thrown here.
+        pollUntil(12_000L) { rows.find("item-1") == null }
     }
 
     /**
@@ -172,6 +172,7 @@ class WorkManagerClassicPlainHandlerAdversarialTest {
         val rows = TestUploaderStore()
         val handler = PlainHandler(createWorkManagerUploadTransport(context, config)) { attempts ->
             // Hold `execute` open until the first job has its answer and has had time to reach its settle.
+            // timing-hygiene-ignore: TH1 inject the handler's execute stays open longer than the job needs to reach its settle
             if (attempts == 0) withContext(Dispatchers.IO) { answered.await(5, TimeUnit.SECONDS); Thread.sleep(700) }
         }
         val started: UploaderEngine = startEngine(rows, handler)
@@ -193,6 +194,7 @@ class WorkManagerClassicPlainHandlerAdversarialTest {
         val counting = CountingTransport(createWorkManagerUploadTransport(context, config))
         val handler = PlainHandler(counting) { attempts ->
             // The retry has handed off; its claim is written only after this returns.
+            // timing-hygiene-ignore: TH1 inject the handler's execute stays open while the retry's claim is not yet written
             if (attempts == 1) withContext(Dispatchers.IO) { Thread.sleep(700) }
         }
         // The first job is held inside its settlement commit until the retry's hand-off was counted.
@@ -224,10 +226,8 @@ class WorkManagerClassicPlainHandlerAdversarialTest {
             if (attempts == 0) {
                 withContext(Dispatchers.IO) {
                     // The first job is serving (it holds the server's answer): a second public launch is counted for it.
-                    val deadline: Long = System.nanoTime() + 5_000_000_000L
-                    while ((UploadHandOffLedger.shared.entry("item-1")?.activeJobs ?: 0) < 1 && System.nanoTime() < deadline) {
-                        Thread.sleep(10)
-                    }
+                    // A miss of the bound is not thrown here: the stamp assertion below reports it.
+                    pollUntil(5_000L) { (UploadHandOffLedger.shared.entry("item-1")?.activeJobs ?: 0) >= 1 }
                     transport.launch(
                         "item-1",
                         UploadRequest(url = "http://127.0.0.1:${server.localPort}/upload?second", fields = emptyList()),

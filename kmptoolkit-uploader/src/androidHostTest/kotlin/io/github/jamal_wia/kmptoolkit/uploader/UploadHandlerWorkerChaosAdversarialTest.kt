@@ -215,9 +215,19 @@ class UploadHandlerWorkerChaosAdversarialTest {
 
     private fun sent() = UploadResponse(201, mapOf("Location" to "/jobs/9"), """{"job":"j9"}""".encodeToByteArray(), false)
 
-    private fun awaitTrue(what: String, condition: () -> Boolean) {
-        runBlocking { withTimeout(15_000L) { while (!condition()) delay(20L) } }
-    }
+    private fun awaitTrue(what: String, condition: () -> Boolean) = awaitCondition(15_000L, what, condition)
+
+    /** Names of the threads inside the multipart upload that are blocked in a socket write of the body. */
+    private fun threadsBlockedWritingBody(): List<String> = Thread.getAllStackTraces().filterValues { frames ->
+        frames.any { it.className.contains("performMultipart") || it.methodName.contains("writeMultipartBody") } &&
+            frames.any { it.methodName.contains("socketWrite") || it.className.contains("NioSocketImpl") }
+    }.keys.map { it.name }
+
+    /** Names of the threads inside the multipart upload that wait for the answer, in a socket read. */
+    private fun threadsWaitingForAnswer(): List<String> = Thread.getAllStackTraces().filterValues { frames ->
+        frames.any { it.methodName.contains("performMultipart") || it.className.contains("MultipartUpload") } &&
+            frames.any { it.className.contains("NioSocketImpl") && it.methodName.contains("read") }
+    }.keys.map { it.name }
 
     // --- attacks -------------------------------------------------------------------------------------------
 
@@ -282,6 +292,7 @@ class UploadHandlerWorkerChaosAdversarialTest {
 
     @Test
     fun `two jobs for one item at once settle it once and leave nothing on disk`() {
+        // timing-hygiene-ignore: TH1 inject the peer answers slowly, so the two jobs overlap
         serve(beforeAnswer = { Thread.sleep(300) })
         val backing = TestUploaderStore()
         val handler = ChaosHandler()
@@ -327,6 +338,8 @@ class UploadHandlerWorkerChaosAdversarialTest {
         }
         threads.forEach { it.join(20_000) }
         awaitTrue("the orphan is replayed") { handler.delivered.isNotEmpty() && journalFiles().isEmpty() }
+        // NEGATIVE kept as a real-time wait: the sweeps are fire-and-forget coroutines of the transport, no signal tells
+        // that the last of the twenty has ended (T6b: needs a production seam or an advisor ruling).
         runBlocking { delay(500L) }
 
         assertEquals(1, handler.delivered.size, "replayed exactly once")
@@ -350,16 +363,13 @@ class UploadHandlerWorkerChaosAdversarialTest {
         startEngine(backing, handler)
         val running: Deferred<ListenableWorker.Result> = uploads.async { worker().build().doWork() }
         assertTrue(accepted.await(10, TimeUnit.SECONDS))
-        Thread.sleep(1_500) // the send buffers fill and the body write blocks
+        awaitTrue("the send buffers to fill and the body write to block") { threadsBlockedWritingBody().isNotEmpty() }
 
         running.cancel()
         val ended: Boolean = runBlocking { withTimeout(10_000L) { running.join(); true } }
 
         assertTrue(ended)
-        val stuck: List<String> = Thread.getAllStackTraces().filterValues { frames ->
-            frames.any { it.className.contains("performMultipart") || it.methodName.contains("writeMultipartBody") } &&
-                frames.any { it.methodName.contains("socketWrite") || it.className.contains("NioSocketImpl") }
-        }.keys.map { it.name }
+        val stuck: List<String> = threadsBlockedWritingBody()
         assertTrue(stuck.isEmpty(), "threads still blocked writing the body: $stuck")
         val peer: Socket = synchronized(held) { held.single() }
         peer.soTimeout = 5_000
@@ -507,7 +517,10 @@ class UploadHandlerWorkerChaosAdversarialTest {
         val threadsBefore: Int = Thread.getAllStackTraces().size
 
         for (index in 2..30) assertIs<ListenableWorker.Result.Success>(runWorker("item-$index"))
-        Thread.sleep(300)
+        // The pools wind down after the last job: poll until the counts settle (the assertions below still decide).
+        pollUntil(10_000L) {
+            descriptors() - fdBefore <= 8 && Thread.getAllStackTraces().size - threadsBefore <= 8
+        }
 
         assertEquals(30, handler.delivered.size)
         assertTrue(descriptors() - fdBefore <= 8, "descriptors grew from $fdBefore to ${descriptors()}")
@@ -525,7 +538,7 @@ class UploadHandlerWorkerChaosAdversarialTest {
         startEngine(backing, handler)
         val running: Deferred<ListenableWorker.Result> = uploads.async { worker().build().doWork() }
         assertTrue(reached.await(10, TimeUnit.SECONDS), "the request was fully sent")
-        Thread.sleep(300)
+        awaitTrue("the job to wait for the answer") { threadsWaitingForAnswer().isNotEmpty() }
 
         val cancelledAt: Long = System.nanoTime()
         running.cancel()
@@ -597,7 +610,8 @@ class UploadHandlerWorkerChaosAdversarialTest {
         startEngine(backing, handler)
         val running: Deferred<ListenableWorker.Result> = uploads.async { worker().build().doWork() }
 
-        val result: ListenableWorker.Result? = runBlocking { withTimeout(10_000L) { delay(5_000L); if (running.isCompleted) running.await() else null } }
+        pollUntil(15_000L) { handler.delivered.size >= 1 }
+        val result: ListenableWorker.Result? = if (running.isCompleted) runBlocking { withTimeout(10_000L) { running.await() } } else null
 
         assertEquals(1, handler.delivered.size, "the answer arrived, but the settlement waits on the hook (job result $result)")
     }

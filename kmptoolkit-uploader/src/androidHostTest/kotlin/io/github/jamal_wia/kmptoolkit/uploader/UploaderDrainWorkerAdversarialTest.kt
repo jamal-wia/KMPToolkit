@@ -88,7 +88,8 @@ class UploaderDrainWorkerAdversarialTest {
         runBlocking { engine.enqueue(handler, "owed-from-the-last-process") }
 
         val pending = worker(engineWaitMillis = 5_000, drainBudgetMillis = 10_000).startWork()
-        Thread.sleep(300) // the OS got there before the application bootstrap did
+        // timing-hygiene-ignore: TH1 inject the application bootstrap is late: the OS started the worker first
+        Thread.sleep(300)
         engine.start()
         UploaderEngineRegistry.register(engine)
 
@@ -118,7 +119,9 @@ class UploaderDrainWorkerAdversarialTest {
     fun `a worker stopped mid wait leaves the engine draining and a re-delivered worker succeeds`() {
         val store = TestUploaderStore()
         val gate = CompletableDeferred<Unit>()
+        val executing = CompletableDeferred<Unit>()
         val handler = TestHandler(onExecute = { _, _ ->
+            executing.complete(Unit)
             gate.await()
             AttemptResult.Success
         })
@@ -128,8 +131,10 @@ class UploaderDrainWorkerAdversarialTest {
         UploaderEngineRegistry.register(engine)
 
         val first = worker(engineWaitMillis = 2_000, drainBudgetMillis = 20_000).startWork()
-        Thread.sleep(400)
+        // The engine is draining: its handler is inside the blocked attempt the first worker waits on.
+        runBlocking { withTimeout(10_000) { executing.await() } }
         first.cancel(true) // WorkManager stops the job: constraints lost, or the platform deadline hit
+        // timing-hygiene-ignore: TH1 inject grace for the stop to reach the worker; no event of the worker is observable
         Thread.sleep(200)
         gate.complete(Unit)
 
@@ -151,11 +156,12 @@ class UploaderDrainWorkerAdversarialTest {
         val engine = engineOver(store, handler, parent)
         engine.start()
         UploaderEngineRegistry.register(engine)
-        Thread.sleep(200)
+        // No event tells that the engine's loop is already running; a cancel that reaches it before or after its first
+        // pass leaves the same end state (a dead owner), which is what the worker is asked about below.
         parent.cancel() // the owner is gone; nothing will ever drain through this engine again
-        Thread.sleep(200)
+        // Every coroutine of the owner has ended, so nothing can drain the item enqueued next.
+        runBlocking { withTimeout(10_000) { parent.join() } }
         runBlocking { engine.enqueue(handler, "stranded") } // still persists: the store is independent
-        Thread.sleep(200)
         assertEquals(1, store.items.size)
 
         val started: Long = System.nanoTime()

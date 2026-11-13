@@ -52,7 +52,7 @@ class WorkManagerRound4LifecycleAdversarialTest {
 
     private fun config(requiresNetwork: Boolean, leaseMillis: Long): UploadTransportConfig = UploadTransportConfig(
         uniqueWorkNamePrefix = "wm_r4_",
-        workTag = "wm_r4",
+        workTag = TAG,
         requiresNetwork = requiresNetwork,
         leaseMillis = leaseMillis,
         engineWait = 200.milliseconds,
@@ -110,13 +110,17 @@ class WorkManagerRound4LifecycleAdversarialTest {
         WorkManager.getInstance(context)
             .getWorkInfosForUniqueWork(config.resolveUniqueWorkName(context.packageName, id)).get()
 
-    private fun awaitTrue(timeoutMillis: Long = 15_000L, what: String = "condition", condition: () -> Boolean) {
-        val deadline: Long = System.nanoTime() + timeoutMillis * 1_000_000L
-        while (!condition()) {
-            check(System.nanoTime() < deadline) { "timed out waiting for $what" }
-            Thread.sleep(20)
+    private fun awaitTrue(timeoutMillis: Long = 15_000L, what: String = "condition", condition: () -> Boolean) =
+        awaitCondition(timeoutMillis, what, condition)
+
+    /**
+     * The barrier before an absence assertion: every job of the tag has finished and the item's ledger entry has no
+     * active job. A job that finished has already counted its connection, so a count read after it is complete.
+     */
+    private fun awaitQuiet(id: String, what: String) =
+        awaitWorkQuiescent(WorkManager.getInstance(context), TAG, 15_000L, what) {
+            (UploadHandOffLedger.shared.entry(id)?.activeJobs ?: 0) == 0
         }
-    }
 
     private class ZeroBackoff : RetryPolicy {
         override val maxDelayMillis: Long = 1L
@@ -210,7 +214,7 @@ class WorkManagerRound4LifecycleAdversarialTest {
         assertEquals(listOf(workId), infos("item-1", config).map { it.id }, "the stopped work spec is joined, not replaced")
         driver.setAllConstraintsMet(workId)
         awaitTrue(what = "the delivery") { handler.delivered.get() == 1 }
-        Thread.sleep(300)
+        awaitQuiet("item-1", "every job finished and the ledger drained (a third upload would have connected by now)")
 
         assertEquals(2, connections.get())
         assertEquals(1, handler.delivered.get())
@@ -255,6 +259,7 @@ class WorkManagerRound4LifecycleAdversarialTest {
             runBlocking { withTimeout(10_000L) { started.enqueue(handler, "payload-$round") } }
             val before: Int = connections.get()
             awaitTrue(timeoutMillis = 20_000L, what = "the storm to start for $id") { connections.get() > before + 2 }
+            // timing-hygiene-ignore: TH1 inject the seeded moment of the withdrawal inside the retry storm
             Thread.sleep(random.nextInt(40).toLong())
 
             runBlocking { withTimeout(10_000L) { started.cancel(id) } }
@@ -263,13 +268,17 @@ class WorkManagerRound4LifecycleAdversarialTest {
             awaitTrue(timeoutMillis = 20_000L, what = "no work of $id to run or wait") {
                 infos(id, config).none { !it.state.isFinished }
             }
-            Thread.sleep(250)
+            awaitQuiet(id, "round $round: every job finished and the ledger drained after the withdrawal")
             val settledAt: Int = connections.get()
-            Thread.sleep(250)
+            awaitQuiet(id, "round $round: still no job after the first count")
             assertTrue(settledAt - atCancel <= 3, "round $round: ${settledAt - atCancel} uploads started after the withdrawal returned")
             assertEquals(settledAt, connections.get(), "round $round: uploads kept starting after the item was withdrawn")
             assertEquals(0, UploadHandOffLedger.shared.entry(id)?.activeJobs ?: 0, "round $round: a job of the withdrawn item is still counted")
         }
         assertEquals(0, handler.delivered.get())
+    }
+
+    private companion object {
+        const val TAG: String = "wm_r4"
     }
 }

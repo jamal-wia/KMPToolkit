@@ -145,13 +145,17 @@ class WorkManagerClassicStormRound5AdversarialTest {
         return started
     }
 
-    private fun awaitTrue(timeoutMillis: Long, what: String, condition: () -> Boolean) {
-        val deadline: Long = System.nanoTime() + timeoutMillis * 1_000_000L
-        while (!condition()) {
-            check(System.nanoTime() < deadline) { "timed out after $timeoutMillis ms waiting for $what" }
-            Thread.sleep(20)
-        }
-    }
+    private fun awaitTrue(timeoutMillis: Long, what: String, condition: () -> Boolean) = awaitCondition(timeoutMillis, what, condition)
+
+    /** No job of the item is counted in the hand-off ledger any more. */
+    private fun ledgerIdle(ids: List<String>): Boolean = ids.all { (UploadHandOffLedger.shared.entry(it)?.activeJobs ?: 0) == 0 }
+
+    /**
+     * The barrier before an absence assertion ("no stray upload"): every job of the tag has finished and the ledger
+     * is drained. A job that finished has already recorded its request, so the count read after it is complete.
+     */
+    private fun awaitQuiet(ids: List<String>, what: String) =
+        awaitWorkQuiescent(WorkManager.getInstance(context), TAG, 30_000L, what) { ledgerIdle(ids) }
 
     private fun attemptsOf(id: String): List<Int> = synchronized(requests) { requests.filter { it.first == id }.map { it.second } }
 
@@ -173,7 +177,7 @@ class WorkManagerClassicStormRound5AdversarialTest {
         runBlocking { withTimeout(10_000L) { repeat(items) { started.enqueue(handler, "payload-$it") } } }
 
         awaitTrue(60_000L, "all $items items delivered") { ids.all { rows.find(it) == null } }
-        Thread.sleep(600) // a stray extra upload would land here
+        awaitQuiet(ids, "every job finished and the ledger drained (a stray extra upload would have landed by now)")
 
         for (id in ids) {
             assertEquals((0..failures).toList(), attemptsOf(id), "$id was not uploaded exactly once per attempt")
@@ -208,20 +212,25 @@ class WorkManagerClassicStormRound5AdversarialTest {
         val started: UploaderEngine = startEngine(rows, handler)
         val ids: List<String> = (1..10).map { "item-$it" }
         val stop = AtomicBoolean(false)
+        val cancels = AtomicInteger(0)
         val canceller = thread {
             val random = Random(3)
             while (!stop.get()) {
                 runCatching { WorkManager.getInstance(context).cancelAllWorkByTag(TAG).result.get() }
+                cancels.incrementAndGet()
+                // timing-hygiene-ignore: TH1 inject the pacing of the cancellation storm, seeded jitter
                 Thread.sleep(random.nextLong(2, 25))
             }
         }
         runBlocking { withTimeout(10_000L) { repeat(10) { started.enqueue(handler, "payload-$it") } } }
-        Thread.sleep(1_500)
+        // The storm is a fixed number of cancellations, not a stretch of wall time.
+        awaitTrue(30_000L, "$STORM_CANCELS cancellations of the tag") { cancels.get() >= STORM_CANCELS }
         stop.set(true)
         canceller.join(10_000L)
+        check(!canceller.isAlive) { "the canceller did not stop" }
 
         awaitTrue(60_000L, "all items delivered after the cancellation storm") { ids.all { rows.find(it) == null } }
-        Thread.sleep(500)
+        awaitQuiet(ids, "every job finished and the ledger drained after the storm")
         for (id in ids) {
             assertEquals(0, UploadHandOffLedger.shared.entry(id)?.activeJobs ?: 0, "$id: a cancelled job is still counted")
             awaitTrue(8_000L, "$id: no live work") { noLiveWork(id, cfg) }
@@ -236,6 +245,7 @@ class WorkManagerClassicStormRound5AdversarialTest {
     @Test
     fun `a lease re-hand while the job still waits for a slow failure uploads the retry once and the stale re-hand never`() {
         serve { _, attempt, socket ->
+            // timing-hygiene-ignore: TH1 inject a slow failure answer, longer than the 1.2 s lease
             if (attempt == 0) Thread.sleep(3_500)
             answer(socket, if (attempt == 0) "503 Service Unavailable" else "201 Created")
         }
@@ -246,7 +256,7 @@ class WorkManagerClassicStormRound5AdversarialTest {
         runBlocking { withTimeout(10_000L) { started.enqueue(handler, "payload") } }
 
         awaitTrue(30_000L, "the item delivered") { rows.find("item-1") == null }
-        Thread.sleep(800)
+        awaitQuiet(listOf("item-1"), "every job finished and the ledger drained (a stale re-hand would have uploaded by now)")
 
         assertTrue(
             synchronized(executes) { executes.count { it == "item-1" to 0 } } >= 2,
@@ -259,6 +269,7 @@ class WorkManagerClassicStormRound5AdversarialTest {
     @Test
     fun `a lease re-hand while the job still waits for a slow delivery uploads nothing more`() {
         serve { _, _, socket ->
+            // timing-hygiene-ignore: TH1 inject a slow delivery answer, longer than the 1.2 s lease
             Thread.sleep(3_500)
             answer(socket, "201 Created")
         }
@@ -269,7 +280,7 @@ class WorkManagerClassicStormRound5AdversarialTest {
         runBlocking { withTimeout(10_000L) { started.enqueue(handler, "payload") } }
 
         awaitTrue(30_000L, "the item delivered") { rows.find("item-1") == null }
-        Thread.sleep(1_500) // a re-hand that slipped past the job would upload again here
+        awaitQuiet(listOf("item-1"), "every job finished and the ledger drained (a re-hand that slipped past the job would have uploaded again)")
 
         assertTrue(
             synchronized(executes) { executes.count { it == "item-1" to 0 } } >= 2,
@@ -286,6 +297,7 @@ class WorkManagerClassicStormRound5AdversarialTest {
     fun `a tag cancellation in the middle of the uploads loses no item - the lease re-hands them`() {
         val slowFirst = AtomicBoolean(true)
         serve { item, attempt, socket ->
+            // timing-hygiene-ignore: TH1 inject a slow first answer so the tag cancellation lands mid-flight
             if (attempt == 0 && slowFirst.get()) Thread.sleep(1_500)
             answer(socket, "201 Created")
         }
@@ -300,7 +312,7 @@ class WorkManagerClassicStormRound5AdversarialTest {
         slowFirst.set(false)
 
         awaitTrue(40_000L, "all items delivered after the cancellation") { ids.all { rows.find(it) == null } }
-        Thread.sleep(500)
+        awaitQuiet(ids, "every job finished and the ledger drained after the cancellation")
         for (id in ids) {
             assertTrue(attemptsOf(id).size in 1..4, "$id was uploaded ${attemptsOf(id).size} times: ${attemptsOf(id)}")
             assertEquals(0, UploadHandOffLedger.shared.entry(id)?.activeJobs ?: 0, "$id: a cancelled job is still counted")
@@ -324,6 +336,7 @@ class WorkManagerClassicStormRound5AdversarialTest {
             val delays: List<Long> = ids.map { random.nextLong(0, 150) }
             val workers = ids.zip(delays).map { (id, delay) ->
                 thread {
+                    // timing-hygiene-ignore: TH1 inject the seeded moment of this item's withdrawal
                     Thread.sleep(delay)
                     runBlocking { withTimeout(10_000L) { started.cancel(id) } }
                 }
@@ -331,7 +344,7 @@ class WorkManagerClassicStormRound5AdversarialTest {
             workers.forEach { it.join(20_000L) }
             check(workers.none { it.isAlive }) { "round $round: a withdrawal did not return" }
             val atCancel: Int = requests.size
-            Thread.sleep(800)
+            awaitQuiet(ids, "round $round: every job finished and the ledger drained after the withdrawals")
             val after: Int = requests.size
             val late: Map<String, Int> = synchronized(requests) { requests.drop(atCancel).groupingBy { it.first }.eachCount() }
             assertTrue(
@@ -339,7 +352,7 @@ class WorkManagerClassicStormRound5AdversarialTest {
                 "round $round: $after - $atCancel uploads started after every withdrawal returned; per item: $late; this round's ids=$ids; earlier=$names",
             )
             val settledAt: Int = after
-            Thread.sleep(500)
+            awaitQuiet(ids, "round $round: still no job after the first count")
             assertEquals(settledAt, requests.size, "round $round: uploads kept starting after the items were withdrawn")
             for (id in ids) {
                 assertNull(rows.find(id), "round $round: $id still has a row after its withdrawal")
@@ -368,6 +381,7 @@ class WorkManagerClassicStormRound5AdversarialTest {
             while (!stop.get()) {
                 transport.launch("item-1", requestFor("item-1", 99))
                 launched.incrementAndGet()
+                // timing-hygiene-ignore: TH1 inject the seeded pacing of the unstamped launches
                 Thread.sleep(random.nextLong(1, 6))
             }
         }
@@ -376,8 +390,9 @@ class WorkManagerClassicStormRound5AdversarialTest {
         awaitTrue(60_000L, "the item delivered despite the launches") { rows.find("item-1") == null }
         stop.set(true)
         hammer.join(5_000L)
+        check(!hammer.isAlive) { "the hammer did not stop" }
         // Launches made after the delivery are fresh uploads of a gone item (the caller asked): let them end.
-        Thread.sleep(1_500)
+        awaitQuiet(listOf("item-1"), "every launched job finished")
         awaitTrue(20_000L, "no live work left") { noLiveWork("item-1", cfg) }
 
         assertTrue(launched.get() > 0)
@@ -433,5 +448,8 @@ class WorkManagerClassicStormRound5AdversarialTest {
 
     private companion object {
         const val TAG: String = "wm_r5_storm"
+
+        /** How many tag cancellations make the storm of the cancellation test. */
+        const val STORM_CANCELS: Int = 60
     }
 }
