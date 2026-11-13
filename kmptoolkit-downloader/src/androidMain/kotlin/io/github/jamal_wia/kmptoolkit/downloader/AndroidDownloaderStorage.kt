@@ -314,11 +314,36 @@ internal class AndroidDownloaderStorage(
         val target = File(getResourcePath(unit))
         if (!target.exists()) return
         if (target.isDirectory) {
-            deleteTree(target)
+            // Moved aside in one rename, then deleted: a process killed inside the walk leaves the
+            // partial tree under trash/, never at the resource path, where a surviving marker would
+            // read as a complete resource with files missing. No lock: the rename is atomic, and a
+            // commit racing this delete finds either the whole tree or nothing to move aside.
+            val detached: File? = detachTree(target)
+            if (detached != null) {
+                deleteTree(detached)
+                sweepTrash()
+            } else if (target.exists()) {
+                // Unreachable on a sandbox volume, and this call has never thrown: fall back to the
+                // in-place delete rather than start now.
+                logger.w { "Could not move $unit aside; deleting it in place" }
+                deleteTree(target)
+            }
         } else {
             target.delete()
         }
         logger.i { "Deleted resource $unit at ${target.absolutePath}" }
+    }
+
+    /**
+     * Renames [dir] to a fresh entry of the trash directory (`tmp/kmptoolkit-internal/trash/`) and returns
+     * it; null when [dir] is absent or the rename failed (the caller tells them apart by [File.exists]).
+     * The rename is atomic and stays on one volume, so [dir] holds its whole tree or nothing at every instant.
+     */
+    private fun detachTree(dir: File): File? {
+        if (!dir.exists()) return null
+        val trash = File(baseDir, layout.trashEntry(Random.nextLong().toULong()))
+        trash.parentFile?.mkdirs()
+        return if (dir.renameTo(trash)) trash else null
     }
 
     override suspend fun commitResource(
@@ -330,29 +355,44 @@ internal class AndroidDownloaderStorage(
         val names: UnitFileLayout.Names = names(unit)
         // Serialized per unit across every instance over this directory — see UnitCommitLocks for
         // who races here. Everything below is decided only once the lock is held.
-        UnitCommitLocks.withUnitLock(baseDir.absolutePath, layout.lockKey(unit)) {
-            val tempFile = File(baseDir, names.complete)
-            if (!tempFile.exists() && isResourceAvailable(unit)) {
-                // A concurrent commit finalized the unit while this one waited. Its record is
-                // already gone, and one present now belongs to a newer transfer: touch nothing.
-                logger.i { "$unit was already committed by a concurrent commit" }
-                return@withUnitLock
+        // An old archive tree replaced by this commit is only renamed away under the lock; it is deleted
+        // after the lock is released (UnitCommitLocks), also when the commit failed after the rename.
+        var detached: File? = null
+        try {
+            UnitCommitLocks.withUnitLock(baseDir.absolutePath, layout.lockKey(unit)) {
+                val tempFile = File(baseDir, names.complete)
+                if (!tempFile.exists() && isResourceAvailable(unit)) {
+                    // A concurrent commit finalized the unit while this one waited. Its record is
+                    // already gone, and one present now belongs to a newer transfer: touch nothing.
+                    logger.i { "$unit was already committed by a concurrent commit" }
+                    return@withUnitLock
+                }
+                check(tempFile.exists()) {
+                    "No complete temp file for $unit — a partial transfer is resumed, never committed"
+                }
+                try {
+                    commitCompleteTempFile(unit, tempFile, names) { tree: File -> detached = tree }
+                } finally {
+                    // The record belongs to the temp file. Once the file is gone — committed, or deleted
+                    // by a failed check — the record goes with it, last. A failure that left the file in
+                    // place keeps its record, so the retry is still checked against it.
+                    if (!tempFile.exists()) File(baseDir, names.record).delete()
+                }
             }
-            check(tempFile.exists()) {
-                "No complete temp file for $unit — a partial transfer is resumed, never committed"
-            }
-            try {
-                commitCompleteTempFile(unit, tempFile, names)
-            } finally {
-                // The record belongs to the temp file. Once the file is gone — committed, or deleted
-                // by a failed check — the record goes with it, last. A failure that left the file in
-                // place keeps its record, so the retry is still checked against it.
-                if (!tempFile.exists()) File(baseDir, names.record).delete()
+        } finally {
+            detached?.let { tree: File ->
+                deleteTree(tree)
+                sweepTrash()
             }
         }
     }
 
-    private fun commitCompleteTempFile(unit: DownloadUnit, tempFile: File, names: UnitFileLayout.Names) {
+    private fun commitCompleteTempFile(
+        unit: DownloadUnit,
+        tempFile: File,
+        names: UnitFileLayout.Names,
+        onDetached: (File) -> Unit,
+    ) {
         verifySha256(tempFile, unit, names)
         if (unit.isDirectoryResource) {
             val targetDir = File(getResourcePath(unit))
@@ -376,13 +416,20 @@ internal class AndroidDownloaderStorage(
                 if (!File(stagingDir, unit.archiveMarker()).isFile) {
                     throw ResourceIntegrityException("Archive of $unit has no '${unit.archiveMarker()}' after extraction")
                 }
-                // Atomic swap: remove old target, rename staging to target
-                deleteTree(targetDir)
-                if (!stagingDir.renameTo(targetDir)) {
-                    // Fallback: copy + delete (cross-filesystem)
-                    stagingDir.copyRecursively(target = targetDir, overwrite = true)
-                    deleteTree(stagingDir)
+                // The swap, in renames only: the resource path holds the whole old tree, nothing, or the
+                // whole new tree, so a process killed at any step never leaves a marker over a partial tree.
+                // The parent of a nested relativePath (e.g. "archives/pages") is absent on a first commit.
+                targetDir.parentFile?.mkdirs()
+                if (targetDir.exists()) {
+                    // The old tree moves into the trash; it is never renamed back (a sweep of another unit
+                    // may already be deleting it) and never deleted in place.
+                    val oldTree: File? = detachTree(targetDir)
+                    check(oldTree != null || !targetDir.exists()) { "Could not move the committed $unit aside" }
+                    if (oldTree != null) onDetached(oldTree)
                 }
+                // No copy fallback: staging and target both sit under baseDir, one volume. A copy writes
+                // top-down, so it could land the marker before the rest.
+                check(stagingDir.renameTo(targetDir)) { "Could not move the extracted $unit into place" }
             } catch (e: ResourceIntegrityException) {
                 // Bytes that are not what the unit declares: the temp file is worthless, and one fresh download
                 // is the fix. Everything above ran before the committed resource was touched.
