@@ -104,22 +104,11 @@ class JavaFxResourceChaosAdversarialTest {
 
     @Test
     fun `engines released and dropped become unreachable`() {
-        val references: MutableList<WeakReference<JavaFxVideoEngine>> = mutableListOf()
-        repeat(15) {
-            val engine = JavaFxVideoEngine(readyTimeoutMs = 15_000L)
-            load(engine)
-            engine.start()
-            Thread.sleep(40L)
-            engine.release()
-            references += WeakReference(engine)
-        }
-        drainFxThread()
-        val deadline: Long = System.nanoTime() + 10_000_000_000L
-        while (references.any { it.get() != null } && System.nanoTime() < deadline) {
-            System.gc()
-            Thread.sleep(50L)
-        }
-        assertEquals(0, references.count { it.get() != null }, "released engines still reachable")
+        // Video engines released 40 ms after start() can hit the OpenJFX macOS display link race: the cycles run in a
+        // child JVM (VideoLeakChildMain, scenario reachable) that retries a known CoreVideo crash.
+        val run: ChildRun = runChildRetryingKnownCrash(VideoLeakChildMain::class.java.name, listOf("reachable"))
+        assertEquals(0, run.exit, "child exit; ${run.output}")
+        assertEquals("0", run.results()["stillReachable"], "released engines still reachable; ${run.output}")
     }
 
     @Test
@@ -180,7 +169,7 @@ class JavaFxResourceChaosAdversarialTest {
     fun `a seek storm released mid flight does not leak its count into the next source of the same engine`() {
         val engine: JavaFxVideoEngine = newEngine()
         repeat(5) {
-            load(engine)
+            loadAudio(engine)
             engine.start()
             val storm = thread(isDaemon = true) { repeat(300) { engine.seekTo(it * 7L % 2_900L) } }
             Thread.sleep(Random.nextLong(0L, 30L))
