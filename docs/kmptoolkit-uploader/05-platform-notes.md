@@ -94,6 +94,8 @@ uploads nothing, and one that is stamped with an older attempt than the row's (a
 
 **Early server answers.** A server that answers and closes the connection while the request body is still unread (an early `413`, say) can lose its answer to a connection reset: the receiving stack may discard unread reply bytes when the reset arrives, and the attempt then reads as a transport failure and uploads again. Servers should drain the request before closing. This is a property of the platform's TCP and HTTP stack, not something the transport can undo.
 
+**Reset during the request head.** On the JVM host stack (the `HttpURLConnection` that the host tests run on), a connection reset that arrives while the request head is still being written can make the stack reconnect once before any body byte is sent; the request is never sent twice. The Android device stack (OkHttp-based) is not verified for this case.
+
 **Reliability.** Good. WorkManager persists across reboots and runs in Doze maintenance windows. It
 is not instant, and it is not meant to be.
 

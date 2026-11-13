@@ -356,7 +356,22 @@ class MultipartBodyAdversarialTest {
         thread(isDaemon = true) {
             val socket: Socket = runCatching { server.accept() }.getOrNull() ?: return@thread
             socket.use {
-                // Answers without reading the request, then closes with the body still unread.
+                // Reads the request head (up to the blank line) so the client's header write has landed and
+                // cannot race the close (a reset during the head write makes the JDK reconnect to a server that
+                // no longer accepts); then answers and closes with the body still unread (ruling R-2).
+                it.soTimeout = 20_000 // hang bound only
+                val input = it.getInputStream()
+                var tail = 0
+                while (tail != 4) {
+                    val b: Int = input.read()
+                    if (b < 0) break
+                    tail = when {
+                        b == '\r'.code && (tail == 0 || tail == 2) -> tail + 1
+                        b == '\n'.code && (tail == 1 || tail == 3) -> tail + 1
+                        b == '\r'.code -> 1
+                        else -> 0
+                    }
+                }
                 it.getOutputStream().write(raw.encodeToByteArray())
                 it.getOutputStream().flush()
             }
