@@ -141,7 +141,13 @@ public data class LocationProviderConfig(
     val minUpdateDistanceMeters: Float = 0f,
     val minUpdateIntervalMillis: Long = 0L,
     val singleFixTimeoutMillis: Long = 30_000L,
-)
+) {
+    public companion object {
+        public const val DEFAULT_MIN_UPDATE_DISTANCE_METERS: Float = 0f
+        public const val DEFAULT_MIN_UPDATE_INTERVAL_MILLIS: Long = 0L
+        public const val DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS: Long = 30_000L
+    }
+}
 ```
 
 | Parameter | Contract |
@@ -152,3 +158,12 @@ public data class LocationProviderConfig(
 
 Throws `IllegalArgumentException` at construction if `minUpdateDistanceMeters` or
 `minUpdateIntervalMillis` is negative, or `singleFixTimeoutMillis` is not positive.
+
+The companion's three constants are the defaults of the three parameters above, public so a caller can
+refer to them instead of repeating the literal:
+
+| Constant | Value | Default of |
+|---|---|---|
+| `DEFAULT_MIN_UPDATE_DISTANCE_METERS` | `0f` (every update, however small) | `minUpdateDistanceMeters` |
+| `DEFAULT_MIN_UPDATE_INTERVAL_MILLIS` | `0L` (no time-based throttling) | `minUpdateIntervalMillis` |
+| `DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS` | `30_000L` (30 seconds) | `singleFixTimeoutMillis` |
