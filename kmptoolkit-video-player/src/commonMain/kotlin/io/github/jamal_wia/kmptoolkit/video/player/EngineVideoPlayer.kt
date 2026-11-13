@@ -412,7 +412,8 @@ internal class EngineVideoPlayer(
         if (!effectiveState().isPlayable) return@exclusive
         // The seek and the play are one transition: a collector that changed the player during the seek ends it.
         if (!seekToLocked(0L)) return@exclusive
-        playLocked()
+        // The play starts from what the seek published, also when replay runs inside another transition's writes.
+        establishing(_stateFlow.value) { playLocked() }
     }
 
     override fun setPlaybackSpeed(speed: Float) {
@@ -443,7 +444,8 @@ internal class EngineVideoPlayer(
     override fun setRepeatMode(mode: RepeatMode): Unit = gate.exclusive {
         _repeatModeFlow.value = mode
         if (released) return@exclusive
-        if (effectiveState().isPlayable) engine.setLooping(mode == RepeatMode.One)
+        // The flow's value, not the parameter: a collector of repeatModeFlow may have set another mode inside the write.
+        if (effectiveState().isPlayable) engine.setLooping(_repeatModeFlow.value == RepeatMode.One)
     }
 
     override fun unload(): Unit = gate.exclusive {

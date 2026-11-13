@@ -25,6 +25,7 @@ internal class ScriptedEngineD1R11 : VideoPlaybackEngine {
     val volumes: MutableList<Float> = mutableListOf()
     var disposed: Boolean = false
     var playing: Boolean = false
+    var lastLooping: Boolean = false
 
     private fun note(call: String) {
         if (disposed) log += "AFTER_DISPOSE:$call" else log += call
@@ -72,6 +73,7 @@ internal class ScriptedEngineD1R11 : VideoPlaybackEngine {
 
     override fun setLooping(looping: Boolean) {
         note("looping")
+        lastLooping = looping
     }
 
     override fun durationMs(): Long = duration
