@@ -12,6 +12,7 @@ import java.util.IdentityHashMap
  *
  * The chain is walked to its end with an identity-based visited set, so no fixed depth can miss an
  * `UnknownHostException` that sits late in a long chain, and a cycle is detected the moment a throwable repeats.
+ * A `getCause()` that never ends (it builds a fresh throwable on every call) is not supported.
  */
 private fun mustRenderHere(throwable: Throwable): Boolean {
     val seen: MutableSet<Throwable> = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())

@@ -34,8 +34,9 @@ Things to know:
   unchanged. The whole chain is searched however long it is, and a cyclic chain (a throwable that is
   its own indirect cause, which `initCause` can build) is rendered the same way, because
   `android.util.Log.getStackTraceString` never returns on a cycle and `stackTraceToString()` prints
-  `CIRCULAR REFERENCE` for the repeated throwable and stops. The trace is then part of the message text; logcat splits it into entries at line breaks as it does a platform-rendered trace.
-  to logcat's per-entry length limit like any long message.
+  `CIRCULAR REFERENCE` for the repeated throwable and stops. The trace is then part of the message
+  text, so logcat shows it on several lines and, like any long message, it is subject to logcat's
+  per-entry length limit.
 - **Logcat has its own filter.** `android.util.Log` applies the device's per-tag log level on top of
   this module's `minLevel`. An event this module passes can still be dropped by the platform —
   historically `VERBOSE` and `DEBUG` were suppressed unless enabled with

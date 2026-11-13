@@ -160,15 +160,17 @@ weakly-held, lifecycle-driven tracker instead.
 
 ### Dialogs, popups and bottom sheets
 
-A `Dialog`, `Popup` or `ModalBottomSheet` renders into a **separate window** with its own insets
+A `Dialog` or `ModalBottomSheet` renders into a **separate window** with its own insets
 controller. Whatever the controller set on the activity's window does not reach it, and the bars
 over an open sheet fall back to the platform default — dark icons, which are invisible on a light
-app bar and unreadable in dark mode.
+app bar and unreadable in dark mode. A `Popup` is a bare view added to the window manager rather
+than a dialog window; `DialogWindowSystemBarsEffect` does not cover it.
 
 `DialogWindowSystemBarsEffect(controller)` at the top of the dialog's content lambda fixes the icon
 styles (it applies the two icon styles to the dialog window, not bar visibility or the hidden-bar
 behaviour). It detects the dialog window through Compose's `DialogWindowProvider` and does nothing when there is
-none, so it is harmless if you call it somewhere that turns out not to be a dialog.
+none (in a `Popup`, whose layout is not one, or in ordinary activity content), so it is harmless if you call it
+somewhere that turns out not to be a dialog.
 
 ### Behaviour of a hidden bar
 
