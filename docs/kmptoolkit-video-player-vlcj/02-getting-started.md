@@ -32,11 +32,24 @@ kotlin {
 ```
 
 Only the desktop source set names it, so the GPL dependency never reaches your Android or iOS
-build. With the BOM, drop the versions:
+build. With the BOM, drop the versions and name the BOM in every source set that declares a dependency:
 
 ```kotlin
-implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-implementation("io.github.jamal-wia:kmptoolkit-video-player-vlcj")
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-video-player")
+            implementation("io.github.jamal-wia:kmptoolkit-video-player-compose")
+        }
+        val desktopMain by getting {
+            dependencies {
+                implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+                implementation("io.github.jamal-wia:kmptoolkit-video-player-vlcj")
+            }
+        }
+    }
+}
 ```
 
 ## 3. Create the player
