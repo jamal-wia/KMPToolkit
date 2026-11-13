@@ -165,7 +165,7 @@ class AndroidCrashPointsRound8Test {
         return buffer.toByteArray()
     }
 
-    private fun litter(): List<String> = root.walkTopDown().filter { it.isFile }.map { it.relativeTo(root).path }
+    private fun litter(): List<String> = root.walkTopDown().filter { it.isFile }.map { it.relativeTo(root).invariantSeparatorsPath }
         .filter { it.startsWith("tmp") && !it.endsWith("legacy-layout") }.sorted().toList()
 
     private class Scenario(val unit: TestUnit, val bytes: ByteArray, val expectedTree: Map<String, ByteArray>?)
