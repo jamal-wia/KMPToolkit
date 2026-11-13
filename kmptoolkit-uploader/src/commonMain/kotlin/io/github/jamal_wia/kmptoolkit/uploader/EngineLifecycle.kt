@@ -68,7 +68,11 @@ internal class EngineLifecycle(
     /** Conflated wake-up channel: many [trigger] calls collapse into a single pending signal. */
     private val triggerChannel: Channel<Unit> = Channel(capacity = Channel.CONFLATED)
 
-    /** One-shot backoff alarm. Touched only from the single drain coroutine, so no guard needed. */
+    /**
+     * One-shot backoff alarm. Written by every drain pass: the engine's own loop and, inside the P11 residual (a manual
+     * drain() on a started engine), a manual one, so two passes can race here and the later write wins. The gate that
+     * loses is retried at the next heartbeat. Deliberately unguarded.
+     */
     private var alarmJob: Job? = null
 
     private val started: MutableStateFlow<Boolean> = MutableStateFlow(false)
