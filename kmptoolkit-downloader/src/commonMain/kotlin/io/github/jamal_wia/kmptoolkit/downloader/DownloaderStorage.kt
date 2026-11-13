@@ -16,6 +16,10 @@ package io.github.jamal_wia.kmptoolkit.downloader
  * same [DownloadUnit.id] refer to the same bytes on disk, whatever objects they happen to be.
  * (Deriving every path from the unit's properties, as both shipped implementations do, gives this
  * for free; an implementation that keyed anything on the object itself would break it.)
+ *
+ * A symbolic link at any path the shipped storages name for a unit (resource, temp file) is read
+ * through: sizes and states are those of what it points to, and a dangling link is absent. Links
+ * inside an archive tree are not followed.
  */
 public interface DownloaderStorage {
 
@@ -148,7 +152,8 @@ public interface DownloaderStorage {
      * a unit that is then dropped stays on disk. They also sweep `tmp/trash/`, where a detached
      * extraction tree lands before its delete, so a tree whose delete a process kill or an I/O error
      * cut short is reclaimed by the next call for any unit; nothing ever commits from that directory,
-     * so the sweep needs no lock.
+     * so the sweep needs no lock. A symbolic link standing in place of that directory is removed as a
+     * link, never followed.
      */
     public fun deleteTempFile(unit: DownloadUnit)
 
