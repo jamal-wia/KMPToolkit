@@ -16,8 +16,10 @@ import kotlinx.coroutines.yield
  * of [FxModelScope.load].
  *
  * When the block ends, whether it passed or failed, the checks of [FxModelScope.afterModel] run, and so
- * does the built-in one: the model's [NeverDispatcher] must not have been given anything but the position
- * poller's launch. A failing block keeps its own failure; a failing check is added to it as suppressed.
+ * do the built-in ones: the model's [NeverDispatcher] must not have been given anything but the position
+ * poller's launch, and every [ScriptedNativePlayer] built on the host must be under a hazard monitor (see
+ * [FxModelScope.watchHazards]) unless the test said otherwise with [FxModelScope.allowUnwatched]. A failing block
+ * keeps its own failure; a failing check is added to it as suppressed.
  *
  * Use as `@Test fun aNameWithoutCommas() = fxModel { ... }`.
  *
@@ -57,6 +59,8 @@ internal class FxModelScope internal constructor(
 
     private val afterChecks: MutableList<Pair<String, () -> Unit>> = mutableListOf()
     private val monitors: MutableList<HazardMonitor> = mutableListOf()
+    private val allowedPlayers: MutableList<ScriptedNativePlayer> = mutableListOf()
+    private val allowedBackends: MutableList<ScriptedBackend> = mutableListOf()
 
     /** [VirtualFxHost.onFx]. */
     fun <T> onFx(block: () -> T): T = host.onFx(block)
@@ -110,6 +114,23 @@ internal class FxModelScope internal constructor(
     }
 
     /**
+     * Says that [player] is deliberately not under a hazard monitor in this test, for [reason]. Without this, a player
+     * that no [watchHazards] watches fails the end-of-test guard: a test over an unwatched player passes every
+     * hazard expectation vacuously (no hazard part exists to be violated). Legitimate reasons are a part's own
+     * self-test (the part is asserted directly) and a test of the scripted player or backend itself.
+     */
+    fun allowUnwatched(player: ScriptedNativePlayer, reason: String) {
+        require(reason.isNotBlank()) { "allowUnwatched needs a reason" }
+        allowedPlayers += player
+    }
+
+    /** [allowUnwatched] for every player [backend] creates, now or later in this block. */
+    fun allowUnwatched(backend: ScriptedBackend, reason: String) {
+        require(reason.isNotBlank()) { "allowUnwatched needs a reason" }
+        allowedBackends += backend
+    }
+
+    /**
      * Wraps [backend] so every player it creates is watched by [watchHazards] with [config] and [mode]; pass the
      * result as the engine's backend.
      */
@@ -150,7 +171,23 @@ internal class FxModelScope internal constructor(
     }
 
     internal fun checksAfter(): List<Pair<String, () -> Unit>> =
-        afterChecks.toList() + ("NeverDispatcher saw only the position poller" to ::assertOnlyThePollerDispatched)
+        afterChecks.toList() + listOf(
+            "every scripted player is watched" to ::assertEveryPlayerWatched,
+            "NeverDispatcher saw only the position poller" to ::assertOnlyThePollerDispatched,
+        )
+
+    private fun assertEveryPlayerWatched() {
+        val watched: List<ScriptedNativePlayer> = monitors.map { it.player }
+        val unwatched: List<ScriptedNativePlayer> = host.players.filter { player: ScriptedNativePlayer ->
+            player !in watched && player !in allowedPlayers && allowedBackends.none { player in it.players }
+        }
+        if (unwatched.isEmpty()) return
+        throw AssertionError(
+            "${unwatched.size} scripted player(s) have no watched hazard part, so every hazard expectation of this test " +
+                "holds vacuously: $unwatched. Build the engine over composedBackend or hazardBackend (or call " +
+                "watchHazards), or call allowUnwatched(player, reason) when the test is about something else ($host)",
+        )
+    }
 
     private fun assertOnlyThePollerDispatched() {
         val foreign: List<NeverDispatcher.Dispatch> = NeverDispatcher.foreignDispatches

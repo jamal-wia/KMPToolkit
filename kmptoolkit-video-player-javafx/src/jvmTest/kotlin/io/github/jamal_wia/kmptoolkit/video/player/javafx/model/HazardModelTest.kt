@@ -44,6 +44,7 @@ class HazardModelTest {
         val player: ScriptedNativePlayer = onFx { ScriptedNativePlayer(host) }
         val hazards = HazardModel(host, config)
         player.hazard = hazards
+        allowUnwatched(player, "part self-test rig: the hazard part is asserted directly")
         if (waitForReady) advanceBy(50)
         return Rig(this, player, hazards)
     }
@@ -611,6 +612,7 @@ class HazardModelTest {
         assertEquals(rig.hazards, rig.player.hazardModel)
 
         val bare: ScriptedNativePlayer = onFx { ScriptedNativePlayer(host) }
+        allowUnwatched(bare, "the test is about a player that has no hazard part")
         assertEquals(null, bare.hazardModel)
     }
 

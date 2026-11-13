@@ -24,6 +24,7 @@ class HazardMonitorTest {
     private fun FxModelScope.rig(mode: MonitorMode = MonitorMode.FREEZE, config: HazardConfig = HazardConfig(), tailCount: Int = 20): Rig {
         val player: ScriptedNativePlayer = onFx { ScriptedNativePlayer(host) }
         val monitor: HazardMonitor = player.withHazards(config, mode, tailCount)
+        allowUnwatched(player, "test of the monitor itself: the monitor is deliberately not wired so violations can be provoked")
         advanceBy(50)
         return Rig(this, player, monitor)
     }
@@ -124,6 +125,7 @@ class HazardMonitorTest {
     @Test
     fun aNonPositiveTailIsRejected() = fxModel {
         val player: ScriptedNativePlayer = onFx { ScriptedNativePlayer(host) }
+        allowUnwatched(player, "test of the monitor's own argument check, no hazard part is installed")
         val model = HazardModel(host)
         assertFailsWith<IllegalArgumentException> { HazardMonitor(player, model, MonitorMode.FREEZE, tailCount = 0) }
     }
@@ -154,6 +156,7 @@ class HazardMonitorTest {
     @Test
     fun withHazardsRefusesASlotThatIsTaken() = fxModel {
         val player: ScriptedNativePlayer = onFx { ScriptedNativePlayer(host) }
+        allowUnwatched(player, "test of the unwired withHazards slot check")
         player.withHazards()
 
         assertFailsWith<IllegalStateException> { player.withHazards() }

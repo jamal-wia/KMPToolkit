@@ -31,6 +31,7 @@ class ScriptedNativePlayerTest {
         installEvents: Boolean = true,
     ): Rig {
         val backend = ScriptedBackend(host, clip, script)
+        allowUnwatched(backend, "test of the bare scripted player: no hazard part is wanted")
         val events = RecordingNativeEvents(host)
         val player: ScriptedNativePlayer = onFx {
             val created: ScriptedNativePlayer = backend.create(backend.probe("clip.mp4")) as ScriptedNativePlayer

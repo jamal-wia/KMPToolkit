@@ -28,6 +28,7 @@ class ScriptedBackendTest {
     fun createBuildsAPlayerOnTheBackendsHostAndClipAndRecordsIt() = fxModel {
         val clip = ClipModel(durationMs = 500.0)
         val backend = ScriptedBackend(host, clip)
+        allowUnwatched(backend, "test of the bare scripted backend: no hazard part is wanted")
 
         val player = backend.create(backend.probe("x")) as ScriptedNativePlayer
 
@@ -47,6 +48,7 @@ class ScriptedBackendTest {
     @Test
     fun everyPlayerGetsItsOwnCopyOfTheScriptTakenAtCreation() = fxModel {
         val backend = ScriptedBackend(host, script = StatusScript().apply { readyLatencyMs = 80.0 })
+        allowUnwatched(backend, "test of the bare scripted backend: no hazard part is wanted")
         val first = backend.create(backend.probe("a")) as ScriptedNativePlayer
 
         backend.script.readyLatencyMs = 10.0
@@ -130,6 +132,7 @@ class ScriptedBackendTest {
     @Test
     fun withAJitterOnTheHostTheStatusLatencyGrowsByAtMostTheJitter() = fxModel(jitterMaxMs = 17.0) {
         val backend = ScriptedBackend(host)
+        allowUnwatched(backend, "test of the bare scripted backend: no hazard part is wanted")
         val player = backend.create(backend.probe("x")) as ScriptedNativePlayer
         advanceBy(50 + 17)
         assertEquals(NativeStatus.READY, player.status)
