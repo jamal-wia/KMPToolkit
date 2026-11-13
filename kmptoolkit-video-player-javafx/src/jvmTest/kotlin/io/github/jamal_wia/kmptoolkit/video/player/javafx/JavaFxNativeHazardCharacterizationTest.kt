@@ -36,6 +36,26 @@ import org.junit.Assume
  * [FROZEN_BOUND_MS]. The only assertion is harness sanity (every probe reached PLAYING and moved at least once); the
  * result is the printed table `HAZARD <probe> frozen=k/40`. The measurement is event driven (a `currentTime` listener
  * armed on the FX thread); the only real-time pauses are the stimulus gaps, which are the independent variable.
+ *
+ * Task J14b adds the remaining probes of the same shape, each 40 rounds interleaved with a CONTROL row whose gap lies
+ * well outside the window (so the probe's power is shown), run by two further tests of this class:
+ *  - W-PLAY: a plain `play()` (rate property 1.0, no seek since the last play, except a rewind when the playhead is past
+ *    [RESEEK_FROM_MS] so that no wrap falls in the window), then a rate write 0 to 150 ms later (the model's window: 100 ms);
+ *    CONTROL gap 500 ms;
+ *  - W-IDLE: a rate write on the PAUSED player, then `play()` 0 to 300 ms later (the idle gap, the model's window: 200 ms);
+ *    CONTROL gap 600 ms;
+ *  - W-WRAP: PLAYING at 1.0 and seeked to [WRAP_LEAD_MS] before the end of the looping clip; a rate write 0 to 150 ms after
+ *    the playhead wraps (the model's window: 100 ms); CONTROL gap 400 ms;
+ *  - B4: the rate property holds `r` (written while paused, [QUIET_MS] before the play), then a plain `play()`; the speed
+ *    of the playhead over [SLOPE_WINDOW_MS] decides whether the decoder runs at 1.0 (the model's B4) or at `r`; its
+ *    CONTROL writes `r` on a player that has played for [PLAYED_MS] (the decoder must then run at `r`, which shows that
+ *    the slope separates the two). Here `frozen` is a slope of 0.1 or less, and `HAZARD-B4` lists the other outcomes.
+ * Added after the first results showed no freeze in W-PLAY and W-IDLE at all (the original finding, round 5 of D2, was
+ * a rate written together with `play()` and the idle gap found at a speed of 8): W-PLAY-NEAR (the W-PLAY stimulus with the
+ * gap spread over 0 to 20 ms only, CONTROL gap 500 ms like W-PLAY) and W-IDLE-8X (the W-IDLE stimulus at a speed of 8 with
+ * the gap spread over 0 to 100 ms, CONTROL gap 600 ms at a speed of 8).
+ * W-WRAP at speed (a rate write at a wrap while already running at a speed) is not probed: the A14c verdict (D-97) found
+ * no defect, and the ruling made it optional.
  */
 class JavaFxNativeHazardCharacterizationTest {
 
@@ -45,9 +65,20 @@ class JavaFxNativeHazardCharacterizationTest {
         NEARSTART("NEARSTART"),
         CONTROL("CONTROL"),
         FIRSTPLAY("FIRSTPLAY"),
+        W_PLAY("W-PLAY"),
+        W_PLAY_CONTROL("W-PLAY-CONTROL"),
+        W_IDLE("W-IDLE"),
+        W_IDLE_CONTROL("W-IDLE-CONTROL"),
+        W_PLAY_NEAR("W-PLAY-NEAR"),
+        W_IDLE_8X("W-IDLE-8X"),
+        W_IDLE_8X_CONTROL("W-IDLE-8X-CONTROL"),
+        W_WRAP("W-WRAP"),
+        W_WRAP_CONTROL("W-WRAP-CONTROL"),
+        B4("B4"),
+        B4_CONTROL("B4-CONTROL"),
     }
 
-    private enum class Outcome { MOVED, FROZEN, NOT_PLAYING }
+    private enum class Outcome { MOVED, FROZEN, NOT_PLAYING, ONE_X, AT_RATE, OTHER_SLOPE }
 
     private class Subject(val probe: Probe) {
         lateinit var player: MediaPlayer
@@ -55,13 +86,35 @@ class JavaFxNativeHazardCharacterizationTest {
         fun hasPlayer(): Boolean = ::player.isInitialized
         var replaced: Int = 0
         var reachedPlaying: Boolean = false
+        var lastSetupReseeked: Boolean = false
         val outcomes: MutableMap<Outcome, Int> = Outcome.values().associateWith { 0 }.toMutableMap()
         val frozenRounds: MutableList<String> = mutableListOf()
+        val slopes: MutableList<String> = mutableListOf()
         val setupFailures: MutableList<String> = mutableListOf()
     }
 
     @Test
     fun `the native rate freeze windows are measured on real media and printed`() {
+        runProbes(SEEK_PROBES)
+    }
+
+    @Test
+    fun `the play window and the idle gap are measured on real media and printed`() {
+        runProbes(listOf(Probe.W_PLAY, Probe.W_PLAY_CONTROL, Probe.W_IDLE, Probe.W_IDLE_CONTROL))
+    }
+
+    @Test
+    fun `the narrow gaps of the play window and the idle gap at a speed of eight are measured on real media and printed`() {
+        runProbes(listOf(Probe.W_PLAY_NEAR, Probe.W_PLAY_CONTROL, Probe.W_IDLE_8X, Probe.W_IDLE_8X_CONTROL))
+    }
+
+    @Test
+    fun `the wrap window and the decoder rate after a plain play are measured on real media and printed`() {
+        runProbes(listOf(Probe.W_WRAP, Probe.W_WRAP_CONTROL, Probe.B4, Probe.B4_CONTROL))
+    }
+
+    /** Runs [probes] interleaved for [ROUNDS] rounds and prints the table; skipped unless the opt-in property is true. */
+    private fun runProbes(probes: List<Probe>) {
         Assume.assumeTrue(
             "opt-in probes: run with -Pkmptoolkit.test.hazards=true",
             System.getProperty(HAZARDS_PROPERTY) == "true",
@@ -70,14 +123,14 @@ class JavaFxNativeHazardCharacterizationTest {
         FxThread.startToolkit()
         val clipUri: String = TestClip.copyToTempFile().toURI().toString()
 
-        val subjects: List<Subject> = Probe.values().map { Subject(it) }
+        val subjects: List<Subject> = probes.map { Subject(it) }
         subjects.filter { it.probe != Probe.FIRSTPLAY }.forEach { create(it, clipUri) }
 
         for (round: Int in 0 until ROUNDS) {
             for (subject: Subject in subjects) runRound(subject, round, clipUri)
         }
 
-        // Not disposed: the process exit releases the four players; a video player disposed right after its display
+        // Not disposed: the process exit releases the players; a video player disposed right after its display
         // link ran is the documented crash window.
         for (subject: Subject in subjects) {
             val frozen: Int = subject.outcomes.getValue(Outcome.FROZEN)
@@ -87,6 +140,14 @@ class JavaFxNativeHazardCharacterizationTest {
                     "notPlaying=${subject.outcomes.getValue(Outcome.NOT_PLAYING)} replacedPlayers=${subject.replaced} " +
                     "setupFailures=${subject.setupFailures.size}",
             )
+            if (subject.probe in SLOPE_PROBES) {
+                println(
+                    "HAZARD-B4 ${subject.probe.label} decoderAt1x=${subject.outcomes.getValue(Outcome.ONE_X)} " +
+                        "decoderAtRate=${subject.outcomes.getValue(Outcome.AT_RATE)} " +
+                        "otherSlope=${subject.outcomes.getValue(Outcome.OTHER_SLOPE)}",
+                )
+                subject.slopes.forEach { println("HAZARD-SLOPE ${subject.probe.label} $it") }
+            }
             subject.frozenRounds.forEach { println("HAZARD-FROZEN ${subject.probe.label} $it") }
             subject.setupFailures.forEach { println("HAZARD-SETUP ${subject.probe.label} $it") }
         }
@@ -96,6 +157,10 @@ class JavaFxNativeHazardCharacterizationTest {
     }
 
     private fun runRound(subject: Subject, round: Int, clipUri: String) {
+        if (subject.probe in WINDOW_PROBES) {
+            runWindowRound(subject, round, clipUri)
+            return
+        }
         val rate: Double = RATES[round % RATES.size]
         var ready: Boolean = setup(subject, clipUri)
         if (!ready) {
@@ -145,6 +210,7 @@ class JavaFxNativeHazardCharacterizationTest {
                 player.rate = 1.0
                 player.rate = rate
             }
+            else -> error("${subject.probe.label} is a window probe")
         }
 
         val outcome: Outcome = observe(player)
@@ -186,9 +252,184 @@ class JavaFxNativeHazardCharacterizationTest {
                 subject.reachedPlaying = true
                 stimulusPause(PLAYED_MS)
             }
-            Probe.NUDGE, Probe.NEARSTART, Probe.FIRSTPLAY -> Unit
+            else -> Unit
         }
         return true
+    }
+
+    /** One round of a window probe (W-PLAY, W-IDLE, W-WRAP, B4 and their controls); see the class comment for each stimulus. */
+    private fun runWindowRound(subject: Subject, round: Int, clipUri: String) {
+        val probe: Probe = subject.probe
+        val rate: Double = if (probe in EIGHT_X_PROBES) EIGHT_X else RATES[round % RATES.size]
+        var ready: Boolean = setupWindow(subject, rate)
+        if (!ready) {
+            subject.setupFailures += "round $round: setup failed on the player in use, replacing it"
+            replace(subject, clipUri)
+            ready = setupWindow(subject, rate)
+        }
+        if (!ready) fail("${probe.label} round $round: no PAUSED player after replacing it, the harness is broken")
+        val player: MediaPlayer = subject.player
+        val gapMs: Long = windowGapMs(probe, round)
+        var note: String = ""
+        var outcome: Outcome? = null
+
+        when (probe) {
+            Probe.W_PLAY, Probe.W_PLAY_CONTROL, Probe.W_PLAY_NEAR -> {
+                note = if (subject.lastSetupReseeked) " reseek=true" else " reseek=false"
+                fx { player.play() }
+                stimulusPause(gapMs)
+                fx { player.rate = rate }
+            }
+            Probe.W_IDLE, Probe.W_IDLE_CONTROL, Probe.W_IDLE_8X, Probe.W_IDLE_8X_CONTROL -> {
+                fx { player.rate = rate }
+                stimulusPause(gapMs)
+                fx { player.play() }
+            }
+            Probe.W_WRAP, Probe.W_WRAP_CONTROL -> {
+                val wrapped = CountDownLatch(1)
+                var last: Double = -1.0
+                val listener: ChangeListener<Duration> = object : ChangeListener<Duration> {
+                    override fun changed(observable: ObservableValue<out Duration>, old: Duration?, new: Duration?) {
+                        val now: Double = new?.toMillis() ?: return
+                        if (last >= 0.0 && now < last) wrapped.countDown()
+                        last = now
+                    }
+                }
+                fx {
+                    player.currentTimeProperty().addListener(listener)
+                    player.play()
+                }
+                val sawWrap: Boolean = wrapped.await(WRAP_BOUND_MS, TimeUnit.MILLISECONDS)
+                fx { player.currentTimeProperty().removeListener(listener) }
+                if (sawWrap) {
+                    stimulusPause(gapMs)
+                    fx { player.rate = rate }
+                } else {
+                    subject.setupFailures += "round $round: no wrap seen within $WRAP_BOUND_MS ms, no stimulus given"
+                    outcome = Outcome.NOT_PLAYING
+                }
+            }
+            Probe.B4, Probe.B4_CONTROL -> {
+                fx { player.play() }
+                if (!awaitStatus(player, MediaPlayer.Status.PLAYING) || !awaitMoving(player)) {
+                    outcome = if (fx { player.status } == MediaPlayer.Status.PLAYING) Outcome.FROZEN else Outcome.NOT_PLAYING
+                } else if (probe == Probe.B4_CONTROL) {
+                    stimulusPause(PLAYED_MS)
+                    fx { player.rate = rate }
+                }
+            }
+            else -> error("${probe.label} is not a window probe")
+        }
+
+        if (outcome == null) {
+            if (probe == Probe.B4 || probe == Probe.B4_CONTROL) {
+                stimulusPause(SETTLE_MS)
+                val slope: Double = measureSlope(player)
+                outcome = classifySlope(slope, rate)
+                subject.slopes += "round=$round rate=$rate slope=${"%.3f".format(slope)} outcome=$outcome"
+            } else {
+                outcome = observe(player)
+            }
+        }
+        subject.outcomes[outcome] = subject.outcomes.getValue(outcome) + 1
+        if (outcome != Outcome.NOT_PLAYING) subject.reachedPlaying = true
+        if (outcome == Outcome.FROZEN) {
+            subject.frozenRounds += "round=$round rate=$rate gapMs=$gapMs$note"
+        }
+        fx { player.pause() }
+    }
+
+    /** The stimulus gap of a window probe in [round]: the probe's range spread over the rounds, or the control's fixed gap. */
+    private fun windowGapMs(probe: Probe, round: Int): Long = when (probe) {
+        Probe.W_PLAY, Probe.W_WRAP -> round * W_PLAY_RANGE_MS / (ROUNDS - 1)
+        Probe.W_IDLE -> round * W_IDLE_RANGE_MS / (ROUNDS - 1)
+        Probe.W_PLAY_NEAR -> round * W_NEAR_RANGE_MS / (ROUNDS - 1)
+        Probe.W_IDLE_8X -> round * W_IDLE_8X_RANGE_MS / (ROUNDS - 1)
+        Probe.W_IDLE_8X_CONTROL -> W_IDLE_CONTROL_GAP_MS
+        Probe.W_PLAY_CONTROL -> W_PLAY_CONTROL_GAP_MS
+        Probe.W_IDLE_CONTROL -> W_IDLE_CONTROL_GAP_MS
+        Probe.W_WRAP_CONTROL -> W_WRAP_CONTROL_GAP_MS
+        else -> 0L
+    }
+
+    /**
+     * Brings a window probe to its start state: PAUSED, then the paused write of the property the probe needs, and a
+     * quiet pause of [QUIET_MS] (outside the idle gap) where the stimulus is a play. Returns false when the player does
+     * not pause.
+     */
+    private fun setupWindow(subject: Subject, rate: Double): Boolean {
+        val player: MediaPlayer = subject.player
+        subject.lastSetupReseeked = false
+        fx { player.pause() }
+        if (!awaitStatus(player, MediaPlayer.Status.PAUSED)) return false
+        when (subject.probe) {
+            Probe.W_PLAY, Probe.W_PLAY_CONTROL, Probe.W_PLAY_NEAR -> {
+                fx { player.rate = 1.0 }
+                if (fx { player.currentTime.toMillis() } > RESEEK_FROM_MS) {
+                    fx { player.seek(Duration.ZERO) }
+                    subject.lastSetupReseeked = true
+                }
+                stimulusPause(QUIET_MS)
+            }
+            Probe.W_IDLE, Probe.W_IDLE_CONTROL, Probe.W_IDLE_8X, Probe.W_IDLE_8X_CONTROL -> {
+                fx { player.rate = 1.0 }
+                stimulusPause(QUIET_MS)
+            }
+            Probe.W_WRAP, Probe.W_WRAP_CONTROL -> {
+                val durationMs: Double = fx { player.totalDuration.toMillis() }
+                fx {
+                    player.rate = 1.0
+                    player.seek(Duration.millis(durationMs - WRAP_LEAD_MS))
+                }
+                stimulusPause(QUIET_MS)
+            }
+            Probe.B4 -> {
+                fx { player.rate = rate }
+                stimulusPause(QUIET_MS)
+            }
+            Probe.B4_CONTROL -> {
+                fx { player.rate = 1.0 }
+                stimulusPause(QUIET_MS)
+            }
+            else -> Unit
+        }
+        return true
+    }
+
+    /**
+     * The speed of the playhead over [SLOPE_WINDOW_MS] of producer time: milliseconds of media per millisecond of wall
+     * time, taken from the `currentTime` events as they are published on the FX thread (a decrease, a loop wrap, adds
+     * nothing). 0.0 when fewer than two events arrive.
+     */
+    private fun measureSlope(player: MediaPlayer): Double {
+        val samples: MutableList<Pair<Long, Double>> = mutableListOf()
+        val spanned = CountDownLatch(1)
+        val listener: ChangeListener<Duration> = object : ChangeListener<Duration> {
+            override fun changed(observable: ObservableValue<out Duration>, old: Duration?, new: Duration?) {
+                // timing-hygiene-ignore: TH2 producer the stamp of a currentTime event taken on the FX thread that publishes it, to turn events into a speed
+                val stamp: Long = System.nanoTime()
+                samples += stamp to (new?.toMillis() ?: return)
+                if (stamp - samples.first().first >= SLOPE_WINDOW_MS * NANOS_PER_MS) spanned.countDown()
+            }
+        }
+        fx { player.currentTimeProperty().addListener(listener) }
+        spanned.await(HANG_BOUND_MS, TimeUnit.MILLISECONDS)
+        fx { player.currentTimeProperty().removeListener(listener) }
+        val taken: List<Pair<Long, Double>> = fx { samples.toList() }
+        if (taken.size < 2) return 0.0
+        val elapsedMs: Double = (taken.last().first - taken.first().first).toDouble() / NANOS_PER_MS
+        if (elapsedMs <= 0.0) return 0.0
+        var movedMs: Double = 0.0
+        for (i: Int in 1 until taken.size) movedMs += maxOf(0.0, taken[i].second - taken[i - 1].second)
+        return movedMs / elapsedMs
+    }
+
+    /** FROZEN at a slope of [FROZEN_SLOPE] or less, else the nearer of 1x and [rate], OTHER_SLOPE when neither is within 30 percent. */
+    private fun classifySlope(slope: Double, rate: Double): Outcome = when {
+        slope <= FROZEN_SLOPE -> Outcome.FROZEN
+        kotlin.math.abs(slope - 1.0) <= SLOPE_TOLERANCE && kotlin.math.abs(slope - 1.0) <= kotlin.math.abs(slope - rate) -> Outcome.ONE_X
+        kotlin.math.abs(slope - rate) <= SLOPE_TOLERANCE * rate -> Outcome.AT_RATE
+        else -> Outcome.OTHER_SLOPE
     }
 
     /** After the stimulus and a settle pause: MOVED when the playhead steps within the bound, else FROZEN while PLAYING. */
@@ -288,5 +529,28 @@ class JavaFxNativeHazardCharacterizationTest {
         const val READY_BOUND_MS: Long = 15_000L
         const val HANG_BOUND_MS: Long = 15_000L
         val RATES: List<Double> = listOf(2.0, 0.5, 3.0, 1.5)
+        const val QUIET_MS: Long = 400L
+        const val RESEEK_FROM_MS: Double = 1_800.0
+        const val WRAP_LEAD_MS: Double = 500.0
+        const val WRAP_BOUND_MS: Long = 3_000L
+        const val W_PLAY_RANGE_MS: Long = 150L
+        const val W_NEAR_RANGE_MS: Long = 20L
+        const val W_IDLE_8X_RANGE_MS: Long = 100L
+        const val EIGHT_X: Double = 8.0
+        const val W_IDLE_RANGE_MS: Long = 300L
+        const val W_PLAY_CONTROL_GAP_MS: Long = 500L
+        const val W_IDLE_CONTROL_GAP_MS: Long = 600L
+        const val W_WRAP_CONTROL_GAP_MS: Long = 400L
+        const val SLOPE_WINDOW_MS: Long = 500L
+        const val NANOS_PER_MS: Long = 1_000_000L
+        const val FROZEN_SLOPE: Double = 0.1
+        const val SLOPE_TOLERANCE: Double = 0.3
+        val SEEK_PROBES: List<Probe> = listOf(Probe.SEEK_RUN, Probe.NUDGE, Probe.NEARSTART, Probe.CONTROL, Probe.FIRSTPLAY)
+        val EIGHT_X_PROBES: Set<Probe> = setOf(Probe.W_IDLE_8X, Probe.W_IDLE_8X_CONTROL)
+        val SLOPE_PROBES: Set<Probe> = setOf(Probe.B4, Probe.B4_CONTROL)
+        val WINDOW_PROBES: Set<Probe> = setOf(
+            Probe.W_PLAY, Probe.W_PLAY_CONTROL, Probe.W_IDLE, Probe.W_IDLE_CONTROL,
+            Probe.W_PLAY_NEAR, Probe.W_IDLE_8X, Probe.W_IDLE_8X_CONTROL, Probe.W_WRAP, Probe.W_WRAP_CONTROL, Probe.B4, Probe.B4_CONTROL,
+        )
     }
 }
