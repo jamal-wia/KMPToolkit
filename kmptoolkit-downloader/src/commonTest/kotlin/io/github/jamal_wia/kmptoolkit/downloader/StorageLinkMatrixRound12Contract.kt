@@ -281,7 +281,7 @@ abstract class StorageLinkMatrixRound12Contract {
 
         storage.deleteTempFile(unit)
 
-        assertEquals(payload.toList(), readFile(TestPaths.join(outsideDir, "keep.txt"))?.toList(), "the trash sweep must not delete through a link into a directory outside the base")
+        assertEquals(payload.toList(), readFile(TestPaths.join(outsideDir, "keep.txt"))?.toList(), "the trash sweep must not delete through a link into a directory outside the trash")
         assertFalse(isLink(trash), "the link in place of the trash directory must be removed as a link")
 
         // A later detach and sweep work: an archive commit over an existing tree moves the old tree aside.
@@ -348,6 +348,7 @@ abstract class StorageLinkMatrixRound12Contract {
         assertNotNull(readFile(TestPaths.join(tree, "new.txt")), "the new tree must be in place")
         assertEquals(null, readFile(TestPaths.join(tree, "old.txt")), "the old tree must be gone")
         assertFalse(isLink(trash), "the link in place of the trash directory must be removed as a link")
+        assertTrue(pathExists(trash) && !isLink(trash), "the trash must be a real directory inside the base")
         assertEquals(payload.toList(), readFile(TestPaths.join(outsideDir, "keep.txt"))?.toList(), "nothing outside the trash may change")
     }
 }
