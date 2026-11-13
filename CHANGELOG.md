@@ -127,6 +127,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
+- `kmptoolkit-downloader`: a process killed while an archive resource is replaced or deleted, or during the first
+  commit of an archive under a nested `relativePath` on Android, can no longer leave a tree that reads as available with
+  files missing: the old tree is renamed into the storage's trash and deleted afterwards.
 - `kmptoolkit-files`: `Paths.normalizeLexically` on a Windows JVM no longer turns a rooted path that starts with three or
   more separators (`///a/b`) into an absolute `\\a\b\` UNC path: such a path is a rooted path of the current drive,
   not absolute, before and after.
