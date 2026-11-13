@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
-import org.junit.Assume
 import org.junit.runner.RunWith
 
 /** Runs [ZipRawNameRound11Contract] against the Android storage. */
@@ -25,12 +24,6 @@ class AndroidZipRawNameRound11Test : ZipRawNameRound11Contract() {
     override fun readFile(path: String): ByteArray? = File(path).takeIf { it.isFile }?.readBytes()
 
     override fun pathExists(path: String): Boolean = File(path).exists()
-
-    override fun assumeLongRawNamesCanBeResolved() {
-        val probe: String = "a/../".repeat(2_000) + "f.txt"
-        val resolves: Boolean = runCatching { File(File(context.filesDir, "probe"), probe).canonicalFile }.isSuccess
-        Assume.assumeTrue("this JDK refuses a raw path over PATH_MAX in File.canonicalFile (suspect r11-S1)", resolves)
-    }
 
     override fun deleteTestDirectory() {
         File(context.filesDir, config.baseDirectoryName).deleteRecursively()
