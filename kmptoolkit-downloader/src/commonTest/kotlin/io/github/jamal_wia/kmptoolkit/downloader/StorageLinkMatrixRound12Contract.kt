@@ -295,6 +295,40 @@ abstract class StorageLinkMatrixRound12Contract {
         assertEquals(payload.toList(), readFile(TestPaths.join(outsideDir, "keep.txt"))?.toList())
     }
 
+    /** Puts a link at the trash path whose target [targetOf] names, runs a sweep, and checks the link is gone and the base keeps every file. */
+    private fun assertTrashLinkRemovedAsLink(id: String, what: String, targetOf: (storage: DownloaderStorage, unit: LinkUnit, base: String) -> String) {
+        val storage: DownloaderStorage = newStorage()
+        val unit: LinkUnit = opaque(id)
+        val base: String = baseOf(storage, unit)
+        val trash: String = TestPaths.join(base, "tmp/kmptoolkit-internal/trash")
+        val outsideFile: String = elsewhere(storage, unit, "outside-$id.bin")
+        val baseProbe: String = TestPaths.join(base, "probe-$id.bin")
+        writeFile(outsideFile, payload)
+        writeFile(baseProbe, payload)
+        makeLink(trash, targetOf(storage, unit, base))
+
+        storage.deleteTempFile(unit)
+
+        assertFalse(isLink(trash), "$what in place of the trash directory must be removed as a link")
+        assertEquals(payload.toList(), readFile(outsideFile)?.toList(), "the file next to the link target must stay")
+        assertEquals(payload.toList(), readFile(baseProbe)?.toList(), "the base directory must stay whole")
+    }
+
+    @Test
+    fun `a link to a file in place of the trash directory is removed as a link and the file stays`() {
+        assertTrashLinkRemovedAsLink("trashfile", "a link to a file") { storage, unit, _ -> elsewhere(storage, unit, "outside-trashfile.bin") }
+    }
+
+    @Test
+    fun `a dangling link in place of the trash directory is removed as a link`() {
+        assertTrashLinkRemovedAsLink("trashdangling", "a dangling link") { storage, unit, _ -> elsewhere(storage, unit, "outside-trash-missing") }
+    }
+
+    @Test
+    fun `a link to the base directory in place of the trash directory is removed as a link and the base stays whole`() {
+        assertTrashLinkRemovedAsLink("trashbase", "a link to the base directory") { _, _, base -> base }
+    }
+
     @Test
     fun `a commit over an existing archive with a link in place of the trash directory moves the old tree into a real trash inside the base`() = runTest {
         val storage: DownloaderStorage = newStorage()
