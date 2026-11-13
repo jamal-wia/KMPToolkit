@@ -79,6 +79,50 @@ class MultipartConnectionFlapsRound9AdversarialTest {
         return server
     }
 
+    /**
+     * A server that counts connections and can prove that none is still on its way (the FIFO-sentinel barrier). Every
+     * retry of the JDK stack is synchronous inside the upload call, so when the call has returned each retry has
+     * finished its TCP handshake and waits in this server's accept backlog, which is FIFO. [settledConnections] then
+     * opens a sentinel connection of its own and waits until the accept loop has accepted it: every earlier connection
+     * has been counted by then. The sentinel is told apart by its client port, not by any byte it sends.
+     */
+    private inner class CountingServer(private val respond: (index: Int, socket: Socket) -> Unit) {
+        val server: ServerSocket = newServer()
+        private val accepted = AtomicInteger()
+        private val sentinelPort = AtomicInteger(-1)
+        private val sentinelAccepted = CountDownLatch(1)
+
+        init {
+            thread(isDaemon = true) {
+                while (!server.isClosed) {
+                    val socket: Socket = runCatching { server.accept() }.getOrNull() ?: return@thread
+                    if (socket.port == sentinelPort.get()) {
+                        runCatching { socket.close() }
+                        sentinelAccepted.countDown()
+                        continue
+                    }
+                    val index: Int = accepted.getAndIncrement()
+                    thread(isDaemon = true) {
+                        runCatching { socket.soTimeout = 20_000; respond(index, socket) }
+                        runCatching { socket.close() }
+                    }
+                }
+            }
+        }
+
+        /** The number of connections the upload opened, once no further one can still be in the backlog. */
+        fun settledConnections(): Int {
+            Socket().use { sentinel ->
+                // The client port is fixed before connecting, so the accept loop can never see the sentinel unmarked.
+                sentinel.bind(InetSocketAddress(InetAddress.getLoopbackAddress(), 0))
+                sentinelPort.set(sentinel.localPort)
+                sentinel.connect(InetSocketAddress(InetAddress.getLoopbackAddress(), server.localPort), 4_000)
+                assertTrue(sentinelAccepted.await(10, TimeUnit.SECONDS), "the accept loop never reached the sentinel connection")
+            }
+            return accepted.get()
+        }
+    }
+
     private fun upload(server: ServerSocket, request: UploadRequest? = null, readTimeout: Int = 4_000): MultipartOutcome =
         performMultipartUploadCapturing(
             request ?: UploadRequest("http://127.0.0.1:${server.localPort}/u", fields = listOf(UploadField.Text("a", "b"))),
@@ -115,28 +159,63 @@ class MultipartConnectionFlapsRound9AdversarialTest {
     @Test
     fun `a reset right after the request is one transport failure and the request is not sent again`() {
         repeat(10) { run ->
-            val accepted = AtomicInteger()
-            val server: ServerSocket = serveOnce(accepted) { s ->
+            val counting = CountingServer { _, s ->
                 s.readRequest()
                 s.reset()
             }
-            val outcome: MultipartOutcome = upload(server)
+            val outcome: MultipartOutcome = upload(counting.server)
             assertTrue(outcome.result is UploadResult.TransportFailure, "run $run: $outcome")
             assertEquals(null, outcome.response)
-            Thread.sleep(150)
-            assertEquals(1, accepted.get(), "run $run: the transport sent the request again after a reset")
-            server.close()
+            assertEquals(1, counting.settledConnections(), "run $run: the transport sent the request again after a reset")
+            counting.server.close()
         }
     }
 
     @Test
-    fun `a reset before the request is read is one transport failure and one connection`() {
-        val accepted = AtomicInteger()
-        val server: ServerSocket = serveOnce(accepted) { s -> s.reset() }
-        val outcome: MultipartOutcome = upload(server)
+    fun `a reset after the first byte of the request arrives is one transport failure and one connection`() {
+        // The client's head write has returned once a byte has been read, so the stack can no longer reconnect (R-1a).
+        val counting = CountingServer { _, s ->
+            s.readRequest(untilEnd = false, headBytes = 1)
+            s.reset()
+        }
+        val outcome: MultipartOutcome = upload(counting.server)
         assertTrue(outcome.result is UploadResult.TransportFailure, "$outcome")
-        Thread.sleep(150)
-        assertEquals(1, accepted.get())
+        assertEquals(null, outcome.response)
+        assertEquals(1, counting.settledConnections(), "the transport opened another connection after a reset that followed the request head")
+    }
+
+    @Test
+    fun `a reset before any of the request arrives never delivers the body twice`() {
+        // R-1b: the stack may reconnect once when the reset lands during the head write (a JDK behaviour, decided by
+        // the kernel), so both outcomes are exact and the request body must never reach a server twice.
+        val completeBodies = AtomicInteger()
+        val counting = CountingServer { index, s ->
+            if (index == 0) {
+                s.reset()
+            } else {
+                s.readRequest()
+                completeBodies.incrementAndGet()
+                s.send("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            }
+        }
+        val outcome: MultipartOutcome = upload(counting.server)
+        val connections: Int = counting.settledConnections()
+        when (val result: UploadResult = outcome.result) {
+            is UploadResult.TransportFailure -> {
+                println("R-1b branch: reset won the race, transport failure, $connections connection(s)")
+                assertEquals(1, connections, "a transport failure after a reset on accept opened more than one connection")
+                assertEquals(0, completeBodies.get(), "a transport failure with a complete body delivered: $outcome")
+            }
+            is UploadResult.Completed -> {
+                println("R-1b branch: the stack reconnected once, completed, $connections connection(s)")
+                assertEquals(200, result.statusCode)
+                assertEquals(2, connections, "a completed upload after a reset on accept needs exactly the reconnect")
+                assertEquals(1, completeBodies.get(), "the body must reach a server exactly once")
+            }
+            else -> error("unexpected $result")
+        }
+        assertTrue(connections <= 2, "never a third connection: $connections")
+        assertTrue(completeBodies.get() <= 1, "the body reached a server ${completeBodies.get()} times")
     }
 
     @Test
