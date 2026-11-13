@@ -68,7 +68,7 @@ that actually reached the tray by the time the refusal is handled, not the one t
 refused frame was prepared. A frame that gave up because a newer one overtook it (answered `Coalesced`) is never
 revived or remembered as shown if that newer frame then fails, and on iOS a frame handed to the
 notification center and refused later, in any order of refusals, leaves no baseline behind. Per-id bookkeeping of frames that were started and never finished is aged out, so it does
-not grow for the notifier's lifetime.
+not grow for the notifier's lifetime. An id's baseline is forgotten once the id has been quiet (no frame for it posted or suppressed) for the larger of 120 times `minProgressInterval` and ten minutes, the abandoned-run horizon; the horizon is a band, not an instant, because the module looks for quiet ids at most once per tenth of it and only when a frame arrives: a baseline is certainly kept for a quiet time of the horizon or less, certainly gone after the horizon plus a tenth of it (eleven minutes at the default `minProgressInterval`), and may go at any moment in between. See [`03-guide.md`](03-guide.md#progress-notifications).
 
 ## Factories
 
