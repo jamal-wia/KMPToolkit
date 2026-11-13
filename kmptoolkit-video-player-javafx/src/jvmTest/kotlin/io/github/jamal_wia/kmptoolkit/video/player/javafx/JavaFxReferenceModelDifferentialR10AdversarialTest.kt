@@ -348,7 +348,7 @@ class JavaFxReferenceModelDifferentialR10AdversarialTest {
     @Test
     fun `seeded scripts of public calls agree with the reference model on real JavaFX`() {
         assumeJavaFxMedia()
-        val seeds: Int = System.getenv("KMPTOOLKIT_R10_SEEDS")?.toIntOrNull() ?: 5
+        val seeds: Int = System.getProperty("kmptoolkit.test.r10.seeds")?.toIntOrNull() ?: 5
         for (seed: Int in 100 until 100 + seeds) runScript(seed, steps = 45)
     }
 }

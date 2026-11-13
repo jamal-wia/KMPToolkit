@@ -26,7 +26,7 @@ import kotlinx.coroutines.withTimeout
 /**
  * Round 8 (breaker at): a seeded soak of load, random calls and release cycles on real JavaFX, with a leak check at
  * the end (threads, files in the temporary directory, engines and players unreachable), and misuse of the public
- * factory. The soak length comes from KMPTOOLKIT_SOAK_SECONDS (default 8): the default suite stays short.
+ * factory. The soak length comes from kmptoolkit.test.soak.seconds (default 8): the default suite stays short.
  */
 @OptIn(ToolkitInternalApi::class)
 class JavaFxSoakAndMisuseR8AdversarialTest {
@@ -36,7 +36,7 @@ class JavaFxSoakAndMisuseR8AdversarialTest {
         assumeJavaFxMedia()
     }
 
-    private fun soakSeconds(): Long = System.getenv("KMPTOOLKIT_SOAK_SECONDS")?.toLongOrNull() ?: 8L
+    private fun soakSeconds(): Long = System.getProperty("kmptoolkit.test.soak.seconds")?.toLongOrNull() ?: 8L
 
     private fun tempNames(): Set<String> = File(System.getProperty("java.io.tmpdir")).list().orEmpty().toSet()
 
@@ -90,7 +90,7 @@ class JavaFxSoakAndMisuseR8AdversarialTest {
 
     @Test
     fun `a seeded soak of load call and release cycles leaves no thread file or engine behind`() {
-        val random = Random(System.getenv("KMPTOOLKIT_SOAK_SEED")?.toLongOrNull() ?: 8L)
+        val random = Random(System.getProperty("kmptoolkit.test.soak.seed")?.toLongOrNull() ?: 8L)
         val weak: MutableList<WeakReference<Any>> = mutableListOf()
         cycle(random, weak) // warm-up: the toolkit's and the media stack's own one-off threads and files
         weak.clear()

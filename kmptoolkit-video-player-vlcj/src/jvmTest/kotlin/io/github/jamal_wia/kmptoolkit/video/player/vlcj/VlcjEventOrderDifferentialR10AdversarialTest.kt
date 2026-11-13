@@ -328,7 +328,7 @@ class VlcjEventOrderDifferentialR10AdversarialTest {
         fun frame(buffer: ByteBuffer) = Unit
     }
 
-    /** Every quiet point of every seed, for the 4.0.0-versus-current diff (environment variable KMPTOOLKIT_R10_TRACE). */
+    /** Every quiet point of every seed, for the 4.0.0-versus-current diff (system property kmptoolkit.test.r10.trace). */
     private val traceLines: MutableList<String> = mutableListOf()
 
     private class Divergence(val key: String, message: String) : AssertionError(message)
@@ -615,7 +615,7 @@ class VlcjEventOrderDifferentialR10AdversarialTest {
                 firstOfKind.putIfAbsent(divergence.key, divergence.message.orEmpty())
             }
         }
-        System.getenv("KMPTOOLKIT_R10_TRACE")?.let { File("$it.$knownLength").writeText(traceLines.joinToString("\n")) }
+        System.getProperty("kmptoolkit.test.r10.trace")?.let { File("$it.$knownLength").writeText(traceLines.joinToString("\n")) }
         if (firstOfKind.isNotEmpty()) {
             fail(firstOfKind.entries.joinToString("\n\n", prefix = "${counts.values.sum()} diverging seeds of $SEEDS, ${firstOfKind.size} kinds:\n") { (key, text) -> "[${counts[key]}x] $key -> $text" })
         }

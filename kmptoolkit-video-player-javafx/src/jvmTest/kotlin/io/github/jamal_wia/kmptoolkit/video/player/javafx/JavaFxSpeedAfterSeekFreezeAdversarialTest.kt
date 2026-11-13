@@ -62,7 +62,7 @@ class JavaFxSpeedAfterSeekFreezeAdversarialTest {
     }
 
     private fun rounds(variant: String, seedBase: Int, drive: (VideoPlayer, Random) -> Unit): List<String> {
-        val count: Int = System.getenv("KMPTOOLKIT_SPEED_FREEZE_ROUNDS")?.toIntOrNull() ?: 30
+        val count: Int = System.getProperty("kmptoolkit.test.speed.freeze.rounds")?.toIntOrNull() ?: 30
         val failures: MutableList<String> = mutableListOf()
         for (round: Int in 0 until count) {
             val rnd = Random(seedBase + round)

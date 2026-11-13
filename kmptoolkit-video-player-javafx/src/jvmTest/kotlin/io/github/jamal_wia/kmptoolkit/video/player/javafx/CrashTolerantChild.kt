@@ -34,7 +34,7 @@ internal fun runChildRetryingKnownCrash(
     val knownCrashes: MutableList<String> = mutableListOf()
     for (attempt: Int in 1..maxAttempts) {
         val process: Process = ProcessBuilder(
-            listOf(java) + childJvmCrashGuardArgs(hsErrDir) + listOf("-cp", System.getProperty("java.class.path"), mainClass) + args,
+            listOf(java) + childJvmCrashGuardArgs(hsErrDir) + forwardedTestKnobs() + listOf("-cp", System.getProperty("java.class.path"), mainClass) + args,
         ).redirectErrorStream(true).start()
         val output = StringBuilder()
         val reader = Thread { process.inputStream.bufferedReader().forEachLine { output.appendLine(it) } }.apply { isDaemon = true; start() }
@@ -54,6 +54,16 @@ internal fun runChildRetryingKnownCrash(
     }
     fail("child JVM $mainClass hit the known CoreVideo crash in $maxAttempts of $maxAttempts attempts: $knownCrashes")
 }
+
+/**
+ * Every `kmptoolkit.test.*` system property of this JVM as a `-D` argument, so a knob given to the Gradle run
+ * (`-Pkmptoolkit.test.r9.rel.seeds=20`) reaches the child JVM as it reaches the test JVM; the child no longer
+ * inherits knobs from the environment.
+ */
+internal fun forwardedTestKnobs(): List<String> = System.getProperties().stringPropertyNames()
+    .filter { it.startsWith("kmptoolkit.test.") }
+    .sorted()
+    .map { "-D$it=${System.getProperty(it)}" }
 
 private fun problematicFrame(log: File): String {
     val lines: List<String> = log.readLines()

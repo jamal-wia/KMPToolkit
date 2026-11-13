@@ -28,7 +28,7 @@ import org.junit.runner.RunWith
  *
  * The default size is bounded so the suite is not slowed; a larger run is switched on by the system property
  * `kmptoolkit.r8.rows` (for example `-Dkmptoolkit.r8.rows=200000`, passed to the test JVM through the Gradle
- * environment variable `KMPTOOLKIT_R8_ROWS`).
+ * property `-Pkmptoolkit.test.r8.rows`, which is forwarded as the system property `kmptoolkit.test.r8.rows`).
  *
  * Every statement the store runs is captured from the driver (not copied from the `.sq` file), then planned with
  * `EXPLAIN QUERY PLAN` on a second connection. A statement that touches the queue by a full table scan is a finding;
@@ -38,7 +38,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class UploaderStoreScaleRound8AdversarialTest {
 
-    private val rows: Int = (System.getProperty("kmptoolkit.r8.rows") ?: System.getenv("KMPTOOLKIT_R8_ROWS"))?.toIntOrNull() ?: 6_000
+    private val rows: Int = (System.getProperty("kmptoolkit.r8.rows") ?: System.getProperty("kmptoolkit.test.r8.rows"))?.toIntOrNull() ?: 6_000
     private val names: MutableList<String> = mutableListOf()
     private val storages: MutableList<UploaderStorage> = mutableListOf()
 

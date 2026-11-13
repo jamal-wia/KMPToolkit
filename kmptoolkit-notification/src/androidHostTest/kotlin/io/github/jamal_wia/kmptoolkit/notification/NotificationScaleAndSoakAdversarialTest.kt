@@ -27,7 +27,7 @@ import org.robolectric.Shadows.shadowOf
 /**
  * Round 12 (scale and soak): thousands of notifications, ids and channels through the real Android
  * notifier, and a seeded soak on a fake clock that jumps by days. The soak's default is bounded (a few
- * thousand steps); set KMPTOOLKIT_SOAK_STEPS (environment) or kmptoolkit.soak.steps (system property) for
+ * thousand steps); set kmptoolkit.test.soak.steps or kmptoolkit.soak.steps (system properties) for
  * the long form. After the run the five maps of the coalescer are measured by reflection: nothing may be
  * left behind by ids that were abandoned, cancelled or overtaken.
  */
@@ -111,7 +111,7 @@ class NotificationScaleAndSoakAdversarialTest {
     @Test
     fun `a seeded soak with a clock that jumps by days keeps the tray equal to the model and leaves no state in the coalescer`() {
         val steps: Int = System.getProperty("kmptoolkit.soak.steps")?.toIntOrNull()
-            ?: System.getenv("KMPTOOLKIT_SOAK_STEPS")?.toIntOrNull()
+            ?: System.getProperty("kmptoolkit.test.soak.steps")?.toIntOrNull()
             ?: DEFAULT_STEPS
         println("soak steps=$steps")
         for (seed in 0 until SEEDS) {

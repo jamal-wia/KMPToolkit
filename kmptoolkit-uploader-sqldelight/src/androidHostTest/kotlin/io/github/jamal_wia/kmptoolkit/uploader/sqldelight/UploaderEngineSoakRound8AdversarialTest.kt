@@ -44,7 +44,7 @@ import org.junit.runner.RunWith
  * checked every few steps and a leak check at the end (rows, claims, coroutines, threads, files, descriptors).
  *
  * The default run is bounded (3 seeds of 250 steps, a few seconds). A long run is switched on by the environment variable
- * `KMPTOOLKIT_R8_SOAK_SECONDS` (seeds are drawn until the time is spent) and `KMPTOOLKIT_R8_SOAK_SEED` (first seed).
+ * `kmptoolkit.test.r8.soak.seconds` (seeds are drawn until the time is spent) and `kmptoolkit.test.r8.soak.seed` (first seed).
  * Every failure message carries the seed and the step.
  */
 @RunWith(AndroidJUnit4::class)
@@ -300,8 +300,8 @@ class UploaderEngineSoakRound8AdversarialTest {
 
     @Test
     fun `seeded soaks keep the queue invariants, drain after quiet days and leak nothing`() = runBlocking {
-        val seconds: Long = (System.getenv("KMPTOOLKIT_R8_SOAK_SECONDS"))?.toLongOrNull() ?: 0L
-        val firstSeed: Int = System.getenv("KMPTOOLKIT_R8_SOAK_SEED")?.toIntOrNull() ?: 1
+        val seconds: Long = (System.getProperty("kmptoolkit.test.r8.soak.seconds"))?.toLongOrNull() ?: 0L
+        val firstSeed: Int = System.getProperty("kmptoolkit.test.r8.soak.seed")?.toIntOrNull() ?: 1
         if (seconds <= 0L) {
             withTimeout(120.seconds) { for (seed in firstSeed until firstSeed + 3) soak(seed, steps = 250) }
         } else {
