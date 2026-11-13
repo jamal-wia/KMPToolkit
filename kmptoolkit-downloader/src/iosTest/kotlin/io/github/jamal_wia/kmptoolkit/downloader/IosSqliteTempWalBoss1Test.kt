@@ -15,6 +15,7 @@ import kotlinx.coroutines.test.runTest
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSData
 import platform.Foundation.NSFileManager
+import platform.Foundation.NSProcessInfo
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSTemporaryDirectory
 import platform.Foundation.NSUserDomainMask
@@ -35,7 +36,8 @@ import platform.posix.memcpy
 class IosSqliteTempWalBoss1Test {
 
     private val config = DownloaderStorageConfig(baseDirectoryName = "sqlite_temp_wal_boss1")
-    private val scratch: String = "${NSTemporaryDirectory()}sqlite-temp-wal-boss1"
+    // timing-hygiene-ignore: TH4 create makes the test's own uniquely named directory and deletes it in deleteAfter
+    private val scratch: String = "${NSTemporaryDirectory()}sqlite-temp-wal-boss1-${NSProcessInfo.processInfo.globallyUniqueString}"
 
     private class DbUnit(override val id: String) : DownloadUnit {
         override val apiPath: String = "/d/$id"
