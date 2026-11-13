@@ -170,4 +170,16 @@ abstract class ZipRawNameRound11Contract {
     fun `an over long directory entry is refused like a file entry and creates nothing`() = runTest {
         assertCleanRefusal("longdirectory", "d/".repeat(2_100))
     }
+
+    @Test
+    fun `a directory entry that climbs out of the extraction directory fails the commit and creates nothing outside`() = runTest {
+        for ((index: Int, name: String) in listOf("../evil/", "a/../../evil/", "../", "a/../..", "x/y/../../../evil/").withIndex()) {
+            val id = "climbdir$index"
+            assertCleanRefusal(id, name)
+            val storage: DownloaderStorage = newStorage()
+            val staging: String = stagingOf(storage, ArchiveUnit(id))
+            val outside: String = TestPaths.join(Paths.parentOf(staging)!!, "evil")
+            assertFalse(pathExists(outside), "'$name' created '$outside'")
+        }
+    }
 }
