@@ -61,6 +61,8 @@ internal class AndroidDownloaderStorage(
     caseInsensitive: Boolean = false,
     /** The file-system primitives of tree walks and links; production uses the platform default. */
     private val files: FileAccess = createFileAccess(),
+    /** Test seam: the rename that moves a tree aside and into place; production uses [File.renameTo]. */
+    private val rename: (from: File, to: File) -> Boolean = { from: File, to: File -> from.renameTo(to) },
 ) : DownloaderStorage, RelativePathChecking, TransferLockScope {
 
     private val baseDir: File by lazy { File(context.filesDir, config.baseDirectoryName) }
@@ -318,7 +320,17 @@ internal class AndroidDownloaderStorage(
             // partial tree under trash/, never at the resource path, where a surviving marker would
             // read as a complete resource with files missing. No lock: the rename is atomic, and a
             // commit racing this delete finds either the whole tree or nothing to move aside.
-            val detached: File? = detachTree(target)
+            //
+            // A rename that fails is retried while the target is still there (bounded): a commit of the same
+            // unit may have renamed our tree away first and put its new tree in place before the re-check,
+            // and that tree must be moved aside whole too, never walked in place. Only a rename that keeps
+            // failing on a present tree falls back to the in-place delete.
+            var detached: File? = null
+            var attempts = 0
+            while (detached == null && attempts < MAX_DETACH_ATTEMPTS && target.exists()) {
+                detached = detachTree(target)
+                attempts++
+            }
             if (detached != null) {
                 deleteTree(detached)
                 sweepTrash()
@@ -336,14 +348,15 @@ internal class AndroidDownloaderStorage(
 
     /**
      * Renames [dir] to a fresh entry of the trash directory (`tmp/kmptoolkit-internal/trash/`) and returns
-     * it; null when [dir] is absent or the rename failed (the caller tells them apart by [File.exists]).
+     * it; null when the rename failed, which includes [dir] being absent (the caller tells them apart by
+     * [File.exists] after the failure). There is deliberately no [File.exists] pre-check: it follows links, so
+     * a dangling symbolic link would read as absent, while the rename moves the link itself.
      * The rename is atomic and stays on one volume, so [dir] holds its whole tree or nothing at every instant.
      */
     private fun detachTree(dir: File): File? {
-        if (!dir.exists()) return null
         val trash = File(baseDir, layout.trashEntry(Random.nextLong().toULong()))
         trash.parentFile?.mkdirs()
-        return if (dir.renameTo(trash)) trash else null
+        return if (rename(dir, trash)) trash else null
     }
 
     override suspend fun commitResource(
@@ -420,16 +433,16 @@ internal class AndroidDownloaderStorage(
                 // whole new tree, so a process killed at any step never leaves a marker over a partial tree.
                 // The parent of a nested relativePath (e.g. "archives/pages") is absent on a first commit.
                 targetDir.parentFile?.mkdirs()
-                if (targetDir.exists()) {
-                    // The old tree moves into the trash; it is never renamed back (a sweep of another unit
-                    // may already be deleting it) and never deleted in place.
-                    val oldTree: File? = detachTree(targetDir)
-                    check(oldTree != null || !targetDir.exists()) { "Could not move the committed $unit aside" }
-                    if (oldTree != null) onDetached(oldTree)
-                }
+                // The old tree moves into the trash; it is never renamed back (a sweep of another unit may
+                // already be deleting it) and never deleted in place. No exists() pre-check decides whether
+                // to try: it follows links, so a dangling link at the path would read as absent and block
+                // the move into place forever. A failed rename with nothing at the path is nothing to detach.
+                val oldTree: File? = detachTree(targetDir)
+                check(oldTree != null || !targetDir.exists()) { "Could not move the committed $unit aside" }
+                if (oldTree != null) onDetached(oldTree)
                 // No copy fallback: staging and target both sit under baseDir, one volume. A copy writes
                 // top-down, so it could land the marker before the rest.
-                check(stagingDir.renameTo(targetDir)) { "Could not move the extracted $unit into place" }
+                check(rename(stagingDir, targetDir)) { "Could not move the extracted $unit into place" }
             } catch (e: ResourceIntegrityException) {
                 // Bytes that are not what the unit declares: the temp file is worthless, and one fresh download
                 // is the fix. Everything above ran before the committed resource was touched.
@@ -743,6 +756,9 @@ internal class AndroidDownloaderStorage(
     }
 
     private companion object {
+        /** How often deleteResource retries moving a present tree aside before it deletes it in place. */
+        const val MAX_DETACH_ATTEMPTS: Int = 3
+
         /** The sibling name the single root directory is moved to while its children go up; a free variant is chosen. */
         const val TEMPORARY_ROOT_NAME: String = ".kmptoolkit-up"
 
