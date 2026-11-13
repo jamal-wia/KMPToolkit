@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.video.player.javafx
 
 import java.io.File
+import java.util.Properties
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -56,14 +57,15 @@ internal fun runChildRetryingKnownCrash(
 }
 
 /**
- * Every `kmptoolkit.test.*` system property of this JVM as a `-D` argument, so a knob given to the Gradle run
- * (`-Pkmptoolkit.test.r9.rel.seeds=20`) reaches the child JVM as it reaches the test JVM; the child no longer
- * inherits knobs from the environment.
+ * Every `kmptoolkit.test.*` system property of [properties] (this JVM's by default) as a `-D` argument, so a knob
+ * given to the Gradle run (`-Pkmptoolkit.test.r9.rel.seeds=20`) reaches the child JVM as it reaches the test JVM;
+ * the child no longer inherits knobs from the environment. The crash guard's own [HS_ERR_DIR_PROPERTY] is not a
+ * knob and is left out: the caller's directory comes from [childJvmCrashGuardArgs], whatever the argument order.
  */
-internal fun forwardedTestKnobs(): List<String> = System.getProperties().stringPropertyNames()
-    .filter { it.startsWith("kmptoolkit.test.") }
+internal fun forwardedTestKnobs(properties: Properties = System.getProperties()): List<String> = properties.stringPropertyNames()
+    .filter { it.startsWith("kmptoolkit.test.") && it != HS_ERR_DIR_PROPERTY }
     .sorted()
-    .map { "-D$it=${System.getProperty(it)}" }
+    .map { "-D$it=${properties.getProperty(it)}" }
 
 private fun problematicFrame(log: File): String {
     val lines: List<String> = log.readLines()

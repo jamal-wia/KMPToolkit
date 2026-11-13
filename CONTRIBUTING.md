@@ -101,8 +101,9 @@ test produces (a latch, a `CompletableDeferred`, a flow value, an idle signal, a
 request), never on elapsed time; use virtual time (`runTest`, an injected clock) for anything the library
 times, keep real time to a hang bound that fails with its own message, draw every random choice from
 `Random(seed)` with a fixed default seed and print the seed in the failure message, keep files in a
-directory the test creates and deletes, and read no environment variable (knobs are system properties
-forwarded from a Gradle property). Real media, sockets and WorkManager are measured from timestamps taken
+directory the test creates and deletes, and read no environment variable (knobs are `kmptoolkit.test.<knob>` system properties,
+set with `-Pkmptoolkit.test.<knob>=<value>`; the build forwards only that prefix to the test JVMs and prints
+the values once per test task). Real media, sockets and WorkManager are measured from timestamps taken
 where the value is produced or from protocol events, not by reading shared state after a sleep.
 
 `./gradlew build` enforces the mechanical part: every module registers `checkTimingHygiene` (attached to

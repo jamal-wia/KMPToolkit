@@ -26,9 +26,9 @@ import org.junit.runner.RunWith
 /**
  * Round 8 (A1, scale): the rows of a large queue in a real SQLite file.
  *
- * The default size is bounded so the suite is not slowed; a larger run is switched on by the system property
- * `kmptoolkit.r8.rows` (for example `-Dkmptoolkit.r8.rows=200000`, passed to the test JVM through the Gradle
- * property `-Pkmptoolkit.test.r8.rows`, which is forwarded as the system property `kmptoolkit.test.r8.rows`).
+ * The default size is bounded so the suite is not slowed; a larger run is switched on by
+ * `-Pkmptoolkit.test.r8.rows=200000` (forwarded to the test JVM as the system property of the same name; the
+ * older `kmptoolkit.r8.rows` is still read when a JVM is started with it).
  *
  * Every statement the store runs is captured from the driver (not copied from the `.sq` file), then planned with
  * `EXPLAIN QUERY PLAN` on a second connection. A statement that touches the queue by a full table scan is a finding;

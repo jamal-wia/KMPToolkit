@@ -17,8 +17,9 @@ internal fun describeTestKnobs(knobs: Map<String, String>): String? =
  *
  * Why: test knobs (trial counts, soak lengths, seeds, trace files) used to be read from environment variables,
  * and a test JVM inherits the environment of the Gradle daemon that started it, so a value exported in the shell
- * once changed every later run without anyone seeing it. A system property is only ever set by the Gradle
- * command line, and the printed line puts it into the log of that run. A knob that is not given keeps the
+ * once changed every later run without anyone seeing it. A knob is set only through a Gradle property (the command
+ * line, `~/.gradle/gradle.properties`, the project's `gradle.properties` or an `ORG_GRADLE_PROJECT_` environment
+ * variable), and the printed line shows which ones that run used, wherever they came from. A knob that is not given keeps the
  * default written in the test, so nothing changes without the property. Test JVMs only; no main source set,
  * no published artifact and no `api/` dump is touched.
  */
