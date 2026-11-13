@@ -159,8 +159,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   reads one row per remembered entry, except an entry whose row it found absent: that one is read again only once
  *   per [UploaderConfig.heartbeatInterval] (at the first sweep, and at once when the clock steps backwards), so a
  *   withdrawn row or another store's row costs a read per heartbeat and not one per call. A row that comes back after
- *   it read absent is therefore rescued at the heartbeat cadence at the latest; until then it is PARKED, which is not
- *   run, and a verdict on it is refused.
+ *   it read absent is therefore rescued within two heartbeat intervals of the last re-check (the cadence reads the
+ *   clock at the start of a pass and the heartbeat is a monotonic delay, so a tick can fall just short of one interval
+ *   and leave the re-check to the next); until then it is PARKED, which is not run, and a verdict on it is refused.
  *   *Pinned by:* EngineBossRound4SuspectsAdversarialTest (bv4-S3a, S3b), EngineSplit1P10AdversarialTest and
  *   EngineSplit1HeldRescueAdversarialTest (a verdict that came first).
  * - **P11, One attempt per item.** The engine never starts an attempt for an item while it is still running one for
@@ -168,7 +169,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   manual calls, or a manual call next to the engine's own loop. [AttemptRegistry.runUnlessMoved] registers an attempt
  *   only when none is registered for the id, in one atomic step, and answers [Admission.BUSY] otherwise; the pass that
  *   asked skips the item in [drainPass] without using its turn (P9), arming a gate or counting it as work, and the
- *   pass that owns the attempt sweeps again after it ends. So the registry holds at most one entry per id and a
+ *   pass that owns the attempt sweeps again after it ends or, when that pass is cancelled, the next trigger or
+ *   heartbeat does. So the registry holds at most one entry per id and a
  *   withdrawal (P1, P2) always finds the attempt that is running. It does not make an overlapping `drain()` safe for
  *   everything else: a manual `drain()` on a started engine still breaks single-flight, and two engines over one store
  *   stay the P6 residual.
