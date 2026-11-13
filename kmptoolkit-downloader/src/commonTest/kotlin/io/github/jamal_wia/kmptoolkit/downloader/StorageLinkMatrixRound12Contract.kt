@@ -233,4 +233,40 @@ abstract class StorageLinkMatrixRound12Contract {
 
         assertFalse(storage.isResourceAvailable(unit), "the availability marker must be a regular file")
     }
+
+    @Test
+    fun `a link at the temp path is the temp file and deleting or beginning never touches the bytes behind it`() {
+        val storage: DownloaderStorage = newStorage()
+        val unit: LinkUnit = opaque("templink")
+        storage.beginTempFile(unit, null)
+        val outside: String = elsewhere(storage, unit, "outside.bin")
+        writeFile(outside, payload)
+        makeLink(storage.getTempFilePath(unit), outside)
+
+        assertEquals(TempFileState.Partial, storage.tempFileState(unit), "a link to a non-empty file reads as the partial it points to")
+        assertEquals(payload.size.toLong(), storage.getTempFileSize(unit))
+        storage.deleteTempFile(unit)
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertEquals(payload.toList(), readFile(outside)?.toList(), "deleteTempFile must remove the link, not the file behind it")
+
+        makeLink(storage.getTempFilePath(unit), outside)
+        storage.beginTempFile(unit, null)
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertEquals(payload.toList(), readFile(outside)?.toList(), "beginTempFile must remove the link, not the file behind it")
+    }
+
+    @Test
+    fun `a dangling link at the temp path reads as no temp file and deleting it never throws`() {
+        val storage: DownloaderStorage = newStorage()
+        val unit: LinkUnit = opaque("tempdangling")
+        storage.beginTempFile(unit, null)
+        val missing: String = elsewhere(storage, unit, "missing.bin")
+        makeLink(storage.getTempFilePath(unit), missing)
+
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertEquals(0L, storage.getTempFileSize(unit))
+        storage.deleteTempFile(unit)
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertFalse(isLink(storage.getTempFilePath(unit)), "a dangling link at the temp path is part of the temp file and must be removed")
+    }
 }

@@ -77,6 +77,7 @@ import platform.posix.fsync
 import platform.posix.fwrite
 import platform.posix.remove
 import platform.posix.rename
+import platform.posix.stat
 import platform.zlib.Z_BUF_ERROR
 import platform.zlib.Z_NO_FLUSH
 import platform.zlib.Z_OK
@@ -295,12 +296,14 @@ internal class IosDownloaderStorage(
 
     override fun getTempFileSize(unit: DownloadUnit): Long = sizeOf("$baseDir/${names(unit).partial}")
 
-    private fun sizeOf(path: String): Long {
-        val attributes: Map<Any?, *>? = NSFileManager.defaultManager
-            .attributesOfItemAtPath(path, error = null)
-
-        val size: Long? = attributes?.get(NSFileSize) as? Long
-        return size ?: 0L
+    /**
+     * The size of what [path] names, a symbolic link followed: POSIX `stat` follows it and fails on a dangling
+     * one, which reads as 0. `attributesOfItemAtPath` is lstat and would report the length of the link text, and
+     * resolving the path first does not help, because a dangling link resolves to itself.
+     */
+    private fun sizeOf(path: String): Long = memScoped {
+        val info: stat = alloc<stat>()
+        if (stat(path, info.ptr) == 0) info.st_size else 0L
     }
 
     override fun beginTempFile(unit: DownloadUnit, expectedSha256: Sha256?) {
