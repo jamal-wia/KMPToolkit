@@ -7,6 +7,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -93,6 +94,24 @@ class JvmKeyValueStorageBudgetRound10Test {
             assertEquals(StorageResult.Success<String?>("a:b=c#d!e"), store.get("token"), "a write keeps every other key")
             assertEquals(StorageResult.Success(Unit), store.clear())
             assertEquals(listOf("${storeFile(name).name}.bak.tmp"), directory.list().orEmpty().toList(), "clear takes the 3.0.0 leftover and not a neighbour's file")
+        }
+    }
+
+    @Test
+    fun `clear removes the 4_x leftover of a store whose file name is longer than the hashed prefix limit`() = runBlocking<Unit> {
+        withTimeout(60_000) {
+            // 215 + 30 = 245 bytes of file name: above the 232 byte limit (the 5.x temporary prefix is hashed), and a 4.x leftover
+            // `<file name><digits>.tmp` of one digit is still 250 bytes, so it could exist on disk.
+            val name: String = "n".repeat(215)
+            val fileName: String = storeFile(name).name
+            check(fileName.length == 245)
+            val leftover = File(directory, "${fileName}5.tmp").apply { writeText("half") }
+            val neighbour = File(directory, "${fileName}.bak.tmp").apply { writeText("neighbour") }
+            val store: KeyValueStorage = createKeyValueStorage(directory, StorageConfig(name))
+            assertEquals(StorageResult.Success(Unit), store.put("k", "v"))
+            assertEquals(StorageResult.Success(Unit), store.clear())
+            assertFalse(leftover.exists(), "the 4.x leftover of a long store name survived clear()")
+            assertTrue(neighbour.exists(), "clear() took a file that is not this store's temporary")
         }
     }
 
