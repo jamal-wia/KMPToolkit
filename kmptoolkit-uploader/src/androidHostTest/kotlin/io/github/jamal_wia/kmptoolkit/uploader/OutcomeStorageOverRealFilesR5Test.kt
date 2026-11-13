@@ -22,7 +22,7 @@ class OutcomeStorageOverRealFilesR5Test {
     private val base: File = Files.createTempDirectory("kmptoolkit-outcome-r5").toRealPath().toFile()
     private val dir = File(base, "outcomes")
     private val partial = File(base, "outcomes-partial")
-    private var clock: Long = System.currentTimeMillis()
+    private var clock: Long = 1_700_000_000_000L
     private val storage = AndroidOutcomeStorage(dir, partial, now = { clock })
 
     @AfterTest
@@ -53,7 +53,7 @@ class OutcomeStorageOverRealFilesR5Test {
         assertTrue(storage.write("big", ByteArray(MAX_ENCODED_ENTRY_BYTES.toInt() + 1)))
         assertEquals(0, storage.read("big")?.size, "over the limit: not read, an empty array (docs)")
         partial.mkdirs()
-        val leftover = File(partial, ".kmptoolkit-123.tmp").also { it.writeText("half") }
+        val leftover = File(partial, ".kmptoolkit-123.tmp").also { it.writeText("half"); assertTrue(it.setLastModified(clock)) }
         storage.purgeLeftovers()
         assertTrue(leftover.exists(), "a leftover younger than an hour is kept: it may belong to a write in flight")
         clock += 2 * 60 * 60 * 1000L

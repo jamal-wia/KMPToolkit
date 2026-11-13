@@ -59,6 +59,7 @@ class RecordingFileSystemOverRealFilesR5Test {
         assertFalse(fileSystem.ensureWritableDirectory(File(file, "sub").path), "a path under a file cannot be created")
         assertEquals("x", file.readText(), "the file was not touched")
         // a trailing separator names the same directory
+        // path-hygiene-ignore: PH1 the trailing separator is the subject of this check
         assertTrue(fileSystem.ensureWritableDirectory(nested.path + File.separator))
     }
 
