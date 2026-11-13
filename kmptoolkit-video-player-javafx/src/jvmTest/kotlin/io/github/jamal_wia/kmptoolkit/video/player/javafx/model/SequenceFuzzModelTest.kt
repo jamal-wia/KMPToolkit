@@ -45,12 +45,11 @@ import kotlin.test.Test
  * `FxPlayback.setSpeed` deleted; 824 of 1970 seeds red) and M-S13 (one `postLater` instead of two in the nudge of
  * `FxPlayback.start`; seed 1814 alone).
  *
- * THE LEDGER. 19 seeds are red on the current production, all of them a product defect (class A: `FxPlayback.pause()` and the
- * non-looping end of media write the held speed before `native.pause()`; class C: a play inside the 200 ms idle gap of a rate
- * written while paused), ruled by the advisor in reviews/fxport-j13a-opus.md (decision D-95) and fixed by task D-pi. They are not
- * ignored and not hidden: they are the ledger [KNOWN_RED] (seed, window, trigger, class, task), the green test leaves exactly those
- * out, and [theKnownRedSeedsStillFailExactlyAsRecorded] runs them and fails when one turns green or fails in another way
- * (`FuzzModelSupport.KnownRed`). The ledger is empty when D-pi merges.
+ * THE LEDGER. [KNOWN_RED] is EMPTY: the 19 seeds that were red before task D-pi (class A: `FxPlayback.pause()` and the non-looping end
+ * of media wrote the held speed before `native.pause()`; class C: a play inside the 200 ms idle gap of a rate written while paused;
+ * ruled in reviews/fxport-j13a-opus.md, decision D-95) are green with its fix and left the ledger by turning green, the only way out.
+ * The mechanism stays (`FuzzModelSupport.KnownRed`): the green test leaves out exactly the ledger's seeds, and
+ * [theKnownRedSeedsStillFailExactlyAsRecorded] runs them and fails when one turns green or fails in another way.
  */
 class SequenceFuzzModelTest {
 
@@ -256,24 +255,12 @@ class SequenceFuzzModelTest {
 
     private companion object {
         /**
-         * THE LEDGER (decision D-95, reviews/fxport-j13a-opus.md): the seeds of 1 to 2000 on which the CURRENT production code violates
-         * a fragile window of the hazard model, measured on top of D-ns and J12. Each one is a DEFAULT hit (never the strict
-         * reading) and a product defect of one task, D-pi. Class A: `FxPlayback.pause()` (and so `stop()`) writes the held settle speed
-         * before `native.pause()` while the decoder still runs inside W-PLAY or W-SEEK-RUN; 1424 is the same slip in the non-looping
-         * `onEndOfMedia`. Class C: the paused-again write of `giveNudge` does not stamp the idle gap and the next `start()` plays
-         * inside it (W-IDLE). An entry leaves by turning green and by no other route but a new advisor ruling; the ledger is empty
-         * when D-pi merges and before J15 starts.
+         * THE LEDGER (decision D-95, reviews/fxport-j13a-opus.md): the seeds that are red on the current production code, each a
+         * DEFAULT hit and a product defect classified by an advisor ruling (seed, window, trigger, class, task). Empty since task
+         * D-pi: its fix turned all 19 former entries green. An entry joins only with an advisor class and leaves only by turning
+         * green.
          */
-        val KNOWN_RED: KnownRed<Int> = KnownRed(
-            buildMap {
-                val playSetRate = KnownRedEntry("W-PLAY", "SET_RATE", "A", "D-pi")
-                val seekRunSetRate = KnownRedEntry("W-SEEK-RUN", "SET_RATE", "A", "D-pi")
-                val idlePlay = KnownRedEntry("W-IDLE", "PLAY", "C", "D-pi")
-                for (seed: Int in listOf(98, 211, 369, 685, 1002, 1738, 1424)) put(seed, playSetRate)
-                for (seed: Int in listOf(471, 1088, 1209, 1287, 1385, 1598, 1819, 1859, 1921)) put(seed, seekRunSetRate)
-                for (seed: Int in listOf(467, 943, 1189)) put(seed, idlePlay)
-            },
-        )
+        val KNOWN_RED: KnownRed<Int> = KnownRed(emptyMap())
 
         const val STEPS: Int = 22
         const val FX_PERCENT: Int = 65

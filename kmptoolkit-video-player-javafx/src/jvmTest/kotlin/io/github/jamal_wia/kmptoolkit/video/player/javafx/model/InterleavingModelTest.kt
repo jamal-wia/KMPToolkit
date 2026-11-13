@@ -45,7 +45,7 @@ import kotlinx.coroutines.yield
  *   Completed), `pause` of a Playing player leaves Paused, `stop` leaves Ready, a seek of a Paused player is published at
  *   once and exactly, a speed changes no state;
  * - no fragile window of the hazard model is violated and the decoder never freezes (the hazard monitor, plus `hazards.frozen`
- *   read at the end), except the 14 scripts of the ledger [KNOWN_RED] (a product defect of class A, task D-pi, asserted red);
+ *   read at the end), except the scripts of the ledger [KNOWN_RED] (empty since task D-pi);
  * - the calls of one breath with a play or a replay in it leave the decoder only 1.0 and the speed in force at the end of the
  *   breath (the S13 contract, on the call log), see [checkOnlyTheSpeedInForceAfterAPlay];
  * - when the script has settled: a player left Playing has the decoder running and its playhead moves on (R9); a player left
@@ -415,22 +415,12 @@ class InterleavingModelTest {
     /**
      * THE LEDGER of scripts that are red on the current production and are classified as a product defect, not hidden: the
      * exhaustive tests leave exactly these keys out, and [theKnownRedScriptsStillFailExactlyAsRecorded] runs every one of them
-     * and fails when one turns green or fails in another way. Class A of the J13a ruling (decision D-95): `FxPlayback.pause()`
-     * (and so `stop()`) writes the held settle speed BEFORE `native.pause()`, while the decoder is still running inside
-     * W-PLAY; task D-pi moves the write behind the pause. All 14 scripts were checked against the D-pi prototype of the
-     * ruling (section 4) in a scratch copy, never committed: with it this whole file is green. An entry leaves the ledger
-     * by turning green and by no other route; the ledger is empty when D-pi merges. It should switch to
-     * `model/FuzzModelSupport.KnownRed` when J13a-fu merges it. The key is the script id: prelude, caller, calls and offsets.
+     * and fails when one turns green or fails in another way. EMPTY since task D-pi (decision D-95): the 14 scripts it held
+     * (class A of the J13a ruling, a speed written before the pause of `pause()` and `stop()` inside W-PLAY) are green with its
+     * fix. An entry joins only with an advisor class and leaves only by turning green. The key is the script id: prelude,
+     * caller, calls and offsets.
      */
-    private val KNOWN_RED: Map<String, KnownRed> = buildMap {
-        for (second: Op in listOf(Op.PAUSE, Op.STOP)) {
-            for ((caller: Caller, offsets: List<Int>) in listOf(Caller.OTHER to listOf(0, 1, 2, 3), Caller.FX to listOf(0, 1, 2))) {
-                for (offset: Int in offsets) {
-                    put(Scenario(listOf(Op.SPEED, second), listOf(offset), caller, Prelude.PLAYED_60).toString(), KnownRed("W-PLAY", "SET_RATE", "A", "D-pi"))
-                }
-            }
-        }
-    }
+    private val KNOWN_RED: Map<String, KnownRed> = emptyMap()
 
     /** The ledger scripts, rebuilt from their keys' parts: those of [KNOWN_RED] that [twoCallScenarios] would have run. */
     private fun knownRedScenarios(): List<Scenario> = twoCallScenarios(Prelude.PLAYED_60, LATE_POINTS).filter { it.toString() in KNOWN_RED }.toList()
