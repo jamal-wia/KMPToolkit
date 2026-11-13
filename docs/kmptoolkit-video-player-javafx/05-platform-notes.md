@@ -162,8 +162,10 @@ decoder writes straight into memory without a render-and-read-back step.
 - **Playback speed.** On macOS, `MediaPlayer.play()` and the start of the next cycle of a looping
   source begin at normal speed whatever rate JavaFX holds, so a speed set while paused, or one set
   before a loop wraps, would be lost. A rate change right after a plain `play()` can freeze the playhead
-  for good (about one resume in four in the measurements), while one right after a native seek did not in
-  any run, and one after the playhead had moved on for a while did not either. A native seek is no cure for a resume
+  for good (about one resume in four in the measurements), while one right after a native seek followed by
+  `play()`, before the native player reports playing, froze it once in 120 probe rounds, one right after a native
+  seek on a player that is already playing can freeze it too (both below), and one after the playhead had moved on
+  for a while did not in any run. A native seek is no cure for a resume
   that was paused part-way through a key-frame interval, though: it lands on the key frame at or before
   the position, so the clip would resume from there. So the engine gives the speed to a resume in one of
   two ways. When a native seek is already pending (the caller's own `seekTo`, or the restart after the

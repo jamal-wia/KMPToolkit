@@ -61,7 +61,8 @@ must match the JVM's CPU architecture — an Intel VLC cannot be loaded by an Ap
 [`05-platform-notes.md`](05-platform-notes.md) has the per-OS details.
 
 A missing or unloadable VLC is never a crash: `isVlcAvailable()` answers the question without
-side effects, and a `prepare` without VLC settles on `VideoPlayerState.Error(VlcUnavailableException)`.
+throwing (it loads libvlc when it finds one, see [`05-platform-notes.md`](05-platform-notes.md)), and
+a `prepare` without VLC settles on `VideoPlayerState.Error(VlcUnavailableException)`.
 
 ## What this is **not**
 
