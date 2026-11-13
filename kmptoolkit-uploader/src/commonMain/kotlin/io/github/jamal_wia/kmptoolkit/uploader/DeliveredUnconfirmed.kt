@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.update
  * that pruned by its own list would erase the other's entries. An entry leaves only when a delete confirms the
  * delivery ([forget]). A withdrawal keeps it: a rolled-back or failed withdrawal leaves the row queued, and its effect
  * must still not run again. A row removed for good, by a withdrawal or from outside every engine, leaves a leaked entry
- * of about a hundred bytes.
+ * of about a hundred bytes. The time cost of such an entry is bounded separately: the drain's sweep of held rows reads
+ * an entry whose row it found absent only once per heartbeat interval ([RowLedger.heldOutOfRotation]), not on every
+ * pass.
  *
  * Residual: a row of another store with the same id and fingerprint (a custom `idGenerator` reusing ids with identical
  * content and creation time) is taken for the same item.
