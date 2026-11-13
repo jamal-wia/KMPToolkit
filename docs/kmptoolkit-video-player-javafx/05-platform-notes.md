@@ -191,3 +191,22 @@ decoder writes straight into memory without a render-and-read-back step.
   `bufferProgressTime`, which is meaningful for progressive HTTP sources (for a local file expect it
   to cover the whole duration).
 - **Picture size** is the size JavaFX reports for the media (`Media.width` / `height`).
+
+## Known issue: releasing a video player on macOS can crash the JVM
+
+OpenJFX's macOS media backend (`AVFMediaPlayer`) gives every player that has a video track its own
+CoreVideo display link. The display link is started from a media callback without any guard against
+the player being disposed, while `dispose()` stops and frees it. When a player is released at the
+moment its display link starts, the JVM can die with a native crash inside `CoreVideo`
+(`CVHWTime::reset`, `CVDisplayLink::runIOThread`). The fault is inside OpenJFX, not in this library,
+and it cannot be caught from Java.
+
+`VideoPlayer.release()`, and `prepare()` with a new source, dispose the JavaFX player straight away, so an
+app can reach the window when it releases or replaces a *video* source right after `play()`, `seekTo()` or
+a resume from a long pause, or cancels a load while the player is still preparing. The probability is
+low in normal use and real for rapid switching (playlists, scrubbing thumbnails). Audio-only sources
+have no display link and are not affected.
+
+Until OpenJFX fixes it (the report to OpenJFX is pending), avoid releasing or replacing video
+players in quick succession on macOS: let a started player run for a moment, and debounce rapid
+source switches before they reach the engine.

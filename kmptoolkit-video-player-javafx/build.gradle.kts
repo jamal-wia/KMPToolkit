@@ -76,13 +76,20 @@ tasks.withType<Test>().configureEach {
         providers.gradleProperty("javafx.required").getOrElse("false"),
     )
     // A native crash inside OpenJFX's macOS media backend (CoreVideo display link, see
-    // .claude/specs/release-4-1-0/plans/javafx-native-crash-advice.md) must end the worker without
+    // docs/kmptoolkit-video-player-javafx/05-platform-notes.md, "Known issue") must end the worker without
     // the macOS crash dialog: OnError runs after hs_err is written and before abort(), and SIGKILL is
     // not reported by ReportCrash. The hs_err file goes to build/hs_err, not the module directory.
     val hsErrDir: String = File(layout.buildDirectory.get().asFile, "hs_err").absolutePath
     systemProperty("kmptoolkit.test.hsErrDir", hsErrDir)
+    // A private temporary directory per task: the tests that count files in java.io.tmpdir (temp files,
+    // soak) must not see the files of other builds running on the same machine at the same time.
+    val tmpDir: String = File(layout.buildDirectory.get().asFile, "tmp/${name}").absolutePath
+    jvmArgs("-Djava.io.tmpdir=$tmpDir")
     // HotSpot falls back to the working directory when the ErrorFile directory does not exist.
-    doFirst { File(hsErrDir).mkdirs() }
+    doFirst {
+        File(hsErrDir).mkdirs()
+        File(tmpDir).mkdirs()
+    }
     jvmArgs(
         "-XX:OnError=kill -9 %p",
         "-XX:ErrorFile=" + File(hsErrDir, "hs_err_pid%p.log").path,

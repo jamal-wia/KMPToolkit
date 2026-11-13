@@ -35,7 +35,7 @@ class JavaFxManyPlayersAndRemoteFileR9AdversarialTest {
                 val player: VideoPlayer = createJavaFxVideoPlayer()
                 players += player
                 try {
-                    runBlocking { withTimeout(60_000L) { player.prepare(VideoSource.Asset(TestClip.ASSET)) } }
+                    runBlocking { withTimeout(60_000L) { player.prepare(VideoSource.Asset(TestClip.AUDIO_ASSET)) } }
                     player.setPlaybackSpeed(if (i % 2 == 0) 1f else 2f)
                     player.play()
                     if (player.stateFlow.value !is VideoPlayerState.Playing) failures += "player $i: ${player.stateFlow.value} after play"
