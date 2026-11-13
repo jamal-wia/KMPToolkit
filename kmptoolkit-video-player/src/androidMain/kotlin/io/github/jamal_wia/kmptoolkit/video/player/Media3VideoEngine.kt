@@ -199,9 +199,11 @@ internal class Media3VideoEngine(
     }
 
     override suspend fun load(source: VideoSource) {
-        withContext(playerDispatcher) {
+        // Returned, not thrown, out of withContext: an exception crossing that boundary may be replaced by a
+        // stack-trace-recovered copy, and VideoPlayerState.Error promises the platform's own Throwable.
+        val failure: Throwable? = withContext(playerDispatcher) {
             val current: ExoPlayer = obtainPlayer()
-                ?: throw IllegalStateException("The Media3 engine was disposed")
+                ?: return@withContext IllegalStateException("The Media3 engine was disposed")
             resetPlayer(current)
             try {
                 suspendCancellableCoroutine { continuation: CancellableContinuation<Unit> ->
@@ -211,15 +213,17 @@ internal class Media3VideoEngine(
                     current.playWhenReady = false
                     current.prepare()
                 }
+                null
             } catch (failure: Throwable) {
                 // A load failure, a source that would not build, or cancellation: whichever it was,
                 // nothing half-loaded may outlive this call. This runs on the looper thread — the
                 // dispatcher resumes there even when the cancellation came from elsewhere.
                 pendingLoad = null
                 resetPlayer(current)
-                throw failure
+                failure
             }
         }
+        if (failure != null) throw failure
     }
 
     override fun start() {
