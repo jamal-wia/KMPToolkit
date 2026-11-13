@@ -114,7 +114,10 @@ is discarded.
 `Interrupted` (the file was finalized) or to `Failed(RecordingLost)` (it was not); from `Ready` to
 `Failed(RecordingLost)` with no path. Only the first event of a recording counts: the engine's listener is
 detached when its finalization starts, and anything still queued behind it changes nothing, whatever
-its reason. A `stop()` or `cancel()` that has already started wins: the event is ignored. See
+its reason. A `stop()` or `cancel()` that has already started wins: the event is ignored. A file that is no
+longer a regular file when the encoder has finished (deleted, or replaced by a directory, meanwhile) is a file that
+could not be finalized: the state is `Failed(RecordingLost)` with an `IllegalStateException` as `cause`, and the
+path is kept, never an `Interrupted` that names it. See
 [`03-guide.md`](03-guide.md#when-the-system-ends-a-recording) and
 [`05-platform-notes.md`](05-platform-notes.md#when-the-system-ends-a-recording).
 
@@ -437,7 +440,8 @@ platform could not report free space (in which case the check passes rather than
 unknown).
 
 `RecordingLost` — *since 2.2.0* — means the system ended the recording for `reason` and the file
-could **not** be finalized; `cause` is the finalize failure where there was one. It is carried by
+could **not** be finalized (including one that was deleted or replaced by a directory while it was
+recorded); `cause` is the finalize failure where there was one. It is carried by
 `RecorderState.Failed` only, never returned from a call. The file is kept
 (`Failed.outputPath`) and may be unplayable: an unfinalized MPEG-4 (M4A) file usually is, an AAC
 (ADTS) file usually plays. For a recorder that was only prepared there is no audio, the empty file

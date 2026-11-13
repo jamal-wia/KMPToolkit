@@ -146,6 +146,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   supersedes the parked row before that retry succeeds still withdraws it, as the conflict policy says.
 - `kmptoolkit-audio-recorder` (iOS): deleting a recording no longer removes a directory tree that replaced the output
   file.
+- `kmptoolkit-audio-recorder`: a recording the system ends (storage low, an interruption, a silenced input) no longer
+  ends as `Interrupted` for a file that was deleted or replaced by a directory meanwhile; it fails as
+  `Failed(RecordingLost(reason, cause), outputPath)` and keeps the path, as `stop()` does for the same situation.
 - `kmptoolkit-scheduler` (iOS): a `schedule` cancelled while the notification center was adding the request
   no longer leaves the alarm armed; the request is removed before the cancellation propagates.
 - `kmptoolkit-scheduler` (Android): a `getSystemService(ALARM_SERVICE)` that throws (a restarting system server) no
