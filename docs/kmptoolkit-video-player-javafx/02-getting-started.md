@@ -24,11 +24,23 @@ kotlin {
 }
 ```
 
-With the BOM, drop the versions:
+With the BOM, drop the versions and name the BOM in every source set that declares a dependency:
 
 ```kotlin
-implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-implementation("io.github.jamal-wia:kmptoolkit-video-player-javafx")
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-video-player")
+            implementation("io.github.jamal-wia:kmptoolkit-video-player-compose")
+        }
+
+        jvmMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-video-player-javafx")
+        }
+    }
+}
 ```
 
 ## 2. Add the OpenJFX runtime

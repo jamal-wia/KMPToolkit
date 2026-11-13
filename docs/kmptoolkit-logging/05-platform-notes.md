@@ -52,8 +52,8 @@ Things to know:
   module's common tests never touch `platformLogSink()` for exactly this reason. The tests that
   create it are the Android host tests (`PlatformLogSinkStackTraceTest`, `PlatformLogSinkLongChainTest`),
   which run under Robolectric, where `android.util.Log` is a working shadow that records what the sink
-  passes to it, and the iOS tests (`PlatformLogSinkIosChainTest`, `PlatformLogSinkIosConcurrencyTest`),
-  where standard output is real and is redirected to a file.
+  passes to it, and the iOS tests: `PlatformLogSinkIosChainTest` calls it and checks only that it
+  returns, `PlatformLogSinkIosConcurrencyTest` redirects standard output to a file and reads what it wrote.
 
 ## iOS
 

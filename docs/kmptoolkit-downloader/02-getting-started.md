@@ -40,7 +40,8 @@ data object LanguageModel : DownloadUnit {
 - **`relativePath`** is relative to the storage's own base directory — you never construct an
   absolute path yourself.
 - **`group` is a getter** (`get() =`), not a stored value: the group's constructor lists this unit, and two
-  objects that read each other while they are being created leave one of them null.
+  objects that read each other while they are being created leave one of them unassigned (it reads as null on
+  the JVM).
 
 ## 3. Declare a group
 

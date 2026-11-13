@@ -6,12 +6,20 @@ rate — that is one thing this module does *not* ask you to remember.
 ## 1. Add the dependency
 
 ```kotlin
-dependencies {
-    implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-    implementation("io.github.jamal-wia:kmptoolkit-accelerometer")
+// build.gradle.kts of your shared module
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-accelerometer")
+        }
 
-    // Only if you want the ScriptedAccelerometer double (step 4)
-    testImplementation("io.github.jamal-wia:kmptoolkit-accelerometer-testing")
+        // Only if you want the ScriptedAccelerometer double (step 4)
+        commonTest.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-accelerometer-testing")
+        }
+    }
 }
 ```
 

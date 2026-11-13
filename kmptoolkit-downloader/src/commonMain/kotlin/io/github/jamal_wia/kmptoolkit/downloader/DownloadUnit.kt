@@ -100,7 +100,8 @@ public interface DownloadUnit {
      * several units (a model plus a companion file it needs), and a unit belongs to exactly one.
      *
      * When the group's own initialiser lists this unit (an enum entry naming a data object), declare this as a
-     * getter; a stored value read during the group's initialisation is null.
+     * getter; a stored value read during the group's initialisation has not been assigned yet (it reads as
+     * null on the JVM).
      */
     public val group: ResourceGroup
 }

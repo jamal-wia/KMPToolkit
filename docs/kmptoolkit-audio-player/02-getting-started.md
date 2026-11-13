@@ -18,11 +18,22 @@ kotlin {
 }
 ```
 
-With the BOM, drop the version:
+With the BOM, drop the version and name the BOM in every source set that declares a dependency:
 
 ```kotlin
-implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-implementation("io.github.jamal-wia:kmptoolkit-audio-player")
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-audio-player")
+        }
+
+        commonTest.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-audio-player-testing")
+        }
+    }
+}
 ```
 
 No permission or manifest entry is needed for local playback. Streaming over plain `http://` does
