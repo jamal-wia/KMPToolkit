@@ -338,12 +338,22 @@ Every collaborator but `context` and `storage` has a default:
 - **`config`** — see `AndroidPermissionConfig`.
 - **`logger`** — where an undeclared permission, a dialog that could not be shown, an unreadable flag
   and a launcher failure are reported. A flag the storage cannot read, write or remove is treated as
-  not set and logged as a warning once per permission (or flag) for the controller's lifetime, so a
+  not set by the controller that met the failure (another controller over the same storage is the
+  exception, below) and logged as a warning once per permission (or flag) for the controller's lifetime, so a
   storage that is down is visible without a line on every check. A refusal flag that could not be removed
   when the permission was granted is remembered by the controller, read as absent and removed again at
   the next read, so a later system reset reads as if never refused; a refusal made after that is recorded
   as usual. If the process dies before the storage recovers, the flags can be read again until the next
   check that sees the permission granted removes them.
+
+  That memory belongs to the one controller, not to the storage. A second controller over the same
+  storage (a controller per screen, or another process of the app) does not know the removal failed:
+  when the storage failed at the one check that saw the permission granted, the system then reset the
+  permission, and the second controller is asked next, it reads the stale flags as a real refusal and
+  answers `PermanentlyDenied` (a way to Settings) where the platform would still show its dialog. It
+  heals the moment any controller over that storage next checks the permission granted or reads it
+  again after the storage recovers (the controller that met the failure then removes the flags for
+  everyone). Use one controller per storage, or accept this window.
 
 ### `AndroidPermissionConfig` (Android only)
 
