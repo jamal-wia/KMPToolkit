@@ -281,4 +281,66 @@ class AndroidCrashPointsRound8Test {
 
     @Test
     fun `a death before any boundary of an archive download leaves nothing torn and the restart resumes`() = sweep("archive") { archive() }
+
+    /**
+     * Q2: the directory as 4.0.0 left it, laid out by hand from the documented layout (docs 05-platform-notes, unchanged
+     * since 4.0.0 as are `UnitFileLayout` names and the `sha256:<hex>` record): `tmp/<id>.tmp` partial, `tmp/<id>.tmp.complete`,
+     * `tmp/expect/<id>.sha256`, `tmp/staging-<id>/` and a trash entry. A new engine resumes the partial from its size,
+     * commits a complete file with a right record without any transfer, and a complete file that fails its record is
+     * deleted and fetched once more.
+     */
+    private fun legacyBase(scenario: Scenario, fixture: (File) -> Unit) {
+        root.deleteRecursively()
+        File(root, "tmp/staging-${scenario.unit.id}/stale").apply { parentFile!!.mkdirs() }.writeText("a 4.0.0 extraction left by a kill")
+        fixture(root)
+    }
+
+    private fun record(root: File, scenario: Scenario, hex: String) {
+        File(root, "tmp/expect/${scenario.unit.id}.sha256").apply { parentFile!!.mkdirs() }.writeText("sha256:$hex\n")
+    }
+
+    private suspend fun restartOver(scenario: Scenario): Pair<Downloader, Port> {
+        val storage2 = Death(newStorage(), 0)
+        val port2 = Port(storage2, scenario.bytes, scenario.unit.sha256!!)
+        val engine2: Downloader = engine(storage2, port2, scenario.unit.group)
+        withContext(Dispatchers.Default) { withTimeout(60_000) { engine2.ensureAvailable(scenario.unit) } }
+        return engine2 to port2
+    }
+
+    @Test
+    fun `a 4_0_0 partial with its record is resumed from its size and committed`() = runBlocking<Unit> {
+        val scenario: Scenario = opaque()
+        legacyBase(scenario) { base: File ->
+            File(base, "tmp/${scenario.unit.id}.tmp").apply { parentFile!!.mkdirs() }.writeBytes(scenario.bytes.copyOf(40_000))
+            record(base, scenario, scenario.unit.sha256!!.hex)
+        }
+        val (engine2: Downloader, port2: Port) = restartOver(scenario)
+        assertTrue(scenario.bytes.contentEquals(File(engine2.pathOf(scenario.unit)).readBytes()))
+        assertEquals(1, port2.enqueues.get())
+        assertEquals(emptyList(), litter().filterNot { it.startsWith("tmp/staging-") }, "4.0.0 temp files left after the commit")
+    }
+
+    @Test
+    fun `a 4_0_0 complete file with a right record is committed without a transfer`() = runBlocking<Unit> {
+        val scenario: Scenario = opaque()
+        legacyBase(scenario) { base: File ->
+            File(base, "tmp/${scenario.unit.id}.tmp.complete").apply { parentFile!!.mkdirs() }.writeBytes(scenario.bytes)
+            record(base, scenario, scenario.unit.sha256!!.hex)
+        }
+        val (engine2: Downloader, port2: Port) = restartOver(scenario)
+        assertTrue(scenario.bytes.contentEquals(File(engine2.pathOf(scenario.unit)).readBytes()))
+        assertEquals(0, port2.enqueues.get())
+    }
+
+    @Test
+    fun `a 4_0_0 complete file that fails its record is deleted and fetched once more`() = runBlocking<Unit> {
+        val scenario: Scenario = opaque()
+        legacyBase(scenario) { base: File ->
+            File(base, "tmp/${scenario.unit.id}.tmp.complete").apply { parentFile!!.mkdirs() }.writeBytes(scenario.bytes.reversedArray())
+            record(base, scenario, scenario.unit.sha256!!.hex)
+        }
+        val (engine2: Downloader, port2: Port) = restartOver(scenario)
+        assertTrue(scenario.bytes.contentEquals(File(engine2.pathOf(scenario.unit)).readBytes()), "the bad bytes were committed")
+        assertEquals(1, port2.enqueues.get())
+    }
 }
