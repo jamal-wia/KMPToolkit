@@ -30,7 +30,8 @@ import org.jetbrains.kotlin.gradle.dsl.abi.ExperimentalAbiValidation
  * plugin, exactly as `Paginator/paginator-core/build.gradle.kts` already does.
  *
  * Test tasks get a short `java.io.tmpdir` on Windows when `-Pkmptoolkit.windowsTestTmpDir=<folder>`
- * is given — see [shortenWindowsTestTmpDir]; off by default.
+ * is given — see [shortenWindowsTestTmpDir]; off by default. Every `-Pkmptoolkit.test.<knob>=<value>` Gradle
+ * property reaches the test JVMs as a system property and is printed once per test task — see [forwardTestKnobs].
  *
  * Every module also gets `checkPathHygiene`, attached to `check`: a lexical scan of its sources for
  * file-separator and POSIX assumptions that break on Windows — see [registerPathHygieneCheck] and
@@ -50,6 +51,7 @@ class LibraryConventionPlugin : Plugin<Project> {
             pluginManager.apply("com.android.kotlin.multiplatform.library")
 
             shortenWindowsTestTmpDir()
+            forwardTestKnobs()
             registerPathHygieneCheck()
             registerTimingHygieneCheck()
 
