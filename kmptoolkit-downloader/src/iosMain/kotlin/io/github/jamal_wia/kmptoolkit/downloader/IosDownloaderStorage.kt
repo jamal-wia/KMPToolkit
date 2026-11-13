@@ -497,6 +497,18 @@ internal class IosDownloaderStorage(
 
     override fun deleteResource(unit: DownloadUnit) {
         val path: String = getResourcePath(unit)
+        if (unit.format is ResourceFormat.SqliteDatabase) {
+            // The database moves into the trash together with its -wal, -shm and -journal, also when the file is
+            // already gone and only sidecars remain: the next download must never meet the old log. No lock, as for
+            // a tree: the renames are atomic and a commit racing this delete moves whatever it finds.
+            val quarantined: String? = quarantineDatabase(path, unit)
+            if (quarantined != null) {
+                NSFileManager.defaultManager.removeItemAtPath(quarantined, error = null)
+                sweepTrash()
+                logger.i { "Deleted resource $unit at $path" }
+            }
+            return
+        }
         if (!fileExists(path)) return
         if (isDirectoryAt(path)) {
             // Moved aside in one rename, then deleted: a process killed inside the walk leaves the
@@ -540,6 +552,46 @@ internal class IosDownloaderStorage(
         val trash: String = newTrashEntry()
         return if (rename(path, trash) == 0) trash else null
     }
+
+    /**
+     * Moves the database file [path] (or whatever stands at it, a directory or a link included) and then its `-wal`,
+     * `-shm` and `-journal` into one fresh trash entry and returns that entry; null when nothing was there to move (the
+     * entry is removed again). The file goes first: a process killed after it leaves the resource unavailable beside its
+     * complete temp file, which the next commit finishes, never the old file without its log. Nothing of the old
+     * version is deleted here; it leaves with the entry, after the unit lock.
+     *
+     * There is deliberately no [fileExists] pre-check (it follows links; the rename moves the link itself). A rename
+     * that fails while something still stands at its source is retried with a fresh entry, bounded: a sweep of
+     * another unit may have deleted the empty entry in between. A name that stays in place throws, never goes on:
+     * a log left at the path would be replayed into the file that is moved in next.
+     */
+    private fun quarantineDatabase(path: String, unit: DownloadUnit): String? {
+        val parts: List<String> = listOf(path) + SqliteFiles.sidecarsOf(path)
+        val fileName: String = path.substringAfterLast('/')
+        var movedAny = false
+        var trash: String = newTrashEntry()
+        var attempts = 0
+        while (true) {
+            attempts++
+            NSFileManager.defaultManager.createDirectoryAtPath(trash, true, null, null)
+            for (part: String in parts) {
+                // "db" for the file itself, "db-wal", "db-shm" and "db-journal" for its sidecars.
+                val inside = "$trash/db${part.substringAfterLast('/').removePrefix(fileName)}"
+                if (rename(part, inside) == 0) movedAny = true
+            }
+            if (parts.none { part: String -> presentWithoutFollowing(part) }) break
+            check(attempts < MAX_DETACH_ATTEMPTS) { "Could not move the committed $unit aside" }
+            trash = newTrashEntry()
+        }
+        if (movedAny) return trash
+        // Nothing moved into it, so it is empty.
+        NSFileManager.defaultManager.removeItemAtPath(trash, error = null)
+        return null
+    }
+
+    /** True when something stands at [path], a dangling link included (lstat: the entry itself, never what it points to). */
+    private fun presentWithoutFollowing(path: String): Boolean =
+        NSFileManager.defaultManager.attributesOfItemAtPath(path, error = null) != null
 
     override suspend fun commitResource(
         unit: DownloadUnit,
@@ -640,6 +692,12 @@ internal class IosDownloaderStorage(
         } else {
             (unit.format as? ResourceFormat.SqliteDatabase)?.let { format: ResourceFormat.SqliteDatabase ->
                 verifySqlite(tempFilePath, format)
+                // The previous database leaves WITH its -wal, -shm and -journal, before the new file takes its place:
+                // SQLite would replay an old log into the new file. Every commit of this format runs it, whether or
+                // not the file exists, so sidecars an earlier killed commit left behind are moved aside as well.
+                val destinationPath: String = getResourcePath(unit)
+                createParentDirectory(destinationPath)
+                quarantineDatabase(destinationPath, unit)?.let(onDetached)
             }
             moveFile(
                 tempFilePath = tempFilePath,
