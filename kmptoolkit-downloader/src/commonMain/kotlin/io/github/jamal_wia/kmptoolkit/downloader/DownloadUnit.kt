@@ -122,7 +122,13 @@ public sealed interface ResourceFormat {
      * interrupted extraction also leaves a directory behind. Every entry is extracted, or the commit fails
      * with [ResourceIntegrityException]; an entry that would land outside the directory fails the commit, and so does an
      * archive the file system cannot hold as delivered (a name that is a file and a directory, a name or path that is too
-     * long, two entries it stores as one).
+     * long, two entries it stores as one). An entry name with a leading `/` is not absolute: the empty segment is
+     * dropped and the entry is extracted inside the directory as a relative name (except where the platform's own
+     * zip reader refuses such a name first, see the platform notes).
+     *
+     * Extraction has no bound of its own: no limit on the number of entries or on the extracted size, and a full
+     * disk fails the commit as [DownloadError.Storage]. A host that wants a bound checks the archive size itself,
+     * or gives the unit a [DownloadUnit.sha256] it trusts, which is checked before anything is extracted.
      *
      * The archive must end with its end of central directory record (a comment cut short is tolerated; an archive cut
      * anywhere before the record, its central directory included, fails), and entry names are read as UTF-8 whether

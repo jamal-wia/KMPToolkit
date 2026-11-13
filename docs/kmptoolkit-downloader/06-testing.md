@@ -27,8 +27,10 @@ object identity), and the temp-file rule — a `Partial` file is never committed
 throws `ResourceIntegrityException`. The hash-expectation rules (`beginTempFile` replaces the
 transfer, the record survives a new instance over the same directory, an unreadable record is an
 integrity failure, the record never outlives the temp file) are written down in
-`DownloaderStorage`'s KDoc and exercised by this module's own `DownloaderStorageContractTest`,
-which is a good template.
+`DownloaderStorage`'s KDoc and exercised by `DownloaderStorageContractTest`, which lives in the
+`commonTest` source set of `kmptoolkit-downloader` (the Android and iOS storages each run it through
+a subclass there). It is not part of this module and is not run against `FakeDownloaderStorage`, but it
+is a good template.
 
 ## `FakeDownloaderStorage` and the hash protocol
 
@@ -63,8 +65,15 @@ and then check only `DownloadUnit.sha256`; the fake does not.
 
 The fake does not hash anything, so it cannot tell whether a downloader passed the right hash —
 only that it began the transfer before marking it complete, which `beganWith` lets you assert on.
-Whether bytes match a hash is the real storages' job, covered by the contract test they share
-(`DownloaderStorageContractTest`, run on both platforms).
+Whether bytes match a hash is the real storages' job, covered by `DownloaderStorageContractTest` in
+`kmptoolkit-downloader`'s own tests (run on both platforms against the Android and iOS storages, not
+against the fake).
+
+The fake cannot model a partial transfer's size or location: for a unit seeded as
+`TempFileState.Partial` it still answers `getTempFileSize` with 0 and `getTempFilePath` with `""`,
+and `getResourceSize` returns the value given at construction whether or not the unit is available.
+A downloader test over the fake therefore never sees a resume offset; test that against a real
+storage.
 
 ## Testing code that only asks
 

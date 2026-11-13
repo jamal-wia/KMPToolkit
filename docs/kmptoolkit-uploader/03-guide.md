@@ -201,11 +201,13 @@ This is the "transactional" half, and it needs the queue and your domain tables 
 database:
 
 ```kotlin
+val transactionRunner: TransactionRunner = myDatabaseTransactionRunner
+
 val uploader: UploaderEngine = createUploaderEngine(
     store = store,
     handlers = handlers,
     scope = scope,
-    transactionRunner = myDatabaseTransactionRunner,
+    transactionRunner = transactionRunner,
 )
 
 transactionRunner.inTransaction {
