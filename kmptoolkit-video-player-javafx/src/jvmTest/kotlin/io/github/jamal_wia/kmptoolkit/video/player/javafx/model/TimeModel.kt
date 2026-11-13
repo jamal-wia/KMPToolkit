@@ -64,6 +64,26 @@ internal class TimeScript {
             field = value
         }
 
+    /**
+     * The stale first publication after a resume (opt-in, off by default; every test written before it is unchanged).
+     *
+     * Measured on real media (D2 round 11, the NudgeTimeline probe, 14 of 14 resumes): after a `play()` of a paused
+     * player the first reported time carries a stale value, and a fresh one follows 2 to 5 ms later. The stale value is
+     * about a clip's worth behind the decoder (424 ms in the probe). With this set, the first sample TAKEN BY A TICK
+     * after a `play()` that started a decoder which was not running publishes `max(0, native - lagMs)` instead of the
+     * native position, and a second, ordinary sample (the load profile applies to it) is taken [StaleFirstPublication.freshAfterMs]
+     * later. Later ticks are unchanged.
+     */
+    var staleFirstPublicationAfterPlay: StaleFirstPublication? = null
+
+    /** [staleFirstPublicationAfterPlay]: how far behind the stale value is, and how soon the fresh one follows. */
+    class StaleFirstPublication(val lagMs: Double, val freshAfterMs: Double) {
+        init {
+            require(lagMs >= 0.0 && lagMs.isFinite()) { "lagMs must be finite and not negative, was $lagMs" }
+            require(freshAfterMs > 0.0 && freshAfterMs.isFinite()) { "freshAfterMs must be finite and positive, was $freshAfterMs" }
+        }
+    }
+
     private var loadProfile: LoadProfile? = null
 
     private class LoadProfile(
@@ -120,6 +140,7 @@ internal class TimeScript {
             sampleIntervalMs = source.sampleIntervalMs
             publishDelayMs = source.publishDelayMs
             nearStartMs = source.nearStartMs
+            staleFirstPublicationAfterPlay = source.staleFirstPublicationAfterPlay
             source.loadProfile?.let { p -> load(seed ?: p.seed, p.minDelayMs, p.maxDelayMs, p.dropFraction, p.read) }
         }
     }
@@ -210,6 +231,9 @@ internal class TimeModel(
     private var endGeneration: Int = 0
     private var replanQueued: Boolean = false
 
+    // A play() started a decoder that was not running and the first tick after it has not taken its stale sample yet.
+    private var staleFirstArmed: Boolean = false
+
     /** How many samples were taken so far, dropped ones included. */
     var samplesTaken: Int = 0
         private set
@@ -276,13 +300,21 @@ internal class TimeModel(
 
     override fun onReady(player: ScriptedNativePlayer) = change { ready = true }
 
-    override fun onPlay(player: ScriptedNativePlayer) = change {
-        playRequested = true
-        ended = false
-        ownRate = player.rate
+    override fun onPlay(player: ScriptedNativePlayer) {
+        // This part's hooks run before the hazard part's, so isRunning still says what it was before this play().
+        val wasRunning: Boolean = isRunning
+        change {
+            playRequested = true
+            ended = false
+            ownRate = player.rate
+            if (!wasRunning) staleFirstArmed = script.staleFirstPublicationAfterPlay != null
+        }
     }
 
-    override fun onPause(player: ScriptedNativePlayer) = change { playRequested = false }
+    override fun onPause(player: ScriptedNativePlayer) = change {
+        playRequested = false
+        staleFirstArmed = false
+    }
 
     override fun onRateChange(player: ScriptedNativePlayer, old: Double, new: Double) = change { ownRate = new }
 
@@ -358,14 +390,23 @@ internal class TimeModel(
                 if (generation == samplingGeneration) sampling = false
                 return@after
             }
-            takeSample()
+            takeSample(fromTick = true)
             scheduleTick(generation)
         }
     }
 
-    private fun takeSample() {
+    private fun takeSample(fromTick: Boolean = false) {
         val value: Double = nativePositionMs
         samplesTaken++
+        val stale: TimeScript.StaleFirstPublication? = script.staleFirstPublicationAfterPlay
+        if (fromTick && staleFirstArmed && stale != null) {
+            // A stale first publication (see TimeScript.staleFirstPublicationAfterPlay): the old value now, a fresh sample soon after.
+            staleFirstArmed = false
+            val staleValue: Double = (value - stale.lagMs).coerceAtLeast(0.0)
+            host.after(script.publishDelayMs) { publish(staleValue) }
+            host.after(stale.freshAfterMs) { takeSample() }
+            return
+        }
         val delayMs: Double? = script.nextPublishDelayMs()
         if (delayMs == null) {
             samplesDropped++
