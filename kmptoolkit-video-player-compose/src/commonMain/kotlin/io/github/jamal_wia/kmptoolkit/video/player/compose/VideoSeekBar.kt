@@ -39,7 +39,7 @@ import kotlin.math.roundToLong
  * While dragging, [onScrub] reports the position under the finger (for a time label, or to hold
  * the controls open) and `null` when the drag ends or is cancelled — including when the bar stops
  * being draggable mid-drag (the player fails, the duration becomes unknown, [enabled] turns `false`)
- * or leaves the composition. Such a cancelled drag does not seek.
+ * or leaves the composition, or the bar's layout direction or thumb size changes. Such a cancelled drag does not seek.
  *
  * **It does not fight position updates.** While dragging, [positionMs] updates are ignored. After
  * a seek the handle stays at the target until [positionMs] next changes, so it does not jump back
@@ -109,25 +109,34 @@ public fun VideoSeekBar(
             }
             .pointerInput(rtl, thumbRadius) {
                 val padding: Float = thumbRadius.toPx()
-                detectHorizontalDragGestures(
-                    onDragStart = { offset ->
-                        val fraction: Float = fractionAt(offset.x, size.width.toFloat(), padding, rtl)
-                        state.dragFraction = fraction
-                        latestOnScrub.value((fraction * latestDuration.value).roundToLong())
-                    },
-                    onDragEnd = { state.dragFraction?.let(::commit) },
-                    onDragCancel = {
+                // A key change of this block (layout direction, thumb size) cancels the drag by cancelling the
+                // coroutine, without calling onDragCancel: close the scrub here so nothing stays frozen.
+                try {
+                    detectHorizontalDragGestures(
+                        onDragStart = { offset ->
+                            val fraction: Float = fractionAt(offset.x, size.width.toFloat(), padding, rtl)
+                            state.dragFraction = fraction
+                            latestOnScrub.value((fraction * latestDuration.value).roundToLong())
+                        },
+                        onDragEnd = { state.dragFraction?.let(::commit) },
+                        onDragCancel = {
+                            state.dragFraction = null
+                            latestOnScrub.value(null)
+                        },
+                        onHorizontalDrag = { change, _ ->
+                            change.consume()
+                            val fraction: Float =
+                                fractionAt(change.position.x, size.width.toFloat(), padding, rtl)
+                            state.dragFraction = fraction
+                            latestOnScrub.value((fraction * latestDuration.value).roundToLong())
+                        },
+                    )
+                } finally {
+                    if (state.dragFraction != null) {
                         state.dragFraction = null
                         latestOnScrub.value(null)
-                    },
-                    onHorizontalDrag = { change, _ ->
-                        change.consume()
-                        val fraction: Float =
-                            fractionAt(change.position.x, size.width.toFloat(), padding, rtl)
-                        state.dragFraction = fraction
-                        latestOnScrub.value((fraction * latestDuration.value).roundToLong())
-                    },
-                )
+                    }
+                }
             }
     }
 
