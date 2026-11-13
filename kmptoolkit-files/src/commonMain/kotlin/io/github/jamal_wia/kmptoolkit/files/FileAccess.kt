@@ -10,7 +10,9 @@ package io.github.jamal_wia.kmptoolkit.files
  *
  * Failures are typed [FileError]s inside [FileResult]; no function throws except [IllegalArgumentException] where
  * stated. A relative, empty or NUL-containing path is [FileError.InvalidPath] (a query answers `null`/`false`).
- * Paths are passed to the platform as given: no lexical normalization, no case folding.
+ * Paths are passed to the platform as given, except that trailing separators are dropped first (a root keeps its own):
+ * `d/` and `d` name the same entry on every platform, and a trailing separator never makes a symbolic link be followed.
+ * Nothing else is normalized and nothing is case-folded. An error names the path without trailing separators.
  *
  * @since 5.0.0
  */

@@ -74,6 +74,13 @@ removes the name at once.
   for names you construct.
 - NTFS counts a name in 255 UTF-16 code units; see the next section.
 
+## Trailing separators
+
+The JDK drops a trailing separator while POSIX hands it to the kernel, where `lstat("link/")` follows the link and
+`f/` is `ENOTDIR`. The engine drops trailing separators before any platform call, so iOS, Android API 24-25 and the JVM
+behave the same way (the JVM's way). A UNC root written with only a trailing separator (`\\srv\share\`) loses it too;
+the JDK parses both spellings as the same root (not verified on Windows).
+
 ## Name length: 255 bytes, characters or code units
 
 `FileNames.MAX_NAME_BYTES` (255 UTF-8 bytes) is the **portable** limit `isPlainName` applies on every

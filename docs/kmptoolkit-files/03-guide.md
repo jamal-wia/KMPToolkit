@@ -207,7 +207,8 @@ name or the call throws `IllegalArgumentException`.
   bytes at most, no `/` or NUL or unpaired surrogate, and on Windows also no `\ <>:"|?*`, no control
   characters, no trailing `.` or space, no reserved device name (`CON`, `NUL`, `COM1`…, also
   `CON .txt`). Use it on anything that comes from outside before you join it onto a path.
-- `FileAccess` paths are **passed to the platform as given**: no normalisation, no case folding.
+- `FileAccess` paths are **passed to the platform as given**: no normalisation, no case folding. The one exception: trailing
+  separators are dropped first, so `d/` and `d` name the same entry on every platform (a trailing separator never follows a link).
   Only `PathKey.of(path, CaseFolding.Always)` folds, for in-memory comparison and lock keys — never
   persist its output.
 - A relative, empty or NUL-containing path is `FileError.InvalidPath`; queries (`metadata`, `exists`)

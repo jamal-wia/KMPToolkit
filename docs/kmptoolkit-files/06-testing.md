@@ -195,7 +195,7 @@ checks cover metadata kinds and links, `list`, `createDirectories` (including co
 that resolves relative paths against a base fails), every `writeAtomically` outcome (replace, empty content, missing parent, directory
 target, `Fail` (including over a dangling link), links, temp directory, no leftover, concurrent writers), `move` (including
 `Fail` of a directory or a link, and which path an error names), `delete`,
-`deleteRecursively` (including concurrent deleters, cancellation and a link to a directory as the root), `treeSize`, `sweep` (age, cancellation, old symbolic links),
+`deleteRecursively` (including concurrent deleters, cancellation and a link to a directory as the root), trailing separators (`aTrailingSeparatorNamesTheEntryItself`: a path with a trailing separator names the entry itself, links included), `treeSize`, `sweep` (age, cancellation, old symbolic links),
 `freeSpaceBytes`, `exists` and `withIo`. The two `withIo` checks verify the extension, which no implementation can
 override, not the implementation under test.
 

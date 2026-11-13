@@ -131,6 +131,7 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         deleteRecursivelyOfAnAbsentPathIsSuccess()
         deleteRecursivelyDoesNotFollowSymbolicLinks()
         deleteRecursivelyOfALinkToADirectoryRemovesOnlyTheLink()
+        aTrailingSeparatorNamesTheEntryItself()
         deleteRecursivelyByConcurrentDeletersAllSucceed()
         deleteRecursivelyStopsWhenCancelled()
         treeSizeSumsTheRegularFiles()
@@ -696,6 +697,43 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
             expect(files.metadata(p("link")) == null, "the link is gone")
             expect(text("outside", "keep") == "precious", "what the link pointed at is untouched, was ${text("outside", "keep")}")
         }
+
+    /**
+     * A trailing separator names the entry itself, on every platform: it neither requires a directory nor makes a
+     * symbolic link be followed (`readBytes("f/")` reads `f`, `delete("link/")` removes only the link), and an error
+     * names the path without it. The link part runs only when the fixture can create symbolic links.
+     *
+     * @since 5.0.0
+     */
+    public fun aTrailingSeparatorNamesTheEntryItself(): Unit = scenario("aTrailingSeparatorNamesTheEntryItself") {
+        val sep: String = separator.toString()
+        write("f", "x")
+        expect(text("f$sep") == "x", "readBytes of a file with a trailing separator reads the file, was ${text("f$sep")}")
+        expect(files.metadata(p("f") + sep)?.kind == FileKind.RegularFile, "metadata of a file with a trailing separator is the file")
+        ok(files.writeAtomically(p("n") + sep, "y".encodeToByteArray()), "writeAtomically with a trailing separator")
+        expect(files.metadata(p("n"))?.kind == FileKind.RegularFile, "the written entry is a regular file")
+        ok(files.move(p("n") + sep, p("m") + sep), "move with trailing separators")
+        expect(text("m") == "y", "the moved file holds its content, was ${text("m")}")
+        expect(files.metadata(p("n")) == null, "the old name is gone")
+        ok(files.delete(p("f") + sep), "delete of a file with a trailing separator")
+        expect(files.metadata(p("f")) == null, "the file is gone")
+        val absent: FileError.NotFound = failure(files.readBytes(p("absent") + sep, 10), "readBytes of an absent file with a trailing separator")
+        expect(absent.path == p("absent"), "the error names the path without the separator, was ${absent.path}")
+
+        val link: (String, String) -> Unit = linkMaker() ?: return@scenario
+        mkdir("d")
+        write("d/in", "keep")
+        link(p("l"), p("d"))
+        expect(files.metadata(p("l") + sep)?.kind == FileKind.SymbolicLink, "metadata of a link with a trailing separator is the link")
+        expect(files.treeSize(p("l") + sep).getOrNull() == 0L, "treeSize of a link with a trailing separator is 0")
+        ok(files.deleteRecursively(p("l") + sep), "deleteRecursively of a link with a trailing separator")
+        expect(files.metadata(p("l")) == null, "the link is gone")
+        expect(text("d", "in") == "keep", "what the link pointed at is untouched, was ${text("d", "in")}")
+        link(p("l"), p("d"))
+        ok(files.delete(p("l") + sep), "delete of a link with a trailing separator")
+        expect(files.metadata(p("l")) == null, "the link is gone after delete")
+        expect(text("d", "in") == "keep", "what the link pointed at is untouched after delete, was ${text("d", "in")}")
+    }
 
     /** Concurrent deletes of one tree all succeed. */
     public fun deleteRecursivelyByConcurrentDeletersAllSucceed(): Unit = scenario("deleteRecursivelyByConcurrentDeletersAllSucceed") {

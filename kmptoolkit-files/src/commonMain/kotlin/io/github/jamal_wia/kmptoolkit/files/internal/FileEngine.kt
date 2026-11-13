@@ -125,19 +125,22 @@ internal class FileEngine(
 
     override fun metadata(path: String, followLinks: Boolean): FileMetadata? {
         if (!isValid(path)) return null
-        return metadataOrNull(path, followLinks)
+        val target: String = rules.withoutTrailingSeparators(path)
+        return metadataOrNull(target, followLinks)
     }
 
     override fun list(directory: String): FileResult<List<String>> {
         if (!isValid(directory)) return invalid(directory)
-        return attempt(directory) {
-            FileResult.Success((ops.list(directory) ?: emptyList()).sorted())
+        val target: String = rules.withoutTrailingSeparators(directory)
+        return attempt(target) {
+            FileResult.Success((ops.list(target) ?: emptyList()).sorted())
         }
     }
 
     override fun freeSpaceBytes(path: String): Long? {
         if (!isValid(path)) return null
-        var current: String = path
+        val target: String = rules.withoutTrailingSeparators(path)
+        var current: String = target
         while (true) {
             if (metadataOrNull(current, true) != null) {
                 return try {
@@ -156,11 +159,12 @@ internal class FileEngine(
         val created: MutableList<String> = ArrayList()
         val made: FileResult<Unit> = createDirectoriesTracking(path, created)
         if (made is FileResult.Failure || !durable || created.isEmpty()) return made
-        return attempt(path) {
+        val target: String = rules.withoutTrailingSeparators(path)
+        return attempt(target) {
             try {
                 syncCreatedLevels(created, full = true)
             } catch (e: FileOpException) {
-                return FileResult.Failure(FileError.Io(path, (e.error as? FileError.Io)?.platformCode, e))
+                return FileResult.Failure(FileError.Io(target, (e.error as? FileError.Io)?.platformCode, e))
             }
             FileResult.Success(Unit)
         }
@@ -183,9 +187,10 @@ internal class FileEngine(
      */
     private fun createDirectoriesTracking(path: String, created: MutableList<String>): FileResult<Unit> {
         if (!isValid(path)) return invalid(path)
-        return attempt(path) {
+        val target: String = rules.withoutTrailingSeparators(path)
+        return attempt(target) {
             val missing: ArrayDeque<String> = ArrayDeque()
-            var current: String = path
+            var current: String = target
             while (true) {
                 val found: FileMetadata? = ops.metadata(current, true)
                 if (found != null) {
@@ -219,19 +224,20 @@ internal class FileEngine(
             "maxBytes must be in 0..${FileAccess.MAX_READ_BYTES}, was $maxBytes"
         }
         if (!isValid(path)) return invalid(path)
-        return attempt(path) {
-            val found: FileMetadata = ops.metadata(path, true) ?: return FileResult.Failure(FileError.NotFound(path))
+        val target: String = rules.withoutTrailingSeparators(path)
+        return attempt(target) {
+            val found: FileMetadata = ops.metadata(target, true) ?: return FileResult.Failure(FileError.NotFound(target))
             when (found.kind) {
-                FileKind.Directory -> return FileResult.Failure(FileError.IsADirectory(path))
+                FileKind.Directory -> return FileResult.Failure(FileError.IsADirectory(target))
                 FileKind.RegularFile -> Unit
                 // Opening a pipe or a device could block forever.
-                else -> return FileResult.Failure(FileError.Unsupported(path))
+                else -> return FileResult.Failure(FileError.Unsupported(target))
             }
             if (found.sizeBytes > maxBytes) {
-                return FileResult.Failure(FileError.TooLarge(path, found.sizeBytes, maxBytes))
+                return FileResult.Failure(FileError.TooLarge(target, found.sizeBytes, maxBytes))
             }
             val limit: Int = (maxBytes + 1).toInt()
-            val file: ReadableFile = ops.openForRead(path)
+            val file: ReadableFile = ops.openForRead(target)
             try {
                 var buffer: ByteArray = ByteArray(minOf(found.sizeBytes + 1, limit.toLong()).toInt().coerceAtLeast(1))
                 var total: Int = 0
@@ -245,7 +251,7 @@ internal class FileEngine(
                     total += read
                 }
                 if (total > maxBytes) {
-                    FileResult.Failure(FileError.TooLarge(path, total.toLong(), maxBytes))
+                    FileResult.Failure(FileError.TooLarge(target, total.toLong(), maxBytes))
                 } else {
                     FileResult.Success(buffer.copyOf(total))
                 }
@@ -272,11 +278,13 @@ internal class FileEngine(
 
     override fun writeAtomically(path: String, bytes: ByteArray, options: WriteOptions): FileResult<Unit> {
         if (!isValid(path)) return invalid(path)
-        val tempDirectoryOption: String? = options.tempDirectory
-        if (tempDirectoryOption != null && !isValid(tempDirectoryOption)) return invalid(tempDirectoryOption)
-        val parent: String = rules.parentOf(path) ?: return invalid(path)
+        val requestedTempDirectory: String? = options.tempDirectory
+        if (requestedTempDirectory != null && !isValid(requestedTempDirectory)) return invalid(requestedTempDirectory)
+        val target: String = rules.withoutTrailingSeparators(path)
+        val tempDirectoryOption: String? = requestedTempDirectory?.let { rules.withoutTrailingSeparators(it) }
+        val parent: String = rules.parentOf(target) ?: return invalid(path)
         val tempDirectory: String = tempDirectoryOption ?: parent
-        return attempt(path) {
+        return attempt(target) {
             // The levels this call created below the target: SyncedWithDirectory must make each one durable.
             val createdLevels: MutableList<String> = ArrayList()
             if (options.createParentDirectories) {
@@ -287,10 +295,10 @@ internal class FileEngine(
                     if (madeTemp is FileResult.Failure) return madeTemp
                 }
             }
-            val existing: FileMetadata? = ops.metadata(path, false)
-            if (existing?.kind == FileKind.Directory) return FileResult.Failure(FileError.IsADirectory(path))
+            val existing: FileMetadata? = ops.metadata(target, false)
+            if (existing?.kind == FileKind.Directory) return FileResult.Failure(FileError.IsADirectory(target))
             if (options.existing == ExistingFile.Fail && existing != null) {
-                return FileResult.Failure(FileError.AlreadyExists(path))
+                return FileResult.Failure(FileError.AlreadyExists(target))
             }
             val prefix: String = options.tempPrefix ?: config.tempPrefix
             val (temp: String, file: WritableFile) = labeled(tempDirectory) { createTemp(tempDirectory, prefix, options.protection) }
@@ -298,7 +306,7 @@ internal class FileEngine(
             try {
                 var closed: Boolean = false
                 try {
-                    labeled(path) {
+                    labeled(target) {
                         file.write(bytes, 0, bytes.size)
                         when (options.durability) {
                             Durability.Buffered -> Unit
@@ -311,10 +319,10 @@ internal class FileEngine(
                 } finally {
                     if (!closed) closeQuietly(file)
                 }
-                labeled(path) {
+                labeled(target) {
                     when (options.existing) {
-                        ExistingFile.Replace -> ops.rename(temp, path)
-                        ExistingFile.Fail -> ops.link(temp, path)
+                        ExistingFile.Replace -> ops.rename(temp, target)
+                        ExistingFile.Fail -> ops.link(temp, target)
                     }
                 }
                 if (options.existing == ExistingFile.Fail) {
@@ -349,38 +357,40 @@ internal class FileEngine(
     ): FileResult<Unit> {
         if (!isValid(from)) return invalid(from)
         if (!isValid(to)) return invalid(to)
-        return attempt(from) {
-            val source: FileMetadata = ops.metadata(from, false) ?: return FileResult.Failure(FileError.NotFound(from))
+        val fromTarget: String = rules.withoutTrailingSeparators(from)
+        val toTarget: String = rules.withoutTrailingSeparators(to)
+        return attempt(fromTarget) {
+            val source: FileMetadata = ops.metadata(fromTarget, false) ?: return FileResult.Failure(FileError.NotFound(fromTarget))
             if (options.createParentDirectories) {
-                val parent: String = rules.parentOf(to) ?: return invalid(to)
+                val parent: String = rules.parentOf(toTarget) ?: return invalid(to)
                 val made: FileResult<Unit> = createDirectories(parent)
                 if (made is FileResult.Failure) return made
             }
-            if (ops.metadata(to, false)?.kind == FileKind.Directory) {
-                return FileResult.Failure(FileError.IsADirectory(to))
+            if (ops.metadata(toTarget, false)?.kind == FileKind.Directory) {
+                return FileResult.Failure(FileError.IsADirectory(toTarget))
             }
             if (options.existing == ExistingFile.Fail &&
                 (source.kind == FileKind.Directory || source.kind == FileKind.SymbolicLink)
             ) {
                 // No atomic no-replace rename of a directory exists, and link(2) follows a symbolic link on Darwin
                 // (and Files.createLink on a macOS JVM): a no-replace move would turn the link into a file.
-                return FileResult.Failure(FileError.Unsupported(from))
+                return FileResult.Failure(FileError.Unsupported(fromTarget))
             }
             try {
                 when (options.existing) {
-                    ExistingFile.Replace -> ops.rename(from, to)
+                    ExistingFile.Replace -> ops.rename(fromTarget, toTarget)
                     ExistingFile.Fail -> {
-                        ops.link(from, to)
-                        // [to] holds the bytes: a failed removal of [from] is not a failure of the move.
-                        removeQuietly(from)
+                        ops.link(fromTarget, toTarget)
+                        // [toTarget] holds the bytes: a failed removal of [fromTarget] is not a failure of the move.
+                        removeQuietly(fromTarget)
                     }
                 }
                 FileResult.Success(Unit)
             } catch (e: FileOpException) {
                 if (e.error is FileError.CrossDevice && options.acrossVolumes && source.kind == FileKind.RegularFile) {
-                    copyAcrossVolumes(from, to, options, cancellation)
+                    copyAcrossVolumes(fromTarget, toTarget, options, cancellation)
                 } else {
-                    FileResult.Failure(moveError(e.error, from, to))
+                    FileResult.Failure(moveError(e.error, fromTarget, toTarget))
                 }
             }
         }
@@ -451,10 +461,11 @@ internal class FileEngine(
 
     override fun delete(path: String): FileResult<Unit> {
         if (!isValid(path)) return invalid(path)
-        return attempt(path) {
-            if (ops.metadata(path, false) == null) return FileResult.Success(Unit)
+        val target: String = rules.withoutTrailingSeparators(path)
+        return attempt(target) {
+            if (ops.metadata(target, false) == null) return FileResult.Success(Unit)
             try {
-                ops.remove(path)
+                ops.remove(target)
             } catch (e: FileOpException) {
                 if (e.error !is FileError.NotFound) throw e
             }
@@ -466,13 +477,14 @@ internal class FileEngine(
 
     override fun deleteRecursively(path: String, cancellation: CancellationCheck): FileResult<Unit> {
         if (!isValid(path)) return invalid(path)
-        return attempt(path) {
+        val target: String = rules.withoutTrailingSeparators(path)
+        return attempt(target) {
             var firstError: FileError? = null
             fun record(error: FileError) {
                 if (firstError == null) firstError = error
             }
             val stack: ArrayDeque<Frame> = ArrayDeque()
-            stack.addLast(Frame(path, false))
+            stack.addLast(Frame(target, false))
             while (stack.isNotEmpty()) {
                 if (cancellation.isCancelled()) return FileResult.Failure(FileError.Cancelled)
                 val frame: Frame = stack.last()
@@ -512,14 +524,14 @@ internal class FileEngine(
             }
             // A root that cannot be examined is not "nothing left": report the error, never Success.
             val left: FileMetadata? = try {
-                ops.metadata(path, false)
+                ops.metadata(target, false)
             } catch (e: FileOpException) {
                 return FileResult.Failure(firstError ?: e.error)
             }
             if (left == null) {
                 FileResult.Success(Unit)
             } else {
-                FileResult.Failure(firstError ?: FileError.DirectoryNotEmpty(path))
+                FileResult.Failure(firstError ?: FileError.DirectoryNotEmpty(target))
             }
         }
     }
@@ -536,10 +548,11 @@ internal class FileEngine(
 
     override fun treeSize(path: String, cancellation: CancellationCheck): FileResult<Long> {
         if (!isValid(path)) return invalid(path)
-        return attempt(path) {
+        val target: String = rules.withoutTrailingSeparators(path)
+        return attempt(target) {
             var total: Long = 0L
             val stack: ArrayDeque<String> = ArrayDeque()
-            stack.addLast(path)
+            stack.addLast(target)
             while (stack.isNotEmpty()) {
                 if (cancellation.isCancelled()) return FileResult.Failure(FileError.Cancelled)
                 val current: String = stack.removeLast()
@@ -569,8 +582,9 @@ internal class FileEngine(
     ): FileResult<Int> {
         require(olderThanMillis >= 0) { "olderThanMillis must not be negative, was $olderThanMillis" }
         if (!isValid(directory)) return invalid(directory)
-        val listed: FileResult<List<String>> = attempt(directory) {
-            FileResult.Success(ops.list(directory) ?: emptyList())
+        val target: String = rules.withoutTrailingSeparators(directory)
+        val listed: FileResult<List<String>> = attempt(target) {
+            FileResult.Success(ops.list(target) ?: emptyList())
         }
         val names: List<String> = when (listed) {
             is FileResult.Failure -> return listed
@@ -583,7 +597,7 @@ internal class FileEngine(
             if (cancellation.isCancelled()) return FileResult.Failure(FileError.Cancelled)
             // The caller's lambda runs outside every catch: its exceptions propagate unchanged.
             if (!match(name)) continue
-            val child: String = rules.join(directory, name)
+            val child: String = rules.join(target, name)
             val found: FileMetadata = metadataOrNull(child, false) ?: continue
             if (found.kind != FileKind.RegularFile && found.kind != FileKind.SymbolicLink) continue
             val modified: Long = found.lastModifiedMillis ?: continue

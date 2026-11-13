@@ -134,6 +134,7 @@ final class io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord { /
 final class io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract { // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract|null[0]
     constructor <init>(kotlin/Function0<io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture>) // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.<init>|<init>(kotlin.Function0<io.github.jamal_wia.kmptoolkit.files.testing.FileAccessFixture>){}[0]
 
+    final fun aTrailingSeparatorNamesTheEntryItself() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.aTrailingSeparatorNamesTheEntryItself|aTrailingSeparatorNamesTheEntryItself(){}[0]
     final fun concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload|concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload(){}[0]
     final fun createDirectoriesByConcurrentCreatorsAllSucceed() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.createDirectoriesByConcurrentCreatorsAllSucceed|createDirectoriesByConcurrentCreatorsAllSucceed(){}[0]
     final fun createDirectoriesCreatesParentsAndIsIdempotent() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.createDirectoriesCreatesParentsAndIsIdempotent|createDirectoriesCreatesParentsAndIsIdempotent(){}[0]
