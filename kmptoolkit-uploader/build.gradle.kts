@@ -67,3 +67,14 @@ kotlin {
         // InMemoryUploaderStore) cross-check the SPI contract instead of one confirming itself.
     }
 }
+
+// The refactor-regression differential (RegressTraceDifferentialAdversarialTest) is steered by three Gradle properties,
+// never by environment variables: -Pkmptoolkit.test.traceDir=<dir>, -Pkmptoolkit.test.coarse=1 and
+// -Pkmptoolkit.test.seeds=<comma list>. They reach the Android host test JVM only, and only when set.
+tasks.withType<Test>().configureEach {
+    if (name == "testAndroidHostTest") {
+        listOf("kmptoolkit.test.traceDir", "kmptoolkit.test.coarse", "kmptoolkit.test.seeds").forEach { key: String ->
+            providers.gradleProperty(key).orNull?.let { value: String -> systemProperty(key, value) }
+        }
+    }
+}

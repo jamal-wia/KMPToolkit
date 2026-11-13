@@ -235,7 +235,6 @@ kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/up
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/MultipartUploadCancelTest.kt:TH1:1
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/MultipartUploadStallTest.kt:TH1:2
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/OutcomeJournalChurnAdversarialTest.kt:TH2:1
-kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/RegressTraceDifferentialAdversarialTest.kt:TH5:3
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/StorageEnvironmentRound9AdversarialTest.kt:TH1:2
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploadHandlerWorkerChaosAdversarialTest.kt:TH1:4
 kmptoolkit-uploader/src/androidHostTest/kotlin/io/github/jamal_wia/kmptoolkit/uploader/UploadHandlerWorkerChaosAdversarialTest.kt:TH2:4
