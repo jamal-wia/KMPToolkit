@@ -35,6 +35,7 @@ class AvPlayerEngineAssetLookupBoss1Test {
     @BeforeTest
     fun setUp() {
         Dispatchers.setMain(Dispatchers.Default)
+        // timing-hygiene-ignore: TH4 create makes the test's own uniquely named directory and deletes it in tearDown
         val base: NSURL = NSURL.fileURLWithPath(NSTemporaryDirectory())
         root = requireNotNull(
             base.URLByAppendingPathComponent("boss1-assets-" + NSProcessInfo.processInfo.globallyUniqueString)?.path
