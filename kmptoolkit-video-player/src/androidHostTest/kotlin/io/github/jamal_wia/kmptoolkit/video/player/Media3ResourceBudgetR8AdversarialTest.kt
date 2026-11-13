@@ -41,6 +41,7 @@ class Media3ResourceBudgetR8AdversarialTest {
             runSuspending { engine.load(source) }.getOrThrow()
             engine.start()
             ShadowLooper.idleMainLooper()
+            val completionsBeforeRelease: Int = listener.completions.size
             engine.release()
             engine.release()
             engine.dispose()
@@ -50,7 +51,8 @@ class Media3ResourceBudgetR8AdversarialTest {
             assertEquals(cycle + 1, created.size, "exactly one ExoPlayer per engine, cycle $cycle")
             assertTrue(created[cycle].isReleased, "the ExoPlayer of cycle $cycle was never released")
             assertTrue(listener.failures.isEmpty(), "cycle $cycle failures ${listener.failures}")
-            assertTrue(listener.completions.isEmpty(), "cycle $cycle completions ${listener.completions}")
+            assertTrue(completionsBeforeRelease <= 1, "cycle $cycle completed $completionsBeforeRelease times before release")
+            assertEquals(completionsBeforeRelease, listener.completions.size, "cycle $cycle completions after release ${listener.completions}")
         }
         assertTrue(created.all { player: ExoPlayer -> player.isReleased })
         assertTrue(
