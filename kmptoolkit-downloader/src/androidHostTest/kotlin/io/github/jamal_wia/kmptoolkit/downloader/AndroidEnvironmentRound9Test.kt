@@ -303,6 +303,51 @@ class AndroidEnvironmentRound9Test {
     }
 
     /**
+     * Q2: a trash entry that cannot be deleted (a locked subdirectory left by an earlier process) and a trash entry that is a
+     * symbolic link to a live directory elsewhere. A commit that replaces a tree and a deleteResource both succeed, the
+     * resource path is right, the live directory keeps its files, and once the lock is gone the next sweep empties the trash.
+     */
+    @Test
+    fun `an undeletable trash entry and a link in the trash block neither a commit nor a delete`() = runBlocking<Unit> {
+        withTimeout(60_000) {
+            val group = Group("g")
+            val oldA: Map<String, ByteArray> = tree("old")
+            val newA: Map<String, ByteArray> = tree("new!")
+            val unitA: TestUnit = archiveUnit(group, "a", "archives/a")
+            val storage: DownloaderStorage = newStorage()
+            stage(storage, unitA, zip(oldA))
+            storage.commitResource(unitA)
+            val locked = File(trashDir, "1/locked").apply { mkdirs() }
+            File(locked, "stuck.bin").writeText("stuck")
+            val restore: AutoCloseable = TestFs.makeUnwritable(locked)
+            restorers += restore
+            Assume.assumeFalse("this user can write into a read-only directory", runCatching { File(locked, "probe").createNewFile() }.getOrDefault(false))
+            val live = File(root, "live-elsewhere").apply { mkdirs() }
+            File(live, "keep.txt").writeText("keep")
+            val link = File(trashDir, "2")
+            val linked: Boolean = runCatching { java.nio.file.Files.createSymbolicLink(link.toPath(), live.toPath()) }.isSuccess
+            Assume.assumeTrue("this host cannot create symbolic links", linked)
+            stage(storage, unitA, zip(newA))
+            storage.commitResource(unitA)
+            val target = File(storage.getResourcePath(unitA))
+            assertTrue(sameTree(newA, treeOf(target)), "the commit did not land beside an undeletable trash entry")
+            assertEquals("keep", File(live, "keep.txt").readText(), "the sweep reached through a link in the trash")
+            assertFalse(java.nio.file.Files.isSymbolicLink(link.toPath()), "the link in the trash was not swept as a link")
+            storage.deleteResource(unitA)
+            assertFalse(storage.isResourceAvailable(unitA))
+            assertTrue(File(locked, "stuck.bin").exists(), "a locked file cannot have been deleted")
+            restore.close()
+            restorers.clear()
+            stage(storage, unitA, zip(oldA))
+            storage.commitResource(unitA)
+            stage(storage, unitA, zip(newA))
+            storage.commitResource(unitA)
+            assertEquals(emptyList(), trashDir.list().orEmpty().toList(), "the sweep after the lock was gone left litter")
+            assertEquals("keep", File(live, "keep.txt").readText())
+        }
+    }
+
+    /**
      * Q2: the resource path holds a plain FILE when an archive commit arrives (a stray file, or a unit whose format changed
      * from opaque to archive). The file is moved aside as the old resource and the tree lands whole.
      */
