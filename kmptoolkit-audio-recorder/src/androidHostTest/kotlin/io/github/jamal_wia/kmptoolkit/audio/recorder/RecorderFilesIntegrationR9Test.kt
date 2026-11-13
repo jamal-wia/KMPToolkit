@@ -45,7 +45,7 @@ class RecorderFilesIntegrationR9Test {
         StrictRecorderWorld.reset()
         Shadows.shadowOf(ApplicationProvider.getApplicationContext<Application>())
             .grantPermissions(Manifest.permission.RECORD_AUDIO)
-        root = File(context.cacheDir, "r9files-${System.nanoTime()}")
+        root = java.nio.file.Files.createTempDirectory(context.cacheDir.toPath(), "r9files-").toFile()
     }
 
     @After

@@ -29,8 +29,7 @@ class RecordingFileSystemContractR9Test {
 
     @Before
     fun setUp() {
-        root = File(context.cacheDir, "r9fs-${System.nanoTime()}")
-        assertTrue(root.mkdirs())
+        root = java.nio.file.Files.createTempDirectory(context.cacheDir.toPath(), "r9fs-").toFile()
     }
 
     @After

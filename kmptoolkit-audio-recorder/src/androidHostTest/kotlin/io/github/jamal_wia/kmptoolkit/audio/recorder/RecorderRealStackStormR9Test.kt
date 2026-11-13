@@ -40,7 +40,7 @@ class RecorderRealStackStormR9Test {
         StrictRecorderWorld.reset()
         Shadows.shadowOf(ApplicationProvider.getApplicationContext<Application>())
             .grantPermissions(Manifest.permission.RECORD_AUDIO)
-        root = File(context.cacheDir, "r9storm-${System.nanoTime()}")
+        root = java.nio.file.Files.createTempDirectory(context.cacheDir.toPath(), "r9storm-").toFile()
     }
 
     @After
