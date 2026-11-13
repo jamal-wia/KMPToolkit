@@ -207,4 +207,33 @@ class BossOneR1Test {
         assertNull(plain.metadata(from))
         assertEquals(listOf("b"), names("dst"))
     }
+    @Test
+    fun `freeSpaceBytes at a dangling symbolic link is measured at the nearest existing ancestor`() {
+        val atRoot: Long = plain.freeSpaceBytes(root) ?: TestEnv.skip("the platform cannot tell the free space here")
+        if (atRoot < (1L shl 30)) TestEnv.skip("less than 1 GiB free: too little to compare two readings")
+        val dangling: String = p("dangling")
+        if (!TestEnv.createSymbolicLink(dangling, p("missing/target"))) TestEnv.skip("no symbolic links here")
+        assertNull(plain.metadata(dangling, followLinks = true), "the link must dangle")
+        // A dangling link does not exist in the sense of exists(): its space is the space of its directory.
+        val atLink: Long = engine.freeSpaceBytes(dangling) ?: error("freeSpaceBytes of a dangling link was null")
+        val below: Long = engine.freeSpaceBytes(p("dangling/x")) ?: error("freeSpaceBytes below a dangling link was null")
+        assertTrue(kotlin.math.abs(atLink - atRoot) < atRoot / 10, "at the link $atLink, at its directory $atRoot")
+        assertTrue(kotlin.math.abs(below - atRoot) < atRoot / 10, "below the link $below, at its directory $atRoot")
+    }
+    @Test
+    fun `deleteRecursively whose root is recreated before its final check is not Success`() {
+        val target: String = p("tree")
+        put("tree/a", "x")
+        var metadataOfRoot: Int = 0
+        ops.onBefore = { op: Op, path: String ->
+            // The walk examines the root first and checks it again at the end: a concurrent creator acts in between.
+            if (op == Op.Metadata && path == target && ++metadataOfRoot == 2) {
+                assertTrue(plain.createDirectories(target).isSuccess)
+            }
+        }
+        val result: FileResult<Unit> = engine.deleteRecursively(target)
+        assertEquals(2, metadataOfRoot, "the walk must look at the root exactly twice")
+        assertEquals(FileKind.Directory, plain.metadata(target)?.kind)
+        assertTrue(result is FileResult.Failure, "Success means nothing is left at the path, yet a directory is there: $result")
+    }
 }
