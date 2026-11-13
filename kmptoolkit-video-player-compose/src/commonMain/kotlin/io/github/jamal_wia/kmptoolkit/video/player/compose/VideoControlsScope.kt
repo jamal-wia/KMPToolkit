@@ -3,6 +3,8 @@ package io.github.jamal_wia.kmptoolkit.video.player.compose
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -11,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.ui.platform.AccessibilityManager
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import io.github.jamal_wia.kmptoolkit.video.player.RepeatMode
@@ -228,11 +231,16 @@ internal class VideoControlsScopeImpl(override val player: VideoPlayer) : VideoC
     var activity: Int by mutableIntStateOf(0)
         private set
 
-    override val isPlaying: Boolean
-        get() = playerState is VideoPlayerState.Playing
+    // `stateMirror` changes on every position tick (`Playing` carries the current position), while these two
+    // values rarely do: derived states with an explicit structural policy invalidate a reader only when the
+    // value itself changes, which keeps the "and nothing else" promise of the scope's KDoc.
+    private val playingState: State<Boolean> =
+        derivedStateOf(structuralEqualityPolicy()) { stateMirror is VideoPlayerState.Playing }
+    private val durationState: State<Long> =
+        derivedStateOf(structuralEqualityPolicy()) { stateMirror.duration ?: 0L }
 
-    override val durationMs: Long
-        get() = playerState.duration ?: 0L
+    override val isPlaying: Boolean get() = playingState.value
+    override val durationMs: Long get() = durationState.value
 
     val shouldAutoHide: Boolean
         get() = visible && isPlaying && !interactingNow

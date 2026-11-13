@@ -102,18 +102,20 @@ abstract class VideoPlayerConsumerScreenR9Tests {
     // --- 06-testing "Auto-hide timing", as printed ------------------------------------------------
 
     @Test
-    fun `the printed auto-hide snippet checks nothing because it passes before any time has passed`() =
-        runComposeUiTest {
-            val tp = TestPlayer().paused(0L)
-            mainClock.autoAdvance = false
-            // As printed: no labels are passed, so no control carries the description "Pause", and a player that
-            // is not playing never hides its controls and would show "Play" anyway.
-            setContent { TestHost { VideoPlayer(tp.player, controlsAutoHideDelayMs = 3_000L) } }
-            onNodeWithContentDescription("Pause").assertDoesNotExist()
-            mainClock.advanceTimeBy(3_000L + 1_000L)
-            onNodeWithContentDescription("Pause").assertDoesNotExist()
-            tp.player.release()
-        }
+    fun `the printed auto-hide snippet hides the pause control after the delay`() = runComposeUiTest {
+        val tp = TestPlayer().prepare()
+        val player: VideoPlayer = tp.player
+        mainClock.autoAdvance = false
+        // As printed in 06-testing "Auto-hide timing" (MyLabels is LABELS, and TestHost supplies the factory and
+        // lifecycle that the snippet's own host provides).
+        setContent { TestHost { VideoPlayer(player, controlsAutoHideDelayMs = 3_000L) { DefaultVideoControls(labels = LABELS) } } }
+        player.play() // a prepared player: the controls only hide while playing
+        mainClock.advanceTimeByFrame()
+        onNodeWithContentDescription(LABELS.pause!!).assertExists()
+        mainClock.advanceTimeBy(3_000L + 1_000L) // the delay, then the fade-out
+        onNodeWithContentDescription(LABELS.pause!!).assertDoesNotExist()
+        player.release()
+    }
 
     @Test
     fun `the auto-hide behaviour the snippet means holds with labels and a playing player`() = runComposeUiTest {
@@ -230,8 +232,8 @@ abstract class VideoPlayerConsumerScreenR9Tests {
             "duration ${counts.duration - before.duration}, muted ${counts.muted - before.muted} over $TICKS ticks"
         assertTrue(counts.position - before.position >= TICKS, "the harness does not see ticks: $message")
         assertEquals(0, counts.muted - before.muted, message)
-        // isPlaying and durationMs are NOT asserted here: a reader of either is recomposed on every tick although
-        // its value does not change (suspect r9-RC1, adversarial/D1/suspects/r9-RC1.kt).
+        assertEquals(0, counts.isPlaying - before.isPlaying, message)
+        assertEquals(0, counts.duration - before.duration, message)
         assertFalse(tp.player.stateFlow.value !is VideoPlayerState.Playing)
         tp.player.release()
     }
