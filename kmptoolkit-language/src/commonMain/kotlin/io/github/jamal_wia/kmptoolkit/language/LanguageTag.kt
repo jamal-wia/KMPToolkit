@@ -18,6 +18,11 @@ internal fun AppLanguage.platformTag(): String? = code?.replace('_', '-')
  * extension or `-x-...` private use is not part of the language), and has the JDK's legacy remap applied to
  * the language subtag (`in` to `id`, `iw` to `he`, `ji` to `yi`). [script] is an explicit four-letter script
  * subtag, [region] a two-letter or three-digit one.
+ *
+ * A tag with no language subtag (private use `x-...`, grandfathered `i-...`) parses to no subtags at all, so its
+ * [canonical] is empty and its [language] is empty, which is how resolveSystemLanguage tells that a device
+ * reports no readable language. [canonicalTag] is what compares codes, and it compares such a tag by its full
+ * normalised text instead of by this empty form.
  */
 internal class LanguageTag(val subtags: List<String>) {
 
@@ -56,7 +61,20 @@ internal fun parseLanguageTag(tag: String): LanguageTag {
     return LanguageTag(subtags)
 }
 
-internal fun canonicalTag(tag: String): String = parseLanguageTag(tag).canonical
+/**
+ * The form two codes are compared in: [LanguageTag.canonical] of the parsed tag, except that a tag with no
+ * language subtag (private use `x-...`, grandfathered `i-...`) is compared by its whole normalised text, lower
+ * case with `_` read as `-`. Without that its canonical form would be empty and every such code would equal
+ * every other one, and the empty string.
+ */
+internal fun canonicalTag(tag: String): String {
+    val parsed: LanguageTag = parseLanguageTag(tag)
+    return if (parsed.language.isNotEmpty()) {
+        parsed.canonical
+    } else {
+        tag.lowercase().replace('_', '-').split('-').filter(String::isNotEmpty).joinToString("-")
+    }
+}
 
 private fun String.isRegionSubtag(): Boolean =
     (length == 2 && all(Char::isLetter)) || (length == 3 && all(Char::isDigit))

@@ -34,7 +34,9 @@ explicit `applyLanguageGlobally` call.
 Applying `System` calls `Locale.setDefault` / `LocaleList.setDefault` with the device's own locale
 (read the same way as `getSystemLanguageCode`), rather than leaving whatever was previously forced in
 place. Switching Arabic → System therefore genuinely returns to the device's language, not to
-whatever locale happened to be default before the app ever touched it.
+whatever locale happened to be default before the app ever touched it. On Android only the device's
+first locale is applied; the rest of the device's preference list is not the process default again
+until the next configuration change.
 
 ### Configuration changes *do* undo the override, and this is the important part of this page
 
