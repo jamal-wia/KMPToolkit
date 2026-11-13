@@ -368,6 +368,13 @@ internal class AndroidPermissionController(
      */
     private var staleDialog: CompletableDeferred<Unit>? = null
 
+    /**
+     * Whether a request already waited the full [staleDialogTimeout] on the current [staleDialog]: the
+     * requests after it fail at once instead of waiting again, and the dialog stays recorded until the
+     * host is done with it, so no request launches while it is up. Guarded like [staleDialog].
+     */
+    private var staleDialogGaveUp: Boolean = false
+
     /** Permissions already reported as undeclared, so a status observed on every resume warns once. */
     private val reportedUndeclared: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
@@ -855,7 +862,10 @@ internal class AndroidPermissionController(
         } finally {
             result.cancel() // a late delivery, or a still-queued launch, now sees a finished request
             // A caller cancelled with its dialog still up: the next request has to wait for that dialog.
-            if (!settled.isCompleted) staleDialog = settled
+            if (!settled.isCompleted) {
+                staleDialog = settled
+                staleDialogGaveUp = false
+            }
         }
     }
 
@@ -881,7 +891,8 @@ internal class AndroidPermissionController(
      * Cancelling the waiting caller ends the wait at once.
      *
      * @return `false` when the dialog was still up at the timeout: the request then fails like a refused
-     *   launch (nothing shown, status unchanged). The wait is not repeated for later requests.
+     *   launch (nothing shown, status unchanged). The wait is not repeated: while that dialog is still up,
+     *   later requests fail at once, so the host never sees a launch with a dialog pending.
      */
     private suspend fun awaitStaleDialog(what: String): Boolean {
         val stale: CompletableDeferred<Unit> = staleDialog ?: return true
@@ -889,12 +900,13 @@ internal class AndroidPermissionController(
             staleDialog = null
             return true
         }
-        val resolved: Unit? = withTimeoutOrNull(staleDialogTimeout) { stale.await() }
-        staleDialog = null
+        val resolved: Unit? = if (staleDialogGaveUp) null else withTimeoutOrNull(staleDialogTimeout) { stale.await() }
         if (resolved == null) {
+            staleDialogGaveUp = true
             logger.w { "$what could not be shown: an earlier cancelled request's dialog is still on screen" }
             return false
         }
+        staleDialog = null
         return true
     }
 
