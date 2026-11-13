@@ -6,13 +6,14 @@ import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.fail
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.runner.RunWith
 
 /**
@@ -44,13 +45,13 @@ class UploaderProtocolRandomModelRound7AdversarialTest {
 
     @Test
     fun `four hundred seeded random scenarios satisfy the protocol invariants on SQLite`() = runBlocking {
-        withTimeout(240.seconds) {
+        val failures: MutableList<String> = mutableListOf()
+        var ran = 0
+        val finished: Unit? = withTimeoutOrNull(240.seconds) {
             val name = "adv.a1r7.rnd.${Random.nextLong(0L, Long.MAX_VALUE)}"
             files += name
             val storage: UploaderStorage = createUploaderStorage(application(), UploaderDatabaseConfig(name)).also { storages += it }
             val testScheduler = TestCoroutineScheduler()
-            val failures: MutableList<String> = mutableListOf()
-            var ran = 0
             for (seed in 0 until 400) {
                 val scenario: Scenario = scenarioFor(seed)
                 val runner = ScenarioRunner(storage, testScheduler, CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob()), scenario)
@@ -64,5 +65,7 @@ class UploaderProtocolRandomModelRound7AdversarialTest {
             assertEquals(emptyList(), failures, "violations after $ran seeds")
             assertEquals(400, ran, "only $ran of 400 seeds ran")
         }
+        // A hang guard of its own, with the seed that was running in the message, not a bare timeout.
+        if (finished == null) fail("hang guard of 240 s: $ran of 400 seeds done, stuck on seed $ran")
     }
 }

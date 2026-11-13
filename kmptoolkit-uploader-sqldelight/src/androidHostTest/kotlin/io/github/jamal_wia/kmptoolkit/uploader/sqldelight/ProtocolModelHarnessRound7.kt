@@ -31,9 +31,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.random.Random
 import kotlin.test.assertEquals
+import kotlin.test.fail
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderEngineRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -71,6 +72,9 @@ class ActorElement(val name: String) : AbstractCoroutineContextElement(Key) {
  * Time (delay, timeouts) is the delegate's virtual time.
  */
 @OptIn(InternalCoroutinesApi::class)
+// A java.util.concurrent.Semaphore, not a Channel (D-21): settle() runs on the runBlocking thread, which is also the only
+// thread that advances the test dispatcher, so it has to block that thread on a counted permit that stays valid if it
+// is released before the wait starts; a suspending wait there would hand the thread to nobody.
 class SignalingDispatcher(private val delegate: TestDispatcher, val wake: Semaphore) : CoroutineDispatcher(), Delay by delegate {
     override fun dispatch(context: CoroutineContext, block: Runnable) {
         delegate.dispatch(context, block)
@@ -149,7 +153,7 @@ class Sched(val testScheduler: TestCoroutineScheduler, private val wake: Semapho
             wake.drainPermits()
             testScheduler.runCurrent()
             if (!awaiting && active == 0) return
-            check(wake.tryAcquire(30, TimeUnit.SECONDS)) { "a released store call never completed (log=$log)" }
+            check(wake.tryAcquire(30, TimeUnit.SECONDS)) { "a released store call never completed (active=$active awaiting=$awaiting log=$log)" }
         }
     }
 }
@@ -666,19 +670,20 @@ abstract class InterleavingTestBase {
      * file as the system property of the same name), uses the bound each scenario was written with (up to about
      * twelve thousand orderings each, minutes per scenario) and stops at a wall budget of 150 seconds per scenario.
      */
-    private val deep: Boolean = System.getProperty("kmptoolkit.r7.deep") == "true"
+    private val deep: Boolean = System.getProperty("kmptoolkit.r7.deep")?.toBooleanStrict() ?: false
 
-    protected fun explore(declared: Scenario, cap: Int, inMemory: Boolean = false) = runBlocking { withTimeout(280.seconds) {
+    protected fun explore(declared: Scenario, cap: Int, inMemory: Boolean = false) = runBlocking {
+        val pending: ArrayDeque<List<Int>> = ArrayDeque()
+        var explored = 0
         val scenario: Scenario = if (deep) declared else declared.withBound(0)
         val storage: UploaderStorage = if (inMemory) InMemoryStorage() else open()
         // A scheduler of its own and runBlocking, not runTest: runTest skips virtual time whenever the body waits.
         val testScheduler = TestCoroutineScheduler()
         val runner = ScenarioRunner(storage, testScheduler, CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob()), scenario)
-        val pending: ArrayDeque<List<Int>> = ArrayDeque()
         pending.addLast(emptyList())
-        var explored = 0
         val failures: MutableList<String> = mutableListOf()
         val started: Long = System.nanoTime()
+        val finished: Unit? = withTimeoutOrNull(280.seconds) {
         while (pending.isNotEmpty() && explored < cap && (!deep || System.nanoTime() - started < 150_000_000_000L)) {
             val prefix: List<Int> = pending.removeLast()
             val result: RunResult = runner.run(prefix)
@@ -693,7 +698,10 @@ abstract class InterleavingTestBase {
         println("R7 explored ${scenario.name}: $explored schedules, ${pending.size} unexplored")
         assertEquals(emptyList(), failures, "${scenario.name}: violations in $explored schedules")
         if (!deep) assertEquals(0, pending.size, "${scenario.name}: the bound was too large or too slow, ${pending.size} schedules left after $explored")
-    } }
+        }
+        // A hang guard of its own, with the state of the exploration in the message, not a bare timeout.
+        if (finished == null) fail("${scenario.name}: hang guard of 280 s after $explored schedules, ${pending.size} pending")
+    }
 
 }
 
