@@ -705,7 +705,18 @@ internal class DefaultAudioRecorder(
     private fun finishBySystem(path: String, reason: InterruptionReason, frozenAt: Duration?) {
         val finalization: Finalization = beginFinalize(path, frozenAt)
         scope.launch(NonCancellable) {
-            runFinalization(finalization, releasesEngine = true, slow = { engine.stop() }) { failure: Throwable? ->
+            runFinalization(
+                finalization,
+                releasesEngine = true,
+                slow = {
+                    engine.stop()
+                    // Interrupted promises a finalized, existing file, as Completed does: a file that
+                    // was deleted or replaced under the recording is a lost one, with the path kept.
+                    check(fileSystem.isRegularFile(finalization.path)) {
+                        "The recording file is missing or is not a regular file: ${finalization.path}"
+                    }
+                },
+            ) { failure: Throwable? ->
                 if (!released) {
                     _state.value = if (failure == null) {
                         RecorderState.Interrupted(RecordedFile(finalization.path, finalization.duration), reason)
