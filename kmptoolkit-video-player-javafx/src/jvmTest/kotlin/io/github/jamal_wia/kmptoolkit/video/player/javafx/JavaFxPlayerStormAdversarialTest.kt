@@ -150,7 +150,7 @@ class JavaFxPlayerStormAdversarialTest {
     @Test
     fun `eight players alternating a video and an audio only source under the same storm end clean`() {
         // Real video players created and disposed at this rate can hit the OpenJFX macOS display link race
-        // (plans/javafx-native-crash-advice.md), so the scenario runs in a child JVM; a known CoreVideo
+        // (see `docs/kmptoolkit-video-player-javafx/05-platform-notes.md`, section "Known issue"), so the scenario runs in a child JVM; a known CoreVideo
         // crash of the child is retried (up to 3 attempts), anything else fails.
         val run: ChildRun = runChildRetryingKnownCrash(VideoStormChildMain::class.java.name, listOf("mixed"))
         val result: Map<String, String> = run.results()

@@ -17,7 +17,7 @@ internal class ChildRun(val exit: Int, val output: String, val attempts: Int, va
 
 /**
  * Starts `mainClass` in a child JVM (test classpath, crash flags of [childJvmCrashGuardArgs]) and returns
- * its output. The known environment crash (OpenJFX macOS display link race, `plans/javafx-native-crash-advice.md`)
+ * its output. The known environment crash (OpenJFX macOS display link race, `docs/kmptoolkit-video-player-javafx/05-platform-notes.md`, section "Known issue")
  * is recognised by exit value 137 or 134 together with an `hs_err` file of that child whose problematic frame
  * is in CoreVideo; such an attempt is repeated, up to [maxAttempts] in all. Any other crash, a hang past
  * [timeoutS], or [maxAttempts] known crashes in a row fails the calling test. [hsErrDir] is where the
@@ -50,6 +50,7 @@ internal fun runChildRetryingKnownCrash(
             fail("child JVM $mainClass crashed with exit $exit and this is not the known CoreVideo crash (hs_err ${log.path}, frame '$frame'):\n$output")
         }
         knownCrashes += log.name
+        System.err.println("KNOWN-CRASH-RETRY $mainClass attempt $attempt hs_err=${log.name}")
     }
     fail("child JVM $mainClass hit the known CoreVideo crash in $maxAttempts of $maxAttempts attempts: $knownCrashes")
 }

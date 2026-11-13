@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.video.player.javafx
 
 import java.io.File
 import java.nio.file.Files
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -15,7 +16,12 @@ import kotlin.test.assertTrue
 class CrashTolerantChildAdversarialTest {
 
     /** A scratch directory per test class: the fake crash logs must not land among the real ones in build/hs_err. */
-    private val scratch: File = Files.createTempDirectory("kmptoolkit-crash-retry").toFile().apply { deleteOnExit() }
+    private val scratch: File = Files.createTempDirectory("kmptoolkit-crash-retry").toFile()
+
+    @AfterTest
+    fun deleteScratch() {
+        scratch.deleteRecursively()
+    }
 
     private fun marker(): File = File(File(Files.createTempDirectory(scratch.toPath(), "case").toString()), "marker")
 
@@ -33,6 +39,14 @@ class CrashTolerantChildAdversarialTest {
         assertFailsWith<AssertionError> {
             runChildRetryingKnownCrash(CrashRetryMain::class.java.name, listOf(marker().path, "other"), timeoutS = 60L, hsErrDir = scratch.path)
         }
+    }
+
+    @Test
+    fun `an exit of 137 with no hs_err is not retried and fails`() {
+        val failure: AssertionError = assertFailsWith<AssertionError> {
+            runChildRetryingKnownCrash(CrashRetryMain::class.java.name, listOf(marker().path, "nolog"), timeoutS = 60L, hsErrDir = scratch.path)
+        }
+        assertTrue("not the known CoreVideo crash" in failure.message.orEmpty(), failure.message)
     }
 
     @Test
