@@ -130,8 +130,8 @@ visibility, and neither touches the other's axis.
 
 ## 5. If you use dialogs or bottom sheets on Android
 
-A `Dialog`, `Popup` or `ModalBottomSheet` renders into a window of its own, which the controller
-never sees. One line at the top of its content lambda fixes it:
+A `Dialog` or `ModalBottomSheet` renders into a window of its own, which the controller
+never sees. One line at the top of its content lambda fixes it (a `Popup` is not covered):
 
 ```kotlin
 ModalBottomSheet(onDismissRequest = ::dismiss) {

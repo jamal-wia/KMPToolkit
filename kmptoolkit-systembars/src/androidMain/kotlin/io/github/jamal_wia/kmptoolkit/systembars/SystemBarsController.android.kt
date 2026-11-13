@@ -146,9 +146,10 @@ private class AndroidSystemBarsController(
 internal actual fun applyDialogWindowSystemBars(config: SystemBarsConfig) {
     val view: android.view.View = LocalView.current
     LaunchedEffect(view, config.statusBarIcons, config.navigationBarIcons) {
-        // A Dialog/Popup/ModalBottomSheet renders into a child window whose root view's parent
-        // implements DialogWindowProvider. Called from ordinary activity content there is no such
-        // parent, and nothing needs doing — the activity's own window is already styled.
+        // A Dialog/ModalBottomSheet renders into a child window whose root view's parent
+        // implements DialogWindowProvider. In a Popup (a bare view with no such parent) and in ordinary
+        // activity content there is none, and nothing is done — the activity's own window is already
+        // styled, and a Popup is not covered.
         val window: android.view.Window =
             (view.parent as? DialogWindowProvider)?.window ?: return@LaunchedEffect
         val insetsController: WindowInsetsControllerCompat = WindowCompat.getInsetsController(window, view)
