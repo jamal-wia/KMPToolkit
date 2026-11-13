@@ -49,6 +49,7 @@ class TimeModelTest {
             val loop: LoopModel? = if (withLoop) LoopModel(p).also { p.loop = it } else null
             p to TimeModel(p, script, loop)
         }
+        allowUnwatched(player, "part self-test rig: the time part is asserted directly, no hazard part is wanted")
         return Rig(this, player, time, events, player.loop as? LoopModel)
     }
 
@@ -831,6 +832,7 @@ class TimeModelTest {
     @Test
     fun aTimedBackendGivesEveryPlayerItsOwnTimeModelAndScriptCopy() = fxModel {
         val inner = ScriptedBackend(host)
+        allowUnwatched(inner, "test of the timed backend: no hazard part is wanted")
         val backend = TimedBackend(inner, TimeScript().apply { publishDelayMs = 10.0 })
 
         val (a: ScriptedNativePlayer, b: ScriptedNativePlayer) = onFx {
@@ -850,7 +852,9 @@ class TimeModelTest {
 
     @Test
     fun readyPlaySeekAndCompleteRunToTheEndInVirtualTimeOnly() = fxModel {
-        val backend = TimedBackend(ScriptedBackend(host))
+        val inner = ScriptedBackend(host)
+        allowUnwatched(inner, "time-part smoke without a hazard part: the whole sequence runs unhazarded on purpose")
+        val backend = TimedBackend(inner)
         val events = RecordingNativeEvents(host)
         val player: ScriptedNativePlayer = onFx {
             (backend.create(backend.probe("clip.mp4")) as ScriptedNativePlayer).also { it.setEvents(events) }

@@ -40,6 +40,7 @@ internal fun FxModelScope.partRig(
         val created: ScriptedNativePlayer = backend.create(backend.probe("clip.mp4")) as ScriptedNativePlayer
         created.setEvents(events)
         install(created)
+        allowUnwatched(created, "part self-test rig: the part under test is asserted directly, no hazard part is wanted")
         created
     }
     val rig = PartTestRig(this, player, events)

@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.video.player.javafx.model
 import io.github.jamal_wia.kmptoolkit.video.player.javafx.FxHost
 import io.github.jamal_wia.kmptoolkit.video.player.javafx.FxQueue
 import java.util.PriorityQueue
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.random.Random
 
 /**
@@ -82,6 +83,19 @@ internal class VirtualFxHost(
         isFxThread = { fxThread === Thread.currentThread() },
         onEdge = { },
     )
+
+    private val registered: MutableList<ScriptedNativePlayer> = CopyOnWriteArrayList()
+
+    /**
+     * Every [ScriptedNativePlayer] built on this host so far, in creation order: each registers itself when it is built
+     * (see [register]), so the end-of-test guard of `fxModel` can tell which of them no hazard part watches.
+     */
+    val players: List<ScriptedNativePlayer> get() = registered.toList()
+
+    /** Called by a [ScriptedNativePlayer] as the last step of its construction; nothing else registers a player. */
+    internal fun register(player: ScriptedNativePlayer) {
+        registered += player
+    }
 
     /** Virtual nanoseconds elapsed since construction. */
     val elapsedNanos: Long get() = elapsed

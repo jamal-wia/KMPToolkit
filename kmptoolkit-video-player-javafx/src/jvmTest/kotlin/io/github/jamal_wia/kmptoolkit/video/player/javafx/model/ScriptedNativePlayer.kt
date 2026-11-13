@@ -125,6 +125,10 @@ internal class ScriptedNativePlayer(
         onReady = { parts().forEach { it.onReady(this) } },
     )
 
+    init {
+        host.register(this)
+    }
+
     private fun parts(): List<ModelPart> = listOf(time, hazard, loop, picture)
 
     private fun record(call: NativeCall, arg: Double?, effective: Boolean) =
