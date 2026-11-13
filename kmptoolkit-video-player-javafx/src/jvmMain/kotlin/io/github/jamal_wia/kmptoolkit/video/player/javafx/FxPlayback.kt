@@ -616,8 +616,9 @@ internal class FxPlayback private constructor(
      * the playhead behind its anchor, or ahead of the anchor by more than the wall time since the anchor times
      * `max(1.0, rate)` plus [RESUME_RATE_CLOCK_SLACK_MS], is not movement of the playhead: it becomes the new anchor
      * (position and time) and the wait starts again from it. The factor keeps a decoder that really runs at a held speed
-     * from being re-anchored for good, and true playback never exceeds the bound, so the re-anchoring stops after the
-     * stale ticks.
+     * from being re-anchored for good. Re-anchoring on true playback is rare and finite (it takes a reading latency that
+     * falls by more than the slack divided by the rate between two ticks, and the latency is bounded), so the wait
+     * ends once the stale readings are past.
      */
     private fun applyResumeRate() {
         // See applyDeferredRate: no rate is written on a disposed player.

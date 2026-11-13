@@ -1153,7 +1153,7 @@ class TimeModelTest {
         rig.onFx { rig.player.seek(2_000.0) }
         rig.advance(1)
         assertEquals(2_000.0, rig.player.currentTimeMs, "the seek's own sample is ordinary")
-        rig.advance(89) // the first tick after the play, at t=150: native 2000 + 99 less 60
+        rig.advance(89) // the first tick after the play, at t=150: native 2000 + 90 less 60
         assertEquals(2_030.0, rig.player.currentTimeMs, "the first tick still carries the stale value: native 2090 less 60")
     }
 
