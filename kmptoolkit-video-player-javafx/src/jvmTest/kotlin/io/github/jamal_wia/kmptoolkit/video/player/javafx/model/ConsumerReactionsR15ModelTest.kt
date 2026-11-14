@@ -257,6 +257,46 @@ class ConsumerReactionsR15ModelTest {
         assertTrue(failures.isEmpty(), "${failures.size} of $SEQUENCES sequences broke 'the last asked speed wins':\n" + failures.take(5).joinToString("\n"))
     }
 
+
+    @Test
+    fun twoPlayersOfTheSameAppAreIndependentInSpeedPauseAndRelease() = fxModel {
+        // 04-api-reference: "Each call creates an independent player with its own native JavaFX MediaPlayer; release each one."
+        val clip = ClipModel(durationMs = 60_000.0)
+        val backendA: ComposedBackend = composeAll(ScriptedBackend(host, clip = clip))
+        val backendB: ComposedBackend = composeAll(ScriptedBackend(host, clip = clip))
+        val engineA = JavaFxVideoEngine(runtime = {}, backend = { backendA })
+        val engineB = JavaFxVideoEngine(runtime = {}, backend = { backendB })
+        val a: VideoPlayer = videoPlayer(engineA, VideoPlayerConfig(positionUpdateIntervalMs = ONE_HOUR_MS))
+        val b: VideoPlayer = videoPlayer(engineB, VideoPlayerConfig(positionUpdateIntervalMs = ONE_HOUR_MS))
+        try {
+            prepare(a, VideoSource.Asset(TestClip.ASSET))
+            prepare(b, VideoSource.Asset(TestClip.ASSET))
+            advanceBy(50)
+            a.setPlaybackSpeed(2f)
+            a.play()
+            b.play()
+            advanceBy(3_000)
+            assertEquals(2.0, backendA.last.time.effectiveRate, "player A at its own speed")
+            assertEquals(1.0, backendB.last.time.effectiveRate, "player B untouched by A's speed")
+            a.pause()
+            advanceBy(1_000)
+            assertTrue(backendB.last.time.isRunning, "pausing A stopped B")
+            assertTrue(b.stateFlow.value is VideoPlayerState.Playing)
+            val positionB: Long = engineB.positionMs()
+            a.release()
+            advanceBy(1_000)
+            assertEquals(0, backendB.last.player.log.calls(NativeCall.DISPOSE).size, "releasing A disposed B's native player")
+            assertTrue(engineB.positionMs() > positionB, "B stopped moving when A was released")
+            b.setPlaybackSpeed(2f)
+            advanceBy(1_500)
+            assertEquals(2.0, backendB.last.time.effectiveRate)
+        } finally {
+            a.release()
+            b.release()
+            advanceBy(50)
+        }
+    }
+
     private companion object {
         const val SEQUENCES: Int = 200
         const val OPS: Int = 24

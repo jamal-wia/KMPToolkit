@@ -244,6 +244,30 @@ class ConsumerFacadeSentencesR15ModelTest {
         }
     }
 
+
+    @Test
+    fun aPlayWithThePlayheadOnTheEndStartsOverFromZeroFromReadyAndFromPaused() = fxModel {
+        // core API reference, play(): "with the playhead on the end of the source, it starts over from 0"
+        withPlayer {
+            player.seekTo(Long.MAX_VALUE)
+            assertEquals(3_000L, player.playbackPositionFlow.value)
+            player.play()
+            advanceBy(300)
+            assertTrue(player.stateFlow.value is VideoPlayerState.Playing, "state ${player.stateFlow.value}")
+            assertTrue(engine.positionMs() < 1_500L, "play from a Ready player on the end read ${engine.positionMs()}")
+            assertEquals(NativeStatus.PLAYING, native.status)
+            player.pause()
+            advanceBy(50)
+            player.seekTo(Long.MAX_VALUE)
+            advanceBy(50)
+            assertEquals(VideoPlayerState.Paused(3_000L, 3_000L), player.stateFlow.value)
+            player.play()
+            advanceBy(300)
+            assertTrue(player.stateFlow.value is VideoPlayerState.Playing, "state ${player.stateFlow.value}")
+            assertTrue(engine.positionMs() < 1_500L, "play from a Paused player on the end read ${engine.positionMs()}")
+        }
+    }
+
     private companion object {
         const val ONE_HOUR_MS: Long = 3_600_000L
         const val NANOS_PER_MILLI: Long = 1_000_000L
