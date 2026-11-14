@@ -22,7 +22,7 @@ import kotlin.test.assertEquals
 class FreshSpeedAfterWrapBoss2W1ModelTest {
 
     @Test
-    fun aSpeedRightAfterAPlainResumeLessThanHalfASecondAfterAWrapIsGivenWithoutANativeSeek() {
+    fun aSpeedRightAfterAPlainResumeWhileThePlayerStandsWhereTheLoopRestartedIsGivenWithoutANativeSeek() {
         for (unity: Boolean in listOf(true, false)) {
             for (gapMs: Long in listOf(310L, 360L, 450L)) {
                 fxModel {

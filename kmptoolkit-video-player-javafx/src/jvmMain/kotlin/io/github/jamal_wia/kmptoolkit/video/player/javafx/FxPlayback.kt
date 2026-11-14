@@ -404,6 +404,8 @@ internal class FxPlayback private constructor(
         if (!seekedSincePlay) {
             native.seek(native.currentTimeMs)
             lastNativeSeekNanos = host.nanoTime()
+            // Dead by construction (this seek runs only when !seekedSincePlay, and the seek path is then reached only with
+            // !atLoopRestart, so the flag is already false); kept as a guard so that every native seek site clears it.
             atLoopRestart = false
         }
         native.play()
@@ -555,6 +557,8 @@ internal class FxPlayback private constructor(
                     if (!seekedSincePlay) {
                         native.seek(native.currentTimeMs)
                         lastNativeSeekNanos = host.nanoTime()
+                        // Dead by construction (the branch condition requires !atLoopRestart); kept as a guard so that every
+                        // native seek site clears it.
                         atLoopRestart = false
                     }
                     native.play()

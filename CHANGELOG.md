@@ -318,6 +318,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   interrupt status, and a toolkit the engine started keeps implicit exit off when that first start had to be retried.
 - `kmptoolkit-video-player-javafx`: on macOS a looping clip at a speed other than 1 that was paused right as it
   wrapped no longer stands still at its start now and then when it is played again, however long the pause.
+- `kmptoolkit-video-player-javafx`: switching `RepeatMode.One` on at the very moment a clip ends no longer leaves the
+  player `Playing` at the end without looping or completing; the clip starts over and loops.
 
 ### Known issues
 
