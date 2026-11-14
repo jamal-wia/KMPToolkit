@@ -18,7 +18,7 @@ import java.nio.file.attribute.UserPrincipal
  *
  * Available to Android host tests and JVM tests, not to common or iOS tests.
  *
- * @since 4.1.0
+ * @since 5.0.0
  */
 public object TestFs {
 
@@ -98,7 +98,7 @@ public object TestFs {
      * known not to count descriptors (Windows) and FAILS on any other host, where a count that cannot
      * be read is a broken environment, not a reason to skip a leak test silently.
      *
-     * @since 4.1.0
+     * @since 5.0.0
      */
     public fun requireOpenDescriptorCount(): Long {
         val count: Long? = openDescriptorCount()

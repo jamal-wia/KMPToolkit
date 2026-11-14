@@ -17,7 +17,7 @@ import platform.Foundation.create
 
 /**
  * Round 10 (compatibility with 4.0.0, iOS): ids outside the plain alphabet that 4.0.0 journaled under their own spelling
- * (`dir/<id>`): accents, scripts, emoji, `~`, `%`, `:`, `|`, `*`. docs 05: "Entries a version before 4.1.0 wrote under the id's
+ * (`dir/<id>`): accents, scripts, emoji, `~`, `%`, `:`, `|`, `*`. docs 05: "Entries a version before 5.0.0 wrote under the id's
  * own spelling stay readable, are replayed by the sweep and are replaced when the id writes again". Each entry must be
  * found by `inspect(id)` (the transport's re-hand reads it that way) and handed to the sweep under that id, never under
  * another one and never dropped.

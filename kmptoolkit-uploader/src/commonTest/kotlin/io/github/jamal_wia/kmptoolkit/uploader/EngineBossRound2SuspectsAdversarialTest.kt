@@ -24,7 +24,7 @@ import kotlinx.coroutines.test.runTest
  * stays queued"), and one whose delete and check read both failed (the cancel KDoc: "the attempt and upload are stopped
  * with the row possibly still queued"). The row, the very one whose effect already ran, is then run again by the same
  * engine. Guarantee broken: "An effect whose handler succeeded but whose row could not be deleted is not run again by the
- * same process" (UploaderEngine KDoc, guide 03). Before 4.1.0 the per-engine memory was only pruned by a pass that no
+ * same process" (UploaderEngine KDoc, guide 03). Before 5.0.0 the per-engine memory was only pruned by a pass that no
  * longer saw the row, so the rolled-back row kept its protection.
  *
  * Group boss2-S2: close() reaches a drain() its owner called only through a watcher coroutine that must first be

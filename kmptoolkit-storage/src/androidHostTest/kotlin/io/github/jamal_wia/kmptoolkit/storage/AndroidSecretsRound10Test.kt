@@ -24,8 +24,8 @@ import org.robolectric.RobolectricTestRunner
 
 /**
  * B round 10, Q2 and Q4 (upgrade paths and the storage module's secrets). Contract: 05-platform-notes "The Android failure you
- * must handle" (an entry that fails the tag is `Undecryptable`, an entry written before 4.1.0 stays readable, the format on disk is
- * `Base64(iv || ciphertext || tag)`, a downgrade to 4.0.0 cannot read what 4.1.0 wrote) and 03-guide ("no entry made unreadable by
+ * must handle" (an entry that fails the tag is `Undecryptable`, an entry written before 5.0.0 stays readable, the format on disk is
+ * `Base64(iv || ciphertext || tag)`, a downgrade to 4.0.0 cannot read what 5.0.0 wrote) and 03-guide ("no entry made unreadable by
  * the overlap", values are never torn).
  *
  * The 3.0.0 and 4.0.0 entries are written here with the JCE directly, from the documented framing (12 byte IV, 128 bit tag,

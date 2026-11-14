@@ -38,7 +38,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.runner.RunWith
 
 /**
- * Round 7 (concurrency storm + lifecycle) on the cross-engine transfer lock of 4.1.0: engines over
+ * Round 7 (concurrency storm + lifecycle) on the cross-engine transfer lock of 5.0.0: engines over
  * one directory that wait for each other, are cancelled while waiting, are abandoned while holding
  * the lock, and are cancelled from a third engine that never transferred anything.
  *

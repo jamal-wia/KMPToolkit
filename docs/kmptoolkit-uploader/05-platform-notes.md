@@ -278,13 +278,13 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   (`~` marks an escape), which the sweep maps back to the id. An id whose escaped name would pass 230 characters (more than
   about 38 accented letters or 114 upper-case ones; the file system allows 255 bytes) gets a hashed journal name instead
   and its entry starts with the id, which is where the sweep reads it from; so every id the journal accepts is journaled.
-  Entries a version before 4.1.0 wrote under the id's own spelling stay readable, are replayed by the sweep and are replaced
+  Entries a version before 5.0.0 wrote under the id's own spelling stay readable, are replayed by the sweep and are replaced
   when the id writes again; when an id with no upper-case letter writes while such an entry of an id that differs only by
   case is on disk (`photo-1` beside a leftover `Photo-1`), that entry is first moved to its own escaped name, and `photo-1`
   never reads, deletes or replaces it. The volume also treats accents spelled as one character or as a letter plus a combining
   accent as one name, and Foundation lists such a file decomposed, so `inspect`, `delete` and a new write of an id outside
-  ASCII find the entry a version before 4.1.0 wrote for it whichever way the id is spelled (the sweep hands such an entry to the item under the spelling the
+  ASCII find the entry a version before 5.0.0 wrote for it whichever way the id is spelled (the sweep hands such an entry to the item under the spelling the
   queue holds, and under the directory's spelling when the queue holds neither). The sweep never takes the temporary file of an atomic write
-  (`<name>.sb-<hex>-<letters>`) for an entry, and removes one a dead process left once it is five minutes old; the entry a version before 4.1.0 wrote
+  (`<name>.sb-<hex>-<letters>`) for an entry, and removes one a dead process left once it is five minutes old; the entry a version before 5.0.0 wrote
   for an id that itself ends like such a name (`upload.sb-1234abcd-ABC123`, an id no generator produces) cannot be told from a leftover by its name
   or its content, so it is not read and is removed like one.

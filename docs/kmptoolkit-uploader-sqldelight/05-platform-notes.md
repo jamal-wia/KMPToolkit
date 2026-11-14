@@ -66,7 +66,7 @@ written by an earlier version reads back unchanged. The one exception is a text 
 with the noncharacter U+FDD0, then `kmp2` or `kmp1` and U+FDD1, and decodes cleanly. Such a text reads back as the text it encodes,
 and the row is reached by that text. A text that only starts like an escaped form reads back unchanged and reaches its row by every lookup: id, tag (`deleteByTag`), type (`observeByType`) and type plus unique key (the `KEEP`/`REPLACE` identity). The escaped form is compact (a NUL is one two-byte character, a lone
 surrogate five bytes), so it is never more than twice the size of the text it holds, and the row limit counts it (see
-"One row is at most 1 MiB" in the guide). A row written by a 4.1.0 snapshot in the first escaped form (`kmp1`) is still read.
+"One row is at most 1 MiB" in the guide). A row written by a 5.0.0 development snapshot in the first escaped form (`kmp1`) is still read.
 The escape matters only if you query the table yourself, which is not supported: read the column of such a row through the
 store.
 
