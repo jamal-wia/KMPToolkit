@@ -128,7 +128,9 @@ scope.launch {
 `src/jvmMain/resources/videos/intro.mp4` (or the same path under `src/desktopMain/resources/` when the target is
 named `desktop`, `src/main/resources/` in a plain JVM project) is `"videos/intro.mp4"`.
 
-Release the player when the screen goes away (`player.release()`), as on every platform.
+Release the player when the screen goes away (`player.release()`), as on every platform. `release()` does not end
+JavaFX; a program whose `main` simply returns must end with `Platform.exit()` or `exitProcess(...)` (see
+[`05-platform-notes.md`](05-platform-notes.md)).
 
 ## 4. Check it runs
 
