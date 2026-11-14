@@ -8,6 +8,7 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 import io.github.jamal_wia.kmptoolkit.video.player.createVideoPlayer
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -98,6 +99,24 @@ class ConsumerScriptDifferentialD2R15Test {
         prepare(); note("prepare after release")
         player.setVolume(0.3f); note("volume after release shows at once")
         assertEquals(EXPECTED_SCRIPT, trace, "the consumer script, trace per documented sentence")
+    }
+
+
+    @Test
+    fun `a play with the playhead on the end starts over from zero from Ready and from Paused on the scripted engine`() {
+        prepare()
+        player.seekTo(Long.MAX_VALUE)
+        assertEquals(3_000L, player.playbackPositionFlow.value)
+        player.play()
+        assertTrue(player.stateFlow.value is VideoPlayerState.Playing, "state ${player.stateFlow.value}")
+        assertEquals(0L, player.playbackPositionFlow.value, "play from a Ready player on the end")
+        player.pause()
+        player.seekTo(Long.MAX_VALUE)
+        assertEquals(VideoPlayerState.Paused(3_000L, 3_000L), player.stateFlow.value)
+        player.play()
+        assertTrue(player.stateFlow.value is VideoPlayerState.Playing, "state ${player.stateFlow.value}")
+        assertEquals(0L, player.playbackPositionFlow.value, "play from a Paused player on the end")
+        assertEquals(0L, engine.positionMs, "the engine was asked to start over")
     }
 
     private companion object {
