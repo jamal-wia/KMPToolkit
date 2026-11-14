@@ -11,6 +11,8 @@ import kotlin.time.TimeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -669,8 +671,26 @@ internal class DefaultAudioRecorder(
     }
 
     /**
+     * Runs [block] on a coroutine of the recorder's own scope that `release()` cannot cut short:
+     * the body runs in [NonCancellable], and the coroutine starts atomically, so a `release()` that
+     * cancels the scope before the dispatcher has picked it up still lets [block] run to the end.
+     * Both halves matter. Without the first, a release that lands mid-way cancels the hop; without
+     * the second, a release that lands before the start skips the body altogether, and the engine
+     * (which `release()` leaves to a finalizer that is running) is never released.
+     *
+     * Not `launch(NonCancellable)`: that parents the coroutine to [NonCancellable] instead of to
+     * the scope, which kotlinx.coroutines deprecated as a break of structured concurrency.
+     */
+    @OptIn(DelicateCoroutinesApi::class) // CoroutineStart.ATOMIC: the cancellation-before-start guarantee above.
+    private fun launchNonCancellable(block: suspend () -> Unit) {
+        scope.launch(start = CoroutineStart.ATOMIC) {
+            withContext(NonCancellable) { block() }
+        }
+    }
+
+    /**
      * The system ended the session. Lock held; the slow part runs off it on a coroutine of the
-     * recorder's own scope, which `release()` cancels — hence [NonCancellable], so a release
+     * recorder's own scope, which `release()` cancels — hence [launchNonCancellable], so a release
      * that lands meanwhile cannot strand the engine unreleased.
      */
     private fun endBySystem(current: RecorderState, reason: InterruptionReason, frozenAt: Duration?) {
@@ -679,7 +699,7 @@ internal class DefaultAudioRecorder(
             is RecorderState.Paused -> finishBySystem(current.outputPath, reason, frozenAt)
             is RecorderState.Ready -> {
                 val finalization: Finalization = beginFinalize(current.outputPath)
-                scope.launch(NonCancellable) {
+                launchNonCancellable {
                     // Nothing was captured, so there is nothing to finalize or to keep: the empty
                     // file is this module's litter.
                     runFinalization(
@@ -704,7 +724,7 @@ internal class DefaultAudioRecorder(
     /** Lock held. */
     private fun finishBySystem(path: String, reason: InterruptionReason, frozenAt: Duration?) {
         val finalization: Finalization = beginFinalize(path, frozenAt)
-        scope.launch(NonCancellable) {
+        launchNonCancellable {
             runFinalization(
                 finalization,
                 releasesEngine = true,
