@@ -116,6 +116,10 @@ internal class FxPlayback private constructor(
      * The speed a resume without a native seek has still to give (see [start]): given as one away-and-back once the
      * playhead has really moved on for [RESUME_RATE_SETTLE_MS], on a tick of the playhead (see [applyResumeRate]).
      * Null when nothing is pending. A speed that arrives meanwhile replaces it.
+     *
+     * One holder: at most one of [pendingNudge], [settleNudge] and [deferredRate] is set at any time. [setSpeed] replaces the one
+     * that is set, in that order, and every path that sets one clears the others, so the one that is set is the newest speed asked
+     * for.
      */
     private var settleNudge: Double? = null
 
@@ -291,6 +295,10 @@ internal class FxPlayback private constructor(
                 // the property (a write now would be a second idle write right in front of the play); [setSpeed]
                 // replaces the held value, and [applyResumeRate] gives it once the playhead has moved.
                 settleNudge = rate
+                // O-1: this start takes the speed asked for over as its held speed; a deferred 1.0 left beside it would be a
+                // second holder that setSpeed does not update, and a later pause or start would read it (one holder, see
+                // [settleNudge]).
+                deferredRate = null
                 settleNotBeforeNanos = null
                 resumeGauge.reset()
                 val generation: Long = ++playGeneration

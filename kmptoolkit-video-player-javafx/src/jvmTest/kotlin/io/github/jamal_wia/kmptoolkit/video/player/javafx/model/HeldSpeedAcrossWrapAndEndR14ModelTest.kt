@@ -16,6 +16,10 @@ import kotlin.test.assertEquals
  *   left the old speed in the property), and a later speed reaches the decoder.
  * - W3, two wraps around a speed given while a plain play waits: the second wrap takes the newest held speed (the one of
  *   `setSpeed`), not a 1.0 that an older `setSpeed` left in the deferred holder, so the clip ends at the speed asked for.
+ * - O1 and O1b, a speed given while a plain play waits after a deferred 1 was left behind: O1 pauses in the wait, so the
+ *   next start must read that speed and not the stale deferred 1; O1b is its pin without the pause (the final rate is the
+ *   speed given, and no older 1 is written after it). Invariant I1 (at most one of the three speed holders is set) is
+ *   checked at every FX task by `HolderInvariantExplorerR14ModelTest`.
  * - E1, the end of a non-looping clip cancels a waiting seek-path play: the speed held for it is flushed, so a speed
  *   given after the end is written and not swallowed into a holder nobody gives.
  * - E2, the same end cancels the play for good: a `start()` that plays at once right after it is the only play, the
@@ -163,6 +167,70 @@ class HeldSpeedAcrossWrapAndEndR14ModelTest {
             assertEquals(1, plays.size, "the start issued exactly one play() after its wait\n${native.trace()}")
             assertEquals(2.0, native.rate, "the property holds the speed given during the wait\n${native.trace()}")
             assertEquals(2.0, composed.hazards.effectiveRate, "the clip ends at the speed given during the wait, not at the older 1x\n${native.trace()}")
+        }
+    }
+
+    // ---- O1. the speed given during a plain play wait survives a pause in that wait and the next start ----
+
+    /**
+     * The probe of fixer jd (`adversarial/D2/round-14-fixer3.md`, O-1): the first six steps of W3 up to `setSpeed(2f)` in the
+     * wait of a plain play that took over a deferred 1.0, then `pause()` 10 ms later. The pause flush writes the 2.0 to the
+     * property and clears the settle holder; a deferred 1.0 left beside it would be read by the next `start()` as the speed
+     * to resume at, and the clip would end at 1x. The speed asked for last is 2.
+     */
+    @Test
+    fun aSpeedGivenDuringAPlainPlayWaitIsKeptByAPauseInThatWaitAndTheNextStartPlaysAtIt() = fxModel {
+        rig {
+            engine.setLooping(true)
+            engine.setSpeed(2f)
+            engine.start()
+            advanceBy(1_000)
+            engine.pause()
+            advanceBy(10)
+            onFx { native.deliverEndOfMedia() }
+            advanceBy(10)
+            engine.setSpeed(1f)
+            advanceBy(10)
+            engine.start()
+            advanceBy(10)
+            engine.setSpeed(2f)
+            advanceBy(10)
+            engine.pause()
+            advanceBy(400)
+            engine.start()
+            advanceBy(2_000)
+            assertEquals(2.0, native.rate, "the property holds the speed asked for last\n${native.trace()}")
+            assertEquals(2.0, composed.hazards.effectiveRate, "the clip plays at the speed asked for last, not at the older deferred 1x\n${native.trace()}")
+        }
+    }
+
+    /**
+     * O1b, the same chain without the pause in the wait (a pin: the final speed was already right before the fix, by the order
+     * in which `applyResumeRate` and `applyDeferredRate` run, not by a rule). After the play the final rate is the speed given
+     * and no write of an older 1 follows the last write of 2.
+     */
+    @Test
+    fun aSpeedGivenDuringAPlainPlayWaitIsTheFinalRateAndNoOlderOneIsWrittenAfterIt() = fxModel {
+        rig {
+            engine.setLooping(true)
+            engine.setSpeed(2f)
+            engine.start()
+            advanceBy(1_000)
+            engine.pause()
+            advanceBy(10)
+            onFx { native.deliverEndOfMedia() }
+            advanceBy(10)
+            engine.setSpeed(1f)
+            advanceBy(10)
+            val startedAt: Double = nowMs()
+            engine.start()
+            advanceBy(10)
+            engine.setSpeed(2f)
+            advanceBy(2_000)
+            val rates: List<Double?> = native.log.calls(NativeCall.SET_RATE).filter { it.effective && it.tMs > startedAt }.map { it.arg }
+            assertEquals(2.0, rates.lastOrNull(), "the last write after the start is the speed given during the wait: $rates\n${native.trace()}")
+            assertEquals(2.0, native.rate, "the property holds the speed given during the wait\n${native.trace()}")
+            assertEquals(2.0, composed.hazards.effectiveRate, "the clip plays at the speed given during the wait\n${native.trace()}")
         }
     }
 
