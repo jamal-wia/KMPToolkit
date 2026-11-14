@@ -110,7 +110,7 @@ class NumericExtremesD1R14AdversarialTest {
             if (value.isNaN()) {
                 assertEquals(before, flow, "NaN must be ignored")
             } else {
-                val expected: Float = if (value < 0f) 0f else if (value > 1f) 1f else value
+                val expected: Float = (if (value < 0f) 0f else if (value > 1f) 1f else value) + 0f
                 assertEquals(expected, flow, "volume $value")
                 assertTrue(flow in 0f..1f, "flow $flow outside 0..1")
             }

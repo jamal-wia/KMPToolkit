@@ -276,7 +276,10 @@ thread — even while your engine holds its own lock, even from inside one of it
 never blocks in a callback.
 
 The player takes ownership of the engine: it installs itself as the listener, and its own
-`release()` releases and then disposes the engine. One engine per player.
+`release()` releases and then disposes the engine. One engine per player. An engine given to a
+second player is not shared: it reports only to the player that took it last, and the first
+player's `release()` disposes it under the second, which then stops responding. Create one engine
+for each player.
 
 ## Common mistakes
 
