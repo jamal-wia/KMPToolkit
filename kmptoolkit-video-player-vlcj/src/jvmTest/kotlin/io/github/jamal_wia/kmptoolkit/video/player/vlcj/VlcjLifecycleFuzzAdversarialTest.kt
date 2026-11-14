@@ -131,6 +131,11 @@ class VlcjLifecycleFuzzAdversarialTest {
         val liveBefore: Int = AssetCopies.liveCount
         val engine: VlcjVideoEngine = newEngine(loader)
         val player = createVideoPlayer(engine, VideoPlayerConfig(positionUpdateIntervalMs = 5L), Dispatchers.Default)
+        // The fuzz below cancels every prepare within 30 ms, so in a cold JVM it can end without any load reaching the
+        // native side; one untimed load first makes the libvlc instance exist, so the end state checks that the engine keeps
+        // it across the fuzz and frees it once on release (named edit, D-317).
+        withTimeout(10_000L) { player.prepare(VideoSource.File(TestClip.file.path)) }
+        assertEquals(1, runtimeCreations.get(), "the warm-up load created the libvlc instance")
         val sources: List<VideoSource> = listOf(
             VideoSource.File(TestClip.file.path),
             VideoSource.Asset("assets/clip.$ext"),
