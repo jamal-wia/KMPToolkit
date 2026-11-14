@@ -10,8 +10,9 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
  * after [VideoPlayer.prepare]. Everything else arrives as the platform reported it: a
  * `javafx.scene.media.MediaException` for a source JavaFX cannot open or decode, a
  * `java.io.FileNotFoundException` for a [VideoSource.File] or [VideoSource.Asset] that does not
- * exist, an `IllegalArgumentException` for a blank path or URL. A failure after loading succeeded
- * arrives the same way, as the `MediaException` JavaFX reported.
+ * exist, an `IllegalArgumentException` for a blank path or URL, or a URL JavaFX cannot parse or
+ * that has no scheme, an `UnsupportedOperationException` for a protocol JavaFX does not support. A
+ * failure after loading succeeded arrives the same way, as the `MediaException` JavaFX reported.
  *
  * The messages are diagnostics for a developer, not text to show a user.
  */
