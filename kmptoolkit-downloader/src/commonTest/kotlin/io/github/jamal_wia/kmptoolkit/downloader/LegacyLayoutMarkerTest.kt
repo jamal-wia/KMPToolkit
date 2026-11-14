@@ -186,6 +186,7 @@ class LegacyLayoutMarkerTest {
         override fun hasEntriesOtherThan(directory: String, name: String): Boolean {
             if (throwing) error("disk gone")
             return contents.keys.any { key: String ->
+                // path-hygiene-ignore: PH4 the keys are logical '/'-separated names of the in-memory fake store, not host paths
                 key.startsWith("$directory/") && key.removePrefix("$directory/").substringBefore('/') != name
             }
         }

@@ -179,13 +179,15 @@ The intended way to use the controller from a screen.
 public fun DialogWindowSystemBarsEffect(controller: SystemBarsController)
 ```
 
-Applies the controller's current configuration to a Compose surface rendering into its own platform
-window — `Dialog`, `Popup`, `ModalBottomSheet`, `BasicAlertDialog`. Call it once at the top of the
-dialog's content lambda.
+Applies the controller's current status-bar and navigation-bar icon styles (and only those two) to a
+Compose surface rendering into its own dialog window — `Dialog`, `ModalBottomSheet`,
+`BasicAlertDialog`. Bar visibility and the hidden-bar behaviour of the configuration are not applied to
+the dialog's window. Call it once at the top of the dialog's content lambda.
 
 On Android such a surface has an insets controller of its own that the activity-level configuration
-never reaches, so without this the bars over an open sheet revert to the platform default. Outside
-a dialog window it does nothing. No-op on iOS.
+never reaches, so without this the bars over an open sheet revert to the platform default. The effect
+finds the window through `DialogWindowProvider`, which a `Popup` does not implement, so outside a dialog
+window — in a `Popup` or in ordinary activity content — it does nothing. No-op on iOS.
 
 ### `AutoSystemBarsIconStyle`
 
@@ -377,7 +379,14 @@ public fun createScreenWakeLockController(activityAccess: ActivityAccess): Scree
 
 // iOS
 public fun createScreenWakeLockController(): ScreenWakeLockController
+
+// Desktop (jvm)
+public fun createScreenWakeLockController(): ScreenWakeLockController
 ```
+
+The desktop controller is a no-op: `setKeepScreenOn` accepts any value, any number of times, from any
+thread, and changes nothing. A caller that keeps the screen on for playback still compiles and runs on
+desktop, and the display follows the user's own power settings.
 
 The Android implementation tracks the currently resumed activity, the same way
 `createSystemBarsController` does — including the choice between the two overloads, and for the same

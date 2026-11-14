@@ -131,7 +131,15 @@ worker at the start of `doWork`, the iOS transport in a hand-off, in `handleEven
 creation (on iOS only a re-hand is owed a replay). The file holds the body only up to the handler's
 `maxResponseBodyBytes` (on iOS, after a brief window in which the whole captured body is on disk; see
 [`05-platform-notes.md`](05-platform-notes.md#the-servers-response)). It is deleted on `cancel` and after 7 days, and
-when the settlement is done:
+when the settlement is done. The directory that holds the files is named by `journalDirectoryName`
+(`UploadTransportConfig` on Android, `BackgroundUploadConfig` on iOS; default `kmptoolkit-uploader`, the name earlier
+versions used): give every independent uploader in one app its own name, or their item ids share one journal. On Android it
+is read from the work request's input data (`UploadHandlerWorker.JOURNAL_DIRECTORY_NAME_KEY`), and a job enqueued by a 4.x
+build, which has no such key, uses the default. The setting applies to `createWorkManagerUploadHandlerTransport` only; the
+classifier-based `createWorkManagerUploadTransport` keeps no journal. The name must be a plain file name:
+`IllegalArgumentException` otherwise.
+
+When the settlement is done:
 
 - **Android** entries carry the attempt they answer and are deleted only after the commit lands. A death or a stop
   anywhere before the commit is durable leaves the entry, and the next run settles it. A leftover from an attempt
@@ -145,8 +153,15 @@ when the settlement is done:
   provably its own, and never deletes another answer's entry; settling the same stamped answer twice is harmless. Two
   processes overlapping one item stay at least once. A status that arrives after the watchdog dropped the connection
   is a transport failure, never an answer.
-- **iOS** entries are deleted just before the commit and written back if it does not land; a process death in that
-  microsecond window uploads again (at least once).
+- **iOS** entries follow the same protocol. The engine's hand-off labels the session task with the attempt it answers
+  (the task's `taskDescription`, which `nsurlsessiond` keeps with the task), so the delegate stamps the entry in
+  whichever process receives the answer, a relaunch included. A delivered answer is therefore committed once: a death
+  anywhere before the commit leaves the entry for the next hand-off, relaunch or creation sweep, and a leftover after
+  the commit is recognised as stale and dropped. Only an upload whose task carries no label (one an earlier version
+  started and is still running) is journaled unstamped, deleted just before the commit and written back if it does not
+  land; a process death in that microsecond window uploads again (at least once). Hand the built-in transport itself to the handler: a wrapper around it (a logging or counting decorator) is launched through the public overload, so its answers are unstamped and stay at least once.
+
+The headers of an answer are journaled as UTF-8, and a lone surrogate in a header value (which UTF-8 cannot hold) in the three-byte form of its code unit, so every header comes back as it went in on both platforms.
 
 An entry file larger than 4 MiB cannot be one the journal wrote (a body is at most 1 MiB and the headers are capped); it is
 deleted without being read, on both platforms, instead of failing every attempt of its item. An item the engine no longer knows settles nothing and its file is deleted. The response body therefore rests
@@ -184,7 +199,9 @@ class MyTransport(private val http: HttpClient) : UploadTransport {
 - A body you could not read completely does not make the answer a transport failure: report the status
   with `isBodyTruncated = true`, or an accepted upload would be sent again.
 - `complete` returns `false` when no engine is registered or its store failed: keep the outcome and
-  report it again. An unknown or already settled id is a no-op that returns `true`.
+  report it again. An unknown or already settled id is a no-op that returns `true`, and so is the id of an
+  item whose handler is a plain `UploaderHandler` (for example a job that outlived an app update that changed
+  the type's handler kind): the gateway leaves that item alone and its lease re-hands it.
 - Keep `launch` idempotent per item id; the gateway settles under the item's current claim.
 
 ## Android: `createWorkManagerUploadHandlerTransport`
@@ -215,10 +232,15 @@ cannot be read completely — the connection broke, or the time ran out —
 is reported as truncated with the bytes read so far, not as a transport failure. A status that carries no content (`1xx`,
 `204`, `205`, `304`) has an empty body that is never flagged truncated, whatever length its headers name.
 A redirect (`3xx` other than `304`) whose body the stack does not hand over is flagged truncated unless its headers declare an empty body (`Content-Length: 0`).
+A body with a declared `Content-Length` (and no content encoding, `identity` counting as none, or chunked transfer) is read up to that length and no
+further, so bytes a confused server or proxy sends behind it (a second response glued on) are not part of the body.
 The status line and headers must arrive within twice the read timeout after the body is sent: a server that
-trickles them longer fails the attempt as a transport failure (no status was received). A server that answers before the
-body is complete and closes the connection is heard: whatever final status it sent (a `413`, a
-redirect, an early `200`) is its answer and reaches `classify`. When the upload fails on this side
+trickles them longer fails the attempt as a transport failure (no status was received). A reply that is not a final HTTP
+status (a non-HTTP reply, or an interim `1xx` the platform stack hands back as the answer) is a transport failure too, not a
+completed attempt. A server that answers before the body is complete and closes the connection is heard when the platform
+still delivers its answer: whatever final status it sent (a `413`, a redirect, an early `200`) is then its answer and
+reaches `classify`. A server that closes immediately with the request body unread can lose its answer to a connection
+reset (RFC 9112 section 9.6); the attempt is then a transport failure and uploads again. When the upload fails on this side
 (the source file vanished or could not be read), the connection is dropped without completing the
 request, so the server never receives a truncated body as a whole one, and the attempt is a transport
 failure. A `WorkManager` worker has about 10 minutes and this module does not call
@@ -258,7 +280,8 @@ val transport: UploadTransport = createBackgroundUploadTransport(
 One background `NSURLSession` per item, its identifier the prefix plus the item id. The system daemon
 `nsurlsessiond` keeps uploading after the app is suspended or killed. The multipart body is written to
 a temporary file — background uploads must come from a file, named after the item id, or after a hash of it when
-the id is not a plain file name — streamed from the source files in
+the id is not a plain file name or could name the same file as another id on a case-insensitive volume (any upper-case
+letter other than in a canonical upper-case UUID) — streamed from the source files in
 chunks, so a large recording is never held in memory, and removed when the upload completes.
 
 The delegate accumulates the response body as the session delivers it (at most 1 MiB, converted once
@@ -311,6 +334,10 @@ or the lease — for that.
 `BackgroundUploadConfig(requestTimeout = 60.seconds, resourceTimeout = 7.days)` sets the session's
 `timeoutIntervalForRequest` and `timeoutIntervalForResource`. The defaults are the system's own values,
 so behaviour is unchanged unless you set them; both must be positive and finite.
+
+**The five-argument constructor.** 5.0.0 adds `journalDirectoryName` as a sixth parameter. The five-argument
+initializer of 4.x stays as a secondary constructor (not deprecated), so Swift callers, and Kotlin callers that pass all five arguments, keep working
+and use the default journal directory; other code compiled against 4.x must be recompiled (source compatible); Swift code that wants another name uses the six-argument initializer.
 
 **Swift and the three-parameter constructor.** Before 4.0.0 the configuration had three parameters.
 Swift has no default arguments, so Swift code that calls

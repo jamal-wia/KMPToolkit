@@ -224,7 +224,7 @@ internal class DefaultAudioRecorder(
             // Guarded before the filesystem is touched: NSURL.fileURLWithPath raises on a blank path,
             // and Kotlin/Native cannot catch an Objective-C exception, so an unchecked blank string
             // would kill the process instead of producing a RecorderError.
-            if (path.isBlank() || !path.startsWith(PATH_SEPARATOR)) {
+            if (path.isBlank() || !fileSystem.isAbsolute(path)) {
                 return failPrepare(RecorderError.DirectoryNotWritable(path))
             }
             val directory: String = fileSystem.parentOf(path)
@@ -476,7 +476,19 @@ internal class DefaultAudioRecorder(
 
     private suspend fun finishStop(finalization: Finalization): RecorderResult<RecordedFile> =
         // Finalizing the container is the one genuinely slow call in the whole module.
-        runFinalization(finalization, releasesEngine = true, slow = { engine.stop() }) { stopFailure: Throwable? ->
+        runFinalization(
+            finalization,
+            releasesEngine = true,
+            slow = {
+                engine.stop()
+                // The encoder answered, but the file it wrote may have been deleted or replaced under
+                // the recording (a cache cleaner, the user, another process). Completed promises an
+                // existing, closed file, so a result that is not one is a failed stop.
+                check(fileSystem.isRegularFile(finalization.path)) {
+                    "The recording file is missing or is not a regular file: ${finalization.path}"
+                }
+            },
+        ) { stopFailure: Throwable? ->
             if (stopFailure != null) {
                 // Whatever was captured up to this point stays on disk: it may be salvageable, and
                 // deleting a user's audio because the encoder complained on close is not a call a
@@ -693,7 +705,18 @@ internal class DefaultAudioRecorder(
     private fun finishBySystem(path: String, reason: InterruptionReason, frozenAt: Duration?) {
         val finalization: Finalization = beginFinalize(path, frozenAt)
         scope.launch(NonCancellable) {
-            runFinalization(finalization, releasesEngine = true, slow = { engine.stop() }) { failure: Throwable? ->
+            runFinalization(
+                finalization,
+                releasesEngine = true,
+                slow = {
+                    engine.stop()
+                    // Interrupted promises a finalized, existing file, as Completed does: a file that
+                    // was deleted or replaced under the recording is a lost one, with the path kept.
+                    check(fileSystem.isRegularFile(finalization.path)) {
+                        "The recording file is missing or is not a regular file: ${finalization.path}"
+                    }
+                },
+            ) { failure: Throwable? ->
                 if (!released) {
                     _state.value = if (failure == null) {
                         RecorderState.Interrupted(RecordedFile(finalization.path, finalization.duration), reason)
@@ -1125,8 +1148,6 @@ internal class DefaultAudioRecorder(
     }
 
     private companion object {
-        const val PATH_SEPARATOR = "/"
-
         /** About three seconds of samples at the default interval; see [_levelSamples]. */
         const val LEVEL_SAMPLE_BUFFER = 64
         val SUCCESS: RecorderResult<Unit> = RecorderResult.Success(Unit)

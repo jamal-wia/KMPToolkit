@@ -59,11 +59,14 @@ an HTTP error (`ERROR_CODE_IO_BAD_HTTP_STATUS`, e.g. an expired token) and an un
 apart. Match on the types and codes you care about and fall through on the rest; the exact types a
 platform produces are not part of this module's compatibility promise.
 
-A failure *after* loading — a stream that dies mid-video — arrives the same way, as `Error`, when the
-platform notices. That includes a failure the engine reports in the instant between its load
-succeeding and `prepare` publishing `Ready`: it is kept and applied in order, so the player settles on
-`Error` rather than `Ready`. Recovering means preparing again; there is no `retry()`, because the source to
-retry with (perhaps with a refreshed token) is information only you have.
+A failure after `prepare` has started, or after loading — a stream that dies mid-video — arrives the
+same way, as `Error`, when the platform notices. That includes a failure the engine reports while `prepare` is still `Preparing`,
+during its load or just before `Ready` is published, when the load itself returns normally: the first
+such failure is kept and applied in order, so the player settles on `Error` rather than `Ready`. If
+the load throws, its own `Throwable` is the `Error`. `Error.cause` can be a `CancellationException` an engine threw on
+its own; rethrowing it inside a coroutine cancels that coroutine silently, so inspect it rather than rethrow it. Recovering means preparing again; there is no
+`retry()`, because the source to retry with (perhaps with a refreshed token) is information only
+you have.
 
 ## The release contract
 
@@ -113,7 +116,11 @@ survives `unload()`, so a surface attached to it stays attached.
 
 A `prepare` that arrives while another is still loading replaces it. The older load is cancelled and
 fully unwound before the newer one starts — the platform never loads two sources on one decoder — and
-the replaced call returns normally without writing any state:
+the replaced call returns normally (unless its own caller was cancelled as well: then `CancellationException`
+propagates) without writing any state — except a `prepare` that a newer `prepare`
+replaces while it is already resetting the source flows (for example, a collector of one of them called the newer
+`prepare`): it has freed the old source by then, so the state shows `Preparing` for the newer call rather than
+describe a source the engine no longer holds. For example:
 
 ```kotlin
 scope.launch { player.prepare(clip1) }   // returns quietly once replaced
@@ -127,7 +134,10 @@ that loaded the current one.
 
 `prepare` is the only suspending call, and it honors cancellation. If its coroutine goes away
 mid-load — a `LaunchedEffect` whose key changed — the half-loaded source is freed, the state returns
-to `Idle` (not `Error`: nothing failed), and the `CancellationException` propagates.
+to `Idle` (not `Error`: nothing failed), and the `CancellationException` propagates. The same holds for a `prepare`
+called from a coroutine that is already cancelled over a source that is loaded: the old source's polling stops and the
+state shows `Idle`, also when a collector of a flow calls the player from inside the reset; a `prepare` such a collector
+calls owns the state from then on (`Preparing`, then its own result).
 
 ```kotlin
 LaunchedEffect(url) {
@@ -144,10 +154,9 @@ player.bufferedPositionFlow // how far ahead the platform has data, in ms — a 
 ```
 
 - `isBufferingFlow` is reported for a **loaded** source only. Waiting for data while loading is what
-  `Preparing` already says, so it is not shown then. A stall the engine reports in the instant between
-  its load succeeding and `prepare` publishing `Ready` is the exception: it is kept and shown with
-  `Ready`. It is `false` whenever the player is idle, has
-  completed (a stall reported after the end is ignored), or has failed.
+  `Preparing` already says, so it is not shown then. A stall the engine reports before `Ready` is
+  published is the exception: it is kept and shown with `Ready`. It is `false` whenever the player is
+  idle, has completed (a stall reported after the end is ignored), or has failed.
 - `bufferedPositionFlow` is polled together with the playhead, only while `Playing`, and snapshotted
   when a source finishes loading and on `pause()`. It is `0` when nothing is loaded; for a local file
   it is the duration.
@@ -213,7 +222,7 @@ player.playbackSpeedFlow.value   // 1.5f — the clamped value in effect
 ```
 
 Clamped to `VideoPlayerConfig`'s `minPlaybackSpeed..maxPlaybackSpeed` (`0.25f..3.0f` by default),
-never rejected; `NaN` is ignored. `player.playbackSpeedRange` is that configured range, for a speed menu that should offer only rates the player accepts. The rate a player starts with (`1.0`) is clamped the same way, so a range such as `2f..3f` starts at `2f`. An engine may play only part of a very wide range: the VLC engine plays 1/32..32 and uses the nearest bound outside it. As in the audio player, the rate reaches the platform only while
+never rejected; `NaN` is ignored. `player.playbackSpeedRange` is that configured range, for a speed menu that should offer only rates the player accepts. The rate a player starts with (`1.0`) is clamped the same way, so a range such as `2f..3f` starts at `2f`. An engine may play only part of a very wide range: the VLC engine plays 1/32..32 and uses the nearest bound outside it; the JavaFX engine is documented by JavaFX for rates up to 8. As in the audio player, the rate reaches the platform only while
 playing, on every `play()` and when a source loads — on `AVPlayer` a non-zero rate on a paused player
 starts it.
 
@@ -237,7 +246,7 @@ fun onScrub(fraction: Float) {
 ```
 
 `seekForward()` / `seekBackward()` default to ten seconds (`DEFAULT_SEEK_AMOUNT_MS`) and never
-overflow, whatever amount they are given. On a source whose length is not known yet (`duration` `0`, a live stream) they skip relative to the playhead instead of clamping to `0`; an absolute `seekTo` there still clamps to `0..0`. Seeking out of `Completed` lands in `Paused`. Seeking a
+overflow, whatever amount they are given; a negative amount moves the other way. On a source whose length is not known yet (`duration` `0`, a live stream) they skip relative to the playhead instead of clamping to `0`; an absolute `seekTo` there still clamps to `0..0`. Seeking out of `Completed` lands in `Paused`. Seeking a
 `Ready` player moves the playhead (`playbackPositionFlow`) and leaves it `Ready`; the next `play()`
 starts from there. `play()` with the playhead sitting on the end of the source (after a seek onto it) starts over from `0`, like `play()` from `Completed`.
 
@@ -271,7 +280,10 @@ thread — even while your engine holds its own lock, even from inside one of it
 never blocks in a callback.
 
 The player takes ownership of the engine: it installs itself as the listener, and its own
-`release()` releases and then disposes the engine. One engine per player.
+`release()` releases and then disposes the engine. One engine per player. An engine given to a
+second player is not shared: it reports only to the player that took it last, and the first
+player's `release()` disposes it under the second, which then stops responding. Create one engine
+for each player.
 
 ## Common mistakes
 

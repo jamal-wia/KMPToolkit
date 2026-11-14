@@ -134,6 +134,20 @@ class RecorderFailureTest {
     }
 
     @Test
+    fun `a stop whose file is no longer a regular file fails as a stop failure and keeps the path`() =
+        runRecorderTest { fixture ->
+            val path: String = fixture.recording()
+            fixture.fileSystem.notRegularFiles += path
+
+            val error: RecorderError? = fixture.recorder.stop().errorOrNull()
+
+            assertEquals(RecorderOperation.STOP, (error as RecorderError.EngineFailure).operation)
+            assertEquals(RecorderState.Failed(error, path), fixture.recorder.state.value)
+            assertContentEquals(emptyList(), fixture.fileSystem.deletedPaths)
+            assertTrue(fixture.engine.releaseCount > 0, "the native handle is released even when the file is gone")
+        }
+
+    @Test
     fun `an engine that throws while cancelling does not stop the file being deleted`() =
         runRecorderTest { fixture ->
             val path: String = fixture.recording()

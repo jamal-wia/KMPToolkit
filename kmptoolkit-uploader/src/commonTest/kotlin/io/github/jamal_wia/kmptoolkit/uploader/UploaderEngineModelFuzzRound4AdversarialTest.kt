@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -57,7 +58,7 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
             return result
         }
 
-        override suspend fun insertKeep(record: UploaderItem): Boolean = guarded { inner.insertKeep(record) }
+        override suspend fun insertKeep(record: UploaderItem): KeepResult = guarded { inner.insertKeep(record) }
         override suspend fun insertReplace(record: UploaderItem): UploaderItem? = guarded { inner.insertReplace(record) }
         override suspend fun getAllActive(): List<UploaderItem> = guarded { inner.getAllActive() }
         override suspend fun getById(id: String): UploaderItem? = guarded { inner.getById(id) }
@@ -157,7 +158,7 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
         val clock = TestClock(1_000L)
         val world = World(seed, store, clock)
         val handler: TestHandler = handlerOf(world)
-        val ids = SequentialIds("s$seed")
+        val ids = SequentialIds("s$seed-model")
         val flakyStore = FlakyStore(store, Random(seed * 31 + 7)).also { it.failing = flaky }
         val uncertain: MutableSet<String> = mutableSetOf()
         val wake = TestWakeScheduler()

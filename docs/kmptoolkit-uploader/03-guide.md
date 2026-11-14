@@ -28,7 +28,8 @@ Three states, and only two ways out of the queue: a confirmed delivery, or a dec
 
 Delivery is at-least-once: a process that dies between a successful send and the deletion of the row sends again
 on the next launch. Within one process an effect whose handler succeeded but whose row could not be deleted is
-never run again; the engine retries only the delete, with a growing backoff. An attempt that fails outside its
+never run again, also not by an engine you built to replace a closed one (the memory is per process); the engine
+retries only the delete, with a growing backoff. An attempt that fails outside its
 handler (a store write failing, say) backs off the same way instead of repeating at the alarm floor.
 
 A payload is small: it is stored as text in the queue's row, and the SQLDelight store refuses a row over 1 MiB. Queue a
@@ -53,7 +54,9 @@ uploader.enqueue(handler, payload, uniqueKey = "draft-$docId",
 
 A parked item is superseded under **either** policy. A parked item has no other way back, so
 letting it keep its key would make that key permanently dead, and `KEEP` would silently swallow
-every future enqueue for it.
+every future enqueue for it. The superseded item is withdrawn as by `cancel`, under either policy: the
+attempt the engine runs for it is stopped and its upload cancelled (a parked item can still have an
+earlier claim's upload running).
 
 Keyless items never conflict. Every keyless enqueue appends.
 
@@ -187,7 +190,9 @@ uploader.cancelByTag("session-$userId")
 ```
 
 The tag is opaque — the library never interprets it — and the wipe crosses every state, including
-in-flight and parked items. Prefer this to `UploaderStore.deleteByTag`, which removes the rows but
+in-flight and parked items. A parked item can still have an earlier claim's upload running (its lease
+ran out while the transfer went on, and the re-hand then parked it), so the wipe, and a `REPLACE`, cancel
+the upload of a parked item too. Prefer this to `UploaderStore.deleteByTag`, which removes the rows but
 leaves running uploads going.
 
 ## Making a domain write and its effect atomic
@@ -196,11 +201,13 @@ This is the "transactional" half, and it needs the queue and your domain tables 
 database:
 
 ```kotlin
+val transactionRunner: TransactionRunner = myDatabaseTransactionRunner
+
 val uploader: UploaderEngine = createUploaderEngine(
     store = store,
     handlers = handlers,
     scope = scope,
-    transactionRunner = myDatabaseTransactionRunner,
+    transactionRunner = transactionRunner,
 )
 
 transactionRunner.inTransaction {
@@ -238,11 +245,28 @@ val engine: UploaderEngine = UploaderEngineRegistry.await(5.seconds) ?: return R
 engine.settle(itemId, claim, SettleResult.Delivered)
 ```
 
+A `Delivered` or `Drop` whose delete fails throws, and this process still remembers it: the row is deleted
+at a later pass, by this engine or one built to replace it, and never handed out again; while the row is in
+flight that pass comes once its lease has ended (until then the item counts as owed and blocks its ordering
+channel, as any in-flight item does), and a row in any other state is retried at the next pass. Calling `settle`
+again is harmless. A later `Park` or `Failed` does not override a delivery the process still holds: the row
+is deleted and that verdict is not applied (`settle` returns normally, an upload's `onSettled` does not run).
+The reverse order is covered too: a verdict that parked the row first does not hide the delivery, and the
+drain retries the delete of such a parked row like that of an active one (one try per row per `drain()` call,
+with a growing backoff and an alarm kept armed while the store keeps failing). The one way to lose it is
+a `KEEP` or `REPLACE` enqueue that supersedes the parked row before the retry succeeds: that withdraws it and
+runs the new intent, as the conflict policy says.
+
 **The lease is a claim, not a lock.** While it is unexpired the drain leaves the item alone. Once it
 expires the item becomes attemptable again and `execute` runs afresh with
 `context.wasDetached == true` — which is precisely why the hand-off must be idempotent. A previous
 executor may have completed and merely failed to report (the app died right after the upload
 finished), so a re-hand-off should probe or rejoin rather than start over.
+
+An in-flight item whose type has no registered handler (a payload from a build that had the type) is parked, not
+run, once its lease has ended: an unexpired lease is respected first, because the executor that holds it may still
+be running. A single `drain()` call gives such an item one turn, and a park that throws no longer stops the items
+behind it.
 
 Size the lease to the executor's realistic worst case. Too short and you get redundant hand-offs
 racing a live executor — wasteful but survivable. Too long and recovery from a silently dead
@@ -300,9 +324,16 @@ class AvatarUploadHandler(transport: UploadTransport, private val auth: Auth) :
 ```
 
 `onSettled` runs at most once, after the row was committed, in the process that committed it: a stop of the
-platform job or a process death right after the commit can skip it, and nothing calls it later. Do not make it
+platform job or a process death right after the commit can skip it, and nothing calls it later. A delivery whose
+commit failed and that the engine confirmed later at a drain pass runs no `onSettled`. Do not make it
 the only place that deletes the uploaded source file. Reconcile leftover files when your app starts, or free the
 file in `onDelivered` (at least once, before the commit) where that fits.
+
+When the lease of an upload ran out and the engine hands the item off again, `prepareUpload` sees
+`AttemptContext.wasDetached = true` before anything launches. A `Drop` at that point also cancels the
+earlier claim's upload (the item is gone). A `Park` leaves an earlier upload that is still running alone: if
+it delivers, the delivery settles the parked item (the built-in transports keep a delivered answer until it is
+settled, and cancelling would erase it); withdraw the item to stop it.
 
 `prepareUpload` runs again when the platform actually starts the upload, so the token is fresh and a
 job re-run for an item that settled meanwhile uploads nothing. On Android the platform job stores only
@@ -388,7 +419,9 @@ A drain pass that fails as a whole (a locked database, say) retries itself: afte
 delay that doubles on every consecutive failure, at most `heartbeatInterval`. A pass that succeeds resets it.
 
 `drain()` exists too, but calling it on a started engine breaks single-flight. It is for tests and
-diagnostics.
+diagnostics. On a closed engine it does nothing.
+An item whose attempt the engine is running is never started again by another pass, so a `drain()` called from inside
+a handler's attempt does not run that item twice. It still breaks single-flight for everything else: use `trigger()`.
 
 ## Shutting down
 
@@ -401,7 +434,7 @@ slot if this engine holds it. It does not cancel the scope you provided and does
 queue — everything owed is still owed, and a freshly constructed engine picks it up. Cancelling your
 own scope stops the engine just as effectively.
 
-An attempt running at close is cancelled and records nothing except what already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close; a claim that was being written, or that finished after close, is released if it is still this engine's, so the next engine starts the item at once.
+An attempt running at close, also one of a `drain()` you called yourself, is cancelled and records nothing except what already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close; a claim that was being written, or that finished after close, is released if it is still this engine's, and an engine already started in this process is woken by the release, so the next engine starts the item at once.
 The owner may build the next engine right after `close()` returns: a closed engine's late release of a claim writes
 nothing when the row shows another engine's claim.
 

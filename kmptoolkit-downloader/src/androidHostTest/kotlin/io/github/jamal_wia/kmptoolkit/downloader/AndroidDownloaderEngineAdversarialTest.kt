@@ -6,9 +6,12 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -29,7 +32,6 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import org.junit.Ignore
 import org.junit.runner.RunWith
 
 /**
@@ -86,8 +88,18 @@ class AndroidDownloaderEngineAdversarialTest {
      * bytes into the temp file the storage names and reports `FileReady`; an enqueue of a unit
      * already in flight joins it.
      */
-    private class SharedService(private val storage: DownloaderStorage, private val bytes: ByteArray) :
-        BackgroundResourceDownloader {
+    private class SharedService(
+        private val storage: DownloaderStorage,
+        private val bytes: ByteArray,
+        /** A downloader that follows the contract calls beginTempFile when it starts from byte zero. */
+        private val beginsTempFile: Boolean = false,
+        /** Test hooks that script one interleaving; each runs on the thread that called enqueueDownload. */
+        private val afterFirstTransferCompleted: () -> Unit = {},
+        private val onSecondTransferStart: () -> Unit = {},
+        private val afterSecondTransferBegan: () -> Unit = {},
+        private val afterSecondTransferCompleted: () -> Unit = {},
+    ) : BackgroundResourceDownloader {
+        private val transfers: AtomicInteger = AtomicInteger()
         private val events: MutableSharedFlow<BackgroundDownloadEvent> =
             MutableSharedFlow(extraBufferCapacity = 4096)
         private val started: MutableSet<String> = ConcurrentHashMap.newKeySet()
@@ -96,9 +108,15 @@ class AndroidDownloaderEngineAdversarialTest {
         override fun enqueueDownload(unit: DownloadUnit) {
             enqueues.incrementAndGet()
             if (!started.add(unit.id)) return
+            val transfer: Int = transfers.incrementAndGet()
+            if (transfer == 2) onSecondTransferStart()
+            if (beginsTempFile) storage.beginTempFile(unit, unit.sha256)
+            if (transfer == 2) afterSecondTransferBegan()
             File(storage.getTempFilePath(unit)).apply { parentFile!!.mkdirs() }.writeBytes(bytes)
             storage.markTempFileComplete(unit)
             started.remove(unit.id)
+            if (transfer == 1) afterFirstTransferCompleted()
+            if (transfer == 2) afterSecondTransferCompleted()
             events.tryEmit(BackgroundDownloadEvent.FileReady(unit))
         }
 
@@ -149,7 +167,7 @@ class AndroidDownloaderEngineAdversarialTest {
     /** The files below [directory], without the one-time layout marker, which is not a temp file or record. */
     private fun filesUnder(directory: File): List<String> =
         directory.walkTopDown().filter { it.isFile && it.name != "legacy-layout" }
-            .map { it.relativeTo(directory).path }.sorted().toList()
+            .map { TestPaths.relativeLogical(directory.path, it.path)!! }.sorted().toList()
 
     // -- A kill during extraction ----------------------------------------------------------------
 
@@ -193,13 +211,137 @@ class AndroidDownloaderEngineAdversarialTest {
 
     // -- Two engines over one directory -----------------------------------------------------------
 
-    @Ignore(
-        "Known issue, fixed in 4.1.0: a second engine over the same directory can start a transfer after the " +
-            "first one finished and before it was committed, leaving an orphaned partial temp file; " +
-            "see CHANGELOG 4.0.0 Known issues",
-    )
     @Test
     fun `two engines over one directory asked for the same unit at once leave one valid file and return`() {
+        twoEnginesAskForTheSameUnitAtOnce(beginsTempFile = false)
+    }
+
+    /**
+     * The same race with a downloader that follows the port contract and calls beginTempFile when it
+     * starts a transfer: a second transfer started after the first finished deleted the complete file
+     * the other engine was committing, and that caller failed with DownloadError.Storage.
+     */
+    @Test
+    fun `two engines over one directory with a downloader that restarts from byte zero never fail a caller`() {
+        twoEnginesAskForTheSameUnitAtOnce(beginsTempFile = true)
+    }
+
+    @Test
+    fun `two engines over one directory asked for the same group at once never fail a caller or leave a temp file`() {
+        twoEnginesAskForTheSameUnitAtOnce(beginsTempFile = true, viaGroup = true)
+    }
+
+    /**
+     * A storage whose first tempFileState answer is stale: it reads the state, then holds the caller
+     * until [release] (or one second) before returning what it read. That is the window the stress
+     * tests above hit only by luck: an engine decides "this unit needs a transfer" from a read taken
+     * before the other engine's transfer finished.
+     */
+    private class StaleFirstReadStorage(
+        private val real: DownloaderStorage,
+        private val parked: CountDownLatch,
+        private val release: CountDownLatch,
+        /** The tempFileState call to hold: the group surface reads the state twice before it decides. */
+        private val parkOnRead: Int = 1,
+    ) : DownloaderStorage by real,
+        TransferLockScope by (real as TransferLockScope),
+        RelativePathChecking by (real as RelativePathChecking) {
+        private val reads: AtomicInteger = AtomicInteger()
+
+        override fun tempFileState(unit: DownloadUnit): TempFileState {
+            val state: TempFileState = real.tempFileState(unit)
+            if (reads.incrementAndGet() == parkOnRead) {
+                parked.countDown()
+                release.await(1, TimeUnit.SECONDS)
+            }
+            return state
+        }
+    }
+
+    @Test
+    fun `an engine that decided to transfer before the other engine's transfer finished leaves no partial temp file`() {
+        staleDecisionRace(beginsTempFile = false)
+    }
+
+    @Test
+    fun `an engine that decided to transfer before the other engine's transfer finished never fails the other caller`() {
+        staleDecisionRace(beginsTempFile = true)
+    }
+
+    @Test
+    fun `the group surface of an engine with a stale decision never fails the other caller`() {
+        // The group loop reads tempFileState twice before the read made by the transfer itself.
+        staleDecisionRace(beginsTempFile = true, viaGroup = true, parkOnRead = 3)
+    }
+
+    @Test
+    fun `the group surface of an engine with a stale decision leaves no partial temp file`() {
+        staleDecisionRace(beginsTempFile = false, viaGroup = true, parkOnRead = 3)
+    }
+
+    /**
+     * Engine B reads "no temp file yet" and is held; engine A then transfers the unit to completion;
+     * B resumes with its stale decision. Without the cross-engine transfer lock B starts a second
+     * transfer while A has not committed the first one yet.
+     *
+     * With the cross-engine lock this interleaving is unreachable: B parks on its read while holding
+     * the lock, so A cannot start, and the latches below time out (about 2.5 s); the test then only
+     * asserts the outcome. Do not shorten the timeouts to speed it up: the old-code interleaving needs them.
+     */
+    private fun staleDecisionRace(beginsTempFile: Boolean, viaGroup: Boolean = false, parkOnRead: Int = 1) {
+        val payload: ByteArray = ByteArray(32 * 1024) { index: Int -> (index % 239).toByte() }
+        val group = Group("catalogue")
+        val unit = FileUnit("model", group).also { group.units = listOf(it) }
+        val storageA: DownloaderStorage = createDownloaderStorage(context, config)
+        val parked = CountDownLatch(1)
+        val firstTransferDone = CountDownLatch(1)
+        val secondTransferStarted = CountDownLatch(1)
+        val aReturned = CountDownLatch(1)
+        val storageB: DownloaderStorage =
+            StaleFirstReadStorage(createDownloaderStorage(context, config), parked, firstTransferDone, parkOnRead)
+        val service = SharedService(
+            storage = storageA,
+            bytes = payload,
+            beginsTempFile = beginsTempFile,
+            afterFirstTransferCompleted = {
+                firstTransferDone.countDown()
+                // Hold the first transfer's engine before it commits, so the other one can start its own.
+                secondTransferStarted.await(1500, TimeUnit.MILLISECONDS)
+            },
+            // The first engine resumes once the second transfer has begun (a restart deletes the
+            // complete file under its commit) or, for a downloader that only writes, has finished.
+            onSecondTransferStart = { if (beginsTempFile) secondTransferStarted.countDown() },
+            afterSecondTransferCompleted = { secondTransferStarted.countDown() },
+            // A downloader that restarts from byte zero has deleted the complete file by now; keep
+            // its transfer open until the first caller's commit has had its turn.
+            afterSecondTransferBegan = { aReturned.await(1500, TimeUnit.MILLISECONDS) },
+        )
+        val engineA: Downloader = engine(storageA, service, group)
+        val engineB: Downloader = engine(storageB, service, group)
+
+        val outcomes: List<Result<Unit>>? = runBlocking {
+            withTimeoutOrNull(20_000) {
+                withContext(Dispatchers.Default) {
+                    val b: Deferred<Result<Unit>> = async { runCatching { if (viaGroup) engineB.ensureAvailable(group) else engineB.ensureAvailable(unit) } }
+                    assertTrue(withContext(Dispatchers.IO) { parked.await(5, TimeUnit.SECONDS) }, "B never read the state")
+                    val a: Deferred<Result<Unit>> = async {
+                        runCatching { if (viaGroup) engineA.ensureAvailable(group) else engineA.ensureAvailable(unit) }.also { aReturned.countDown() }
+                    }
+                    listOf(a.await(), b.await())
+                }
+            }
+        }
+
+        assertTrue(outcomes != null, "a caller never returned")
+        outcomes.forEachIndexed { index: Int, outcome: Result<Unit> ->
+            assertTrue(outcome.isSuccess, "caller $index failed with ${outcome.exceptionOrNull()}")
+        }
+        assertContentEquals(payload, File(storageA.getResourcePath(unit)).readBytes(), "the file is whole")
+        assertEquals(TempFileState.None, storageA.tempFileState(unit))
+        assertEquals(emptyList(), filesUnder(File(root, "tmp")), "no temp file or record is left")
+    }
+
+    private fun twoEnginesAskForTheSameUnitAtOnce(beginsTempFile: Boolean, viaGroup: Boolean = false) {
         val payload: ByteArray = ByteArray(64 * 1024) { index: Int -> (index % 251).toByte() }
         repeat(ROUNDS) { round: Int ->
             root.deleteRecursively()
@@ -207,7 +349,7 @@ class AndroidDownloaderEngineAdversarialTest {
             val unit = FileUnit("model", group).also { group.units = listOf(it) }
             val storageA: DownloaderStorage = createDownloaderStorage(context, config)
             val storageB: DownloaderStorage = createDownloaderStorage(context, config)
-            val service = SharedService(storageA, payload)
+            val service = SharedService(storageA, payload, beginsTempFile)
             val engineA: Downloader = engine(storageA, service, group)
             val engineB: Downloader = engine(storageB, service, group)
 
@@ -217,7 +359,10 @@ class AndroidDownloaderEngineAdversarialTest {
                     val callers: List<Deferred<Result<Unit>>> = List(8) { index: Int ->
                         async {
                             go.await()
-                            runCatching { (if (index % 2 == 0) engineA else engineB).ensureAvailable(unit) }
+                            runCatching {
+                                val engine: Downloader = if (index % 2 == 0) engineA else engineB
+                                if (viaGroup) engine.ensureAvailable(group) else engine.ensureAvailable(unit)
+                            }
                         }
                     }
                     go.complete(Unit)

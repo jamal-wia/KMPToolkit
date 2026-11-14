@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -65,7 +66,7 @@ class UploaderEngineHoppingUploadFuzzRound5AdversarialTest {
     }
 
     private class HoppingStore(private val inner: TestUploaderStore) : io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore by inner {
-        override suspend fun insertKeep(record: UploaderItem): Boolean { yield(); return inner.insertKeep(record).also { yield() } }
+        override suspend fun insertKeep(record: UploaderItem): KeepResult { yield(); return inner.insertKeep(record).also { yield() } }
         override suspend fun insertReplace(record: UploaderItem): UploaderItem? { yield(); return inner.insertReplace(record).also { yield() } }
         override suspend fun getAllActive(): List<UploaderItem> { yield(); return inner.getAllActive() }
         override suspend fun getById(id: String): UploaderItem? { yield(); return inner.getById(id) }
@@ -100,7 +101,7 @@ class UploaderEngineHoppingUploadFuzzRound5AdversarialTest {
         )
         val enqueued: MutableList<String> = mutableListOf()
         val withdrawn: MutableSet<String> = mutableSetOf()
-        // withdrawn while still owed (a row that was gone, delivered or parked has no upload to stop)
+        // withdrawn while still owed (a row that was gone or delivered has no upload to stop; the check covers only rows still owed; a parked row is cancelled too but not required to be)
         val withdrawnOwed: MutableSet<String> = mutableSetOf()
         fun owed(id: String?): Boolean = id != null && store.find(id)?.let { it.state != UploaderItemState.PARKED } == true
         val finished: MutableSet<String> = mutableSetOf()

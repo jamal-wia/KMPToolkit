@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -14,6 +15,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import org.robolectric.Shadows
 
 /**
@@ -22,6 +24,7 @@ import org.robolectric.Shadows
  * fake meet here, cycle after cycle, in a directory that does not exist yet.
  */
 @RunWith(AndroidJUnit4::class)
+@Config(shadows = [StrictShadowMediaRecorder::class])
 class RecorderEndToEndTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
@@ -81,7 +84,7 @@ class RecorderEndToEndTest {
                 result is RecorderResult.Failure && result.error is RecorderError.DirectoryNotWritable,
                 "result was $result",
             )
-            val inside = runBlocking { withTimeout(10_000) { recorder.prepare("${blocker.path}/inside.m4a") } }
+            val inside = runBlocking { withTimeout(10_000) { recorder.prepare(TestPaths.join(blocker.path, "inside.m4a")) } }
             assertTrue(
                 inside is RecorderResult.Failure && inside.error is RecorderError.DirectoryNotWritable,
                 "result was $inside",

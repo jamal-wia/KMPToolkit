@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.storage
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import java.io.File
 import java.util.UUID
 import kotlin.test.Test
@@ -125,7 +126,11 @@ class AndroidStorageContractRound4Test {
         val names: List<String> = listOf(
             ".", "..", "...", "a:b", "a\nb", "a\tb", "n".repeat(255), "n".repeat(300), "éè", "😀",
             "-", "~", "*", "?", "%", "a;b", "a|b", "a<b", "CON", "a\u0001b",
-        )
+        ).filter { name: String ->
+            // The store name becomes a file name: a Windows build machine cannot create `a:b` or `CON`
+            // (java.io raises "Invalid file path" before the code under test sees anything), a device can.
+            TestHost.isValidHostFileName(plainStoreId(name))
+        }
         val problems: MutableList<String> = mutableListOf()
         runBlocking {
             withTimeout(60_000) {

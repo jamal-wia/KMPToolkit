@@ -41,6 +41,10 @@ The suffix on the plain store is load-bearing on iOS. `NSUserDefaults(suiteName:
 app and every embedded SDK ever wrote. Because the suffix is always appended, the resolved suite name
 can never equal the bundle id, even if you pass it explicitly as `name`.
 
+`NSUserDefaults` treats one key name specially: a string stored under `AppleLanguages` (the preferred languages, an array
+the system owns) never reads back, so the plain iOS store refuses `put` for that key with
+`StorageError.OperationFailed(PUT)` instead of answering `Success` and then `null`. Android and the JVM accept the name.
+
 ## Android: why not Tink, and why not `EncryptedSharedPreferences`
 
 The code this module was ported from used **Tink** (`com.google.crypto.tink:tink-android`) with an
@@ -68,7 +72,8 @@ The reasoning, stated plainly because a consumer deserves to know why their APK 
   shipped; building a library's security story on an API its own maintainers have abandoned is a
   migration scheduled for an inconvenient date.
 - **The direct implementation is small enough to read.** It is one key, one transformation, one
-  framing, in about a hundred lines — small enough that a consumer auditing what happens to their
+  framing: the cipher itself is about a hundred lines (`ValueCipher.kt`, with its key source and errors, a few
+  hundred) — small enough that a consumer auditing what happens to their
   tokens can finish in a sitting, which is not true of Tink.
 
 What this trade costs, honestly:
@@ -92,6 +97,13 @@ Two further choices inside that implementation:
   token on the weaker device would only push you into storing it somewhere worse.
 
 ### The Android failure you must handle
+
+Since 5.0.0 a secure value is also bound to the key name it is stored under: the key name is authenticated
+associated data of the AES-GCM encryption, so a ciphertext copied from one key to another in the preferences file
+(for example the access token over the password) fails its tag and reads as `Undecryptable`. Nothing written earlier
+becomes unreadable: an entry that fails the bound check is read once more as an unbound one, which is what 4.0.0 and
+earlier wrote. Such an old entry stays movable between keys until it is written again. The format on disk is unchanged
+(`Base64(iv ‖ ciphertext‖tag)`), but a downgrade to 4.0.0 cannot read entries written by 5.0.0.
 
 The Keystore entry is destroyed when the user **adds, changes, or removes the device lock**, and an
 app restored to a new device from a backup carries the ciphertext without the key. In both cases the
@@ -217,12 +229,22 @@ app sharing that code with desktop could not compile it for desktop without the 
 - **Durability.** Every write rewrites the whole file into a temporary sibling, syncs it to the device
   and atomically renames it over the old one, so a process killed — or a machine losing power —
   mid-write leaves the previous contents. A temporary file a killed write left behind is removed by
-  `clear()`, which matches only this store's own temporary names (`<file name><digits>.tmp`), never a
-  neighbouring store's in-flight file. Every read reads the file afresh.
+  `clear()`, which matches only this store's own temporary names (`<file name><digits>.tmp`, the shape of
+  4.x too, or, for a store file name longer than 232 UTF-8 bytes, the name cut to 215 bytes plus `~` and 16
+  hex characters of its SHA-256 as the prefix), never a neighbouring store's in-flight file. Every read reads the file afresh. The write is
+  [`kmptoolkit-files`](../kmptoolkit-files/01-overview.md)' `writeAtomically` (`Durability.Synced`): on
+  Windows a replace blocked by another process that holds the file open is retried for up to about
+  210 ms, and when the file system refuses an atomic rename the write fails with `OperationFailed`
+  instead of replacing the file non-atomically (earlier versions fell back to a plain replace).
 - **Failures.** A corrupted or hand-edited file (a malformed `\uXXXX` escape), a name the file system
   rejects (`:` or `*` on Windows) and a denied security check arrive as `OperationFailed`, never as an
-  exception. The store is meant for a handful of small values; it is not a database.
-- **Concurrency.** Instances over the same file in one process share a `Mutex`. Two *processes* writing
+  exception. On Windows, a store whose name makes a reserved device name (`CON`, `NUL`, `COM1`, `aux`...:
+  the part of the file name before its first dot) can be read but not written (`OperationFailed`); pick another
+  name. A name that is a valid file name but longer than 232 bytes in all is still written: its temporary file
+  uses a shortened, hashed prefix.
+  The store is meant for a handful of small values; it is not a database.
+- **Concurrency.** Instances over the same file in one process share a lock (a `KeyedMutex` keyed by the
+  case- and Unicode-folded canonical path). Two *processes* writing
   the same file are not coordinated — keep one writer per file.
 - **No secure store.** The JVM has no platform key store this module could keep a key in without
   inventing its own — and a key kept next to the data it encrypts protects nothing. Desktop apps that
@@ -242,12 +264,13 @@ call from the main thread and from any number of coroutines at once:
   the process restarts.
   A value that ends in a line break is stored by the plain store with one U+E000 appended, because
   the framework's XML writer indents after a trailing line break; the store removes it on read. Code
-  reading the preferences file directly sees it.
+  reading the preferences file directly sees it. A value an older version stored that itself ended in `\n` followed
+  by U+E000 reads one marker shorter; the two cannot be told apart.
 - **iOS.** `NSUserDefaults` and Keychain calls go through `cfprefsd` and `securityd`, both IPC. Two
   writers adding the same Keychain item at once — two coroutines, or an app extension sharing the
   access group — make the loser's `SecItemAdd` fail with `errSecDuplicateItem`; the store then
   updates the item instead, so neither write reports a failure.
-- **Desktop.** Instances over the same file share a coroutine `Mutex`, so their read-modify-write
+- **Desktop.** Instances over the same file share a coroutine lock (`KeyedMutex` of `kmptoolkit-files`), so their read-modify-write
   cycles over the file never interleave. The lock is keyed by the path in Unicode NFC with the full
   case mapping (`ß`, `ẞ` and `ss`, the Greek sigma forms, `Settings` and `settings` share it), so two
   spellings of one name share it on a volume that folds case (macOS, Windows); on a case-sensitive volume they are two files behind one lock. A file that

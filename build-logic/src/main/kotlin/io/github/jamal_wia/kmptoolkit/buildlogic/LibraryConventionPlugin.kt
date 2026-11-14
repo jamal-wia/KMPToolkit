@@ -29,6 +29,15 @@ import org.jetbrains.kotlin.gradle.dsl.abi.ExperimentalAbiValidation
  * the one thing about a module's shape worth seeing directly in its build file rather than behind a
  * plugin, exactly as `Paginator/paginator-core/build.gradle.kts` already does.
  *
+ * Test tasks get a short `java.io.tmpdir` on Windows when `-Pkmptoolkit.windowsTestTmpDir=<folder>`
+ * is given — see [shortenWindowsTestTmpDir]; off by default. Every `-Pkmptoolkit.test.<knob>=<value>` Gradle
+ * property reaches the test JVMs as a system property and is printed once per test task — see [forwardTestKnobs].
+ *
+ * Every module also gets `checkPathHygiene`, attached to `check`: a lexical scan of its sources for
+ * file-separator and POSIX assumptions that break on Windows — see [registerPathHygieneCheck] and
+ * [PathHygieneScanner]. Likewise `checkTimingHygiene` ([registerTimingHygieneCheck]) keeps new sleeps,
+ * wall-clock reads and unseeded randomness out of test sources, against a ratchet baseline.
+ *
  * `namespace` also stays in each module's own build file (`kotlin { android { namespace = … } }`):
  * it is not mechanically derivable from the Gradle path, and guessing wrong produces a
  * resource-merging failure that is tedious to trace back here (same rationale as DrLeoKMP's
@@ -40,6 +49,11 @@ class LibraryConventionPlugin : Plugin<Project> {
         with(target) {
             pluginManager.apply("org.jetbrains.kotlin.multiplatform")
             pluginManager.apply("com.android.kotlin.multiplatform.library")
+
+            shortenWindowsTestTmpDir()
+            forwardTestKnobs()
+            registerPathHygieneCheck()
+            registerTimingHygieneCheck()
 
             extensions.configure<KotlinMultiplatformExtension> {
                 explicitApi()

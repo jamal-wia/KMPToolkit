@@ -6,12 +6,20 @@ one that trips people up in `kmptoolkit-haptics`'s getting-started guide does no
 ## 1. Add the dependency
 
 ```kotlin
-dependencies {
-    implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-    implementation("io.github.jamal-wia:kmptoolkit-flashlight")
+// build.gradle.kts of your shared module
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-flashlight")
+        }
 
-    // Only if you want the RecordingFlashlight double (step 4)
-    testImplementation("io.github.jamal-wia:kmptoolkit-flashlight-testing")
+        // Only if you want the RecordingFlashlight double (step 4)
+        commonTest.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-flashlight-testing")
+        }
+    }
 }
 ```
 

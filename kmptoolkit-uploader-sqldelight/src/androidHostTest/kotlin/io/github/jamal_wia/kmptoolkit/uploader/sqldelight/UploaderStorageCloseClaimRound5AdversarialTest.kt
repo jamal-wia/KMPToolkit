@@ -10,6 +10,7 @@ import io.github.jamal_wia.kmptoolkit.uploader.UploadHandler
 import io.github.jamal_wia.kmptoolkit.uploader.UploadPreparation
 import io.github.jamal_wia.kmptoolkit.uploader.UploadRequest
 import io.github.jamal_wia.kmptoolkit.uploader.UploadTransport
+import io.github.jamal_wia.kmptoolkit.uploader.UploaderConfig
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderEngine
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderEngineRegistry
 import io.github.jamal_wia.kmptoolkit.uploader.createUploaderEngine
@@ -17,6 +18,7 @@ import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import org.junit.runner.RunWith
 
@@ -40,6 +43,7 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class UploaderStorageCloseClaimRound5AdversarialTest {
+    private val seed: Long = testSeed(20261113L)
 
     private val storages: MutableList<UploaderStorage> = mutableListOf()
     private val engines: MutableList<UploaderEngine> = mutableListOf()
@@ -87,19 +91,31 @@ class UploaderStorageCloseClaimRound5AdversarialTest {
     }
 
     private fun open(): UploaderStorage {
+        // timing-hygiene-ignore: TH3 name a unique database file name, not a scenario choice
         val name = "adv.a1r5.${Random.nextLong(0L, Long.MAX_VALUE)}"
         files += name
         return createUploaderStorage(application(), UploaderDatabaseConfig(name)).also { storages += it }
     }
 
-    private fun engineOver(storage: UploaderStorage, handler: UploadHandler<*>, direct: Boolean = false): UploaderEngine {
+    private fun engineOver(
+        storage: UploaderStorage,
+        handler: UploadHandler<*>,
+        direct: Boolean = false,
+        heartbeat: Duration = UploaderConfig.DEFAULT_HEARTBEAT_INTERVAL,
+    ): UploaderEngine {
         val job = Job().also { jobs += it }
         return createUploaderEngine(
             store = storage.store,
             handlers = listOf(handler),
             scope = CoroutineScope(Dispatchers.Default + job),
             transactionRunner = if (direct) io.github.jamal_wia.kmptoolkit.uploader.spi.TransactionRunner.Direct else storage.transactionRunner,
+            config = UploaderConfig(heartbeatInterval = heartbeat),
         ).also { engines += it }
+    }
+
+    private companion object {
+        /** Below the default heartbeat, so it proves the release wake; also stops a genuinely stranded item from hanging the test. */
+        val WAKE_BOUND: Duration = 10.seconds
     }
 
     private fun realTest(seconds: Int = 90, body: suspend CoroutineScope.() -> Unit) =
@@ -115,15 +131,24 @@ class UploaderStorageCloseClaimRound5AdversarialTest {
             val first: UploaderEngine = engineOver(storage, handler)
             val ids: List<String> = List(100) { first.enqueue(handler, "u$it")!! }
             first.start()
-            delay(Random.nextLong(0, 25))
+            delay(Random(seed + iteration).nextLong(0, 25))
             first.close()
+            // A claim the closed engine releases after the replacement's first pass already skipped the row as in
+            // flight under an unexpired lease wakes the replacement at once (close KDoc, D-31). The default heartbeat
+            // (30 s) is far above WAKE_BOUND, so only that wake can start the item in time: the replacement runs on
+            // the default config. A regression soak over real SQLite, not a deterministic proof (see
+            // EngineBossRound1AdversarialTest).
             val second: UploaderEngine = engineOver(storage, handler)
             second.start()
-            delay(1_000)
-            val launched: Set<String> = transport.events.value.filter { it.startsWith("launch:") }.map { it.removePrefix("launch:") }.toSet()
+            fun launchedIds(): Set<String> =
+                transport.events.value.filter { it.startsWith("launch:") }.map { it.removePrefix("launch:") }.toSet()
+            withTimeoutOrNull(WAKE_BOUND) {
+                while (ids.any { it !in launchedIds() }) delay(20)
+            }
+            val launched: Set<String> = launchedIds()
             val stranded: List<String> = ids.filter { it !in launched }
             claimedWithoutLaunch += stranded.size
-            assertEquals(emptyList(), stranded, "iteration $iteration: ${stranded.size} owed items were never started by either engine")
+            assertEquals(emptyList(), stranded, "iteration $iteration: ${stranded.size} owed items were never started by either engine (seed=$seed)")
             second.close()
         }
     }

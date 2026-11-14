@@ -99,3 +99,11 @@ kotlin {
         }
     }
 }
+
+// The deep mode of the protocol model checker (ProtocolModelHarnessRound7) is chosen by a Gradle property, never by a
+// file in the shared temp directory: `-Pkmptoolkit.r7.deep=true`.
+tasks.withType<Test>().configureEach {
+    providers.gradleProperty("kmptoolkit.r7.deep").orNull?.let { value: String ->
+        systemProperty("kmptoolkit.r7.deep", value)
+    }
+}

@@ -94,7 +94,9 @@ public sealed interface AndroidPermission : Permission {
 ```
 
 - **`SpecialAccess`** — `request` opens its Settings screen through the `SystemScreenLauncher` and
-  suspends until an activity of the app is resumed again, then re-reads the status. Not granted is
+  suspends until an activity of the app is resumed again, then re-reads the status. Over a released
+  `ActivityAccess` no resume arrives and it waits until cancelled (see the special-access section of
+  [the guide](03-guide.md)). Not granted is
   `Denied(explainFirst = true)`. Below the API level that introduced it, an access the OS used to give
   every app is `Granted`; one that did not exist is `Unavailable`. Nothing is stored.
 - **`AccessibilityService(component)`** — enabled when `component` is in
@@ -198,11 +200,14 @@ public interface PermissionController {
   (when the app is in the background after a refusal), not once per permission. Everything else is
   requested in order, one at a time.
 - **Requests are serialized.** A request made while another is in flight — through the same
-  controller — waits for it, so two prompts never overlap. That includes a request cancelled while
-  its system dialog is still up: the dialog cannot be taken back, so the next request waits (at most
-  30 seconds, and its own cancellation ends the wait at once) until that dialog is answered, then
-  shows its own. If the dialog is still up after that, the request fails like a refused launch:
-  nothing shown, the status returned unchanged.
+  controller — waits for it, so two prompts never overlap. On Android that includes a request
+  cancelled while its system dialog is still up: the dialog cannot be taken back, so the next request
+  waits (at most 30 seconds, and its own cancellation ends the wait at once) until that dialog is
+  answered, then shows its own. If the dialog is still up after that, the request fails like a refused
+  launch: nothing shown, the status returned unchanged, and so do the requests after it, at once and
+  without a call to the host, until that dialog is answered. On iOS the queue is freed the moment the caller
+  is cancelled, and the answer to the abandoned prompt is ignored by the next request: iOS lines up its
+  own prompts, so the next request raises its prompt at once and the system shows it after the first.
 - **`observe`** emits the current status on collection, then each *different* status: on every
   activity resume on Android, every time the app becomes active on iOS, and after every request
   through the same controller that asked Android for a permission it depends on: the entry itself,
@@ -324,7 +329,7 @@ Every collaborator but `context` and `storage` has a default:
 - **`activityAccess`** — the resumed activity the rationale is asked of and screens are opened from.
   The default tracker must be created before the first activity resumes, so build the controller in
   `Application.onCreate` — or pass the `ActivityAccess` your app already owns (typically narrowed with
-  `isTracked`).
+  `isTracked`). Every controller built without one shares one tracker per `Application`.
 - **`host`** — shows the permission dialog and the screens that answer with a result. The default
   needs no wiring; see `ActivityResultPermissionRequestHost` below.
 - **`systemScreenLauncher`** — how a Settings screen opens. The default puts it on your task from the
@@ -334,8 +339,22 @@ Every collaborator but `context` and `storage` has a default:
 - **`config`** — see `AndroidPermissionConfig`.
 - **`logger`** — where an undeclared permission, a dialog that could not be shown, an unreadable flag
   and a launcher failure are reported. A flag the storage cannot read, write or remove is treated as
-  not set and logged as a warning once per flag, so a storage that is down is visible without a line
-  on every check.
+  not set by the controller that met the failure (another controller over the same storage is the
+  exception, below) and logged as a warning once per permission (or flag) for the controller's lifetime, so a
+  storage that is down is visible without a line on every check. A refusal flag that could not be removed
+  when the permission was granted is remembered by the controller, read as absent and removed again at
+  the next read, so a later system reset reads as if never refused; a refusal made after that is recorded
+  as usual. If the process dies before the storage recovers, the flags can be read again until the next
+  check that sees the permission granted removes them.
+
+  That memory belongs to the one controller, not to the storage. A second controller over the same
+  storage (a controller per screen, or another process of the app) does not know the removal failed:
+  when the storage failed at the one check that saw the permission granted, the system then reset the
+  permission, and the second controller is asked next, it reads the stale flags as a real refusal and
+  answers `PermanentlyDenied` (a way to Settings) where the platform would still show its dialog. It
+  heals the moment any controller over that storage next checks the permission granted or reads it
+  again after the storage recovers (the controller that met the failure then removes the flags for
+  everyone). Use one controller per storage, or accept this window.
 
 ### `AndroidPermissionConfig` (Android only)
 

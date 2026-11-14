@@ -40,6 +40,10 @@ kotlin {
             // this module's public signature. kmptoolkit-logging itself has no dependencies, so
             // this adds nothing else to a consumer's graph.
             api(project(":kmptoolkit-logging"))
+
+            // implementation: the outcome journals write and read their entries through FileAccess; no type of
+            // kmptoolkit-files appears in this module's public signatures.
+            implementation(project(":kmptoolkit-files"))
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
@@ -52,6 +56,8 @@ kotlin {
         }
         androidHostTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
+            // Not published; host assumptions for tests that only mean something on a POSIX file system.
+            implementation(project(":test-support"))
             // WorkManagerTestInitHelper and TestListenableWorkerBuilder, for the upload-handler worker.
             implementation(libs.androidx.work.testing)
         }
@@ -61,3 +67,9 @@ kotlin {
         // InMemoryUploaderStore) cross-check the SPI contract instead of one confirming itself.
     }
 }
+
+// The refactor-regression differential (RegressTraceDifferentialAdversarialTest) is steered by three Gradle properties,
+// never by environment variables: -Pkmptoolkit.test.traceDir=<dir>, -Pkmptoolkit.test.coarse=1 and
+// -Pkmptoolkit.test.seeds=<comma list>. Like every -Pkmptoolkit.test.* property (the seed of the storm classes is
+// -Pkmptoolkit.test.seed=<long>) they reach the test JVMs through the kmptoolkit.library convention plugin
+// (forwardTestKnobs), which also prints them once per test task.

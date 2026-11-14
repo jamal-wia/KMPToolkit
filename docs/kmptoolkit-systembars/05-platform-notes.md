@@ -14,6 +14,7 @@ make the differences go away, and a few of them are visible from your code.
 | Hide the navigation bar | Yes | No such bar — the axis drives `prefersHomeIndicatorAutoHidden` instead | **No** — no such bar |
 | `HiddenBarBehavior` | Yes | **No** — a hidden status bar simply stays hidden | **No** |
 | How it is applied | Pushed onto the window's insets controller | Pulled by UIKit from a view controller | Nowhere — every platform call is a no-op |
+| Screen wake lock (`ScreenWakeLockController`) | Yes — `FLAG_KEEP_SCREEN_ON` | Yes — `idleTimerDisabled` | **No** — `setKeepScreenOn` is a no-op |
 
 Axes a platform cannot honour are still tracked, still visible on `config`, and simply have no
 effect there. Nothing throws and nothing warns: an app sharing one configuration across platforms is
@@ -24,6 +25,11 @@ tree shared with desktop compiles at all — see [`docs/01-architecture.md`](../
 and everything above the final platform push behaves identically: overrides layer, release restores
 what was underneath, and `config` always holds the configuration the tree asked for.
 
+One thing desktop does need from the host: `DialogWindowSystemBarsEffect` collects the controller's
+configuration through `collectAsStateWithLifecycle`, which needs a `Dispatchers.Main`. A Compose
+Desktop app has one through `kotlinx-coroutines-swing`; a composition on a plain JVM without it
+fails with `IllegalStateException`.
+
 ## Permissions
 
 **None.** This module declares no permission in its `AndroidManifest.xml`, and there is nothing for
@@ -33,6 +39,34 @@ available to any app for its own window. A test asserts this against a real pack
 library never merges a permission into its consumers.
 
 ## Android
+
+### Icon styles depend on the API level
+
+The module's `minSdk` is 24, and the platform only learned to style the icons later than that:
+
+| | Works from | Below that level |
+|---|---|---|
+| Status bar icons (`statusBarIcons`) | API 23, so on every level this module supports | not applicable |
+| Navigation bar icons (`navigationBarIcons`) | **API 26** | the flag does not exist; `navigationBarIcons` is tracked on `config` and has no effect on API 24 and 25 |
+
+Nothing throws or warns on API 24 and 25 when a navigation-bar style is set, for the same reason
+an unsupported axis is silent on iOS and desktop: an app sharing one configuration across levels
+is the normal case. The status-bar axis therefore needs no version check in your code, and the
+navigation-bar axis is only worth a check if your design depends on the icon colour on API 24
+and 25, where it stays the system's own.
+
+### `AutoSystemBarsIconStyle` and status-bar insets on API 24 to 29 (unverified on a device)
+
+`AutoSystemBarsIconStyle` only samples while `WindowInsets.statusBars` or `navigationBars` is
+non-zero, and it reads them through Compose's public inset API. In this module's Robolectric tests
+on API 28 (and 24), after the composable has left composition and come back several times, Compose's
+inset listener sometimes holds no inset at all until the window dispatches one again, so the
+composable claims nothing until then. Nothing in this module installs or feeds that listener, and on
+API 30 and above the same sequences pass. No behaviour of this kind has been seen on a physical
+device, and whether it can happen on one has not been checked: on API 24 to 29, if the icon colour
+of a screen that toggles `AutoSystemBarsIconStyle` stays stale after the toggle, a second
+`WindowInsets` reader (for example `Modifier.statusBarsPadding()` above it) keeps the listener
+installed and is the first thing to try.
 
 ### Edge-to-edge is your call, not this module's
 
@@ -132,14 +166,17 @@ weakly-held, lifecycle-driven tracker instead.
 
 ### Dialogs, popups and bottom sheets
 
-A `Dialog`, `Popup` or `ModalBottomSheet` renders into a **separate window** with its own insets
+A `Dialog` or `ModalBottomSheet` renders into a **separate window** with its own insets
 controller. Whatever the controller set on the activity's window does not reach it, and the bars
 over an open sheet fall back to the platform default — dark icons, which are invisible on a light
-app bar and unreadable in dark mode.
+app bar and unreadable in dark mode. A `Popup` is a bare view added to the window manager rather
+than a dialog window; `DialogWindowSystemBarsEffect` does not cover it.
 
-`DialogWindowSystemBarsEffect(controller)` at the top of the dialog's content lambda fixes it. It
-detects the dialog window through Compose's `DialogWindowProvider` and does nothing when there is
-none, so it is harmless if you call it somewhere that turns out not to be a dialog.
+`DialogWindowSystemBarsEffect(controller)` at the top of the dialog's content lambda fixes the icon
+styles (it applies the two icon styles to the dialog window, not bar visibility or the hidden-bar
+behaviour). It detects the dialog window through Compose's `DialogWindowProvider` and does nothing when there is
+none (in a `Popup`, whose layout is not one, or in ordinary activity content), so it is harmless if you call it
+somewhere that turns out not to be a dialog.
 
 ### Behaviour of a hidden bar
 
@@ -257,6 +294,13 @@ dispatches to the main queue when it is called from anywhere else, and calls thr
 is already there, so you never have to think about it.
 
 ## `ScreenWakeLockController`
+
+### Desktop (`jvm`)
+
+A no-op. Keeping a desktop display awake means talking to the host OS power manager, a different API
+per platform and none of them reachable from plain JVM Compose, so `createScreenWakeLockController()`
+on this target returns a controller whose `setKeepScreenOn` does nothing, whatever it is given. The
+display follows the user's own power settings.
 
 ### Android
 

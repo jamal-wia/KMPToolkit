@@ -15,7 +15,8 @@ package io.github.jamal_wia.kmptoolkit.scheduler
  * does not resolve to a bundled file makes iOS fall back to the default sound.
  *
  * Called on the scheduling thread, synchronously, once per [AlarmScheduler.schedule] call. Keep it
- * a pure lookup.
+ * a pure lookup that does not throw: an exception from it is your code's failure, not a platform
+ * refusal, so it propagates out of `schedule` unchanged and nothing is armed.
  */
 public fun interface AlarmSoundResolver {
 

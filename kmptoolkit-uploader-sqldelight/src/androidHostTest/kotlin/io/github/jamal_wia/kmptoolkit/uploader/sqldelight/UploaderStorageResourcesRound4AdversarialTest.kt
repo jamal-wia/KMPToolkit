@@ -46,7 +46,7 @@ class UploaderStorageResourcesRound4AdversarialTest {
     fun `a row at the limit is accepted readable and still readable after a failure text is written`() = runTest {
         val store = open().store
         val payload = "x".repeat(MAX_ROW_TEXT_BYTES - 2 - 1) // id "a" and type "t" take two bytes
-        assertEquals(true, store.insertKeep(item("a", payload)))
+        assertEquals(true, store.insertKeep(item("a", payload)).inserted)
         assertEquals(payload.length, store.getAllActive().single().payload.length)
 
         store.recordFailure("a", 1, 0L, "e".repeat(4_096), UploaderItemState.PENDING, 0L, FailureDisposition.RETRY)
@@ -73,14 +73,14 @@ class UploaderStorageResourcesRound4AdversarialTest {
     @Test
     fun `a duplicate id fails typed and leaves the storage usable for keep replace and keyless inserts`() = runTest {
         val store = open().store
-        assertEquals(true, store.insertKeep(item("dup")))
+        assertEquals(true, store.insertKeep(item("dup")).inserted)
 
         assertFailsWith<UploaderStorageException> { store.insertKeep(item("dup")) }
         assertFailsWith<UploaderStorageException> { store.insertKeep(item("dup", uniqueKey = "k")) }
         assertFailsWith<UploaderStorageException> { store.insertReplace(item("dup", uniqueKey = "k2")) }
         assertFailsWith<UploaderStorageException> { store.insertReplace(item("dup")) }
 
-        assertEquals(true, store.insertKeep(item("fine", uniqueKey = "k")), "a failed insert left a transaction open")
+        assertEquals(true, store.insertKeep(item("fine", uniqueKey = "k")).inserted, "a failed insert left a transaction open")
         assertEquals(listOf("dup", "fine"), store.getAllActive().map { it.id })
         assertEquals(1, store.getAllActive().count { it.id == "dup" }, "a rolled back insert left a half-written row")
     }

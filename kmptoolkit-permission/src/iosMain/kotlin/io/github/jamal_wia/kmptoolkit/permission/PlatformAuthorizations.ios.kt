@@ -611,44 +611,38 @@ private suspend fun <T> awaitPossiblePrompt(
     suspendCancellableCoroutine { continuation ->
         val center: NSNotificationCenter = NSNotificationCenter.defaultCenter
         val observers: MutableList<Any> = mutableListOf()
-        var resigned = false
-        var finished = false
         var abandon: () -> Unit = {}
-
-        fun finish(value: T) {
-            if (finished) return
-            finished = true
-            observers.forEach(center::removeObserver)
-            abandon()
-            if (continuation.isActive) continuation.resume(value)
-        }
+        val wait: PossiblePromptWait<T> = PossiblePromptWait(
+            fallback = fallback,
+            release = {
+                observers.forEach(center::removeObserver)
+                abandon()
+            },
+            deliver = { value: T -> if (continuation.isActive) continuation.resume(value) },
+        )
 
         observers += center.addObserverForName(
             name = UIApplicationWillResignActiveNotification,
             `object` = null,
             queue = NSOperationQueue.mainQueue,
-        ) { _: NSNotification? -> resigned = true }
+        ) { _: NSNotification? -> wait.onWillResignActive() }
         observers += center.addObserverForName(
             name = UIApplicationDidBecomeActiveNotification,
             `object` = null,
             queue = NSOperationQueue.mainQueue,
-        ) { _: NSNotification? -> if (resigned) finish(fallback()) }
+        ) { _: NSNotification? -> wait.onDidBecomeActive() }
 
-        abandon = start { value -> finish(value) }
+        abandon = start { value -> wait.onDecided(value) }
 
         dispatch_after(
             dispatch_time(DISPATCH_TIME_NOW, PROMPT_GRACE_MILLIS * NANOS_PER_MILLI),
             dispatch_get_main_queue(),
         ) {
-            if (!resigned) finish(fallback())
+            wait.onGraceElapsed()
         }
         continuation.invokeOnCancellation {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0), dispatch_get_main_queue()) {
-                if (!finished) {
-                    finished = true
-                    observers.forEach(center::removeObserver)
-                    abandon()
-                }
+                wait.onCancelled()
             }
         }
     }

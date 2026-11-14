@@ -16,7 +16,8 @@ kotlin {
 ```
 
 The version is whatever `kmptoolkit.version` says in this repository's `gradle.properties`; with
-the BOM, omit it. There is no permission to declare and nothing to add to `Info.plist` — see
+the BOM, omit it. On the `jvm` target the module brings `kmptoolkit-files` along (its atomic write and
+per-file lock); Android and iOS do not. There is no permission to declare and nothing to add to `Info.plist` — see
 [`05-platform-notes.md`](05-platform-notes.md).
 
 ## 2. Create the store in your platform layer
@@ -61,6 +62,8 @@ class OnboardingState(private val storage: KeyValueStorage) {
 }
 ```
 
+Everything in this module, the factories included, is in the package `io.github.jamal_wia.kmptoolkit.storage`.
+
 Every storage call is a `suspend` function and main-safe: the store moves its own disk and key-store
 work off the calling thread, so call it from whatever coroutine you are already in — a
 `viewModelScope.launch`, a `LaunchedEffect`, a repository's own suspend function — without a
@@ -83,7 +86,7 @@ like the store it reads, and concurrent first calls all get the one id that was 
 ## 5. Store a token in the encrypted store
 
 ```kotlin
-val secrets: SecureKeyValueStorage = createSecureKeyValueStorage(context) // no argument on iOS
+val secrets: SecureKeyValueStorage = createSecureKeyValueStorage(context) // an Android Context (as `this` in step 2); no argument on iOS
 
 secrets.put("refresh_token", token)
 

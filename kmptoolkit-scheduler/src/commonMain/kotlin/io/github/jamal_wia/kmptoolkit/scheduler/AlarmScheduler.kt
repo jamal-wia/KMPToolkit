@@ -36,7 +36,12 @@ public interface AlarmScheduler {
      *
      * @return what the OS actually granted — see [AlarmScheduleResult]. Never throws for a
      *   permission or platform refusal; those come back as [AlarmScheduleResult.Inexact] or
-     *   [AlarmScheduleResult.Failed].
+     *   [AlarmScheduleResult.Failed]. On iOS every refusal arrives from `UNUserNotificationCenter`
+     *   as a value (the authorization status, the pending list, the `NSError` of the add) and is
+     *   mapped to a result; on Android the `RuntimeException`s `AlarmManager` refuses with are.
+     *   An exception that is not a refusal - one thrown by your [AlarmSoundResolver], or a
+     *   [kotlin.coroutines.cancellation.CancellationException] - is not turned into a result: it
+     *   propagates, nothing is armed, and the scheduler stays usable.
      */
     public suspend fun schedule(alarm: ScheduledAlarm): AlarmScheduleResult
 

@@ -82,15 +82,19 @@ Register the engine `createUploaderEngine` returned, not a wrapper around it: a 
 serves wake jobs (`awaitDrained`), but upload transports and `UploadGateway` reach only the library's own engine and
 report it unavailable, so an `UploadHandler`'s uploads would retry and re-hand forever.
 
-**Hand-offs while a job is finishing.** The handler transport (`createWorkManagerUploadHandlerTransport`) serves a
-retry handed off while the item's job is still running: the job uploads it before it returns, which also means one job
-can run several attempts in a row and is subject to WorkManager's roughly ten-minute limit as a whole (a stopped job is
-re-run and replays its journal). A hand-off after the job finished serving replaces that job with a fresh one, so a
-retry with a short or zero backoff is not dropped while WorkManager still reports the previous job running. The legacy
-`createWorkManagerUploadTransport` still uses `ExistingWorkPolicy.KEEP`: a retry whose backoff is shorter than the
-moment WorkManager needs to finish the previous job can wait until the lease expires (15 minutes by default). Give it
-a non-zero backoff, or use the handler transport. Hand-offs are tracked per process; another process falls back to
-`KEEP` and the lease.
+**Hand-offs while a job is finishing.** Both WorkManager transports serve a retry handed off while the item's job is
+still running: the job uploads it before it returns, which also means one job can run several attempts in a row and is
+subject to WorkManager's roughly ten-minute limit as a whole (a stopped job is re-run; the handler transport replays its
+journal). A hand-off after the job finished serving replaces that job with a fresh one, so a retry with a short or zero
+backoff is not dropped while WorkManager still reports the previous job running. The handler transport prepares the
+attempt from the row; the classic `createWorkManagerUploadTransport` job carries its request, so the transport hands the
+newest request of an absorbed hand-off to the job, and the job uploads it only when the item is still in flight: a
+duplicate hand-off of an attempt that has just been settled (a delivery, a withdrawal, a retry waiting out its backoff)
+uploads nothing, and one that is stamped with an older attempt than the row's (a late lease re-hand) never replaces or serves the newer attempt's request: the transport stamps each hand-off with the `attempts` of the attempt the engine is running (the public `launch` is called from `execute`, inside that attempt), and a hand-off made outside any attempt (for example one a wrapper launches later, from its own scope) carries no stamp and is served whenever the row is in flight. A job that settles or closes its iteration while `execute` has not returned yet (the engine writes the claim after `execute`) waits, bounded by `engineWait`, for that attempt to end, so a fast failure is counted and a retry's hand-off is found instead of both waiting for the lease. A classic job that WorkManager re-runs after it served a later attempt (a retry, or a stop) starts again from the request it was enqueued with and uploads without asking the row, so that older request can be re-sent: the same at-least-once class as any classic retry. Hand-offs are tracked per process; another process falls back to `KEEP` and the lease.
+
+**Early server answers.** A server that answers and closes the connection while the request body is still unread (an early `413`, say) can lose its answer to a connection reset: the receiving stack may discard unread reply bytes when the reset arrives, and the attempt then reads as a transport failure and uploads again. Servers should drain the request before closing. This is a property of the platform's TCP and HTTP stack, not something the transport can undo.
+
+**Reset during the request head.** On the JVM host stack (the `HttpURLConnection` that the host tests run on), a connection reset that arrives while the request head is still being written can make the stack reconnect once before any body byte is sent; the request is never sent twice. The Android device stack (OkHttp-based) is not verified for this case.
 
 **Reliability.** Good. WorkManager persists across reboots and runs in Doze maintenance windows. It
 is not instant, and it is not meant to be.
@@ -177,7 +181,8 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
 
 - **Android.** `UploadHandlerWorker` reads the response in the same attempt, before the connection is
   dropped: `inputStream` for a status below 400, `errorStream` for 400 and above (a missing one is an
-  empty body; flagged truncated when the headers declared one the stack did not deliver). A redirect whose body the stack does not hand over is flagged truncated unless its headers declare an empty body. With a
+  empty body; flagged truncated when the headers declared one the stack did not deliver; a body with a declared
+  `Content-Length` and no content encoding (`identity` counts as none) or chunked transfer is read up to that length, never past it). A redirect whose body the stack does not hand over is flagged truncated unless its headers declare an empty body. With a
   process-wide `java.net.Authenticator` that answers challenges, or on a plain JVM, a 401/407 body is
   unavailable and arrives empty and flagged truncated; the status still reaches `classify`. At most 1 MiB is read; the handler's `maxResponseBodyBytes` is applied by the engine.
   The body stays in the process and is never put into `WorkManager`'s data. A `WorkManager` worker has
@@ -196,19 +201,31 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   the status, the headers, the body and a timestamp, so **a response body rests briefly on disk**. The body is
   held to the handler's `maxResponseBodyBytes` (never above 1 MiB); a handler that sets `0` has no body
   in the file. On Android the limit is read before the upload starts; on iOS the file is first written
-  as captured, because the callback cannot wait, and cut to the limit as soon as the engine is reachable. On Android it lives in `noBackupFilesDir/kmptoolkit-uploader/outcomes/<itemId>`
+  as captured, because the callback cannot wait, and cut to the limit as soon as the engine is reachable. On Android it lives in `noBackupFilesDir/<journalDirectoryName>/outcomes/<itemId>`
   — never in a cloud backup or a device transfer. On iOS it lives in
-  `Application Support/kmptoolkit-uploader/outcomes/<itemId>`, excluded from backup, with the
+  `Application Support/<journalDirectoryName>/outcomes/<itemId>`, excluded from backup, with the
   `NSFileProtectionCompleteUntilFirstUserAuthentication` class (a background session can finish while
-  the device is locked, so a stricter class would fail exactly when the file is needed). If the process
+  the device is locked, so a stricter class would fail exactly when the file is needed). The directory name is `kmptoolkit-uploader` unless you set `UploadTransportConfig.journalDirectoryName`
+  (Android, used by `createWorkManagerUploadHandlerTransport` only) or `BackgroundUploadConfig.journalDirectoryName` (iOS):
+  give each independent uploader in one app its own name, or their item ids share one journal. Pick the name once and keep it,
+  because a journal under another name is not found; a job enqueued by a 4.x build carries no name and uses the default.
+  Entries are written through `kmptoolkit-files` (`writeAtomically`, synced to disk before the rename), and the bytes of an
+  entry are the same as before. The temporary files of a write are in `outcomes-partial`, a sibling of `outcomes`, on both
+  platforms: Android names them `.kmptoolkit-<digits>.tmp` (4.x used `<itemId>.<uuid>`), and the iOS write used to be
+  Foundation's atomic write inside `outcomes` and is now the same synced write; leftovers of either naming are swept
+  after an hour (Android) or five minutes (iOS), and the Foundation temporary files of an earlier version in `outcomes` are
+  still swept. If the process
   dies between the answer and the settlement, the next run **replays the file instead of uploading
   again**: the Android worker checks it before preparing the attempt, the iOS transport in a re-hand
-  (a first hand-off finds a stale file, deletes it and uploads), in `handleEvents` and once when it is
+  (a first hand-off finds a stale file, deletes it and uploads; so does a re-hand that finds a file stamped with an
+  older attempt than its own, a late duplicate that reached the disk), in `handleEvents` and once when it is
   created. On Android the entry carries the attempt it answers and is deleted only after the engine commit
   returned, so a death or stop before the commit leaves it for the next run, and a leftover of an attempt that was
-  already settled is recognised and dropped instead of replaying into the retry. On iOS the file is deleted just
-  before the engine commits the settlement and written back if the commit does not land (a process death in that
-  instant uploads again: at least once). One replay per item runs at a time in a process. A replayed response reaches `classify` and
+  already settled is recognised and dropped instead of replaying into the retry. On iOS the entry carries the attempt
+  too (the hand-off labels the session task with it, and the system keeps the label for a task that outlives the
+  process), so the same holds there: a death or stop before the commit leaves the entry for the next replay. Only the
+  answer of a task started by an earlier version, which has no label, is deleted just before the commit and written
+  back if it does not land (a process death in that instant uploads again: at least once). Hand the built-in transport itself to the handler: a wrapper around it is launched through the public overload, so its answers are unstamped and stay at least once. One replay per item runs at a time in a process. A replayed response reaches `classify` and
   `onDelivered` like the live one, so `onDelivered` must stay idempotent. `Uploader.cancel` deletes the
   file; so does the 7-day expiry. A file of an unknown format version or a damaged one is ignored and
   deleted. So is a file larger than 4 MiB, which no entry this journal wrote can be (it is deleted without being read). On Android a file that exists but cannot be read is waited for while the job has run fewer than 3 times (WorkManager's
@@ -253,3 +270,21 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   cannot use as a file name — empty, `.` or `..`, containing `/`, `\`, a space or a control character, or
   longer than 200 characters — is uploaded and settled normally but its answer is not journaled: a process
   death between the answer and the settlement uploads it again (at least once).
+  On iOS, where the data container can be a case-insensitive volume (the simulator, an iOS app running on a Mac), ids that differ only by letter case
+  (`Photo-1` and `photo-1`) get different files: an id keeps its own text as the name of its temporary body and its
+  journal entry only when no other id can fold onto it (a canonical upper-case UUID, which is the default id, or an
+  id without an upper-case letter that is not shaped like a UUID); any other id gets a hashed body name (the SHA-256 of
+  its UTF-16 code units, so two ids that differ only by a lone surrogate keep apart) and an escaped journal name
+  (`~` marks an escape), which the sweep maps back to the id. An id whose escaped name would pass 230 characters (more than
+  about 38 accented letters or 114 upper-case ones; the file system allows 255 bytes) gets a hashed journal name instead
+  and its entry starts with the id, which is where the sweep reads it from; so every id the journal accepts is journaled.
+  Entries a version before 5.0.0 wrote under the id's own spelling stay readable, are replayed by the sweep and are replaced
+  when the id writes again; when an id with no upper-case letter writes while such an entry of an id that differs only by
+  case is on disk (`photo-1` beside a leftover `Photo-1`), that entry is first moved to its own escaped name, and `photo-1`
+  never reads, deletes or replaces it. The volume also treats accents spelled as one character or as a letter plus a combining
+  accent as one name, and Foundation lists such a file decomposed, so `inspect`, `delete` and a new write of an id outside
+  ASCII find the entry a version before 5.0.0 wrote for it whichever way the id is spelled (the sweep hands such an entry to the item under the spelling the
+  queue holds, and under the directory's spelling when the queue holds neither). The sweep never takes the temporary file of an atomic write
+  (`<name>.sb-<hex>-<letters>`) for an entry, and removes one a dead process left once it is five minutes old; the entry a version before 5.0.0 wrote
+  for an id that itself ends like such a name (`upload.sb-1234abcd-ABC123`, an id no generator produces) cannot be told from a leftover by its name
+  or its content, so it is not read and is removed like one.

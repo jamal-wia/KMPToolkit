@@ -37,10 +37,12 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
+            // Test scope only (never in the published POM): the fake-versus-recording-engine differential runs
+            // one scenario table through the player over both doubles, which needs both in one test source set.
+            implementation(project(":kmptoolkit-audio-player-testing"))
         }
-        // No dependency on :kmptoolkit-audio-player-testing — that module depends on this one, so
-        // the reverse edge would be a project cycle. The tests here use their own recording engine;
-        // FakePlaybackEngine is covered by that module's own tests.
+        // The tests here mostly use their own recording engine; FakePlaybackEngine is covered by its own module's
+        // tests and, in test scope only, by the differential of this module.
         //
         // No kotlinx-coroutines-android either: nothing in androidMain touches Dispatchers.Main.
         // MediaPlayer is created on Dispatchers.IO precisely so its callbacks land on the main

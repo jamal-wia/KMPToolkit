@@ -6,6 +6,7 @@ import android.util.Base64
 import java.security.InvalidKeyException
 import java.security.KeyStore
 import java.security.UnrecoverableKeyException
+import javax.crypto.BadPaddingException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -34,6 +35,18 @@ internal interface ValueCipher {
      *   it no longer exists.
      */
     suspend fun decrypt(encoded: String): String
+
+    /**
+     * [encrypt] for the value stored under [key]: a cipher that can, binds the ciphertext to the key name, so
+     * the same bytes moved to another key do not decrypt there. The default does not bind (nothing to bind with).
+     */
+    suspend fun encryptFor(key: String, plaintext: String): String = encrypt(plaintext)
+
+    /**
+     * [decrypt] for the value stored under [key]; reads what [encryptFor] wrote, and what [encrypt] wrote before
+     * the binding existed (a 4.0.0 or older entry), which carries no binding.
+     */
+    suspend fun decryptFor(key: String, encoded: String): String = decrypt(encoded)
 }
 
 /**
@@ -79,13 +92,35 @@ internal class KeystoreValueCipher(
     private val isTransient: (Throwable) -> Boolean = { error: Throwable -> isTransientKeystoreFailure(error) },
 ) : ValueCipher {
 
-    override suspend fun encrypt(plaintext: String): String {
+    override suspend fun encrypt(plaintext: String): String = encryptBound(plaintext, aad = null)
+
+    override suspend fun encryptFor(key: String, plaintext: String): String = encryptBound(plaintext, aad = aadOf(key))
+
+    /**
+     * Tries the binding to [key] first; an entry that fails its tag that way is read once more as an unbound one (a
+     * value written before 5.0.0 has none). A ciphertext moved from another key fails both, so it is never taken for
+     * this key's value. A moved entry that was itself unbound (written before 5.0.0) is still accepted until it is
+     * written again.
+     */
+    override suspend fun decryptFor(key: String, encoded: String): String = try {
+        decryptBound(encoded, aad = aadOf(key))
+    } catch (_: BadPaddingException) {
+        decryptBound(encoded, aad = null)
+    }
+
+    override suspend fun decrypt(encoded: String): String = decryptBound(encoded, aad = null)
+
+    /** Authenticated, never empty (empty associated data is the same as none): the key name behind a fixed prefix. */
+    private fun aadOf(key: String): ByteArray = (AAD_PREFIX + key).toByteArray(Charsets.UTF_8)
+
+    private suspend fun encryptBound(plaintext: String, aad: ByteArray?): String {
         val cipher: Cipher = initialised { candidate: SecretKey, fresh: Cipher -> fresh.init(Cipher.ENCRYPT_MODE, candidate) }
+        if (aad != null) cipher.updateAAD(aad)
         val ciphertext: ByteArray = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
         return Base64.encodeToString(cipher.iv + ciphertext, Base64.NO_WRAP)
     }
 
-    override suspend fun decrypt(encoded: String): String {
+    private suspend fun decryptBound(encoded: String, aad: ByteArray?): String {
         // The key is resolved before the stored bytes are looked at, so that a key store which will
         // not open is reported as Unavailable — retry later — rather than as Undecryptable — the
         // value is lost. With the checks the other way round, an entry that is also malformed would
@@ -97,6 +132,7 @@ internal class KeystoreValueCipher(
         val cipher: Cipher = initialised(first) { candidate: SecretKey, fresh: Cipher ->
             fresh.init(Cipher.DECRYPT_MODE, candidate, spec)
         }
+        if (aad != null) cipher.updateAAD(aad)
         val plaintext: ByteArray =
             cipher.doFinal(bytes, IV_LENGTH_BYTES, bytes.size - IV_LENGTH_BYTES)
         return plaintext.toString(Charsets.UTF_8)
@@ -128,6 +164,9 @@ internal class KeystoreValueCipher(
 
     internal companion object {
         const val TRANSFORMATION = "AES/GCM/NoPadding"
+
+        /** Prefix of the associated data that binds a ciphertext to the key it is stored under. */
+        const val AAD_PREFIX = "kmptoolkit-storage-key:"
 
         /** GCM's standard nonce length, and the only one AndroidKeyStore generates. */
         const val IV_LENGTH_BYTES = 12

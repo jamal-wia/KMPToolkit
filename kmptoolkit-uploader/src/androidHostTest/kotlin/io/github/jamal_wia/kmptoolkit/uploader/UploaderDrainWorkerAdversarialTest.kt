@@ -6,12 +6,16 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
+import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.fail
+import kotlin.time.Duration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +66,7 @@ class UploaderDrainWorkerAdversarialTest {
     private fun UploaderDrainWorker.runToEnd(): ListenableWorker.Result = startWork().get(30, TimeUnit.SECONDS)
 
     private fun engineOver(
-        store: TestUploaderStore,
+        store: UploaderStore,
         handler: TestHandler,
         parent: Job = job,
     ): UploaderEngine = testEngine(
@@ -74,9 +78,11 @@ class UploaderDrainWorkerAdversarialTest {
 
     @Test
     fun `with no engine the worker asks for a retry after its engine wait`() {
+        // timing-hygiene-ignore: TH2 measure R-9 guard of the honoured engine wait: the rejected alternative is the 5 s default, a constant the test cannot move
         val started: Long = System.nanoTime()
         val result = worker(engineWaitMillis = 300, drainBudgetMillis = 5_000).runToEnd()
         assertEquals(ListenableWorker.Result.retry(), result)
+        // timing-hygiene-ignore: TH2 measure R-9 guard of the honoured engine wait (margin 13x over the nominal 300 ms)
         assertTrue((System.nanoTime() - started) / 1_000_000 < 4_000, "the worker waited longer than its engine wait")
     }
 
@@ -87,8 +93,10 @@ class UploaderDrainWorkerAdversarialTest {
         val engine = engineOver(store, handler)
         runBlocking { engine.enqueue(handler, "owed-from-the-last-process") }
 
+        val waitersBefore: Int = engineWaiters()
         val pending = worker(engineWaitMillis = 5_000, drainBudgetMillis = 10_000).startWork()
-        Thread.sleep(300) // the OS got there before the application bootstrap did
+        // The OS got there first: the worker is inside the registry's wait for an engine before the bootstrap runs.
+        awaitCondition(10_000L, "the worker to wait for an engine") { engineWaiters() > waitersBefore }
         engine.start()
         UploaderEngineRegistry.register(engine)
 
@@ -118,19 +126,35 @@ class UploaderDrainWorkerAdversarialTest {
     fun `a worker stopped mid wait leaves the engine draining and a re-delivered worker succeeds`() {
         val store = TestUploaderStore()
         val gate = CompletableDeferred<Unit>()
+        val executing = CompletableDeferred<Unit>()
         val handler = TestHandler(onExecute = { _, _ ->
+            executing.complete(Unit)
             gate.await()
             AttemptResult.Success
         })
         val engine = engineOver(store, handler)
         runBlocking { engine.enqueue(handler, "blocked") }
         engine.start()
-        UploaderEngineRegistry.register(engine)
+        // The registry takes any engine: a delegating one tells when a worker is inside awaitDrained and when it left.
+        val inWait = CompletableDeferred<Unit>()
+        val waitEnded = CompletableDeferred<Unit>()
+        val observed: UploaderEngine = object : UploaderEngine by engine {
+            override suspend fun awaitDrained(timeout: Duration): Boolean {
+                inWait.complete(Unit)
+                try {
+                    return engine.awaitDrained(timeout)
+                } finally {
+                    waitEnded.complete(Unit)
+                }
+            }
+        }
+        UploaderEngineRegistry.register(observed)
 
         val first = worker(engineWaitMillis = 2_000, drainBudgetMillis = 20_000).startWork()
-        Thread.sleep(400)
+        // The engine is draining (its handler is inside the blocked attempt) AND the worker is waiting on it.
+        runBlocking { withTimeout(10_000) { executing.await(); inWait.await() } }
         first.cancel(true) // WorkManager stops the job: constraints lost, or the platform deadline hit
-        Thread.sleep(200)
+        runBlocking { withTimeout(10_000) { waitEnded.await() } } // the stop reached the worker's wait
         gate.complete(Unit)
 
         val second = worker(engineWaitMillis = 2_000, drainBudgetMillis = 10_000).startWork()
@@ -148,24 +172,31 @@ class UploaderDrainWorkerAdversarialTest {
         val store = TestUploaderStore()
         val handler = TestHandler()
         val parent = Job()
-        val engine = engineOver(store, handler, parent)
+        // The drain pass reads the store: a delegating store tells that the engine's loop is live before the owner dies.
+        val firstPass = CompletableDeferred<Unit>()
+        val observedStore: UploaderStore = object : UploaderStore by store {
+            override suspend fun getAllActive(): List<UploaderItem> = store.getAllActive().also { firstPass.complete(Unit) }
+        }
+        val engine = engineOver(observedStore, handler, parent)
         engine.start()
         UploaderEngineRegistry.register(engine)
-        Thread.sleep(200)
+        runBlocking { withTimeout(10_000) { firstPass.await() } } // the engine's loop has run a pass: it is live
         parent.cancel() // the owner is gone; nothing will ever drain through this engine again
-        Thread.sleep(200)
+        // Every coroutine of the owner has ended, so nothing can drain the item enqueued next.
+        runBlocking { withTimeout(10_000) { parent.join() } }
         runBlocking { engine.enqueue(handler, "stranded") } // still persists: the store is independent
-        Thread.sleep(200)
         assertEquals(1, store.items.size)
 
-        val started: Long = System.nanoTime()
-        val result = worker(engineWaitMillis = 300, drainBudgetMillis = 6_000).runToEnd()
-        val elapsedMillis: Long = (System.nanoTime() - started) / 1_000_000
+        // The drain budget is 200 times the bound below: a worker that waited on the dead engine would still be
+        // running when the bound passes. The bound (3000 ms) is a hang bound with its own message.
+        val pending = worker(engineWaitMillis = 300, drainBudgetMillis = 600_000).startWork()
+        val result: ListenableWorker.Result = try {
+            pending.get(3_000, TimeUnit.MILLISECONDS)
+        } catch (e: TimeoutException) {
+            pending.cancel(true)
+            fail("the worker sat over 3000 ms on an engine that cannot drain (drain budget 600000 ms) instead of treating it as absent")
+        }
 
         assertEquals(ListenableWorker.Result.retry(), result)
-        assertTrue(
-            elapsedMillis < 3_000,
-            "the worker sat ${elapsedMillis}ms on an engine that cannot drain (drain budget 6000ms) instead of treating it as absent",
-        )
     }
 }

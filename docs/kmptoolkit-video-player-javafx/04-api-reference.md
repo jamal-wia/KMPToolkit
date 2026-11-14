@@ -44,7 +44,7 @@ could be started.
 - **Remembered:** a success holds until the toolkit exits (after `Platform.exit()`, after the app's last window
   closed with implicit exit on, or after the JavaFX thread died, the answer is `false`; the exit
   itself is detected from the thread, or from a heartbeat block the JavaFX thread leaves unanswered
-  for 2 s (counted only while implicit exit is on and the thread is not running the engine's own work), which also costs the first call after such an exit up to 2 s); a permanent failure (missing runtime, no display) holds for the life of the process. A JavaFX thread too busy to answer within 10 s is not remembered; the next
+  for 2 s (counted only while implicit exit is on and the thread is not running the engine's own work), which also costs the first call after such an exit up to 2 s); a permanent failure (missing runtime, no display) holds for the life of the process. A JavaFX thread too busy to answer within 10 s, or a call that was interrupted while it waited, is not remembered (an interrupted call keeps its interrupt status); the next
   call tries again.
   Callers that were waiting meanwhile each try again in turn, so while the thread stays
   unresponsive, N concurrent first calls can take up to N x 10 s; the bound is per attempt, not per
@@ -63,7 +63,7 @@ public sealed class JavaFxVideoPlayerException(message: String, cause: Throwable
 The failures specific to this engine. A player reports each as `VideoPlayerState.Error(cause)` after
 `prepare`. The messages are developer diagnostics, not text for a user. Every other failure is
 passed through as the platform reported it (`FileNotFoundException`, `IllegalArgumentException`,
-`javafx.scene.media.MediaException`) — see [`03-guide.md`](03-guide.md#errors-you-can-see).
+`UnsupportedOperationException`, `javafx.scene.media.MediaException`) — see [`03-guide.md`](03-guide.md#errors-you-can-see).
 
 Instances are created only by the library (the constructors are `internal`).
 
@@ -76,7 +76,7 @@ public class RuntimeUnavailable : JavaFxVideoPlayerException
 The OpenJFX runtime is not on the classpath, or the JavaFX toolkit cannot start here (typically: no
 display). `cause` is what JavaFX reported — a `ClassNotFoundException`, an `UnsatisfiedLinkError`, an
 `UnsupportedOperationException("Unable to open DISPLAY")`, … Permanent for the process, except when
-the JavaFX thread was only too busy to answer (a later load tries again). Also reported by a load
+the JavaFX thread was only too busy to answer, or the thread that waited for the JavaFX thread was interrupted (a later load tries again; that thread keeps its interrupt status). Also reported by a load
 when the toolkit has exited, so no work reaches the JavaFX thread any more, or (with implicit exit on)
 when the JavaFX thread stayed silent for 2 s while busy with the app's own work; that case is not
 remembered.

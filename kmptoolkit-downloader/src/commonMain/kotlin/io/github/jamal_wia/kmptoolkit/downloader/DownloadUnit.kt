@@ -18,7 +18,8 @@ package io.github.jamal_wia.kmptoolkit.downloader
  * an iOS background-session identifier, a persisted stall-count key. It must be stable across app
  * versions (it is written to disk and read back) and unique within the host's catalogue.
  *
- * Any string is accepted as an [id]; one that is not a plain file name (it contains `/` or NUL, or a
+ * Any string is accepted as an [id]; one that is not a plain file name (it contains `/`, NUL or an
+ * unpaired surrogate, or a
  * name derived from it would pass 255 bytes) is stored under a hashed name by the shipped storages,
  * so it never collides with another unit or leaves `tmp/`. Prefer `[A-Za-z0-9._-]`, and keep ids
  * unique ignoring case (and, on iOS, Unicode normalization): an iOS volume may treat `Model` and
@@ -46,6 +47,10 @@ public interface DownloadUnit {
      * the storage manages itself (`tmp`, `tmp/expect`, `tmp/expect-staged`, `tmp/kmptoolkit-internal`,
      * `tmp/staging-…`, or this unit's own temp files). Any other path under `tmp/` works but is
      * reserved for the storage and logs a warning.
+     *
+     * No unit's [relativePath] may lie inside another unit's resource (an archive tree): committing or deleting the
+     * outer resource replaces or removes everything under it. Nor may it name a [ResourceFormat.SqliteDatabase] unit's
+     * `-wal`, `-shm` or `-journal`: they move with that database.
      */
     public val relativePath: String
 
@@ -97,6 +102,10 @@ public interface DownloadUnit {
     /**
      * Which group this unit's notification and aggregate progress are filed under. A group may span
      * several units (a model plus a companion file it needs), and a unit belongs to exactly one.
+     *
+     * When the group's own initialiser lists this unit (an enum entry naming a data object), declare this as a
+     * getter; a stored value read during the group's initialisation has not been assigned yet (it reads as
+     * null on the JVM).
      */
     public val group: ResourceGroup
 }
@@ -116,10 +125,19 @@ public sealed interface ResourceFormat {
 
     /**
      * A ZIP archive: committing extracts it into [DownloadUnit.relativePath] as a directory (with
-     * zip-slip protection) and deletes the archive. [availabilityMarker] is a file the extraction
-     * is known to produce — its presence is what proves a directory resource is complete, since an
+     * zip-slip protection) and deletes the archive. [availabilityMarker] is a regular file the extraction
+     * is known to produce (a directory of that name, or another capitalization on a case-insensitive volume, does not
+     * count, and a marker ending in `/` never matches) — its presence is what proves a directory resource is complete, since an
      * interrupted extraction also leaves a directory behind. Every entry is extracted, or the commit fails
-     * with [ResourceIntegrityException]; an entry that would land outside the directory fails the commit.
+     * with [ResourceIntegrityException]; an entry that would land outside the directory fails the commit, and so does an
+     * archive the file system cannot hold as delivered (a name that is a file and a directory, a name or path that is too
+     * long, two entries it stores as one). An entry name with a leading `/` is not absolute: the empty segment is
+     * dropped and the entry is extracted inside the directory as a relative name (except where the platform's own
+     * zip reader refuses such a name first, see the platform notes).
+     *
+     * Extraction has no bound of its own: no limit on the number of entries or on the extracted size, and a full
+     * disk fails the commit as [DownloadError.Storage]. A host that wants a bound checks the archive size itself,
+     * or gives the unit a [DownloadUnit.sha256] it trusts, which is checked before anything is extracted.
      *
      * The archive must end with its end of central directory record (a comment cut short is tolerated; an archive cut
      * anywhere before the record, its central directory included, fails), and entry names are read as UTF-8 whether
@@ -142,6 +160,13 @@ public sealed interface ResourceFormat {
      * [rowCountTable] is a table or view name, used as a name (any characters: a keyword or a name with spaces
      * works); a value that names no table is used as SQL text, as in 3.0.0 — kept for compatibility, do not rely
      * on it. [declaredRowCountMetaKey] is a value bound as a parameter, never escaped by the host.
+     *
+     * Replacing or deleting the resource first moves the old file together with its `-wal`, `-shm` and
+     * `-journal` into the trash, so the old version's log is never replayed into the new one. Close every connection
+     * to the database before its unit is committed again or deleted, and open none while it is: a connection left open
+     * keeps the old version and may, when it writes or closes, create or remove log files beside the new version, and
+     * one opened during the commit may find no file at the path. A name that stays at the path after the move fails the
+     * commit with [IllegalStateException] (the temp file stays complete); deleting the resource only logs a warning.
      */
     public data class SqliteDatabase(
         public val rowCountTable: String? = null,

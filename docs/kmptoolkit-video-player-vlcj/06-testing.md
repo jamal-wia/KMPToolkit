@@ -92,11 +92,15 @@ tested against `FakeVlcRuntime`, which keeps VLC's threading shape (events on an
   frame source, touches neither discovery nor libvlc before `prepare`; without VLC, `prepare` settles
   on `Error(VlcUnavailableException)`; a seek after completion leaves the player `Paused` with VLC not
   playing; the frame source survives `unload`.
+- `VlcjSeekDuringEndR5AdversarialTest` — a seek in flight while the end is reported (a model libvlc whose
+  `setTime` blocks and then leaves the input ended): the player reads `Playing` at the seek's target, the
+  engine restarts the ended input, and the parked seek is applied when `Playing` is reported again, for a
+  target of 0 and of 1000 ms.
 - `VlcjVideoEngineWithoutVlcTest` — with a discovery that finds nothing, `load` fails with
   `VlcUnavailableException` without calling the listener; source errors are reported before VLC is
   looked for; transport, settings and getters before a load are no-ops; `release` is idempotent.
 - `VlcMediaResolverTest`: files, classpath assets (in a directory and inside a jar, including the
-  temporary copy and its deletion), remote URLs, the header mapping and every rejection — missing
+  temporary copy, its deletion and its extension, names outside the Basic Multilingual Plane), remote URLs, the header mapping and every rejection — missing
   file, blank path, directory, missing asset, blank URL, unsupported header, header with a line
   break.
 - `DisplaySizeTest`: sample aspect ratio (DVD 16:9, HDV) and quarter-turn orientation.

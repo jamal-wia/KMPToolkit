@@ -24,11 +24,23 @@ kotlin {
 }
 ```
 
-With the BOM, drop the versions:
+With the BOM, drop the versions and name the BOM in every source set that declares a dependency:
 
 ```kotlin
-implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-implementation("io.github.jamal-wia:kmptoolkit-video-player-javafx")
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-video-player")
+            implementation("io.github.jamal-wia:kmptoolkit-video-player-compose")
+        }
+
+        jvmMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-video-player-javafx")
+        }
+    }
+}
 ```
 
 ## 2. Add the OpenJFX runtime
@@ -113,9 +125,12 @@ scope.launch {
 ```
 
 `VideoSource.Asset` on desktop is a **classpath resource path** — a file under
-`src/jvmMain/resources/videos/intro.mp4` (or `src/main/resources/`) is `"videos/intro.mp4"`.
+`src/jvmMain/resources/videos/intro.mp4` (or the same path under `src/desktopMain/resources/` when the target is
+named `desktop`, `src/main/resources/` in a plain JVM project) is `"videos/intro.mp4"`.
 
-Release the player when the screen goes away (`player.release()`), as on every platform.
+Release the player when the screen goes away (`player.release()`), as on every platform. `release()` does not end
+JavaFX; a program whose `main` simply returns must end with `Platform.exit()` or `exitProcess(...)` (see
+[`05-platform-notes.md`](05-platform-notes.md)).
 
 ## 4. Check it runs
 

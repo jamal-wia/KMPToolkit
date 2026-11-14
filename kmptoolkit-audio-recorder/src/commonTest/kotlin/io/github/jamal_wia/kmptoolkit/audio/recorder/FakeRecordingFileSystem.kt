@@ -1,5 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.files.Paths
+
 /**
  * An in-memory [RecordingFileSystem] using `/` as its separator, so path handling, directory
  * creation, free-space refusal, and deletion of partial files can all be asserted without touching
@@ -18,6 +21,9 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
 
     /** Paths that already exist before the recorder runs, e.g. a reused explicit output path. */
     val existingPaths: MutableSet<String> = mutableSetOf()
+
+    /** Paths that are not regular files (deleted or replaced by a directory) for [isRegularFile]. */
+    val notRegularFiles: MutableSet<String> = mutableSetOf()
 
     /** Raised from [ensureWritableDirectory], like a platform call that throws instead of answering. */
     var ensureWritableDirectoryFailure: Throwable? = null
@@ -42,7 +48,13 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
         directory.trimEnd('/') + "/" + name
 
     override fun parentOf(path: String): String? =
+        // path-hygiene-ignore: PH3 the fake file system's paths are logical '/'-separated names by its documented contract
         path.substringBeforeLast('/', missingDelimiterValue = "").takeIf { it.isNotEmpty() }
+
+    // This fake is POSIX-style ("/data/app/..."), and a test that needs a configured directory has to
+    // give a host-absolute one ("C:\..." on Windows, where RecordingStorage rejects "/x"): accept both.
+    @OptIn(ToolkitInternalApi::class)
+    override fun isAbsolute(path: String): Boolean = path.startsWith('/') || Paths.isAbsolute(path)
 
     override fun ensureWritableDirectory(path: String): Boolean {
         onEnsureWritableDirectory()
@@ -59,6 +71,8 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
     }
 
     override fun exists(path: String): Boolean = path in existingPaths
+
+    override fun isRegularFile(path: String): Boolean = path !in notRegularFiles
 
     override fun delete(path: String) {
         deletedPaths += path

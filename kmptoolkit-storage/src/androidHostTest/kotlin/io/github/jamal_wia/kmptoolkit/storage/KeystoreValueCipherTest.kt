@@ -153,4 +153,27 @@ class KeystoreValueCipherTest {
         // decode would break the round trip.
         assertTrue(cipher.encrypt("x".repeat(1_000)).none { it == '\n' })
     }
+
+    @Test
+    fun `an entry written without a key binding is still read for any key`() = runTest {
+        // What 4.0.0 and earlier wrote: no associated data.
+        val legacy: String = cipher.encrypt("old value")
+        assertEquals("old value", cipher.decryptFor("access_token", legacy))
+    }
+
+    @Test
+    fun `a bound entry reads back for its own key only`() = runTest {
+        val bound: String = cipher.encryptFor("access_token", "token")
+        assertEquals("token", cipher.decryptFor("access_token", bound))
+        assertFailsWith<javax.crypto.BadPaddingException> { cipher.decryptFor("password", bound) }
+        // A bound entry is not readable without its key either: the binding is part of the tag.
+        assertFailsWith<javax.crypto.BadPaddingException> { cipher.decrypt(bound) }
+    }
+
+    @Test
+    fun `the empty key name is bound too`() = runTest {
+        val bound: String = cipher.encryptFor("", "v")
+        assertEquals("v", cipher.decryptFor("", bound))
+        assertFailsWith<javax.crypto.BadPaddingException> { cipher.decryptFor("other", bound) }
+    }
 }

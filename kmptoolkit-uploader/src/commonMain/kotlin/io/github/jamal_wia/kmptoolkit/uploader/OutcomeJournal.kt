@@ -36,6 +36,13 @@ internal interface OutcomeStorage {
 
     /** Removes half-written leftovers of a write that was cut short, so they do not pile up. */
     fun purgeLeftovers()
+
+    /**
+     * The spellings of the id of the entry [itemIds] listed as [listedId], most likely first. A storage whose names
+     * cannot say how the id was spelled (iOS: the volume stores accents decomposed) lists more than one; the sweep asks
+     * the queue which one an item has.
+     */
+    fun sweepSpellings(listedId: String): List<String> = listOf(listedId)
 }
 
 /** What the journal found for an item. */
@@ -109,9 +116,11 @@ internal enum class JournalSettleOutcome {
  *
  * Settlement protocol: an entry written by a worker carries the attempt it answers (an attempt stamp), and is
  * deleted only after the engine's commit returned, so a death or stop before the commit leaves it for the next
- * run, and a leftover after the commit is recognised as stale by its stamp and dropped. An unstamped entry (the
- * iOS delegate writes these in a process with no engine to read a stamp from) is deleted just before the commit
- * and written back when the commit did not land.
+ * run, and a leftover after the commit is recognised as stale by its stamp and dropped. The iOS delegate stamps
+ * too: the engine's hand-off labels the session task with its attempt, which the system keeps with the task, so a
+ * relaunched process with no engine reads the stamp back. Only an answer of a task without a label (started by an
+ * earlier version, or by a consumer driving the transport directly) is unstamped: it is deleted just before the
+ * commit and written back when the commit did not land, so a death in that window uploads again.
  *
  * An entry file too large to be one the journal wrote is treated as damaged and deleted without being read.
  *
@@ -175,7 +184,8 @@ internal class OutcomeJournal(
             delete(itemId)
             return JournalEntry.Discarded
         }
-        if (clock.nowEpochMillis() - decoded.writtenAtMillis > retentionMillis) {
+        // Saturating: a gap wider than a Long holds (a negative stamp read far ahead) is expired, never a wrapped "fresh".
+        if (saturatingSubtract(clock.nowEpochMillis(), decoded.writtenAtMillis) > retentionMillis) {
             logger.i { "Discarded an expired journaled outcome — item=$itemId" }
             delete(itemId)
             return JournalEntry.Discarded
@@ -404,9 +414,15 @@ internal class OutcomeJournal(
 
     /**
      * Replays or deletes every entry no one claimed — those of items whose transport never ran again — and
-     * clears leftovers of cut-short writes. The 7-day expiry applies as in [inspect].
+     * clears leftovers of cut-short writes. The 7-day expiry applies as in [inspect]. [knows] says whether the queue
+     * holds an item of an id (`null`: it cannot say), and is asked only for an entry whose id has several spellings.
      */
     suspend fun sweep(settle: OutcomeSettle) {
+        sweep(settle) { true }
+    }
+
+    /** [sweep] that asks [knows] which spelling of an id the queue holds. */
+    suspend fun sweep(settle: OutcomeSettle, knows: suspend (String) -> Boolean?) {
         val ids: List<String> = try {
             storage.purgeLeftovers()
             storage.itemIds()
@@ -415,7 +431,34 @@ internal class OutcomeJournal(
             logger.w(failure) { "Could not list the journaled upload outcomes." }
             return
         }
-        for (itemId in ids) replay(itemId, settle)
+        for (listed in ids) {
+            val spellings: List<String> = try {
+                storage.sweepSpellings(listed)
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                listOf(listed)
+            }
+            if (spellings.size <= 1) {
+                replay(listed, settle)
+                continue
+            }
+            // The entry does not say which spelling its id had: hand it over under the one the queue holds, the
+            // listed one when it holds none, and leave it on disk when no engine answers.
+            var itemId: String = listed
+            var undecided = false
+            for (spelling in spellings) {
+                val known: Boolean? = knows(spelling)
+                if (known == null) {
+                    undecided = true
+                    break
+                }
+                if (known) {
+                    itemId = spelling
+                    break
+                }
+            }
+            if (!undecided) replay(itemId, settle)
+        }
     }
 
     companion object {
@@ -459,7 +502,7 @@ internal const val MAX_ENCODED_ENTRY_BYTES: Long = 4L * 1024 * 1024
  * The on-disk form of an entry. Version 1 (unstamped): `int version, int status, long writtenAt, byte truncated,
  * int headerCount, (int nameLength, name, int valueLength, value) * headerCount, int bodyLength, body`.
  * Version 2 (stamped): `int version, int status, long writtenAt, int attemptStamp, byte truncated`, then the rest
- * as version 1; a negative stamp is [DecodedOutcome.Corrupt]. Big-endian, strings in UTF-8. Every length is
+ * as version 1; a negative stamp is [DecodedOutcome.Corrupt]. Big-endian, strings in UTF-8 (a lone surrogate in the three-byte form of its code unit, see [encodeJournalText]). Every length is
  * checked against what is left, so a short or damaged file reads as [DecodedOutcome.Corrupt] and never throws.
  */
 internal object OutcomeCodec {
@@ -477,8 +520,8 @@ internal object OutcomeCodec {
         out.byte(if (response.isBodyTruncated) 1 else 0)
         out.int(response.headers.size)
         for ((name, value) in response.headers) {
-            out.bytes(name.encodeToByteArray())
-            out.bytes(value.encodeToByteArray())
+            out.bytes(encodeJournalText(name))
+            out.bytes(encodeJournalText(value))
         }
         out.bytes(response.body())
         return out.toByteArray()
@@ -503,8 +546,8 @@ internal object OutcomeCodec {
             if (headerCount < 0 || headerCount.toLong() * 8L > input.remaining) return DecodedOutcome.Corrupt
             val headers: MutableMap<String, String> = LinkedHashMap()
             repeat(headerCount) {
-                val name: String = input.bytes().decodeToString()
-                headers[name] = input.bytes().decodeToString()
+                val name: String = decodeJournalText(input.bytes())
+                headers[name] = decodeJournalText(input.bytes())
             }
             val body: ByteArray = input.bytes()
             if (input.remaining != 0 || body.size > MAX_RESPONSE_BODY_BYTES) return DecodedOutcome.Corrupt

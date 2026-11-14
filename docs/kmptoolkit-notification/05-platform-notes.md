@@ -138,6 +138,11 @@ usage-description string.
   about to be coalesced does not need `createNotificationChannel` re-issued, but a channel that is
   missing is still created, because the platform drops a notification on a channel that does not
   exist without a word.
+- **The channel cache is bounded by channel ids.** The Android notifier remembers the spec it last
+  sent for each channel id, so an unchanged spec is not written again and a changed `name` or
+  `description` is. Only the latest spec per id is kept, so a description that carries changing text
+  ("Last sync: 12:01") does not make the notifier grow, however long it lives; the cost is that
+  switching back to an earlier spec writes the channel once more.
 - **The 2.x sweep cache is bounded.** The first post of an id also removes the untagged notification
   a 2.x version would have shown for it (a migration aid, gone in a future major release). The ids already swept are
   remembered only to skip a repeated binder call; `cancel` and `cancelAll` drop them and the set is
@@ -162,6 +167,20 @@ usage-description string.
   mirroring Android's `cancelAll`, which does not cancel alarms either. Scheduling is
   [`kmptoolkit-scheduler`](../kmptoolkit-scheduler/01-overview.md)'s domain, and it owns cancelling
   what it scheduled.
+- **Your id is the request identifier, shared with the scheduler.** `post` and `cancel` use the id
+  verbatim as the `UNNotificationRequest` identifier, and so does
+  [`kmptoolkit-scheduler`](../kmptoolkit-scheduler/05-platform-notes.md) for an alarm's id: on iOS
+  the two modules write into one identifier space. `cancel(id)` removes the delivered notification
+  **and any pending request** with that identifier, and `post(id)` replaces a pending request with
+  that identifier by an immediate notification, so posting or cancelling an id that is also the id of
+  a scheduled alarm discards the alarm. Use distinct ids for notifications and alarms (for example
+  `"reminder-7"` for the alarm and `"reminder-7-confirm"` for a notification about it). Android keeps
+  the two apart (a notification tag and an alarm's `PendingIntent`), so code that shares an id works
+  there and loses the alarm only on iOS, provided the alarm handler posts its reminder tagged, as the
+  scheduler's getting-started guide does: an untagged `notify` under `id.hashCode()` is the key this
+  notifier's 2.x migration sweep removes on the first `post` of the id and on every `cancel`. The pending removal is deliberate: a request posted a moment
+  earlier may not have been presented yet, and removing it is what keeps a cancelled notification from
+  appearing after `cancel` returned.
 - **`interruptionLevel` is guarded by a runtime OS-version check**, because the setter arrived in
   iOS 15 and this module's deployment target is older.
 
@@ -173,8 +192,18 @@ usage-description string.
   [`04-api-reference.md`](04-api-reference.md#notifier). On iOS that check is what stands between a
   blank id and process death, because `UNNotificationRequest` rejects it with an Objective-C
   exception Kotlin/Native cannot catch.
+- A `PermissionController` that throws is a runtime failure like any other: `post` answers
+  `NotificationResult.Failed(cause)` on both platforms (cancellation is still rethrown).
 - Nothing is persisted. The module has no database, no list of what it has posted, and nothing to
   restore after a reboot or a process death — beyond in-memory progress-coalescing state, which is
   meant to be lost.
 - A notification that was accepted may still not be drawn: Do Not Disturb, a Focus mode, a paired
   watch. Neither platform reports that back, so neither does this module.
+- **Android caps the notifications an app may show at once** (50 on current platform versions, a
+  platform-defined number that was lower on old ones). A *new* notification posted while the app
+  already has that many active is dropped by the system without an exception or a return value, so
+  `notify` returns normally and the notifier answers `Posted`; this module has no way to detect it
+  and offers no signal. An update of a notification that is already showing is not affected. Keep
+  the number of distinct ids on the tray bounded, and `cancel` the ones that are finished. The
+  scheduler's equivalent platform caps are in
+  [`kmptoolkit-scheduler`](../kmptoolkit-scheduler/05-platform-notes.md).

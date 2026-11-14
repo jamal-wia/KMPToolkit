@@ -86,7 +86,7 @@ decide again against the state it published; `start`, `pause` and `resume` do no
 | `Recording` | no | no | yes | no | yes | yes |
 | `Paused` | no | no | no | yes | yes | yes |
 | `Completed` | yes | no | no | no | no | no |
-| `Interrupted` | yes | no | no | no | yes² | yes |
+| `Interrupted` | yes | no | no | no | yes² | yes³ |
 | `Failed` | yes | no | no | no | no | yes¹ |
 | `Released` | no | no | no | no | no | no |
 
@@ -94,6 +94,9 @@ decide again against the state it published; `start`, `pause` and `resume` do no
 a `Failed` without a path `cancel` is illegal, as before.
 ² Returns the interrupted recording again as a success and leaves `state` unchanged — no emission,
 not `Completed`.
+³ Deletes the interrupted file, although it is finalized and playable, and the state becomes `Idle`:
+`cancel` is the discard. To keep the file, do not call `cancel`; `prepare` starts a fresh recording
+and never deletes it.
 
 While the system's event is being finalized `state` still shows the old value (`Ready`, `Recording`
 or `Paused`): `start`, `pause` and `resume` then return `IllegalState` with that state, and
@@ -114,7 +117,10 @@ is discarded.
 `Interrupted` (the file was finalized) or to `Failed(RecordingLost)` (it was not); from `Ready` to
 `Failed(RecordingLost)` with no path. Only the first event of a recording counts: the engine's listener is
 detached when its finalization starts, and anything still queued behind it changes nothing, whatever
-its reason. A `stop()` or `cancel()` that has already started wins: the event is ignored. See
+its reason. A `stop()` or `cancel()` that has already started wins: the event is ignored. A file that is no
+longer a regular file when the encoder has finished (deleted, or replaced by a directory, meanwhile) is a file that
+could not be finalized: the state is `Failed(RecordingLost)` with an `IllegalStateException` as `cause`, and the
+path is kept, never an `Interrupted` that names it. See
 [`03-guide.md`](03-guide.md#when-the-system-ends-a-recording) and
 [`05-platform-notes.md`](05-platform-notes.md#when-the-system-ends-a-recording).
 
@@ -286,6 +292,13 @@ On engine failure `state` becomes `Failed(error, outputPath)` and **the partial 
 library does not delete a user's audio because the encoder complained on close. The path is carried
 on the state so you can find the file; `cancel()` deletes it.
 
+A file that is no longer there when the encoder has finished — deleted, or replaced by a directory,
+by a cache cleaner, the user or another process while the recording ran — is the same failure:
+`EngineFailure(STOP, cause)` with an `IllegalStateException` as `cause`, and `state` becomes
+`Failed(error, outputPath)`. `Completed` never names a path that is not an existing regular file;
+`cancel()` clears what is left at that path: a file, a link or an empty directory is removed; a
+non-empty directory that replaced the file is left alone, on iOS as on Android.
+
 ### `suspend fun cancel(): RecorderResult<Unit>`
 
 `Ready` / `Recording` / `Paused` → `Idle`. Releases the native handle, deletes the partial file,
@@ -381,7 +394,8 @@ public data class RecordedFile(
 )
 ```
 
-An existing, closed audio file. `duration` is measured by the recorder (wall clock between `start`
+An existing, closed audio file: `stop()` checks that the path is a regular file after the encoder
+finished and answers a failure otherwise. `duration` is measured by the recorder (wall clock between `start`
 and `stop`, excluding paused time), accurate to roughly one tick — not read back from the encoded
 file.
 
@@ -429,7 +443,8 @@ platform could not report free space (in which case the check passes rather than
 unknown).
 
 `RecordingLost` — *since 2.2.0* — means the system ended the recording for `reason` and the file
-could **not** be finalized; `cause` is the finalize failure where there was one. It is carried by
+could **not** be finalized (including one that was deleted or replaced by a directory while it was
+recorded); `cause` is the finalize failure where there was one. It is carried by
 `RecorderState.Failed` only, never returned from a call. The file is kept
 (`Failed.outputPath`) and may be unplayable: an unfinalized MPEG-4 (M4A) file usually is, an AAC
 (ADTS) file usually plays. For a recorder that was only prepared there is no audio, the empty file
@@ -509,7 +524,7 @@ public data class RecordingStorage(
 )
 ```
 
-- `directoryPath` — absolute directory; a blank or relative path is rejected in `init`. `null` means `<app-private files>/<directoryName>`.
+- `directoryPath` — absolute directory (absolute on the file system the code runs on: `/…` on Android and iOS, `C:\…` or `\\server\share\…` on a Windows JVM, which is where host tests of an Android module run); a blank or relative path is rejected in `init`. On a Windows JVM a `/…` path is drive-relative, not absolute, so it is rejected too (since 5.0.0; earlier a host test on Windows could pass one): build the path from the host, for example `File(tempDir, "rec").absolutePath`. On Android and iOS nothing changes. `null` means `<app-private files>/<directoryName>`.
 - `directoryName` — relative directory under the app-private base; may be nested (`a/b`) but must not start with `/` or contain a `.` or `..` segment; rejected in `init`. `null` means the consumer's own
   application id / bundle identifier. Ignored when `directoryPath` is set.
 - `fileNamePrefix` — leading part of a generated name (`<prefix>_<epochMillis>_<token>.<ext>`). Must not be

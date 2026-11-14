@@ -1,23 +1,28 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import io.github.jamal_wia.kmptoolkit.files.CaseFolding
+import io.github.jamal_wia.kmptoolkit.files.Durability
+import io.github.jamal_wia.kmptoolkit.files.FileAccess
+import io.github.jamal_wia.kmptoolkit.files.FileAccessConfig
+import io.github.jamal_wia.kmptoolkit.files.FileError
+import io.github.jamal_wia.kmptoolkit.files.FileNames
+import io.github.jamal_wia.kmptoolkit.files.FileResult
+import io.github.jamal_wia.kmptoolkit.files.KeyedMutex
+import io.github.jamal_wia.kmptoolkit.files.PathKey
+import io.github.jamal_wia.kmptoolkit.files.WriteOptions
+import io.github.jamal_wia.kmptoolkit.files.createFileAccess
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.text.Normalizer
-import java.util.Locale
+import java.security.MessageDigest
 import java.util.Properties
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -26,7 +31,9 @@ import kotlinx.coroutines.withContext
  * Every operation reads the file afresh rather than caching it, so two instances over the same file
  * never disagree, and every write rewrites the whole file through a temporary sibling, flushed to the
  * device, and an atomic rename. That is the right trade for what this module is for — a handful of
- * small values — and it is what makes a write durable when the call returns.
+ * small values — and it is what makes a write durable when the call returns. The write is
+ * `kmptoolkit-files`' `writeAtomically`; when the file system refuses the atomic rename the write
+ * fails instead of replacing the file non-atomically.
  *
  * Nothing throws: an unreadable or corrupted file, a path the file system rejects, and a denied
  * security check all arrive as [StorageError.OperationFailed]. A file that cannot be parsed,
@@ -38,6 +45,7 @@ import kotlinx.coroutines.withContext
 internal class JvmKeyValueStorage(
     private val file: File,
     private val dispatcher: CoroutineDispatcher,
+    private val files: FileAccess = createFileAccess(),
 ) : KeyValueStorage {
 
     /**
@@ -45,7 +53,7 @@ internal class JvmKeyValueStorage(
      * normalization (macOS, Windows), so their read-modify-write cycles never interleave. On a
      * case-sensitive volume two such spellings are two files that share one lock.
      */
-    private val lock: Mutex = LOCKS.computeIfAbsent(jvmStorageLockKey(file)) { Mutex() }
+    private val lockKey: String = jvmStorageLockKey(file)
 
     override suspend fun get(key: String): StorageResult<String?> = guarded(StorageOperation.GET, key) {
         load().getProperty(key)
@@ -69,8 +77,9 @@ internal class JvmKeyValueStorage(
     override suspend fun clear(): StorageResult<Unit> = guarded(StorageOperation.CLEAR, key = null) {
         Files.deleteIfExists(file.toPath())
         // A process killed between creating a temporary file and renaming it leaves that file behind.
+        val prefix: String = temporaryPrefixOf(file.name)
         file.absoluteFile.parentFile
-            ?.listFiles { sibling -> isOwnTemporary(sibling.name) }
+            ?.listFiles { sibling -> isLegacyTemporary(sibling.name) || FileNames.isTempName(sibling.name, prefix) }
             ?.forEach { leftover -> Files.deleteIfExists(leftover.toPath()) }
     }
 
@@ -79,7 +88,7 @@ internal class JvmKeyValueStorage(
         key: String?,
         crossinline block: () -> T,
     ): StorageResult<T> = withContext(dispatcher) {
-        lock.withLock {
+        LOCKS.withLock(lockKey) {
             try {
                 StorageResult.Success(block())
             } catch (error: IOException) {
@@ -94,14 +103,14 @@ internal class JvmKeyValueStorage(
     }
 
     /**
-     * Exactly the shape [File.createTempFile] gives this store's writer: the file name, a run of digits,
-     * the suffix. A looser prefix match would also take another store's temporary file whose own file
-     * name merely starts with this one's.
+     * The shape 4.x gave this store's temporary sibling (`File.createTempFile`): the file name, 1..20 digits (an
+     * unsigned 64-bit number), `.tmp`. Digits only after the full own file name, so a neighbour whose own name merely
+     * starts with this one's is never matched.
      */
-    private fun isOwnTemporary(name: String): Boolean {
-        if (!name.startsWith(file.name) || !name.endsWith(TEMPORARY_SUFFIX)) return false
-        val middle: String = name.substring(file.name.length, name.length - TEMPORARY_SUFFIX.length)
-        return middle.isNotEmpty() && middle.all { it in '0'..'9' }
+    private fun isLegacyTemporary(name: String): Boolean {
+        if (!name.startsWith(file.name) || !name.endsWith(".tmp")) return false
+        val middle: String = name.substring(file.name.length, name.length - ".tmp".length)
+        return middle.length in 1..MAX_LEGACY_TEMPORARY_DIGITS && middle.all { it in '0'..'9' }
     }
 
     private fun load(): Properties {
@@ -118,47 +127,35 @@ internal class JvmKeyValueStorage(
     }
 
     private fun write(properties: Properties) {
-        val directory: File = file.absoluteFile.parentFile
-        if (!directory.isDirectory && !directory.mkdirs() && !directory.isDirectory) {
-            throw IOException("Could not create directory $directory")
-        }
-        val temporary: File = File.createTempFile(file.name, TEMPORARY_SUFFIX, directory)
-        try {
-            FileOutputStream(temporary).use { output ->
-                val writer = OutputStreamWriter(output, StandardCharsets.UTF_8)
-                properties.store(writer, null)
-                writer.flush()
-                // Without this the rename can reach the disk before the data, and a power loss in between
-                // leaves an empty file where the previous contents were.
-                output.fd.sync()
-            }
-            try {
-                Files.move(
-                    temporary.toPath(),
-                    file.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            }
-        } finally {
-            Files.deleteIfExists(temporary.toPath())
+        val buffer = ByteArrayOutputStream()
+        val writer = OutputStreamWriter(buffer, StandardCharsets.UTF_8)
+        properties.store(writer, null)
+        writer.flush()
+        // The temporary sibling is `<temporaryPrefixOf(file name)><digits>.tmp`, the shape clear() recognizes as this store's own.
+        val result: FileResult<Unit> = files.writeAtomically(
+            file.absolutePath,
+            buffer.toByteArray(),
+            WriteOptions(Durability.Synced, createParentDirectories = true, tempPrefix = temporaryPrefixOf(file.name)),
+        )
+        if (result is FileResult.Failure) {
+            val error: FileError = result.error
+            throw IOException(error.toString(), (error as? FileError.Io)?.cause)
         }
     }
 
     private companion object {
-        const val TEMPORARY_SUFFIX: String = ".tmp"
+        // Digits of Long.toUnsignedString, which the JDK's createTempFile put after the prefix in 4.x.
+        const val MAX_LEGACY_TEMPORARY_DIGITS: Int = 20
 
-        // ConcurrentHashMap, not a Mutex-guarded map: looked up from the non-suspending constructor; JVM-only, so no
-        // Kotlin/Native constraint. The values are coroutine Mutexes.
-        val LOCKS: ConcurrentHashMap<String, Mutex> = ConcurrentHashMap()
+        // Process-wide, one entry per file with a user: entries vanish when no cycle holds or awaits the key.
+        val LOCKS: KeyedMutex<String> = KeyedMutex()
     }
 }
 
 /**
  * The key of the lock shared by every store over one file: the canonical path (or the absolute one),
- * Unicode-normalized (NFC) and folded through the full case mapping (lowercase, uppercase, lowercase, then
+ * Unicode-normalized and folded through the full case mapping, by `PathKey.of(path, CaseFolding.Always)` of
+ * kmptoolkit-files (lowercase, uppercase, lowercase, then
  * NFC again, because case mapping can leave a decomposed sequence): `ß`, the capital sharp s `ẞ` and `ss`,
  * the Greek sigma forms, the long s `ſ` and `s`, the Kelvin sign and `k` each get one key. Two paths whose
  * uppercase forms after lowercasing are equal always get the same key. The formula was checked against the
@@ -179,12 +176,36 @@ internal fun jvmStorageLockKey(file: File): String {
     } catch (_: SecurityException) {
         file.absoluteFile.normalize().path
     }
-    val composed: String = Normalizer.normalize(path, Normalizer.Form.NFC)
-    // Lowercase first, so the capital sharp s becomes ß (uppercasing leaves it alone). Then the full mapping turns ß
-    // into SS, every sigma into Σ and ſ into S, so spellings with the same capitals get the same key; lowercase
-    // then gives one form.
-    return Normalizer.normalize(
-        composed.lowercase(Locale.ROOT).uppercase(Locale.ROOT).lowercase(Locale.ROOT),
-        Normalizer.Form.NFC,
-    )
+    return PathKey.of(path, CaseFolding.Always)
+}
+
+// MAX_TEMP_PREFIX_BYTES minus "~" and 16 hex characters of the hash.
+private const val HASHED_PREFIX_KEPT_BYTES: Int = FileAccessConfig.MAX_TEMP_PREFIX_BYTES - 17
+
+/**
+ * The prefix of this store's temporary siblings. The file name itself (the 4.x shape) when it fits
+ * [FileAccessConfig.MAX_TEMP_PREFIX_BYTES]; otherwise the name cut at a code point boundary to 215 UTF-8 bytes, `~`,
+ * and the first 8 bytes of SHA-256 of the whole name as 16 lowercase hex characters: at most 232 bytes, stable, and
+ * different for two names that share their first 215 bytes (`~` after digits-only legacy matching also keeps a short
+ * store's rule from matching it).
+ */
+internal fun temporaryPrefixOf(fileName: String): String {
+    if (fileName.toByteArray(StandardCharsets.UTF_8).size <= FileAccessConfig.MAX_TEMP_PREFIX_BYTES) return fileName
+    var bytes = 0
+    var end = 0
+    while (end < fileName.length) {
+        val codePoint: Int = fileName.codePointAt(end)
+        val width: Int = when {
+            codePoint < 0x80 -> 1
+            codePoint < 0x800 -> 2
+            codePoint < 0x10000 -> 3
+            else -> 4
+        }
+        if (bytes + width > HASHED_PREFIX_KEPT_BYTES) break
+        bytes += width
+        end += Character.charCount(codePoint)
+    }
+    val digest: ByteArray = MessageDigest.getInstance("SHA-256").digest(fileName.toByteArray(StandardCharsets.UTF_8))
+    val hash: String = digest.take(8).joinToString("") { "%02x".format(it) }
+    return fileName.substring(0, end) + "~" + hash
 }

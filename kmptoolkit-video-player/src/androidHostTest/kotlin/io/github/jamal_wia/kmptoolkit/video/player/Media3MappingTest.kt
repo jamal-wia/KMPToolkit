@@ -10,6 +10,7 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.runner.RunWith
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -45,6 +46,9 @@ class Media3MappingTest {
 
     @Test
     fun `a file maps to a file uri`() {
+        // A device path stays exactly as written; on a Windows host java.io.File turns it into
+        // "C:\data\..." and the uri gets a drive prefix, which says nothing about a device.
+        TestHost.assumePosixFileSemantics("an absolute device path such as /data/user/0 stays as written")
         val uri = VideoSource.File("/data/user/0/app/files/clip 1.mp4").toMediaUri()
 
         assertEquals("file", uri.scheme)

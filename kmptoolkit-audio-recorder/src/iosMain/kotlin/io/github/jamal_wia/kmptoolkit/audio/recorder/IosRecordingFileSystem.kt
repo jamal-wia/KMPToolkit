@@ -1,23 +1,21 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
-import kotlinx.cinterop.BooleanVar
+import io.github.jamal_wia.kmptoolkit.files.FileAccess
+import io.github.jamal_wia.kmptoolkit.files.FileKind
+import io.github.jamal_wia.kmptoolkit.files.createFileAccess
+import io.github.jamal_wia.kmptoolkit.files.exists
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
-import kotlinx.cinterop.value
 import platform.Foundation.NSBundle
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
-import platform.Foundation.NSFileSystemFreeSize
-import platform.Foundation.NSNumber
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
-import platform.Foundation.NSURL
 import platform.Foundation.NSUserDomainMask
 
-/** [RecordingFileSystem] over `NSFileManager`, rooted at the app's `Documents` directory. */
+/** [RecordingFileSystem] over `kmptoolkit-files` and `NSFileManager`, rooted at the app's `Documents` directory. */
 @OptIn(ExperimentalForeignApi::class)
-internal class IosRecordingFileSystem : RecordingFileSystem {
+internal class IosRecordingFileSystem(
+    private val files: FileAccess = createFileAccess(),
+) : RecordingFileSystem {
 
     private val fileManager: NSFileManager get() = NSFileManager.defaultManager
 
@@ -32,47 +30,57 @@ internal class IosRecordingFileSystem : RecordingFileSystem {
     override fun applicationIdentifier(): String =
         NSBundle.mainBundle.bundleIdentifier ?: FALLBACK_IDENTIFIER
 
+    // Both path calls are plain string work, not NSURL: NSURL keeps a repeated separator, answers the file name
+    // decomposed (NFD, a different string from the precomposed name the caller passed) and gives "/.." as the
+    // parent of the root. The contract is the one AndroidRecordingFileSystem keeps through java.io.File: a
+    // trailing or repeated separator is dropped, the name is returned exactly as given, the root has no parent.
     override fun resolve(directory: String, name: String): String =
-        NSURL.fileURLWithPath(directory).URLByAppendingPathComponent(name)?.path
-            ?: "$directory/$name"
+        collapseSeparators(if (name.isEmpty()) directory else "$directory/$name")
 
     override fun parentOf(path: String): String? {
-        // Short-circuited rather than delegated to NSURL: URLByDeletingLastPathComponent resolves a
-        // bare file name against the process's working directory and hands back a real path, which
-        // would silently answer "yes, it has a parent" for something the contract says has none.
-        if (!path.contains('/')) return null
-        return NSURL.fileURLWithPath(path).URLByDeletingLastPathComponent?.path
+        val clean: String = collapseSeparators(path)
+        val lastSeparator: Int = clean.lastIndexOf('/')
+        return when {
+            // A bare file name has no directory part; NSURL would resolve it against the working directory instead.
+            lastSeparator < 0 -> null
+            lastSeparator > 0 -> clean.substring(0, lastSeparator)
+            clean.length == 1 -> null
+            else -> "/"
+        }
     }
 
     override fun ensureWritableDirectory(path: String): Boolean {
-        if (!fileManager.fileExistsAtPath(path)) {
-            fileManager.createDirectoryAtPath(
-                path = path,
-                withIntermediateDirectories = true,
-                attributes = null,
-                error = null,
-            )
-        }
+        files.createDirectories(path)
         // A regular file at the path exists and may be writable, yet it is not a directory to record into.
-        return isDirectory(path) && fileManager.isWritableFileAtPath(path)
-    }
-
-    private fun isDirectory(path: String): Boolean = memScoped {
-        val flag: BooleanVar = alloc<BooleanVar>()
-        fileManager.fileExistsAtPath(path, isDirectory = flag.ptr) && flag.value
+        return files.metadata(path, followLinks = true)?.kind == FileKind.Directory &&
+            fileManager.isWritableFileAtPath(path)
     }
 
     override fun freeSpaceBytes(path: String): Long {
-        val attributes: Map<Any?, *> =
-            fileManager.attributesOfFileSystemForPath(path, error = null) ?: return UNKNOWN
-        val freeSize: NSNumber = attributes[NSFileSystemFreeSize] as? NSNumber ?: return UNKNOWN
-        return freeSize.longLongValue
+        // A path that is not an existing directory answers "unknown" (-1), so the caller's
+        // treat-unknown-as-enough rule applies.
+        if (files.metadata(path, followLinks = true)?.kind != FileKind.Directory) return UNKNOWN
+        return files.freeSpaceBytes(path) ?: UNKNOWN
     }
 
-    override fun exists(path: String): Boolean = fileManager.fileExistsAtPath(path)
+    override fun exists(path: String): Boolean = files.exists(path)
+
+    override fun isRegularFile(path: String): Boolean =
+        files.metadata(path, followLinks = true)?.kind == FileKind.RegularFile
 
     override fun delete(path: String) {
-        fileManager.removeItemAtPath(path, error = null)
+        // Best effort by contract. Not recursive: a non-empty directory that replaced the file is left alone.
+        files.delete(path)
+    }
+
+    /** [path] with every run of `/` made one and a trailing `/` dropped (the root `/` keeps its own). */
+    private fun collapseSeparators(path: String): String {
+        val collapsed: StringBuilder = StringBuilder(path.length)
+        for (character: Char in path) {
+            if (character != '/' || collapsed.isEmpty() || collapsed.last() != '/') collapsed.append(character)
+        }
+        if (collapsed.length > 1 && collapsed.last() == '/') collapsed.setLength(collapsed.length - 1)
+        return collapsed.toString()
     }
 
     private companion object {

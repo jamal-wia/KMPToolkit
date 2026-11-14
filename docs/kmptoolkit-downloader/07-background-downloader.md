@@ -276,12 +276,40 @@ Stop writing as soon as `cancelDownload` is called. The engine may delete the te
 record right after; a write that lands after that leaves bytes with no record, which would later
 resume or commit with only `DownloadUnit.sha256` checked.
 
+### Handing an existing file to the storage
+
+A downloader that fetched the bytes somewhere else (a system download manager, another app directory, possibly
+another volume) puts them into the unit's temp path with `kmptoolkit-files` and then marks the temp file complete.
+`FileAccess.move` falls back to a synced copy when the volumes differ, so this is safe across volumes. The module
+`kmptoolkit-downloader` does not export `kmptoolkit-files`, so the app adds it as its own dependency:
+
+```kotlin
+// Needs kmptoolkit-files as your own dependency (version from the BOM): implementation("io.github.jamal-wia:kmptoolkit-files")
+val moved: FileResult<Unit> =
+    files.move(location, storage.getTempFilePath(unit), MoveOptions(createParentDirectories = true)) // cross-volume safe
+if (moved is FileResult.Failure) {
+    // Never mark here: the temp path may still hold an older partial file, and marking would promote it.
+    // Report the transfer as failed through your downloader's failure path; the engine then calls deleteTempFile.
+    return reportFailure(unit, moved.error)
+}
+storage.markTempFileComplete(unit)   // the temp path now holds exactly the finished download
+```
+
+On success the move replaced whatever stood at the temp path atomically, so the mark applies to the new bytes only.
+`files` is a `FileAccess` from `createFileAccess()`, `location` is the path of the finished file your
+downloader received (a `String`), and `reportFailure` stands for your downloader's own failure event.
+The storage has no method for this on purpose: its temp path may be a hashed one under `tmp/`, and only
+`getTempFilePath(unit)` names it.
+
 ## A worked skeleton (Android)
 
 The shape most Android implementations converge on: a foreground service so the OS does not kill
 the process mid-transfer, streaming with a plain HTTP client, 1% progress throttling so the engine
 is not flooded, and marking the temp file complete on success so a transfer that finishes while the
 UI process is dead is committed — not resumed — on the next `ensureAvailable`.
+
+Imports omitted: `Flow`, `MutableSharedFlow`, `MutableStateFlow`, and the `filter` and `update` extensions from
+`kotlinx.coroutines.flow`, and `kotlinx.coroutines.delay` (used by the keep-alive snippet further down).
 
 ```kotlin
 class MyBackgroundResourceDownloader(
@@ -405,7 +433,7 @@ default, armed at subscription) would cancel a perfectly healthy task. There are
 handle it:
 
 - **Keep-alive (recommended).** While the system still lists the task
-  (`getTasksWithCompletionHandler`), re-emit the unit's *current* `Progress` about every 60
+  (`getAllTasksWithCompletionHandler`), re-emit the unit's *current* `Progress` about every 60
   seconds — the last known fraction, `0` included when nothing has arrived yet.
 
   ```kotlin
@@ -426,6 +454,9 @@ handle it:
       delay(60.seconds)
   }
   ```
+
+  `taskIsStillListedBySystem` stands for your own check that the `URLSession` still lists the task
+  (`getAllTasksWithCompletionHandler`); `60.seconds` needs `import kotlin.time.Duration.Companion.seconds`.
 
   The flow must **deliver equal values**: a `MutableSharedFlow` does, a `StateFlow` does not (it
   conflates a repeat of the same `Progress`, the timer is never restarted, and the engine cancels a

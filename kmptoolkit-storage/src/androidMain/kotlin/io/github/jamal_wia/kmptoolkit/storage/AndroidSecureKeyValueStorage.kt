@@ -32,7 +32,7 @@ internal class AndroidSecureKeyValueStorage(
         } ?: return@withContext StorageResult.Success(null)
 
         try {
-            StorageResult.Success(cipher.decrypt(stored))
+            StorageResult.Success(cipher.decryptFor(key, stored))
         } catch (cancellation: CancellationException) {
             // The wait for the key was cancelled, not the value lost — never report it as one.
             throw cancellation
@@ -55,7 +55,7 @@ internal class AndroidSecureKeyValueStorage(
     override suspend fun put(key: String, value: String): StorageResult<Unit> = withContext(dispatcher) {
         unpairedSurrogateFailure(key, value)?.let { return@withContext it }
         val encrypted: String = try {
-            cipher.encrypt(value)
+            cipher.encryptFor(key, value)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: StorageKeyUnavailableException) {

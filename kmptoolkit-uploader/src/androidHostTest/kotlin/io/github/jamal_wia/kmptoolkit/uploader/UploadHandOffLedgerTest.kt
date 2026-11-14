@@ -117,4 +117,50 @@ class UploadHandOffLedgerTest {
 
         assertEquals(ExistingWorkPolicy.REPLACE, ledger.policyForHandOff("recent"))
     }
+
+    @Test
+    fun `a counted hand-off keeps the newest request for the serving job, and an uncounted one keeps none`() {
+        val first = UploadRequest(url = "https://upload.invalid/1", fields = emptyList())
+        val second = UploadRequest(url = "https://upload.invalid/2", fields = emptyList())
+        assertEquals(ExistingWorkPolicy.KEEP, ledger.policyForHandOff("a", first))
+        assertNull(ledger.latestRequest("a"), "no job serves the item: nothing is counted or kept")
+
+        ledger.jobStarted("a")
+        ledger.policyForHandOff("a", first)
+        ledger.policyForHandOff("a", second)
+
+        assertEquals(second, ledger.latestRequest("a"))
+        assertEquals(2L, ledger.handOffsSeen("a"))
+    }
+
+    @Test
+    fun `a stamped hand-off of an older attempt is counted but does not replace a newer attempt's request`() {
+        val older = UploadRequest(url = "https://upload.invalid/older", fields = emptyList())
+        val newer = UploadRequest(url = "https://upload.invalid/newer", fields = emptyList())
+        ledger.jobStarted("a")
+        ledger.policyForHandOff("a", newer, attempt = 1)
+        ledger.policyForHandOff("a", older, attempt = 0)
+
+        assertEquals(2L, ledger.handOffsSeen("a"), "the late duplicate still moves the counter")
+        assertEquals(newer, ledger.latestHandOff("a")?.request)
+        assertEquals(1, ledger.latestHandOff("a")?.attempt)
+
+        ledger.policyForHandOff("a", older)
+        assertEquals(older, ledger.latestHandOff("a")?.request, "an unstamped hand-off is the newest by arrival")
+        assertNull(ledger.latestHandOff("a")?.attempt)
+    }
+
+    @Test
+    fun `a job that starts alone and a cancelled item do not inherit an earlier request`() {
+        val request = UploadRequest(url = "https://upload.invalid/1", fields = emptyList())
+        ledger.jobStarted("a")
+        ledger.policyForHandOff("a", request, attempt = 5)
+        ledger.forget("a")
+        assertNull(ledger.latestHandOff("a"), "cancel drops what was counted for the item")
+
+        ledger.policyForHandOff("a", request, attempt = 5)
+        ledger.jobEnded("a")
+        ledger.jobStarted("a")
+        assertNull(ledger.latestHandOff("a"), "a job that starts with no other active begins from its own request")
+    }
 }

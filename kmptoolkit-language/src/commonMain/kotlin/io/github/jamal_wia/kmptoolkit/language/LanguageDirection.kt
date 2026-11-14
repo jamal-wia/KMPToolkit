@@ -39,10 +39,10 @@ public fun AppLanguage(code: String): AppLanguage =
  * language subtag decide, using its default script.
  *
  * What it knows is the set of right-to-left scripts and languages in actual use for user interfaces,
- * not every script ever encoded: the right-to-left scripts `Arab`, `Hebr`, `Thaa`, `Syrc`, `Nkoo`,
- * `Adlm`, `Mand`, `Samr`, `Rohg`, `Yezi`, `Mend`, and the languages that default to one of them,
- * including regional languages whose default script is right-to-left (Egyptian Arabic `arz`, South
- * Azerbaijani `azb`, Western Punjabi `pnb`, ...), checked against the Android platform's
+ * not every script ever encoded: the twelve right-to-left scripts `Arab`, `Aran` (Nastaliq), `Hebr`,
+ * `Thaa`, `Syrc`, `Nkoo`, `Adlm`, `Mand`, `Samr`, `Rohg`, `Yezi`, `Mend`, and the languages that default
+ * to one of them, including regional languages whose default script is right-to-left (Egyptian Arabic
+ * `arz`, South Azerbaijani `azb`, Western Punjabi `pnb`, ...), checked against the Android platform's
  * likely-subtags data in the tests.
  * Anything it does not recognise is reported left-to-right, which is the safe direction to be wrong
  * in: an unexpected language renders in the majority layout rather than mirrored. If you need a

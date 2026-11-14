@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -140,7 +141,7 @@ class AndroidDownloaderOddIdChaosTest {
     /** The files below [directory], without the one-time layout marker, which is not a temp file or record. */
     private fun filesUnder(directory: File): List<String> =
         directory.walkTopDown().filter { it.isFile && it.name != "legacy-layout" }
-            .map { it.relativeTo(directory).path }.sorted().toList()
+            .map { TestPaths.relativeLogical(directory.path, it.path)!! }.sorted().toList()
 
     private fun outsideRoot(): List<String> =
         context.filesDir.walkTopDown().filter { it.isFile && !it.startsWith(root) }.map { it.path }.toList()

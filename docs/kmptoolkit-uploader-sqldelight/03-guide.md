@@ -116,17 +116,21 @@ Your database has its own version, and this module's schema is a table inside it
 two is a documented procedure rather than an automatic one, because a library silently issuing DDL
 against your database on startup is exactly the kind of thing you would want to have approved.
 
-**Adding the queue to an existing database** is a migration of *yours*. In the `.sqm` that moves
-your database to the version which first has a queue:
+**Adding the queue to an existing database** is a migration of *yours*. SQLDelight runs `AfterVersion(n)` once
+the step from version `n` to `n + 1` has been applied, so the callback is keyed to the version your database
+*leaves*, not to the one that first has a queue: if your next schema version, 7, is the first with a queue
+(a migration `6 -> 7`), the callback is `AfterVersion(6)`. `AfterVersion(7)` would run only after the step
+`7 -> 8`, and a database upgraded from 6 to 7 would have no queue table:
 
 ```kotlin
 // YourDatabase.Schema.migrate(...) runs your .sqm files. Run ours from the matching
 // AfterVersion callback, so the table is created exactly once, at a version you chose.
+// Here the database moves 6 -> 7 and 7 is the first version with a queue, so the callback is AfterVersion(6).
 YourDatabase.Schema.migrate(
     driver = driver,
     oldVersion = old,
     newVersion = new,
-    AfterVersion(7) { uploaderDatabaseSchema.create(it) },
+    AfterVersion(6) { uploaderDatabaseSchema.create(it) },
 )
 ```
 
@@ -219,8 +223,8 @@ already on the database thread rather than dispatching onto it — though what i
 uncommitted state your own transaction has written so far.
 
 Withdrawals are not transactional. `cancel`, `cancelByTag` and `REPLACE` called inside a transaction cancel a
-running upload or attempt at once. If that transaction later rolls back, the row is restored and stays queued, and
-its upload resumes no later than when its lease expires; the cancelled attempt spent nothing.
+running upload or attempt at once. If that transaction later rolls back, the row is restored and stays queued (an item whose effect already ran in this process and only its delete was owed is
+deleted without running again), and its upload resumes no later than when its lease expires; the cancelled attempt spent nothing.
 
 ## Failures
 
@@ -232,13 +236,16 @@ was running and the platform cause. A corrupt database file is by default never 
 ### One row is at most 1 MiB
 
 The text columns of one row (payload, id, type, unique key, ordering key, tag and last error) may hold at most
-1 MiB of UTF-8 together. An insert over that is refused with `UploaderStorageException`. The limit exists because
+1 MiB of UTF-8 together, counted on the texts as given; a text with NUL characters or lone surrogates is stored in a
+larger escaped form (at most twice the size), and the stored form of the row may not pass 2,048,000 bytes either. An
+insert over either limit is refused with `UploaderStorageException`. The limits exist because
 Android reads a row through a `CursorWindow` of about 2 MiB: a bigger row can be written but never read back, and
 because the queue is read as a whole, that one row would make every item unreadable and impossible to withdraw.
 The same limit holds on every platform so the queue behaves alike. Keep a large payload elsewhere (a file) and
 queue a reference to it. The engine itself bounds the failure text it stores to about 4096 characters. The bound also holds for later writes:
 a failure text or park reason written after the insert is cut (on a character boundary, or dropped) to whatever room
-the rest of the row leaves, so a row accepted at the limit never grows past it.
+the rest of the row leaves (as given and as stored), so a row accepted at the limit never grows past it and is always
+readable.
 
 A storage used after `close()` fails with `UploaderStorageException` whose cause is an `IllegalStateException`,
 never with a `CancellationException`.
@@ -287,7 +294,7 @@ the queue is the wrong place to retry it from.
 
 ## Two queues in one app
 
-Give them different names, and they get different files and different threads:
+Give them names that differ in more than letter case or accents, and they get different files and different threads:
 
 ```kotlin
 val chat: UploaderStorage = createUploaderStorage(context, UploaderDatabaseConfig("com.example.chat"))

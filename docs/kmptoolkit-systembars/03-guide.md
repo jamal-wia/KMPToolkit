@@ -222,9 +222,13 @@ against another screen's claim. In practice this means:
 
 ### When to call `triggerRecalculation`
 
-The periodic sample (every `intervalMs`, 300 ms by default) is a safety net for content that changes
-without telling anyone — scrolling imagery, a transition finishing. A screen that knows its
-background just changed should call `StatusBarLuminanceProbe.triggerRecalculation()` instead of
+The periodic sample (a tick every `intervalMs`, 300 ms by default) is a safety net for content that
+changes without telling anyone — scrolling imagery, a transition finishing. A tick does not always
+read the pixels: while the UI is animating the sample is deferred, up to a jittered cap of about two
+seconds, so an endless animation is still sampled now and then; and a tick on a settled screen is
+skipped while nothing has been drawn since the last sample, until two seconds have passed since it.
+The first tick of a cycle runs right away, so a settled screen derives its icons at once. A screen
+that knows its background just changed should call `StatusBarLuminanceProbe.triggerRecalculation()` instead of
 waiting for the next tick:
 
 ```kotlin

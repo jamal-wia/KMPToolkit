@@ -48,6 +48,12 @@ import kotlinx.coroutines.yield
  * withdrawals and replacements of the same item.
  */
 class UploaderEngineWithdrawalStormRound5AdversarialTest {
+    /**
+     * The seed of every random choice (the delays and the call order of iteration n come from `Random(seed + n)`). A
+     * constant because common test code has no system properties; to explore another sequence edit it. Every
+     * assertion message of a seeded test quotes it. Thread interleaving stays free.
+     */
+    private val seed: Long = 20261113L
 
     @AfterTest
     fun clearRegistry() {
@@ -138,7 +144,8 @@ class UploaderEngineWithdrawalStormRound5AdversarialTest {
             .filter { it in gone }
             .filter { id -> !events.drop(events.indexOfLast { it == "launch:$id" } + 1).contains("cancel:$id") }
 
-    private suspend fun stormOnce(wrap: (UploaderStore) -> UploaderStore): List<String> {
+    private suspend fun stormOnce(random: Random, wrap: (UploaderStore) -> UploaderStore): List<String> {
+        val delays: List<Long> = List(48) { random.nextLong(0, 3) } // drawn up front: no Random is shared between coroutines
         val inner = InMemoryUploaderStore()
         val transport = LoggingTransport()
         val handler = UploadingHandler(transport)
@@ -150,7 +157,7 @@ class UploaderEngineWithdrawalStormRound5AdversarialTest {
                 val ids: List<Deferred<String?>> = List(48) { n ->
                     async {
                         val id: String? = engine.enqueue(handler, "p$n", tag = "acct")
-                        delay(Random.nextLong(0, 3))
+                        delay(delays[n])
                         if (id != null) {
                             if (n % 4 == 0) engine.cancelByTag("acct") else engine.cancel(id)
                         }
@@ -173,16 +180,16 @@ class UploaderEngineWithdrawalStormRound5AdversarialTest {
     @Test
     fun `withdrawals racing the drain over a hopping store leave no upload running without its row`() = realTest(120) {
         repeat(25) { iteration ->
-            val orphaned: List<String> = stormOnce { HoppingStore(it) }
-            assertEquals(emptyList(), orphaned, "iteration $iteration: withdrawn uploads left running")
+            val orphaned: List<String> = stormOnce(Random(seed + iteration)) { HoppingStore(it) }
+            assertEquals(emptyList(), orphaned, "iteration $iteration: withdrawn uploads left running (seed=$seed)")
         }
     }
 
     @Test
     fun `withdrawals racing the drain over the plain store leave no upload running without its row`() = realTest(120) {
         repeat(25) { iteration ->
-            val orphaned: List<String> = stormOnce { it }
-            assertEquals(emptyList(), orphaned, "iteration $iteration: withdrawn uploads left running")
+            val orphaned: List<String> = stormOnce(Random(seed + iteration)) { it }
+            assertEquals(emptyList(), orphaned, "iteration $iteration: withdrawn uploads left running (seed=$seed)")
         }
     }
 
@@ -200,6 +207,7 @@ class UploaderEngineWithdrawalStormRound5AdversarialTest {
                 withTimeout(10.seconds) { while (transport.log.all.none { it == "launch:$old" }) delay(2) }
                 UploaderEngineRegistry.register(engine)
                 val start = CompletableDeferred<Unit>()
+                val random = Random(seed + iteration)
                 val calls: List<Deferred<Any?>> = listOf<suspend () -> Any?>(
                     { UploadGateway.complete(old, UploadResult.Completed(201)) },
                     { UploadGateway.complete(old, UploadResult.Completed(201)) },
@@ -208,7 +216,10 @@ class UploaderEngineWithdrawalStormRound5AdversarialTest {
                     { engine.cancel(old) },
                     { engine.cancelByTag("acct") },
                     { engine.enqueue(handler, "new", uniqueKey = "k", tag = "acct", conflictPolicy = ConflictPolicy.REPLACE) },
-                ).shuffled().map { call -> async { start.await(); delay(Random.nextLong(0, 2)); call() } }
+                ).shuffled(random).map { call ->
+                    val pause: Long = random.nextLong(0, 2)
+                    async { start.await(); delay(pause); call() }
+                }
                 start.complete(Unit)
                 calls.awaitAll()
                 delay(100)
@@ -216,14 +227,14 @@ class UploaderEngineWithdrawalStormRound5AdversarialTest {
                 val delivered: List<String> = handler.hooks.delivered.value.filter { it == "old" }
                 val deliveredSettled: List<String> =
                     handler.hooks.settled.value.filter { it.first == "old" && it.second is SettleResult.Delivered }.map { it.first }
-                assertTrue(delivered.size <= 1, "iteration $iteration: onDelivered ran ${delivered.size} times")
-                assertEquals(delivered.size, deliveredSettled.size, "iteration $iteration: onDelivered and its onSettled do not pair")
+                assertTrue(delivered.size <= 1, "iteration $iteration: onDelivered ran ${delivered.size} times (seed=$seed)")
+                assertEquals(delivered.size, deliveredSettled.size, "iteration $iteration: onDelivered and its onSettled do not pair (seed=$seed)")
                 val events: List<String> = transport.log.all
                 if (store.getById(old) == null && "old" !in handler.hooks.delivered.value) {
                     // withdrawn or replaced and never delivered: its upload must have been cancelled after its launch
                     assertTrue(
                         events.drop(events.indexOfLast { it == "launch:$old" } + 1).contains("cancel:$old"),
-                        "iteration $iteration: $old was removed undelivered and its upload runs on",
+                        "iteration $iteration: $old was removed undelivered and its upload runs on (seed=$seed)",
                     )
                 }
             } finally {

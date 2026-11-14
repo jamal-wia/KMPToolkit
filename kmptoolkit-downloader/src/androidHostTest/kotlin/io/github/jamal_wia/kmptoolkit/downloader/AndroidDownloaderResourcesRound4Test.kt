@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -25,7 +26,6 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.joinAll
@@ -103,12 +103,7 @@ class AndroidDownloaderResourcesRound4Test {
             logger = NoopLogger,
         )
 
-    @Suppress("UNCHECKED_CAST")
-    private fun lockRegistrySize(): Int {
-        val field = UnitCommitLocks::class.java.getDeclaredField("entries")
-        field.isAccessible = true
-        return ((field.get(null) as MutableStateFlow<Map<*, *>>).value).size
-    }
+    private fun lockRegistrySize(): Int = UnitCommitLocks.activeKeyCount
 
     private fun engineScopeChildren(engine: Downloader): Int {
         val field = engine.javaClass.getDeclaredField("scope")
@@ -205,7 +200,7 @@ class AndroidDownloaderResourcesRound4Test {
                 }
             }.joinAll()
             assertEquals(0, lockRegistrySize())
-            val files: List<String> = root.walkTopDown().filter { it.isFile }.map { it.relativeTo(root).path }.toList()
+            val files: List<String> = root.walkTopDown().filter { it.isFile }.map { TestPaths.relativeLogical(root.path, it.path)!! }.toList()
             assertEquals(listOf(UnitFileLayout.LEGACY_LAYOUT_MARKER), files)
         }
     }

@@ -16,8 +16,13 @@ with `java.io.FileNotFoundException` before VLC is involved; a file VLC cannot d
 
 On desktop an asset is a **classpath resource**: `VideoSource.Asset("video/intro.mp4")` looks up
 `video/intro.mp4` (a leading `/` is ignored) through the thread's context class loader, falling back
-to the library's own. Put the file under `src/desktopMain/resources/` (or `src/jvmMain/resources/`)
-and it is on the classpath.
+to the library's own. Put the file under
+the resources folder of the source set that builds the desktop app (`src/jvmMain/resources/`, or
+`src/desktopMain/resources/` when the target is named `desktop`, `src/main/resources/` in a plain JVM project) and it
+is on the classpath.
+
+An asset path that names a directory is not checked up front: VLC is asked to open it and the
+prepare fails with `VlcPlaybackException` (no playable track).
 
 VLC can only open real files, so:
 
@@ -25,7 +30,12 @@ VLC can only open real files, so:
   place;
 - packed into a jar (a distributable), it is **copied to a temporary file** for as long as that
   source stays loaded, then deleted — on the next `prepare`, on `unload`, on `release`, and in the
-  worst case at JVM exit.
+  worst case at JVM exit. The copy keeps the asset's extension (so libvlc can tell the container) when it is
+  plain, 1 to 16 letters, digits, `_` or `-`; any other extension is replaced by `.tmp`.
+
+Any name the file system accepts plays, including one with a character outside the Basic Multilingual Plane (an
+emoji): the JDK's class loader encodes such a name one UTF-16 surrogate at a time, which is not valid UTF-8, and
+the resolver joins the pairs again before it opens the file or the jar entry.
 
 For large videos in a packaged app, prefer installing them next to the app and using
 `VideoSource.File` — the copy costs disk and time on every prepare.
@@ -62,7 +72,7 @@ The end of the source is handled by VLCJ's repeat support, which starts the sour
 reports its end. The player never reports `Completed` while looping. The restart re-opens the
 input, so there can be a short gap at the loop point — VLC does not offer a gapless loop that can be
 switched on and off for a source already loaded.
-A seek made in the gap at the loop point is reported at once and applied as soon as the restarted
+The playhead reads 0 in the gap, never the end of the cycle that just ended. A seek made in the gap at the loop point is reported at once and applied as soon as the restarted
 source has output.
 
 ## Volume

@@ -11,7 +11,9 @@ package io.github.jamal_wia.kmptoolkit.uploader
  * supersedes it. A parked item is out of rotation with no other revive path, so letting it keep its
  * key would make that key permanently dead — [KEEP] would then silently swallow every future
  * enqueue for it. A fresh enqueue is new intent, and it revives the key with a new payload and a
- * clean retry budget.
+ * clean retry budget. The superseded item is withdrawn as by [Uploader.cancel], whatever its state, under either policy:
+ * the attempt the engine runs for it is stopped and, for an [UploadHandler]'s item, its upload is cancelled (a parked
+ * item can still have an earlier claim's upload running after its lease ran out).
  */
 public enum class ConflictPolicy {
 
@@ -24,6 +26,9 @@ public enum class ConflictPolicy {
      *
      * This is the right default for "make sure this eventually happens": a second tap on *send*
      * does not queue a second send.
+     *
+     * A [UploaderItemState.PARKED] conflict is the exception: it is superseded, and withdrawn as by
+     * [Uploader.cancel] (its upload cancelled, whatever its state), exactly like a [REPLACE] of the same row.
      */
     KEEP,
 
@@ -36,11 +41,12 @@ public enum class ConflictPolicy {
      * indefinitely and starve everything behind it.
      *
      * A superseded item whose upload an [UploadHandler]'s transport is running is cancelled, as
-     * [Uploader.cancel] would: the old version must not keep uploading next to the new one.
+     * [Uploader.cancel] would, whatever its state, parked included (a parked item can still have an earlier claim's
+     * upload running after its lease ran out): the old version must not keep uploading next to the new one.
      *
      * Cancelling the superseded item's upload or running attempt is a side effect that happens at once and is
-     * not rolled back: if a transaction around the enqueue rolls back, the old row is restored and stays queued,
-     * its upload resuming no later than when its lease expires.
+     * not rolled back: if a transaction around the enqueue rolls back, the old row is restored and stays queued; an item whose effect already ran in this process and only its delete was
+     * owed is deleted without running again, its upload resuming no later than when its lease expires.
      *
      * A caller cancelled before the enqueue starts writes nothing. Once the write has started, cancelling the
      * caller does not interrupt it: the replacement completes, and the stop of the superseded item's attempt and

@@ -57,10 +57,12 @@ class AudioPlayerLifecycleChaosTest {
         val listener: PlaybackEngineListener? get() = delegate.listener
 
         override suspend fun load(source: AudioSource) {
+            // path-hygiene-ignore: PH3 the value is a URL, not a file path
             log += "load ${(source as AudioSource.Remote).url.substringAfterLast('/')}"
             try {
                 delegate.load(source)
             } finally {
+                // path-hygiene-ignore: PH3 the value is a URL, not a file path
                 log += "unwound ${source.url.substringAfterLast('/')}"
             }
         }

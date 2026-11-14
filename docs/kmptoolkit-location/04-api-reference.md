@@ -95,15 +95,19 @@ public interface LocationProvider {
 
 | Member | Contract |
 |---|---|
-| `getCurrentLocation` | Returns one fix, or `null`. Prefers the freshest cached fix (on Android, of any enabled GPS or network provider); falls back to a fresh single-shot request, capped by `LocationProviderConfig.singleFixTimeoutMillis`. Never throws for a missing permission, a disabled service, or no signal. |
+| `getCurrentLocation` | Returns one fix, or `null`. On Android, prefers the freshest cached fix of any enabled GPS or network provider and falls back to a fresh single-shot request when there is none; on iOS it always requests a fresh fix and never reads a cached one. The request is capped by `LocationProviderConfig.singleFixTimeoutMillis`. Never throws for a missing permission, a disabled service, or no signal. |
 | `observeLocation` | Hot `Flow`, `null` while no fix is available. Registers the underlying platform request on first collection and stops it when the flow is cancelled — see [`03-guide.md`](03-guide.md). Always seeds its first value (a cached fix of an enabled provider, or `null`, which is also what a collection starting with every provider off gets) so a collector is never left waiting. Conflated: a collector that is busy skips intermediate fixes and always ends on the newest one (a newer `null` included), never on a stale position. |
 | `isLocationEnabled` | Whether the device-wide location service is on, independent of the app's permission. `suspend` because iOS's equivalent check warns off the main thread. |
 | `openLocationSettings` | Sends the user to the system location settings screen (Android) or the app's own settings page (iOS — there is no deep link to the toggle). Fire-and-forget: no result, no callback, never throws; a screen that could not be opened is logged. On Android the task it lands in depends on the factory — see [Factories](#factories). |
 | `promptToEnableService` | Asks for an in-place "turn location back on" prompt where the platform offers one. Has a **default implementation** — `ALREADY_ON` / `UNSUPPORTED` from `isLocationEnabled()` — so it needs no override on either factory-built provider. See [`03-guide.md`](03-guide.md#prompting-to-re-enable-the-service) and [`LocationServicePrompt`](#locationserviceprompt) below. |
 
-Implementations are safe to call from any thread. Nothing here holds a resource that must be closed
-— there is no `close()` on this interface, because there is no persistent platform registration
-outside of an active `observeLocation` collector.
+Implementations are safe to call from any thread. Nothing here is a resource the caller must close
+— there is no `close()` on this interface. The platform registrations the module makes are each ended
+by the module: a `getCurrentLocation` request when the call returns, times out or is cancelled, an
+`observeLocation` registration when its collector is cancelled, and, on iOS only, the one pending
+`CLLocationManager` request of `withSystemServicesPrompt()`, which the module keeps until
+CoreLocation answers it (for an app that is not yet authorized CoreLocation may never answer; at most
+one is kept at a time, see [`05-platform-notes.md`](05-platform-notes.md)).
 
 ## `LocationServicePrompt`
 
@@ -137,14 +141,29 @@ public data class LocationProviderConfig(
     val minUpdateDistanceMeters: Float = 0f,
     val minUpdateIntervalMillis: Long = 0L,
     val singleFixTimeoutMillis: Long = 30_000L,
-)
+) {
+    public companion object {
+        public const val DEFAULT_MIN_UPDATE_DISTANCE_METERS: Float = 0f
+        public const val DEFAULT_MIN_UPDATE_INTERVAL_MILLIS: Long = 0L
+        public const val DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS: Long = 30_000L
+    }
+}
 ```
 
 | Parameter | Contract |
 |---|---|
 | `minUpdateDistanceMeters` | Smallest movement, in meters, that produces a new `observeLocation` emission. `0` means every update the platform reports. Maps directly to Android's `requestLocationUpdates` `minDistance` and iOS's `CLLocationManager.distanceFilter`. |
 | `minUpdateIntervalMillis` | Shortest time, in milliseconds, between two `observeLocation` emissions. `0` means no throttling. Maps to Android's `requestLocationUpdates` `minTime`. **Ignored on iOS** — CoreLocation has no time-based throttle; see [`05-platform-notes.md`](05-platform-notes.md). |
-| `singleFixTimeoutMillis` | How long `getCurrentLocation` waits for a fresh fix before giving up and returning `null`, when no cached fix is available. Must be positive. |
+| `singleFixTimeoutMillis` | How long `getCurrentLocation` waits for a fresh fix before giving up and returning `null`: on Android only when no cached fix is available, on iOS always (it never reads a cached fix). Must be positive. |
 
 Throws `IllegalArgumentException` at construction if `minUpdateDistanceMeters` or
 `minUpdateIntervalMillis` is negative, or `singleFixTimeoutMillis` is not positive.
+
+The companion's three constants are the defaults of the three parameters above, public so a caller can
+refer to them instead of repeating the literal:
+
+| Constant | Value | Default of |
+|---|---|---|
+| `DEFAULT_MIN_UPDATE_DISTANCE_METERS` | `0f` (every update, however small) | `minUpdateDistanceMeters` |
+| `DEFAULT_MIN_UPDATE_INTERVAL_MILLIS` | `0L` (no time-based throttling) | `minUpdateIntervalMillis` |
+| `DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS` | `30_000L` (30 seconds) | `singleFixTimeoutMillis` |

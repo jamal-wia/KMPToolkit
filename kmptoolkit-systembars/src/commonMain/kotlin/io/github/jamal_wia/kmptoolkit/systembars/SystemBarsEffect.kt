@@ -80,13 +80,16 @@ public fun SystemBarsEffect(
 }
 
 /**
- * Applies [controller]'s current configuration to a Compose surface that renders into its own
- * platform window — `Dialog`, `Popup`, `ModalBottomSheet`, `BasicAlertDialog`.
+ * Applies [controller]'s current status-bar and navigation-bar icon styles (only those two; bar
+ * visibility and the hidden-bar behaviour are not applied) to a Compose surface that renders into
+ * its own dialog window — `Dialog`, `ModalBottomSheet`, `BasicAlertDialog`.
  *
  * On Android such a surface gets a window, and therefore an insets controller, of its own; the
  * appearance the controller set on the activity's window never reaches it. Without this the bars
  * over an open bottom sheet revert to the platform default — dark icons — which is invisible in a
  * light app and unreadable in a dark one. Call it once, at the top of the dialog's content lambda.
+ * The effect finds the window through `DialogWindowProvider`, which a `Popup` does not implement, so
+ * inside a `Popup` (and in ordinary activity content) it does nothing.
  *
  * No-op on iOS, where a sheet shares the app's one status bar and the controller already drives it.
  */

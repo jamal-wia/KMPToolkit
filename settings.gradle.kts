@@ -28,6 +28,8 @@ rootProject.name = "KMPToolkit"
 // Published library modules, added one at a time as they are ported. The full roadmap of planned
 // modules lives in the root README's module table.
 include(":kmptoolkit-core")
+include(":kmptoolkit-files")
+include(":kmptoolkit-files-testing")
 include(":kmptoolkit-logging")
 include(":kmptoolkit-logging-overlay")
 include(":kmptoolkit-audio-player")
@@ -73,6 +75,10 @@ include(":kmptoolkit-video-player-vlcj")
 include(":kmptoolkit-video-player-javafx")
 
 include(":kmptoolkit-bom")
+
+// Not published — shared test helpers (path syntax converter, host assumptions), used only as a test
+// dependency. Deliberately not named kmptoolkit-*, so the BOM does not list it.
+include(":test-support")
 
 // Not published — Android Compose demo, smoke-tests the released artifacts by coordinate.
 include(":sample")

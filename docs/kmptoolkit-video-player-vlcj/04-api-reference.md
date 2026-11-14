@@ -32,7 +32,8 @@ Creates a `VideoPlayer` backed by VLC, in `VideoPlayerState.Idle`.
   fails, the prepare settles on `Error(VlcUnavailableException)`.
 - **Resources.** The player owns one libvlc instance (created by the first `prepare` and kept
   across `unload`, a replacing `prepare` and a cancelled one) and one native media player per loaded
-  source. `unload()` and `release()` free the media player at once; `release()` also frees the
+  source. `unload()` and `release()` return at once and free the media player on a background thread of the
+  player's own; `release()` also frees the
   libvlc instance, after the media player (see [`03-guide.md`](03-guide.md) § "Lifecycle and
   threading").
 - **Rendering.** Frames are decoded to memory as 32-bit ARGB and exposed to

@@ -94,7 +94,7 @@ public class ExponentialBackoffRetryPolicy(
      *   treated as `1`.
      */
     override fun backoffMillis(attempts: Int): Long {
-        val exponent: Int = (attempts - 1).coerceIn(0, MAX_EXPONENT)
+        val exponent: Int = (attempts.coerceAtLeast(1) - 1).coerceIn(0, MAX_EXPONENT)
         // Saturating: a base so large that doubling it overflows the Long range must stay at the ceiling, never wrap.
         val raw: Long = if (baseDelayMillis > (maxDelayMillis shr exponent)) maxDelayMillis else baseDelayMillis shl exponent
         val spread: Double = 1.0 + jitterRatio * (random.nextDouble() * 2 - 1)
@@ -113,8 +113,14 @@ public class ExponentialBackoffRetryPolicy(
         /** Default [jitterRatio]: ±20%. */
         public const val DEFAULT_JITTER_RATIO: Double = 0.2
 
-        /** Caps `1 shl n` well below `Long` overflow; `2^20 × base` already exceeds any real cap. */
-        private const val MAX_EXPONENT: Int = 20
+        /**
+         * Caps the shift count at the widest a `Long` allows. Overflow is guarded by the saturation test in
+         * [backoffMillis] (`base > max shr exponent` returns the ceiling before any shift is computed), so the
+         * bound only has to be large enough that every attempt count that can still change the result is below it:
+         * the curve is the documented `min(max, base * 2^(n-1))` for every base, including a tiny one under a huge
+         * ceiling. At 63, `max shr 63` is 0 and the ceiling is returned without computing `1 shl 63`.
+         */
+        private const val MAX_EXPONENT: Int = 63
     }
 }
 

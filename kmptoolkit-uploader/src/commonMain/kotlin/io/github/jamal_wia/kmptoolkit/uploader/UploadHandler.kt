@@ -163,7 +163,8 @@ public abstract class UploadHandler<P : Any>(
      *
      * Runs at most once, after the item's row was committed, in the process that committed it. A delivery or drop runs it
      * once its [onDelivered] (if any) ran, even when the item was withdrawn during the settlement; a park or failure
-     * report that a newer settlement superseded runs no hook. A stop of
+     * report that a newer settlement superseded runs no hook, and neither does a delivery whose commit failed and that the
+     * engine confirmed later. A stop of
      * the platform job, an engine close or a process death right after the commit can skip it, and nothing
      * calls it later. Do not make it the only place that frees a resource such as the uploaded source file;
      * reconcile leftovers at start, or free on [onDelivered] (at least once, before the commit) where that fits.
@@ -188,7 +189,7 @@ public abstract class UploadHandler<P : Any>(
                 } else {
                     // A throw here — the platform scheduler unavailable — propagates to the engine,
                     // which makes it a Retry for this item alone.
-                    transport.launch(context.id, context.wasDetached, preparation.request)
+                    transport.launchAttempt(context.id, context.wasDetached, context.attempts, preparation.request)
                     AttemptResult.Detached(lease)
                 }
             }
@@ -216,9 +217,16 @@ public sealed interface UploadPreparation {
     /** Upload [request]. */
     public data class Proceed(val request: UploadRequest) : UploadPreparation
 
-    /** Nothing to upload, and nothing owed: remove the item. */
+    /**
+     * Nothing to upload, and nothing owed: remove the item. At a re-hand of an expired lease the engine also cancels
+     * the earlier claim's upload.
+     */
     public data class Drop(val reason: String) : UploadPreparation
 
-    /** Cannot upload, and retrying will not help: keep the item, visibly, for inspection. */
+    /**
+     * Cannot upload, and retrying will not help: keep the item, visibly, for inspection. At a re-hand of an expired
+     * lease an earlier claim's upload that is still running is left alone; if it delivers, the delivery settles the
+     * item. Withdraw the item ([Uploader.cancel], [Uploader.cancelByTag]) to stop it.
+     */
     public data class Park(val reason: String) : UploadPreparation
 }

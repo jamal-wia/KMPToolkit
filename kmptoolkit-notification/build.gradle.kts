@@ -40,6 +40,9 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
+            // Test scope only (never in the published POM): the fidelity differential runs the real notifiers
+            // and RecordingNotifier through one script, which needs both in one test source set.
+            implementation(project(":kmptoolkit-notification-testing"))
         }
         androidMain.dependencies {
             // NotificationCompat, NotificationManagerCompat, and String.toUri.
@@ -53,6 +56,9 @@ kotlin {
             // FakePermissionController: the Android notifier's gates are only reachable with a
             // permission controller a test can drive.
             implementation(project(":kmptoolkit-permission-testing"))
+            // The scheduler, test scope only (never in the published POM): a reminder that fires and posts a
+            // notification is how an app uses the two modules, and only a test that has both can run it.
+            implementation(project(":kmptoolkit-scheduler"))
         }
     }
 }

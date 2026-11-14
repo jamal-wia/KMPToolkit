@@ -39,26 +39,28 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-video-player-compose` | Compose surface (`VideoPlayerSurface`) and a `VideoPlayer` with ready-made controls whose every part can be replaced or restyled. Also publishes `jvm` | `video-player` | Available | [docs](docs/kmptoolkit-video-player-compose/01-overview.md) |
 | `kmptoolkit-video-player-vlcj` | Desktop (JVM-only) video engine on VLCJ — any format VLC plays. VLCJ is **GPL-3**; VLC must be installed | `video-player` | Available | [docs](docs/kmptoolkit-video-player-vlcj/01-overview.md) |
 | `kmptoolkit-video-player-javafx` | Desktop (JVM-only) video engine on JavaFX Media — nothing to install, fewer formats. OpenJFX is GPL-2 + Classpath Exception | `video-player` | Available | [docs](docs/kmptoolkit-video-player-javafx/01-overview.md) |
-| `kmptoolkit-audio-recorder` | Audio recording (`MediaRecorder` / `AVAudioRecorder`), live input level for a waveform, typed errors instead of throws, and an `Interrupted` state when the system ends a recording (call, silenced microphone, full disk, dead media service) | — | Available | [docs](docs/kmptoolkit-audio-recorder/01-overview.md) |
+| `kmptoolkit-audio-recorder` | Audio recording (`MediaRecorder` / `AVAudioRecorder`), live input level for a waveform, typed errors instead of throws, and an `Interrupted` state when the system ends a recording (call, silenced microphone, full disk, dead media service) | `files` | Available | [docs](docs/kmptoolkit-audio-recorder/01-overview.md) |
 | `kmptoolkit-audio-recorder-testing` | `FakeAudioRecorder`, for `testImplementation` | `audio-recorder` | Available | [docs](docs/kmptoolkit-audio-recorder/06-testing.md) |
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | — | Available | [docs](docs/kmptoolkit-scheduler/01-overview.md) |
 | `kmptoolkit-scheduler-testing` | `RecordingAlarmScheduler` double, for `testImplementation` | `scheduler` | Available | [docs](docs/kmptoolkit-scheduler/06-testing.md) |
-| `kmptoolkit-storage` | Key-value storage, plain and encrypted, with a main-safe `suspend` API, typed `Int`/`Long`/`Boolean` accessors and a stable device id. Also publishes `jvm` (a plain properties-file store), for code shared with desktop | — | Available | [docs](docs/kmptoolkit-storage/01-overview.md) |
+| `kmptoolkit-storage` | Key-value storage, plain and encrypted, with a main-safe `suspend` API, typed `Int`/`Long`/`Boolean` accessors and a stable device id. Also publishes `jvm` (a plain properties-file store), for code shared with desktop | `files` (`jvm`) | Available | [docs](docs/kmptoolkit-storage/01-overview.md) |
 | `kmptoolkit-storage-testing` | `InMemoryKeyValueStorage`, for `testImplementation` | `storage` | Available | [docs](docs/kmptoolkit-storage/06-testing.md) |
+| `kmptoolkit-files` | File-system primitives for shared code: atomic durable writes, bounded reads, safe recursive delete, leftover sweeps, per-key coroutine locks, path and file-name rules including Windows, app directories with backup exclusion; typed errors instead of throws. Also publishes `jvm`, for code shared with desktop | — | Available | [docs](docs/kmptoolkit-files/01-overview.md) |
+| `kmptoolkit-files-testing` | `FakeFileAccess` (in memory, with fault and crash injection) and `FileAccessContract`, for `testImplementation` | `files` | Available | [docs](docs/kmptoolkit-files/06-testing.md) |
 | `kmptoolkit-biometric` | Biometric gate with typed outcomes, an enrolment shortcut whose launch you can customise, and opt-in weak-tier / single-attempt checks; prompt copy is yours | `activity` (Android) | Available | [docs](docs/kmptoolkit-biometric/01-overview.md) |
 | `kmptoolkit-biometric-testing` | `ScriptedBiometricGate`, for `testImplementation` | `biometric` | Available | [docs](docs/kmptoolkit-biometric/06-testing.md) |
 | `kmptoolkit-permission` | One `PermissionController` for every grant: 15 permissions both platforms have (notifications, microphone, camera, location, photos, contacts, calendar, motion, Bluetooth, …), Android runtime permissions, special accesses, roles and device admins, and iOS tracking, speech, reminders and Focus — with a status that tells limited, restricted and unavailable apart from a refusal, batch requests, observation, and a headless request flow | `storage`, `activity` (Android) | Available | [docs](docs/kmptoolkit-permission/01-overview.md) |
 | `kmptoolkit-permission-testing` | `FakePermissionController`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
 | `kmptoolkit-notification` | Local notifications, channels, actions, and the notification a foreground service starts with | `permission` | Available | [docs](docs/kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-notification-testing` | `RecordingNotifier`, for `testImplementation` | `notification` | Available | [docs](docs/kmptoolkit-notification/06-testing.md) |
-| `kmptoolkit-uploader` | Transactional uploader engine (storage-agnostic), with `UploadHandler` — which hands the app the server's response (status, headers, body) — and built-in background HTTP upload transports on Android (WorkManager) and iOS (background `NSURLSession`) | `logging` | Available | [docs](docs/kmptoolkit-uploader/01-overview.md) |
+| `kmptoolkit-uploader` | Transactional uploader engine (storage-agnostic), with `UploadHandler` — which hands the app the server's response (status, headers, body) — and built-in background HTTP upload transports on Android (WorkManager) and iOS (background `NSURLSession`) | `logging`, `files` | Available | [docs](docs/kmptoolkit-uploader/01-overview.md) |
 | `kmptoolkit-uploader-testing` | `InMemoryUploaderStore`, `UploaderStoreContract`, `FakeUploader`, `RecordingUploadTransport`, for `testImplementation` | `uploader` | Available | [docs](docs/kmptoolkit-uploader/06-testing.md) |
 | `kmptoolkit-uploader-sqldelight` | SQLDelight-backed `UploaderStore`, the reference SPI implementation | `uploader` | Available | [docs](docs/kmptoolkit-uploader-sqldelight/01-overview.md) |
 | `kmptoolkit-location` | Device geographic position: one-shot fix, continuous updates, service-enabled check and re-enable prompt | `logging`, `activity` (Android) | Available | [docs](docs/kmptoolkit-location/01-overview.md) |
 | `kmptoolkit-location-testing` | `FakeLocationProvider`, for `testImplementation` | `location` | Available | [docs](docs/kmptoolkit-location/06-testing.md) |
 | `kmptoolkit-proximity` | Proximity sensor (`ProximitySensor` + `ProximityRule`) | — | Available | [docs](docs/kmptoolkit-proximity/01-overview.md) |
 | `kmptoolkit-proximity-testing` | `FakeProximitySensor` double, for `testImplementation` | `proximity` | Available | [docs](docs/kmptoolkit-proximity/06-testing.md) |
-| `kmptoolkit-downloader` | Resumable background-download engine (transfer-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-downloader/01-overview.md) |
+| `kmptoolkit-downloader` | Resumable background-download engine (transfer-agnostic) | `logging`, `files` | Available | [docs](docs/kmptoolkit-downloader/01-overview.md) |
 | `kmptoolkit-downloader-testing` | `FakeDownloader`, `FakeDownloaderStorage`, for `testImplementation` | `downloader` | Available | [docs](docs/kmptoolkit-downloader/06-testing.md) |
 | `kmptoolkit-activity` | Scoped access to the currently resumed `Activity`, with no getter to leak through and a predicate deciding which activities count; plus `SystemScreenLauncher`, which decides the task a system screen opened by another module lands in. The one **Android-only** module: there is no iOS counterpart to an Activity | — | Available | [docs](docs/kmptoolkit-activity/01-overview.md) |
 | `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership, optional pixel-sampled auto icon styling, and a keep-screen-awake primitive. Also publishes `jvm`, so a UI tree shared with desktop still compiles | `activity` (Android) | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |
@@ -88,9 +90,14 @@ order.
 Add the BOM to align every module on one version, then pull in only what you use:
 
 ```kotlin
-dependencies {
-    implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-    implementation("io.github.jamal-wia:kmptoolkit-logging")
+// build.gradle.kts of your shared module
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-logging")
+        }
+    }
 }
 ```
 

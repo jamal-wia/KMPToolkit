@@ -13,6 +13,13 @@ dependencies {
     compileOnly(libs.compose.gradlePlugin)
     compileOnly(libs.composeCompiler.gradlePlugin)
     compileOnly(libs.mavenPublish.gradlePlugin)
+
+    // Unit tests of the path-hygiene scanner; run by the root `checkBuildLogic` task.
+    testImplementation(kotlin("test"))
+}
+
+tasks.test {
+    useJUnit()
 }
 
 // Plugin ids are `kmptoolkit.<capability>`, so a module's plugins block states what the module

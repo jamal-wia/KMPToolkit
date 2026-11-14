@@ -14,11 +14,11 @@ The interface consumers depend on.
 | `pathOf` | `fun pathOf(unit: DownloadUnit): String` | Valid only while `isAvailable(unit)` holds. Throws `InvalidDownloadUnitException` for a `relativePath` the storage rejects. |
 | `downloadState` | `fun downloadState(group: ResourceGroup): StateFlow<GroupDownloadState>` | One flow per declared group. Throws `IllegalArgumentException` for an undeclared group. |
 | `ensureAvailable` | `suspend fun ensureAvailable(group: ResourceGroup)` | Returns at once if already available; concurrent calls share one download. |
-| `cancelDownload` | `fun cancelDownload(group: ResourceGroup)` | Safe from any thread. Also ends a running `ensureAvailable(group)` with `DownloadCancelledException`, unless its last commit has already succeeded: then the call completes and publishes `Completed`. A per-unit `ensureAvailable` running for one of the group's units is cancelled too. A request that is starting its transfer at that very instant stops it and returns to `Idle` at its next checkpoint, microseconds later; `cancelAllDownloads`, which can suspend, waits for that. |
+| `cancelDownload` | `fun cancelDownload(group: ResourceGroup)` | Safe from any thread. Also ends a running `ensureAvailable(group)` with `DownloadCancelledException`, unless its last commit has already succeeded: then the call completes and publishes `Completed`. A call that is waiting for another engine's transfer of one of the group's units (see "Beyond the commit" below) ends when that transfer ends, not at once. A per-unit `ensureAvailable` running for one of the group's units is cancelled too. A request that is starting its transfer at that very instant stops it and returns to `Idle` at its next checkpoint, microseconds later; `cancelAllDownloads`, which can suspend, waits for that. |
 | `cancelAllDownloads` | `suspend fun cancelAllDownloads()` | Cancels every group- and unit-level download, and ends every running `ensureAvailable` with `DownloadCancelledException` (also one a screen launched, outside the engine's scope), except a call whose last commit has already succeeded: that one completes and publishes `Completed`. It also waits for a request that is starting its transfer at that instant, so when it returns no call it cancelled shows `Downloading`, holds a transfer in the `BackgroundResourceDownloader` or has a start notification posted; do not call it blocking (`runBlocking`) from inside a port or notifier callback. The logout entry point. |
 | `retryDownload` | `fun retryDownload(group: ResourceGroup)` | Non-suspend; skipped if the group's download is already managed. |
 | `ensureAvailable` | `suspend fun ensureAvailable(unit: DownloadUnit)` | Concurrent calls for the SAME unit share one download. |
-| `cancelDownload` | `fun cancelDownload(unit: DownloadUnit)` | Non-suspend and synchronous: the transfer is cancelled and the state is `Idle` on return. Also ends a running `ensureAvailable(unit)` with `DownloadCancelledException`, unless its commit has already succeeded: then the call completes and publishes `Completed`. Also deletes the unit's partial temp data and a leftover archive staging tree, and does so for a unit the engine never tracked, keeping only that unit's lock object, never a state flow. A request that is starting its transfer at that very instant stops it and returns to `Idle` at its next checkpoint, microseconds later; `cancelAllDownloads` waits for that. |
+| `cancelDownload` | `fun cancelDownload(unit: DownloadUnit)` | Non-suspend and synchronous: the transfer is cancelled and the state is `Idle` on return. Also ends a running `ensureAvailable(unit)` with `DownloadCancelledException`, unless its commit has already succeeded: then the call completes and publishes `Completed`. A call that is waiting for another engine's transfer of the unit (see below) ends when that transfer ends, not at once. Also deletes the unit's partial temp data and a leftover archive staging tree, and does so for a unit the engine never tracked, keeping only that unit's lock object, never a state flow. A request that is starting its transfer at that very instant stops it and returns to `Idle` at its next checkpoint, microseconds later; `cancelAllDownloads` waits for that. |
 | `hasActiveUnitDownload` | `suspend fun hasActiveUnitDownload(): Boolean` | True while any per-unit download is `Downloading`. |
 | `unitDownloadStateFlow` | `fun unitDownloadStateFlow(unit: DownloadUnit): Flow<UnitDownloadState>` | First emission is seeded from disk (`Available` or `Idle`). |
 
@@ -87,9 +87,9 @@ compiled against) with value `equals` / `hashCode` / `toString`.
 
 | Member | Type | Notes |
 |---|---|---|
-| `id` | `String` | Durable identity — persisted, used as a background-session id. Any string is accepted: an id that is not a plain file name (it contains `/` or NUL, or a derived name would pass 255 bytes) is stored under a hashed name, so it never collides with another unit or escapes `tmp/`. Ids must be unique ignoring case, and on iOS ignoring Unicode normalization too (an iOS volume may treat `Model` and `model`, or NFC and NFD spellings, as one file). Prefer `[A-Za-z0-9._-]`. |
+| `id` | `String` | Durable identity — persisted, used as a background-session id. Any string is accepted: an id that is not a plain file name (it contains `/`, NUL or an unpaired surrogate, or a derived name would pass 255 bytes) is stored under a hashed name, so it never collides with another unit or escapes `tmp/`. Ids must be unique ignoring case, and on iOS ignoring Unicode normalization too (an iOS volume may treat `Model` and `model`, or NFC and NFD spellings, as one file). Prefer `[A-Za-z0-9._-]`. |
 | `apiPath` | `String` | Opaque; resolved by your `DownloadUrlResolver`. |
-| `relativePath` | `String` | Relative to the storage's own base directory, used as written once `.`, `..` and empty segments are resolved lexically (`files/x/../a.bin` is `files/a.bin` whether or not `x` exists; a leading `/` still means inside the base). Rejected with `InvalidDownloadUnitException` when it is empty or normalizes to nothing, contains NUL, leaves the base directory, or names something the storage manages (`tmp`, `tmp/expect`, `tmp/expect-staged`, `tmp/kmptoolkit-internal`, `tmp/staging-…`, or the unit's own temp files). Any other path under `tmp/` (including `tmp/trash/…`, which 3.0.0 never used) is accepted, with a warning, and stays reserved for a future major release. |
+| `relativePath` | `String` | Relative to the storage's own base directory, used as written once `.`, `..` and empty segments are resolved lexically (`files/x/../a.bin` is `files/a.bin` whether or not `x` exists; a leading `/` still means inside the base). Rejected with `InvalidDownloadUnitException` when it is empty or normalizes to nothing, contains NUL, leaves the base directory, or names something the storage manages (`tmp`, `tmp/expect`, `tmp/expect-staged`, `tmp/kmptoolkit-internal`, `tmp/staging-…`, or the unit's own temp files). Any other path under `tmp/` (including `tmp/trash/…`, which 3.0.0 never used) is accepted, with a warning, and stays reserved for a future major release. No unit's `relativePath` may lie inside another unit's resource (an archive tree): committing or deleting the outer resource replaces or removes everything under it. Nor may it name a `SqliteDatabase` unit's `-wal`, `-shm` or `-journal`: they move with that database. |
 | `tempExtension` | `String` | Default `"tmp"`. Carries no meaning of its own, but it is part of the temp file's name (`tmp/<id>.<ext>`), so every instance of one id must return the same value: instances that differ see different temp files, while the expected-hash record is shared by id. |
 | `format` | `ResourceFormat` | Default `Opaque`. |
 | `sha256` | `Sha256?` | Default `null`. A constant expectation; checked at commit, and a mismatch downloads again. Do not set it for an object replaced in place — use `beginTempFile`. The engine reads it before a transfer and fails the unit with `DownloadError.Unknown` if the getter throws; storage reads it again at begin and commit. |
@@ -103,7 +103,10 @@ compiled against) with value `equals` / `hashCode` / `toString`.
 [`03-guide.md`](03-guide.md) for what commit does for each.
 
 Every entry of a `ZipArchive` is extracted, or the commit fails with `ResourceIntegrityException`; an entry that
-would land outside the directory fails the commit. An archive must end with its end of central directory record
+would land outside the directory fails the commit, and so does an archive the file system cannot hold as delivered (a name that
+is a file and a directory, a name or path that is too long (on Android more than 4,095 bytes, on iOS more than 1,023, counted in UTF-8 with the
+extraction directory; refused before anything of the entry is created), two entries it stores as one, such as names differing only in case
+on iOS). The `availabilityMarker` must be a regular file spelled exactly like that (a marker ending in `/` never matches). An archive must end with its end of central directory record
 (a comment cut short is tolerated; an archive cut anywhere before the record, its central directory included, fails),
 and entry names are read as UTF-8 whether or not the archive sets the UTF-8 flag (a name that is not valid UTF-8
 fails the commit).
@@ -112,6 +115,15 @@ A `SqliteDatabase` file must carry the 16-byte SQLite header and be at least 100
 empty or cut body, fails the commit). `rowCountTable` is a table or view name, used as a name (any characters); a
 value that names no table is used as SQL text as in 3.0.0, kept for compatibility, do not rely on it.
 `declaredRowCountMetaKey` is a value, bound as a parameter: write it plainly, never escaped.
+Replacing or deleting the resource first moves the old file together with its `-wal`, `-shm` and `-journal` into the
+trash, so the old version's log is never replayed into the new one. Close every connection to the database before its
+unit is committed again or deleted, and open none while it is: a connection left open keeps the old version and may, when
+it writes or closes, create or remove log files beside the new version, and one opened during the commit may find no file at
+the path. A name that stays at the path after the move (a sidecar that cannot be moved, for example one a live connection
+keeps recreating) fails the commit with `IllegalStateException` and keeps its temp file `Complete`, because going on would
+put the new file beside a log that SQLite replays into it; `deleteResource` never throws for it: it logs a warning and leaves
+what stays, so the unit reads as unavailable with stray sidecars that the next commit moves aside (or as still available,
+if the file itself could not be moved).
 
 ## `ResourceGroup`
 
@@ -216,6 +228,19 @@ object behind `url` at resolve time. `toString` omits the URL's query and fragme
 | `getResourceSize` | `fun getResourceSize(unit: DownloadUnit): Long` |
 | `deleteResource` | `fun deleteResource(unit: DownloadUnit)` |
 
+`isResourceAvailable` reads a plain-file unit as available when its path holds a file; a symbolic link to a file
+counts, a directory or a dangling link does not. Android tests `File.isFile`, so a FIFO, a socket or a device node
+reads as unavailable; iOS tests that the path exists and is not a directory, so one of those reads as available
+(no download produces such a node). `getResourceSize` does not consult availability: it totals a directory found
+at a plain-file unit's path, which reads as unavailable, the same way it totals an archive tree whose marker is
+missing. A symbolic link at the unit's path is followed (it is the resource, as for `isResourceAvailable`); links
+inside a directory are not followed and add nothing.
+On an Android device, a link to a directory whose chain of links resolves to a path longer than `PATH_MAX` (4,096
+bytes) may be sized as `0` although the resource reads as available.
+
+A symbolic link at any path the storage names for a unit (resource, temp file) is read through: sizes and states are
+those of what it points to, and a dangling link is absent. Links inside an archive tree are not followed.
+
 `TempFileState`: `sealed interface` — `None` (no file, or an empty one), `Partial` (an unfinished
 transfer, resumed from `getTempFileSize`), `Complete` (marked by `markTempFileComplete`; the only
 state committed without a transfer). `markTempFileComplete` is atomic, idempotent once complete (also when
@@ -236,6 +261,14 @@ exclusive across every storage instance over the same base directory in the proc
 that finds the resource already committed by a concurrent one (no complete file, resource
 available) returns normally without touching anything. When the engine itself finds the resource already committed and a transfer of its own left a
 complete temp file behind, it deletes that file instead of leaving it on disk.
+
+Beyond the commit, the engine makes the whole transfer-and-commit of one unit exclusive across every
+engine whose storage is one returned by `createDownloaderStorage` over the same base directory in the
+process (a custom or wrapping `DownloaderStorage` is not coordinated across engines: use one engine per
+directory): a second engine asked for a unit another engine is
+downloading waits, and then finds the resource available instead of starting a second transfer. So the
+port never sees two `enqueueDownload` calls for a unit whose first transfer finished but has not been
+committed yet. A call cancelled with `cancelDownload` while it waits for the other engine's transfer ends when that transfer ends: the cancel is seen right after the wait. A cancel (or the cleanup of a cancelled call) on an engine that does not hold the unit's lock leaves the temp file alone: it belongs to the engine that is transferring. Since 5.0.0.
 
 `beginTempFile(unit, expectedSha256)` is called by the party that owns the writer, exactly when it
 is about to write from byte 0, and replaces whatever transfer was there: afterwards `tempFileState`

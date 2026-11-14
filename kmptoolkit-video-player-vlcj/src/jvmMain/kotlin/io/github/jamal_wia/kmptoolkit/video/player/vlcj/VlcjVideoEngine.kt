@@ -233,7 +233,18 @@ internal class VlcjVideoEngine(
                 Plan({ s.player?.setTime(target) }) { applied: Boolean ->
                     // Still above 0 until here, so a clock reading taken before the seek is rejected.
                     s.seeksInFlight--
-                    if (applied) {
+                    if (applied && s.ended) {
+                        // The decision found the source running, so its end was reported while setTime
+                        // was in flight: libvlc 3 makes set_time wait for the running EndReached callback
+                        // and then ignores the seek on the ended input (probe seekend5.c). The seek wins:
+                        // park its target like a seek made after the end, so the next start (the player
+                        // asserts one when it drops the completion as stale, or a play) resumes from it.
+                        // With a newer seek still in flight, that one parks its own target when decided.
+                        if (s.seeksInFlight == 0) {
+                            s.pendingSeekMs = target
+                            s.timeMs = target
+                        }
+                    } else if (applied) {
                         // A seek made meanwhile from a VLC thread has recorded a newer target already.
                         if (s.seeksInFlight == 0) s.timeMs = target
                         // libvlc 3 applies set_time asynchronously on its input thread, so the clock
@@ -289,13 +300,19 @@ internal class VlcjVideoEngine(
         if (inFlight != null) return inFlight
         // An unknown length (0) is not an end position.
         if (s.ended) return if (s.lengthMs > 0L) durationMs() else s.timeMs.coerceAtLeast(0L)
-        if (s.started && !inCallbackContext()) {
+        // No clock is read before the output exists: libvlc's reading in a loop gap is the end of the cycle that ended.
+        if (s.started && s.outputBegun && !inCallbackContext()) {
             synchronized(s.nativeCalls) {
                 // The seek target stands until libvlc reports a time near it (see holdsSeekTarget).
                 val player: VlcNativePlayer? = synchronized(lock) {
                     if (!isOpen(s) || s.holdsSeekTarget()) null else s.player
                 }
-                val time: Long = player?.time() ?: -1L
+                // A clock read that throws is no reading: the last known time stands and the next poll tries again.
+                val time: Long = try {
+                    player?.time() ?: -1L
+                } catch (@Suppress("TooGenericExceptionCaught") ignored: Exception) {
+                    -1L
+                }
                 // Checked again: a seek made from a VLC thread, which does not wait for nativeCalls,
                 // may have recorded its target while the clock was being read.
                 if (time >= 0L) synchronized(lock) { if (!s.holdsSeekTarget()) s.timeMs = time }
@@ -671,7 +688,13 @@ internal class VlcjVideoEngine(
                 s.outputBegun = true
                 val seek: Long = s.pendingSeekMs
                 Plan({
-                    s.applySettings()
+                    // Best effort: a volume or rate libvlc refuses must not leave the pending seek unapplied (and
+                    // the playhead frozen on it); the next setVolume or setSpeed applies the latest values again.
+                    try {
+                        s.applySettings()
+                    } catch (@Suppress("TooGenericExceptionCaught") ignored: Exception) {
+                        // see above
+                    }
                     if (seek >= 0L) s.player?.setTime(seek)
                 }) { applied: Boolean ->
                     if (applied && seek >= 0L) {
@@ -702,7 +725,10 @@ internal class VlcjVideoEngine(
                 // again, so a seek made in that gap is parked like one made between start() and the
                 // first Playing. Through the ordered queue: a Playing of the cycle that just ended
                 // may still be waiting there, and must not set outputBegun back after this.
-                inOrder(s) {
+                // The playhead restarted at 0 while libvlc's last reading is the end: until the restart reports
+                // a time the position is the start (set at once, under the lock), unless a seek made
+                // meanwhile holds its target.
+                inOrder(s, atCall = { if (!s.holdsSeekTarget()) s.timeMs = 0L }) {
                     s.outputBegun = false
                     null
                 }
@@ -779,8 +805,12 @@ internal class VlcjVideoEngine(
          */
         override fun display(pixels: ByteBuffer, width: Int, height: Int) {
             if (s.closed || width <= 0 || height <= 0) return
-            val argb = IntArray(width * height)
-            copyRv32ToArgb(pixels, argb, width * height)
+            // A picture of more than Int.MAX_VALUE pixels cannot have an array: the product would wrap to a wrong
+            // (possibly zero or negative) size. It is dropped like any picture the engine cannot hold.
+            val pixelCount: Long = width.toLong() * height.toLong()
+            if (pixelCount > Int.MAX_VALUE) return
+            val argb = IntArray(pixelCount.toInt())
+            copyRv32ToArgb(pixels, argb, pixelCount.toInt())
             publishFrame(s, VideoFrame(width, height, argb))
         }
     }

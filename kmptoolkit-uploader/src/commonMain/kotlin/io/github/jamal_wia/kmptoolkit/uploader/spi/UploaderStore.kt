@@ -94,20 +94,26 @@ public interface UploaderStore {
      * [ConflictPolicy.KEEP][io.github.jamal_wia.kmptoolkit.uploader.ConflictPolicy.KEEP].
      *
      * Per-state behavior of an existing item with the same identity:
-     * - [UploaderItemState.PENDING] — keep it, do not insert, return `false`.
+     * - [UploaderItemState.PENDING] — keep it, do not insert, return [KeepResult.Kept].
      * - [UploaderItemState.IN_FLIGHT] — same: an in-flight delivery must win over a re-enqueue
      *   exactly like a waiting one, or a duplicate would be sent.
-     * - [UploaderItemState.PARKED] — **replace it** and return `true`. A parked item is out of
-     *   rotation with no other revive path, so letting it keep the key would make that key
+     * - [UploaderItemState.PARKED] — **replace it** and return it as [KeepResult.Inserted.superseded]. A parked item
+     *   is out of rotation with no other revive path, so letting it keep the key would make that key
      *   permanently dead and swallow every future enqueue. Replacing means deleting the parked row
      *   and inserting [record] at the tail of the insertion sequence, with its own fresh id.
      *
-     * A `null` [UploaderItem.uniqueKey] never conflicts: always insert, always return `true`.
+     * A `null` [UploaderItem.uniqueKey] never conflicts: always insert, with nothing superseded.
+     *
+     * The superseded row comes back from the same atomic step that removed it, exactly as for [insertReplace]: the
+     * engine withdraws it like any removed row (stops its attempt, cancels its upload, whatever its state: a parked
+     * item can still have an earlier claim's upload running), and a read made beforehand would not do. If the store's
+     * identity spellings let one insert remove more than one row, return the earliest by insertion order.
      *
      * @param record the new item, already carrying its final id and timestamps.
-     * @return `true` if [record] was inserted, `false` if an existing PENDING/IN_FLIGHT item won.
+     * @return [KeepResult.Inserted] if [record] was inserted (with the PARKED row it replaced, if any),
+     *   [KeepResult.Kept] if an existing PENDING/IN_FLIGHT item won.
      */
-    public suspend fun insertKeep(record: UploaderItem): Boolean
+    public suspend fun insertKeep(record: UploaderItem): KeepResult
 
     /**
      * Inserts [record], superseding any item with the same ([UploaderItem.type],

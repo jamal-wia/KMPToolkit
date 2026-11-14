@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
+import io.github.jamal_wia.kmptoolkit.files.Paths
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -121,7 +122,8 @@ public data class AudioRecorderConfig(
  * built on this one — recorded at the same time, and would leave a consumer no way to point
  * recordings at a cache directory they are willing to have evicted.
  *
- * @param directoryPath absolute directory to record into. `null` — the default — resolves to
+ * @param directoryPath absolute directory to record into (absolute on the file system the code runs
+ *   on: `/…` on a device, `C:\…` on a Windows JVM running host tests). `null` — the default — resolves to
  *   `<app-private files dir>/<directoryName>`, which is `Context.getFilesDir()` on Android and the
  *   app's `Documents` directory on iOS. Supply a path explicitly to record into a cache directory,
  *   an app-group container, or anywhere else you have write access to.
@@ -150,7 +152,7 @@ public data class RecordingStorage(
         require(!fileNamePrefix.contains('/') && !fileNamePrefix.contains('\\')) {
             "fileNamePrefix must not contain a path separator, was '$fileNamePrefix'"
         }
-        require(directoryPath == null || (directoryPath.isNotBlank() && directoryPath.startsWith('/'))) {
+        require(directoryPath == null || (directoryPath.isNotBlank() && Paths.isAbsolute(directoryPath))) {
             "directoryPath must be null or a non-blank absolute path"
         }
         require(directoryName == null || directoryName.isNotBlank()) {
@@ -158,6 +160,7 @@ public data class RecordingStorage(
         }
         require(
             directoryName == null ||
+                // path-hygiene-ignore: PH5 directoryName is a logical name inside the app-private base, not a host path: '/' is its separator on every platform
                 (!directoryName.startsWith('/') && directoryName.split('/').none { it == "." || it == ".." }),
         ) {
             "directoryName must be a relative directory inside the app-private base " +

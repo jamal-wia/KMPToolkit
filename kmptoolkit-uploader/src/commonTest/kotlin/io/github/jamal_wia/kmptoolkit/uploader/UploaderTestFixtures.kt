@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import io.github.jamal_wia.kmptoolkit.uploader.spi.ConstraintProvider
 import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
@@ -33,18 +34,18 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
 
     fun find(id: String): UploaderItem? = state.value.firstOrNull { it.id == id }
 
-    override suspend fun insertKeep(record: UploaderItem): Boolean {
+    override suspend fun insertKeep(record: UploaderItem): KeepResult {
         val existing: UploaderItem? = conflict(record)
         return when (existing?.state) {
-            UploaderItemState.PENDING, UploaderItemState.IN_FLIGHT -> false
+            UploaderItemState.PENDING, UploaderItemState.IN_FLIGHT -> KeepResult.Kept
             UploaderItemState.PARKED -> {
                 state.value = state.value.filterNot { it.id == existing.id } + record
-                true
+                KeepResult.Inserted(existing)
             }
 
             null -> {
                 state.value = state.value + record
-                true
+                KeepResult.Inserted(null)
             }
         }
     }

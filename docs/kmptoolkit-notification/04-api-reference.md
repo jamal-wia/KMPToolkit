@@ -26,13 +26,18 @@ The one type shared code depends on.
   unchecked the platforms disagree destructively about it — Android quietly accepts it as one more
   tag, `UNNotificationRequest` raises an Objective-C exception that Kotlin/Native cannot catch and
   the process dies. Suspending because checking authorization is asynchronous on iOS; on Android it
-  does not suspend in practice.
+  does not suspend in practice. On iOS `id` is the request identifier verbatim, the same space
+  `kmptoolkit-scheduler` uses for alarm ids, so posting an id that is also a pending alarm's id
+  replaces that alarm.
 - **`post(id, notification, options)`** — the same post, presented according to
   `NotificationOptions`. The interface default ignores `options` and calls the two-argument form, so
   an older implementation keeps working; the Android notifier overrides it (the iOS one ignores options
   and keeps the default), and a decorator must override it. The two-argument form is the same as passing `NotificationOptions.DEFAULT`.
-- **`cancel`** — removes the notification under `id` and forgets its progress-coalescing state. A
-  no-op for an id that is not showing, including one this instance never posted. Reports nothing,
+- **`cancel`** — removes the notification under `id` and forgets its progress-coalescing state (of this instance). A
+  no-op for an id that is not showing, including one this instance never posted. On iOS it also
+  removes a pending request with that identifier, which includes an alarm `kmptoolkit-scheduler`
+  armed under the same id; use distinct ids (see
+  [`05-platform-notes.md`](05-platform-notes.md#ios-specifics)). Reports nothing,
   because neither platform reports anything. Never throws for a platform refusal (a dead binder, a
   revoked right): on Android it is logged under the tag `KmpToolkitNotification` and the notification
   may stay on the tray.
@@ -48,7 +53,7 @@ hides a real failure. On Android below API 33 the permission check is skipped: t
 `POST_NOTIFICATIONS` to lack, whatever the `PermissionController` answers.
 
 **Coalescing:** the bucket applies only to frames that differ from the one showing in nothing but the
-percentage; a changed title, body, button set or options bypasses it. The rate limit
+percentage; a changed title, body, button set or options bypasses it. The comparison is by value as of the previous post: a button list, extras map or action-icon map the caller edits in place between two posts counts as changed. Each post reads those lists and maps once, when it starts: the tray shows, and the baseline records, that one snapshot, so a collection edited (and edited back) while the call is still in flight cannot make the two describe different frames. The rate limit
 (`minProgressInterval`) applies to every determinate frame, changed or not. A frame becomes the
 baseline later frames are judged against when it is decided, and **a post that fails is rolled back**:
 if a post returns `Failed`, retrying the same progress posts it again instead of answering `Coalesced`.
@@ -63,7 +68,7 @@ that actually reached the tray by the time the refusal is handled, not the one t
 refused frame was prepared. A frame that gave up because a newer one overtook it (answered `Coalesced`) is never
 revived or remembered as shown if that newer frame then fails, and on iOS a frame handed to the
 notification center and refused later, in any order of refusals, leaves no baseline behind. Per-id bookkeeping of frames that were started and never finished is aged out, so it does
-not grow for the notifier's lifetime.
+not grow for the notifier's lifetime. An id's baseline is forgotten once the id has been quiet (no frame for it posted or suppressed) for the larger of 120 times `minProgressInterval` and ten minutes, the abandoned-run horizon; the horizon is a band, not an instant, because the module looks for quiet ids at most once per tenth of it and only when a frame arrives: a baseline is certainly kept for a quiet time of the horizon or less, certainly gone after the horizon plus a tenth of it (eleven minutes at the default `minProgressInterval`), and may go at any moment in between. See [`03-guide.md`](03-guide.md#progress-notifications).
 
 ## Factories
 
@@ -298,6 +303,10 @@ Throws `IllegalArgumentException` for a blank `actionBroadcastAction`, a
 `progressBucketPercent` outside `1..100`, or a negative `minProgressInterval`. `null` for the action
 derives it from the consumer's application id, so two apps never collide.
 
+`Duration.ZERO` is the knob for no throttle; an infinite value is accepted but
+suppresses every determinate frame after an id's first until a terminal frame and keeps the baselines
+of abandoned ids, so it is not a way to disable updates.
+
 Companion: `DEFAULT_PROGRESS_BUCKET_PERCENT: Int`, `DEFAULT_MIN_PROGRESS_INTERVAL: Duration`.
 
 ## `NotificationResult`
@@ -318,7 +327,7 @@ public val NotificationResult.isPosted: Boolean
 | Case | Meaning | Platforms |
 |---|---|---|
 | `Posted` | accepted by the platform (not "drawn") | both |
-| `Coalesced` | redundant progress update, previous frame stands; also a post that a `cancel` of the same id or a newer post for it overtook mid-flight (nothing is posted) | both |
+| `Coalesced` | redundant progress update, previous frame stands (as far as this instance knows); also a post that a `cancel` of the same id or a newer post for it overtook mid-flight (nothing is posted) | both |
 | `PermissionDenied` | no runtime grant — on iOS also an `add` rejected because authorization was revoked after the check | Android 13+, iOS |
 | `NotificationsDisabled` | app-level toggle off | Android (iOS folds this into `PermissionDenied`) |
 | `ChannelBlocked` | channel muted by the user, or its group muted (API 28+) | Android 8+ |

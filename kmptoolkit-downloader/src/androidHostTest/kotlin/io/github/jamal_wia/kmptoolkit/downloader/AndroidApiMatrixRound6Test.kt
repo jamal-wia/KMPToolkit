@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.ByteArrayOutputStream
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -127,6 +128,7 @@ class AndroidApiMatrixRound6Test {
 
     private fun database(rows: Int, withMeta: Boolean, declared: Int = rows): File {
         val file = File(context.cacheDir, "round6-${System.nanoTime()}.db")
+        TestHost.assumeNativePathFits(file.path)
         val db: SQLiteDatabase = SQLiteDatabase.openOrCreateDatabase(file, null)
         try {
             db.execSQL("CREATE TABLE t (id INTEGER PRIMARY KEY, payload TEXT)")

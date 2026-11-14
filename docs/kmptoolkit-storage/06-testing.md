@@ -107,8 +107,8 @@ means the *write* fails. Set it again to fail more than one call.
 
 ```bash
 ./gradlew :kmptoolkit-storage:build :kmptoolkit-storage-testing:build checkKotlinAbi
-./gradlew :kmptoolkit-storage:testAndroidHostTest :kmptoolkit-storage:iosSimulatorArm64Test
-./gradlew :kmptoolkit-storage-testing:testAndroidHostTest :kmptoolkit-storage-testing:iosSimulatorArm64Test
+./gradlew :kmptoolkit-storage:jvmTest :kmptoolkit-storage:testAndroidHostTest :kmptoolkit-storage:iosSimulatorArm64Test
+./gradlew :kmptoolkit-storage-testing:jvmTest :kmptoolkit-storage-testing:testAndroidHostTest :kmptoolkit-storage-testing:iosSimulatorArm64Test
 ```
 
 The suite is arranged around one shared contract class:
@@ -117,13 +117,13 @@ The suite is arranged around one shared contract class:
   [`03-guide.md`](03-guide.md)'s contract table. Every real store subclasses it — the plain and the
   encrypted one on each platform — so the encrypted store is held to exactly the same observable
   behavior as the plain one. `commonTest` also covers `DeviceIdProvider`, `StorageConfig`
-  validation, the identifier derivation, and the `StorageResult` helpers, and runs on both the JVM
-  and the iOS simulator.
+  validation, the identifier derivation, and the `StorageResult` helpers, and runs on the JVM
+  (`jvmTest`, with the desktop store's own tests), the Android host and the iOS simulator.
 - **`androidHostTest`** (Robolectric, via the `kmptoolkit.androidtest` convention plugin) runs the
   contract against real `SharedPreferences` files, plus what is specific to each store: that the
   plain one stores plaintext, that the encrypted one does not, that ciphertext differs between two
   writes of the same value, that a corrupted or tampered entry is `Undecryptable` rather than
-  absent, and that removing and clearing still work when the key store does not.
+  absent, that a ciphertext moved to another key is `Undecryptable`, and that removing and clearing still work when the key store does not.
   `AndroidKeystoreKeySourceRaceTest` drives the key lookup from eight threads at once — on one
   instance, on eight, and during recovery from an unrecoverable alias — against a fake key store
   that holds every caller between "looked" and "generated", and asserts that exactly one key was

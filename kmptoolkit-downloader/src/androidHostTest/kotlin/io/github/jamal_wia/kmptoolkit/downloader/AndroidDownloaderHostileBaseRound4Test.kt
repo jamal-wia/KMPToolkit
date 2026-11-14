@@ -6,10 +6,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import java.io.File
 import java.io.RandomAccessFile
-import java.nio.file.Files
-import java.nio.file.attribute.PosixFilePermission
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
@@ -38,6 +38,7 @@ class AndroidDownloaderHostileBaseRound4Test {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val names: MutableList<String> = mutableListOf()
+    private val restorers: MutableList<AutoCloseable> = mutableListOf()
 
     @BeforeTest
     fun setUp() {
@@ -46,11 +47,9 @@ class AndroidDownloaderHostileBaseRound4Test {
 
     @AfterTest
     fun cleanUp() {
-        for (name in names) {
-            val dir = File(context.filesDir, name)
-            dir.walkTopDown().forEach { runCatching { Files.setPosixFilePermissions(it.toPath(), PosixFilePermission.values().toSet()) } }
-            dir.deleteRecursively()
-        }
+        restorers.asReversed().forEach { restorer: AutoCloseable -> runCatching { restorer.close() } }
+        restorers.clear()
+        for (name in names) File(context.filesDir, name).deleteRecursively()
     }
 
     private fun baseName(prefix: String): String = (prefix + System.nanoTime()).also { names += it }
@@ -142,9 +141,12 @@ class AndroidDownloaderHostileBaseRound4Test {
 
     @Test
     fun `a read-only base directory fails every request with a typed failure and eight callers all return`() {
+        // A Windows ACL deny stops creating files but not creating sub-directories (measured), so the
+        // storage would still be able to build its tree there: only a POSIX read-only directory is one.
+        TestHost.assumePosixFileSemantics("a read-only directory refuses to get sub-directories")
         val base: String = baseName("ro_base_")
         val dir = File(context.filesDir, base).apply { mkdirs() }
-        Files.setPosixFilePermissions(dir.toPath(), setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_EXECUTE))
+        restorers += TestFs.makeUnwritable(dir)
         outcomeOfRequests(base, "read-only base")
         val storage: DownloaderStorage = createDownloaderStorage(context, DownloaderStorageConfig(base))
         val group = Group("g")
@@ -188,8 +190,8 @@ class AndroidDownloaderHostileBaseRound4Test {
 
     // -- Descriptors ---------------------------------------------------------------------------------
 
-    private fun openDescriptors(): Int =
-        (File("/dev/fd").list() ?: File("/proc/self/fd").list() ?: emptyArray()).size
+    /** Open descriptors of this process; skips on a host that cannot count them (Windows), fails on one that should. */
+    private fun openDescriptors(): Int = TestFs.requireOpenDescriptorCount().toInt()
 
     @Test
     fun `hundreds of failing commits of every kind hold no descriptor afterwards`() {
@@ -232,7 +234,6 @@ class AndroidDownloaderHostileBaseRound4Test {
         val before: Int = openDescriptors()
         repeat(300) { cycle() }
         val after: Int = openDescriptors()
-        assertTrue(before > 0, "the descriptor count could not be read")
         assertTrue(after <= before + 10, "descriptors grew from $before to $after over 900 failing commits")
     }
 

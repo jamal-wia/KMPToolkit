@@ -6,12 +6,20 @@ not skip.
 ## 1. Add the dependency
 
 ```kotlin
-dependencies {
-    implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-    implementation("io.github.jamal-wia:kmptoolkit-haptics")
+// build.gradle.kts of your shared module
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-haptics")
+        }
 
-    // Only if you want the RecordingHapticFeedback double (step 5)
-    testImplementation("io.github.jamal-wia:kmptoolkit-haptics-testing")
+        // Only if you want the RecordingHapticFeedback double (step 5)
+        commonTest.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-haptics-testing")
+        }
+    }
 }
 ```
 

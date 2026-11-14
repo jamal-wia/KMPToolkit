@@ -87,7 +87,9 @@ Call `post` as often as you like. The module suppresses a determinate update tha
 bar, returning `NotificationResult.Coalesced`, under two limits configured on `NotificationConfig`:
 
 1. **Bucket** (`progressBucketPercent`, default 10) — the update is in the same tenth as the last
-   one actually posted.
+   one actually posted. A 0..100 run posts at most `ceil(100 / progressBucketPercent) + 1` frames
+   (eleven for the default 10; five for a width of 30, because the never-suppressed terminal 100% frame
+   always posts).
 2. **Rate** (`minProgressInterval`, default 500 ms) — less than that has elapsed since the last post
    for this id.
 
@@ -118,15 +120,17 @@ A source that can pause should re-post its current progress after `minProgressIn
 that is still in flight: a notification that was being built when you cancelled does not appear
 afterwards, and a post that a newer one for the id (typically the terminal "Done") has overtaken is
 dropped (`Coalesced`) rather than shown on top of it. A cancelled in-flight post is `Coalesced` too. A post counts as in flight from the moment `post` is
-called, including while it still waits for the permission check. All of this holds per `Notifier` instance. Posts for one id should still come from one
+called, including while it still waits for the permission check. All of this holds per `Notifier` instance. Coalescing state is per instance too: a `cancel` made through another
+instance is, to this one, like a swipe; a same-bucket frame afterwards can answer `Coalesced` with nothing showing,
+until the bar crosses a bucket, the content changes, or the id has been quiet for the abandoned-run horizon. Posts for one id should still come from one
 coroutine at a time; that ordering is up to the caller.
 
 **Abandoned runs.** A run that ends without a terminal frame and without a `cancel` (a failed
 download, a notification the user swiped away: the library is never told about a swipe) leaves its
-bar position behind. The notifier forgets such a position by itself once the id has been quiet for
-far longer than any sensible rate limit (the larger of 120 times `minProgressInterval` and ten
-minutes), so an app that posts under a fresh id per run does not accumulate state. The only visible
-effect is that a very late frame for a forgotten id is posted, like the first frame of any run.
+bar position behind. The notifier forgets such a position by itself once the id has been quiet, meaning
+no frame for it was posted or suppressed by coalescing, for far longer than any sensible rate limit (the larger of 120 times `minProgressInterval` and ten
+minutes), so an app that posts under a fresh id per run does not accumulate state. That horizon is a band, not an instant: the notifier looks for quiet ids at most once per tenth of the horizon, and only when a frame arrives, so a position is certainly still there while the id has been quiet for the horizon or less, certainly gone once it has been quiet for the horizon plus a tenth of it, and may go at any moment in between. At the default `minProgressInterval` of 500 ms the horizon is ten minutes, so a position is forgotten somewhere between ten and eleven minutes of quiet. The only visible
+effect is that a very late frame for a forgotten id is posted, like the first frame of any run. A run that keeps posting, even frames that are all suppressed inside one bucket, is never forgotten, however long it lasts: the frame last shown stays the one a later frame is judged against, and the one a refused frame falls back to.
 
 **Do not build your own throttle on top.** A caller that only posts every 5% just gets a coarser bar;
 the module is already bounding the rate.
@@ -281,6 +285,11 @@ val notifier = createNotifier(context, permissions, config, foregroundIds = setO
 // later, from anywhere — updates the service's notification in place:
 notifier.post("playback", nowPlaying.copy(body = nextTrack), options)
 ```
+
+End a run with a terminal frame or `cancel(id)` before the service starts the next one: the service's
+starting frame is shown without the notifier knowing, so if a run was abandoned and the service starts
+again within the abandoned-run horizon, a frame in the old bar position can answer `Coalesced` while the
+tray still shows the service's starting frame.
 
 Leave an id out of `foregroundIds` and its `post` shows a *second* notification beside the service's,
 under the tag. Two entries may not share an id or a `platformId`. `ForegroundNotificationId` exists

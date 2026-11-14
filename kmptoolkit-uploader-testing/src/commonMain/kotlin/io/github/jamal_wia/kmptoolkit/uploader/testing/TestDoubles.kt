@@ -123,9 +123,17 @@ public class MutableUploaderClock(initial: Long = 0L) : UploaderClock {
     /**
      * Moves the clock forward.
      *
+     * The reading stops at the `Long` range instead of wrapping around, so a huge advance never lands in the past.
+     * A clock held at `Long.MAX_VALUE` makes every backoff and lease read as due; each item still gets at most one
+     * turn per `drain()`.
+     *
      * @param millis how far to advance; may be negative to simulate a wall-clock jump backwards.
      */
     public fun advanceBy(millis: Long) {
-        state.update { it + millis }
+        state.update { current: Long ->
+            val sum: Long = current + millis
+            // Overflow happened exactly when both operands share a sign the sum does not.
+            if (((current xor sum) and (millis xor sum)) < 0) (if (current < 0) Long.MIN_VALUE else Long.MAX_VALUE) else sum
+        }
     }
 }

@@ -8,6 +8,7 @@ import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.workDataOf
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import java.io.File
 import java.io.RandomAccessFile
 import java.net.InetAddress
@@ -76,6 +77,7 @@ class UploaderLifecycleChaosRound2AdversarialTest {
     @AfterTest
     fun cleanUp() {
         gate.complete(Unit)
+        // path-hygiene-ignore: PH2 restores the flags a POSIX-only test cleared; harmless on Windows, where it only touches the legacy read-only flag
         journalRoot.walkTopDown().forEach { it.setWritable(true) }
         uploads.cancel()
         synchronized(held) { held.forEach { runCatching { it.close() } } }
@@ -429,6 +431,8 @@ class UploaderLifecycleChaosRound2AdversarialTest {
     // R2-S3: an entry that exists but cannot be read at the start of a job is not "nothing owed"
     @Test
     fun `an entry that cannot be read at the start of a job does not make the job upload again`() {
+        // path-hygiene-ignore: PH2 POSIX-only test body: it starts with TestHost.assumePosixFileSemantics, so Windows skips it
+        TestHost.assumePosixFileSemantics("File.setWritable(false) / setReadable(false) change nothing on Windows (they set only the legacy read-only flag), so there is no unwritable or unreadable file to test")
         serve()
         val backing = TestUploaderStore()
         val handler = ChaosHandler()
@@ -436,10 +440,12 @@ class UploaderLifecycleChaosRound2AdversarialTest {
         val journal = OutcomeJournal(AndroidOutcomeStorage.forContext(context))
         assertTrue(journal.record("item-1", UploadResponse(201, emptyMap(), "{}".encodeToByteArray(), false)))
         val entry = File(outcomesDir, "item-1")
+        // path-hygiene-ignore: PH2 POSIX-only test body: it starts with TestHost.assumePosixFileSemantics, so Windows skips it
         entry.setReadable(false)
         try {
             runCatching { runWorker() }
         } finally {
+            // path-hygiene-ignore: PH2 restores the flags a POSIX-only test cleared; harmless on Windows, where it only touches the legacy read-only flag
             entry.setReadable(true)
         }
         assertEquals(0, connections.get(), "the server's answer is on disk, merely unreadable right now: retry later, do not upload again")
@@ -447,6 +453,8 @@ class UploaderLifecycleChaosRound2AdversarialTest {
 
     @Test
     fun `an entry that stays unreadable for three runs is given up and the item uploads once`() {
+        // path-hygiene-ignore: PH2 POSIX-only test body: it starts with TestHost.assumePosixFileSemantics, so Windows skips it
+        TestHost.assumePosixFileSemantics("File.setWritable(false) / setReadable(false) change nothing on Windows (they set only the legacy read-only flag), so there is no unwritable or unreadable file to test")
         serve()
         val backing = TestUploaderStore()
         val handler = ChaosHandler()
@@ -454,10 +462,12 @@ class UploaderLifecycleChaosRound2AdversarialTest {
         val journal = OutcomeJournal(AndroidOutcomeStorage.forContext(context))
         assertTrue(journal.record("item-1", UploadResponse(201, emptyMap(), "{}".encodeToByteArray(), false)))
         val entry = File(outcomesDir, "item-1")
+        // path-hygiene-ignore: PH2 POSIX-only test body: it starts with TestHost.assumePosixFileSemantics, so Windows skips it
         entry.setReadable(false)
         val result: ListenableWorker.Result = try {
             runBlocking { withTimeout(20_000L) { worker().setRunAttemptCount(3).build().doWork() } }
         } finally {
+            // path-hygiene-ignore: PH2 restores the flags a POSIX-only test cleared; harmless on Windows, where it only touches the legacy read-only flag
             entry.setReadable(true)
         }
         assertIs<ListenableWorker.Result.Success>(result)
@@ -469,16 +479,20 @@ class UploaderLifecycleChaosRound2AdversarialTest {
     // R2-S4 (rewritten): the contract is that a journal entry must not replay into the next attempt
     @Test
     fun `an entry the journal could not delete after the commit does not replay into the next attempt`() {
+        // path-hygiene-ignore: PH2 POSIX-only test body: it starts with TestHost.assumePosixFileSemantics, so Windows skips it
+        TestHost.assumePosixFileSemantics("File.setWritable(false) / setReadable(false) change nothing on Windows (they set only the legacy read-only flag), so there is no unwritable or unreadable file to test")
         serve(raw = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
         val backing = TestUploaderStore()
         val clock = TestClock(1_000L)
         val classified = AtomicInteger(0)
         val handler = ChaosHandler(
+            // path-hygiene-ignore: PH2 POSIX-only test body: it starts with TestHost.assumePosixFileSemantics, so Windows skips it
             onClassify = { if (classified.getAndIncrement() == 0) outcomesDir.setWritable(false) },
             retry = FixedRetryPolicy(delayMillis = 1_000L),
         )
         val started: UploaderEngine = startEngine(backing, handler, clock = clock)
         val first: ListenableWorker.Result = runWorker()
+        // path-hygiene-ignore: PH2 restores the flags a POSIX-only test cleared; harmless on Windows, where it only touches the legacy read-only flag
         outcomesDir.setWritable(true)
         assertIs<ListenableWorker.Result.Success>(first)
         assertEquals(1, journalFiles().size, "precondition: the delete after the commit could not remove the entry: ${journalFiles()}")

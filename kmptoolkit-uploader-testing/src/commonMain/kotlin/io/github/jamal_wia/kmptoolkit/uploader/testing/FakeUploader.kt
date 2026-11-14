@@ -47,19 +47,22 @@ public class FakeUploader(
 
     // Every piece of state is a StateFlow changed with update {}: the fake is used from engine and IO threads
     // as well as the test's own, and readers must never see a half-applied write. No lock is held while the
-    // consumer's `enqueueResult` runs, so that hook may call back into the fake.
-    private val recorded: MutableStateFlow<List<Enqueued>> = MutableStateFlow(emptyList())
+    // consumer's `enqueueResult` runs, so that hook may call back into the fake. The logs are persistent chains,
+    // newest first: an append is O(1) however long the log is (a copied list made N appends cost O(N^2), 27 s for
+    // 30,000 calls on iOS), and a reader gets a snapshot whose size and last element cost O(1) too (a test that asserts after every call stays
+    // linear); only reading an earlier element or iterating materializes the list, once per snapshot.
+    private val recorded: MutableStateFlow<Chain<Enqueued>?> = MutableStateFlow(null)
 
     private val observed: MutableStateFlow<List<UploaderItem>> = MutableStateFlow(emptyList())
 
     private val triggers: MutableStateFlow<Int> = MutableStateFlow(0)
 
-    private val cancelledIds: MutableStateFlow<List<String>> = MutableStateFlow(emptyList())
+    private val cancelledIds: MutableStateFlow<Chain<String>?> = MutableStateFlow(null)
 
-    private val cancelledTags: MutableStateFlow<List<String>> = MutableStateFlow(emptyList())
+    private val cancelledTags: MutableStateFlow<Chain<String>?> = MutableStateFlow(null)
 
     /** Every [enqueue] call so far, in order. */
-    public val enqueued: List<Enqueued> get() = recorded.value
+    public val enqueued: List<Enqueued> get() = ChainList(recorded.value)
 
     /** How many times [trigger] was called. */
     public val triggerCount: Int get() = triggers.value
@@ -69,17 +72,17 @@ public class FakeUploader(
      *
      * @since 2.0.0
      */
-    public val cancelled: List<String> get() = cancelledIds.value
+    public val cancelled: List<String> get() = ChainList(cancelledIds.value)
 
     /**
      * Every tag passed to [cancelByTag], in order.
      *
      * @since 2.0.0
      */
-    public val cancelledByTag: List<String> get() = cancelledTags.value
+    public val cancelledByTag: List<String> get() = ChainList(cancelledTags.value)
 
     /** The single most recent [enqueue] call, or `null` if there has not been one. */
-    public fun lastEnqueued(): Enqueued? = recorded.value.lastOrNull()
+    public fun lastEnqueued(): Enqueued? = recorded.value?.head
 
     /**
      * Sets what [observe] emits, for every type.
@@ -97,9 +100,9 @@ public class FakeUploader(
 
     /** Forgets every recorded call and resets the trigger count. */
     public suspend fun reset() {
-        recorded.value = emptyList()
-        cancelledIds.value = emptyList()
-        cancelledTags.value = emptyList()
+        recorded.value = null
+        cancelledIds.value = null
+        cancelledTags.value = null
         triggers.value = 0
         observed.value = emptyList()
     }
@@ -116,7 +119,7 @@ public class FakeUploader(
         // retry rebuilds the call, and only the one that landed is kept in `call`.
         recorded.update { calls ->
             val next = Enqueued(
-                ordinal = calls.size + 1,
+                ordinal = calls.sizeOrZero() + 1,
                 handler = handler,
                 payload = payload,
                 uniqueKey = uniqueKey,
@@ -124,7 +127,7 @@ public class FakeUploader(
                 conflictPolicy = conflictPolicy,
             )
             call = next
-            calls + next
+            Chain(next, calls)
         }
         // After the write, outside any lock: a hook that calls back into this fake cannot deadlock it.
         return enqueueResult(checkNotNull(call))
@@ -134,14 +137,48 @@ public class FakeUploader(
         observed.map { items -> items.filter { it.type == type } }
 
     override suspend fun cancel(id: String) {
-        cancelledIds.update { it + id }
+        cancelledIds.update { Chain(id, it) }
     }
 
     override suspend fun cancelByTag(tag: String) {
-        cancelledTags.update { it + tag }
+        cancelledTags.update { Chain(tag, it) }
     }
 
     override fun trigger() {
         triggers.update { it + 1 }
+    }
+}
+
+/** An immutable, newest-first log entry: appending is one allocation and shares the whole earlier log. */
+private class Chain<T>(val head: T, val tail: Chain<T>?) {
+    val size: Int = (tail?.size ?: 0) + 1
+}
+
+private fun <T> Chain<T>?.sizeOrZero(): Int = this?.size ?: 0
+
+/**
+ * A snapshot of a log, in call order, oldest first. [size] and the last element (`last()`, `lastOrNull()`, `get(size - 1)`)
+ * are answered from the chain's head without building anything; the first read of any other element copies the log once and
+ * keeps the copy, so the snapshot never changes after later calls and a repeated read is cheap.
+ */
+private class ChainList<T>(private val chain: Chain<T>?) : AbstractList<T>() {
+
+    private val materialized: Lazy<List<T>> = lazy(LazyThreadSafetyMode.PUBLICATION) {
+        val out: MutableList<T> = ArrayList(chain.sizeOrZero())
+        var node: Chain<T>? = chain
+        while (node != null) {
+            out.add(node.head)
+            node = node.tail
+        }
+        out.reverse()
+        out
+    }
+
+    override val size: Int get() = chain.sizeOrZero()
+
+    override fun get(index: Int): T {
+        val head: Chain<T>? = chain
+        if (head != null && index == head.size - 1) return head.head
+        return materialized.value[index]
     }
 }

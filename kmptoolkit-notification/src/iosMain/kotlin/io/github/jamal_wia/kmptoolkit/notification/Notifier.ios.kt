@@ -5,6 +5,7 @@ package io.github.jamal_wia.kmptoolkit.notification
 import io.github.jamal_wia.kmptoolkit.permission.CommonPermission
 import io.github.jamal_wia.kmptoolkit.permission.PermissionController
 import io.github.jamal_wia.kmptoolkit.permission.isUsable
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
@@ -45,10 +46,59 @@ public fun createNotifier(
 )
 
 /**
+ * The slice of `UNUserNotificationCenter` that [IosNotifier] uses, as a seam: a test binary cannot
+ * call `currentNotificationCenter()` (it is not an app bundle), so tests drive a fake instead.
+ * Every method is non-suspending on purpose: [IosNotifier] issues [add] under its post lock and
+ * awaits the completion outside it.
+ */
+internal interface NotificationCenterPort {
+
+    /** `addNotificationRequest`; [completion] receives the system's error, or `null` on success. */
+    fun add(request: UNNotificationRequest, completion: (NSError?) -> Unit)
+
+    /** `removeDeliveredNotificationsWithIdentifiers`. */
+    fun removeDelivered(ids: List<String>)
+
+    /** `removePendingNotificationRequestsWithIdentifiers`. */
+    fun removePending(ids: List<String>)
+
+    /** `removeAllDeliveredNotifications`. */
+    fun removeAllDelivered()
+}
+
+/**
+ * The real center. It fetches `currentNotificationCenter()` on every call and never caches it, so
+ * building a notifier before the app is up (or in a test binary) does not touch the center.
+ */
+internal object SystemNotificationCenter : NotificationCenterPort {
+
+    private val center: UNUserNotificationCenter
+        get() = UNUserNotificationCenter.currentNotificationCenter()
+
+    override fun add(request: UNNotificationRequest, completion: (NSError?) -> Unit) {
+        center.addNotificationRequest(request, completion)
+    }
+
+    override fun removeDelivered(ids: List<String>) {
+        center.removeDeliveredNotificationsWithIdentifiers(ids)
+    }
+
+    override fun removePending(ids: List<String>) {
+        center.removePendingNotificationRequestsWithIdentifiers(ids)
+    }
+
+    override fun removeAllDelivered() {
+        center.removeAllDeliveredNotifications()
+    }
+}
+
+/**
  * `UNUserNotificationCenter` implementation.
  *
- * The caller's id is the request identifier verbatim, so re-posting one id replaces its
- * notification and cancelling removes exactly it — no id mapping is needed as on Android.
+ * The caller's id is the request identifier verbatim, so re-posting one id replaces its request
+ * and cancelling removes the delivered notification and any pending request under it. The
+ * identifier space is the app's, shared with `kmptoolkit-scheduler`'s alarm ids — see
+ * docs/kmptoolkit-notification/05-platform-notes.md.
  *
  * Three fields of [LocalNotification] have no iOS counterpart at all and are ignored:
  * [LocalNotification.icon] (the OS always shows the app icon), [LocalNotification.ongoing] and
@@ -58,17 +108,15 @@ public fun createNotifier(
 internal class IosNotifier(
     private val permissions: PermissionController,
     private val coalescer: ProgressCoalescer,
-) : Notifier {
-
-    private val center: UNUserNotificationCenter
-        get() = UNUserNotificationCenter.currentNotificationCenter()
-
+    private val center: NotificationCenterPort = SystemNotificationCenter,
     /**
      * Orders a post's "still wanted? then add" step against [cancel] and [cancelAll]. Separate from
      * the coalescer's own lock and always taken first, so the two never invert. An `NSLock` is not
-     * reentrant: nothing under it calls back into this class.
+     * reentrant: nothing under it calls back into this class. A parameter only so a test can hook
+     * the moment between a post's liveness check and its hand-over.
      */
-    private val postLock: NotifierLock = notifierLock()
+    private val postLock: NotifierLock = notifierLock(),
+) : Notifier {
 
     override suspend fun post(id: String, notification: LocalNotification): NotificationResult {
         // Validation, not a catch: `requestWithIdentifier` rejects an empty identifier by raising an
@@ -80,7 +128,25 @@ internal class IosNotifier(
         // permission check, before the coalescer would hear of it, is ordered against it all the same.
         val claim: ProgressCoalescer.PostClaim = coalescer.claim(id)
         try {
-            return postClaimed(id, notification, claim)
+            // One read of the caller's mutable lists and maps, before anything suspends: the baseline
+            // and the request are both made from this copy, so they describe one frame even if the
+            // caller edits (and edits back) its own collections while this post is in flight.
+            return postClaimed(
+                id,
+                notification.copy(
+                    actions = notification.actions.toList(),
+                    contentExtras = notification.contentExtras?.toMap(),
+                ),
+                claim,
+            )
+        } catch (e: CancellationException) {
+            // Cancellation is not a notification failure; it is a RuntimeException in Kotlin, so it
+            // is re-thrown before the clause below sees it.
+            throw e
+        } catch (e: RuntimeException) {
+            // A permission controller (or anything else on this path) that throws is a runtime
+            // failure, and every runtime failure is a result, as on Android.
+            return NotificationResult.Failed(e)
         } finally {
             coalescer.release(claim)
         }
@@ -98,8 +164,10 @@ internal class IosNotifier(
         if (!permissions.check(CommonPermission.Notifications).isUsable) {
             return NotificationResult.PermissionDenied
         }
+        // `notification` is the snapshot taken in post(), so the baseline and the request agree.
+        val baseline: LocalNotification = notification.copy(progress = null)
         val ticket: ProgressCoalescer.PostTicket =
-            coalescer.prepare(id, notification.progress, notification.copy(progress = null), claim)
+            coalescer.prepare(id, notification.progress, baseline, claim)
                 ?: return NotificationResult.Coalesced
 
         val request: UNNotificationRequest = UNNotificationRequest.requestWithIdentifier(
@@ -119,7 +187,7 @@ internal class IosNotifier(
                 // completion is awaited outside the lock.
                 val issued: Boolean = postLock.withLock {
                     if (!coalescer.isLive(ticket)) return@withLock false
-                    center.addNotificationRequest(request) { error: NSError? ->
+                    center.add(request) { error: NSError? ->
                         continuation.resume(error)
                     }
                     handedOver = true
@@ -164,9 +232,10 @@ internal class IosNotifier(
         // One critical section with the decide-and-add of an in-flight post (see post).
         postLock.withLock {
             coalescer.forget(id)
-            val notificationCenter: UNUserNotificationCenter = center
-            notificationCenter.removeDeliveredNotificationsWithIdentifiers(listOf(id))
-            notificationCenter.removePendingNotificationRequestsWithIdentifiers(listOf(id))
+            // Pending too: a post handed over a moment ago may not be presented yet. This also
+            // removes a scheduler alarm armed under the same id (documented in 05-platform-notes).
+            center.removeDelivered(listOf(id))
+            center.removePending(listOf(id))
         }
     }
 
@@ -175,7 +244,7 @@ internal class IosNotifier(
             coalescer.clear()
             // Delivered only, mirroring Android's cancelAll(): a pending request is something the OS
             // has been asked to show later, which is nobody's idea of "clear the tray".
-            center.removeAllDeliveredNotifications()
+            center.removeAllDelivered()
         }
     }
 

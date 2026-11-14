@@ -19,11 +19,24 @@ kotlin {
 }
 ```
 
-With the BOM, drop the version:
+The module depends on `kmptoolkit-files` (its file operations); Gradle brings it along.
+
+With the BOM, drop the version and name the BOM in every source set that declares a dependency:
 
 ```kotlin
-implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-implementation("io.github.jamal-wia:kmptoolkit-audio-recorder")
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-audio-recorder")
+        }
+
+        commonTest.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-audio-recorder-testing")
+        }
+    }
+}
 ```
 
 ## 2. Declare the permission — in **your** app, not here

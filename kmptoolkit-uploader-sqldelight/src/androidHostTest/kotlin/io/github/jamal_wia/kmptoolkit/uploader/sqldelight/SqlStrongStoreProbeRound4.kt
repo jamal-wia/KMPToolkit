@@ -71,9 +71,9 @@ internal object SqlStrongStoreProbeRound4 {
     suspend fun uniqueKeysAreMatchedExactly(store: UploaderStore) {
         val keys: List<String> = listOf("K", "k", "K ", "K%", "K_", "é", "é", "K\u0000", "")
         keys.forEachIndexed { index, key ->
-            assertEquals(true, store.insertKeep(item("k$index", uniqueKey = key)), "key '$key' was taken for another key")
+            assertEquals(true, store.insertKeep(item("k$index", uniqueKey = key)).inserted, "key '$key' was taken for another key")
         }
-        assertEquals(false, store.insertKeep(item("dup", uniqueKey = "K")), "an identical key must conflict")
+        assertEquals(false, store.insertKeep(item("dup", uniqueKey = "K")).inserted, "an identical key must conflict")
         assertEquals(keys.size, store.getAllActive().size)
     }
 
@@ -169,7 +169,7 @@ internal object SqlStrongStoreProbeRound4 {
         store.insertKeep(item("a", uniqueKey = "k"))
         store.insertKeep(item("b"))
         store.park("a", "x", UploaderItemState.PENDING, 0L)
-        assertEquals(true, store.insertKeep(item("c", uniqueKey = "k")))
+        assertEquals(true, store.insertKeep(item("c", uniqueKey = "k")).inserted)
         assertEquals(listOf("b", "c"), store.getAllActive().map { it.id })
         assertNull(store.getById("a"), "the parked item must be gone")
     }

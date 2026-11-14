@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import io.github.jamal_wia.kmptoolkit.uploader.spi.TransactionRunner
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import kotlin.test.AfterTest
@@ -343,8 +344,8 @@ class UploaderEngineRestartAdversarialTest {
         private val delegate: io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore,
         private val gate: CompletableDeferred<Unit>,
     ) : io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore by delegate {
-        override suspend fun insertKeep(record: UploaderItem): Boolean {
-            val inserted: Boolean = delegate.insertKeep(record)
+        override suspend fun insertKeep(record: UploaderItem): KeepResult {
+            val inserted: KeepResult = delegate.insertKeep(record)
             gate.await()
             return inserted
         }

@@ -115,10 +115,23 @@ internal class AndroidAlarmScheduler(
     private val keys: AlarmIntentKeys,
 ) : AlarmScheduler {
 
+    /**
+     * The platform service, or `null` when it cannot be reached: the lookup answered null, or threw
+     * (a system server that is restarting under the app). A throwing lookup is a platform refusal
+     * like any other, so it is logged and treated as unreachable; the next call looks it up again.
+     */
     private val alarmManager: AlarmManager?
-        get() = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        get() = try {
+            context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        } catch (refusal: RuntimeException) {
+            Log.w(LOG_TAG, "The platform alarm service could not be reached.", refusal)
+            null
+        }
 
     override suspend fun schedule(alarm: ScheduledAlarm): AlarmScheduleResult {
+        // Copied now, not after the lock is won: the caller may edit or reuse its payload map while
+        // this call waits behind another one, and the alarm armed is the one passed at the call.
+        val snapshot: ScheduledAlarm = alarm.copy(payload = alarm.payload.toMap())
         val manager: AlarmManager = alarmManager
             ?: return AlarmScheduleResult.Failed(AlarmFailure.SchedulerUnavailable)
         // The guard sits inside the lock and around the non-suspending arm only: a cancellation of
@@ -126,7 +139,7 @@ internal class AndroidAlarmScheduler(
         // IllegalStateException), and must reach the caller rather than become a Failed.
         return platformCalls.withLock {
             try {
-                arm(manager, alarm)
+                arm(manager, snapshot)
             } catch (refusal: RuntimeException) {
                 // AlarmManager refuses in ways a caller cannot prevent: since Android 12 an app holding
                 // too many alarms at once (the limit is 500) gets an IllegalStateException from every
@@ -146,9 +159,10 @@ internal class AndroidAlarmScheduler(
      *
      * A slot that is already occupied is never written to: writing it would rewrite, with
      * `FLAG_UPDATE_CURRENT`, the extras of an alarm that stays armed if the replacement is then
-     * refused. Slots stay occupied only after a refused retirement, so all of them are taken only
-     * after [AlarmIntents.SLOT_COUNT] - 1 replacements in a row whose retirement was refused, with no successful schedule or
-     * cancel of the id in between. Then the replacement is refused without touching anything
+     * refused. Slots stay occupied only after a retirement that did not happen: refused by the
+     * platform, or cut short by the process dying between arming the new alarm and retiring the old
+     * ones. All of them are taken only after [AlarmIntents.SLOT_COUNT] - 1 replacements in a row
+     * whose retirement did not happen, with no successful schedule or cancel of the id in between. Then the replacement is refused without touching anything
      * ([AlarmScheduleResult.Failed], documented in 04-api-reference.md): the armed alarm stays exactly
      * as it was, and `cancel(id)` (which retires every slot) lets the id schedule again.
      */
@@ -166,11 +180,14 @@ internal class AndroidAlarmScheduler(
             AlarmIntents.toIntent(context, alarm, keys),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        // Dropped on every exit that did not arm it, an Error (an OutOfMemoryError while the request
+        // is marshalled) included: a slot left behind with no alarm behind it would count toward the
+        // saturation of the id. Only the exception propagates; nothing is caught here.
+        var armed: Boolean = false
         val result: AlarmScheduleResult = try {
-            armIn(manager, alarm, pendingIntent)
-        } catch (refusal: RuntimeException) {
-            pendingIntent.cancel()
-            throw refusal
+            armIn(manager, alarm, pendingIntent).also { armed = true }
+        } finally {
+            if (!armed) pendingIntent.cancel()
         }
         // Each retirement on its own, so a refusal for one does not skip the others.
         for (stale: PendingIntent in retired) {
@@ -283,7 +300,8 @@ internal class AndroidAlarmScheduler(
         const val LOG_TAG: String = "KmpToolkitScheduler"
 
         const val SATURATED_MESSAGE: String =
-            "Every PendingIntent slot of this alarm id is held by an alarm the platform refused to cancel; " +
+            "Every PendingIntent slot of this alarm id is still held by an earlier alarm that was never retired " +
+                "(the platform refused to cancel it, or the process died before it could); " +
                 "nothing was changed. Call cancel(id) to free them."
         val SLOTS: List<Int> = (0 until AlarmIntents.SLOT_COUNT).toList()
 

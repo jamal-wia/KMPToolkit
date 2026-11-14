@@ -2,9 +2,7 @@ package io.github.jamal_wia.kmptoolkit.video.player.javafx
 
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import javafx.application.Platform
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -15,14 +13,6 @@ internal object FxThread {
     private const val TOOLKIT_EXITED_MESSAGE: String = "Platform.exit has been called"
     private const val EXIT_SILENCE_MS: Long = 2_000L
     private const val NANOS_PER_MILLI: Long = 1_000_000L
-
-    /**
-     * How many blocks [post] and [call] have queued with `Platform.runLater` that have not started yet,
-     * so a call on the FX thread knows whether running inline would overtake an earlier one. An
-     * atomic rather than a coroutine tool: [post] serves the engine's plain synchronous transport
-     * calls, and the count must be right on whichever thread makes one.
-     */
-    private val queued: AtomicInteger = AtomicInteger(0)
 
     /**
      * The JavaFX application thread, as soon as this object has seen it run something. A cheap,
@@ -110,6 +100,16 @@ internal object FxThread {
     @Volatile
     internal var runLater: (Runnable) -> Unit = { Platform.runLater(it) }
 
+    /**
+     * The ordering rule, over [runLater] (read at every call, so a test's swap takes effect) and
+     * `Platform.isFxApplicationThread`; the edges of each queued block feed [ownWork].
+     */
+    private val queue: FxQueue = FxQueue(
+        runLater = { runLater(it) },
+        isFxThread = { Platform.isFxApplicationThread() },
+        onEdge = { delta -> ownWork.update { OwnWork(it.running + delta, System.nanoTime()) } },
+    )
+
     /** `Platform.startup`; a seam so a test can simulate a toolkit that has exited. */
     // Volatile: a test swaps it on its own thread while engines read it on theirs.
     @Volatile
@@ -133,11 +133,21 @@ internal object FxThread {
     }
 
     /**
+     * Whether this engine's own `Platform.startup` succeeded and the implicit exit it implies has not been switched off
+     * yet. Sticky across a first start whose wait ended early (interrupted, or timed out as "busy, try again"): the retry
+     * meets "Toolkit already initialized" for a toolkit this engine did start. Consumed (reset) once the switch is
+     * made, so a later call that finds the toolkit running leaves whatever policy the host chose since. A state flow
+     * rather than an atomic, like the other fields of this object that threads share (D-21/D-24); the consume is a
+     * `compareAndSet(true, false)`.
+     */
+    private val engineStartedToolkit: MutableStateFlow<Boolean> = MutableStateFlow(false)
+
+    /**
      * Starts the toolkit, or confirms an already running one accepts work.
      *
-     * Implicit exit is switched off only when this call is the one that started the toolkit: with no
-     * window of its own the engine would otherwise never trigger it anyway, but an app that runs its
-     * own JavaFX windows keeps whatever exit policy it chose.
+     * Implicit exit is switched off only for a toolkit this engine started, by this call or by an earlier call whose
+     * wait ended early and is being retried: with no window of its own the engine would otherwise never trigger it
+     * anyway, but an app that runs its own JavaFX windows keeps whatever exit policy it chose.
      *
      * Called on the FX thread itself, an already running toolkit is confirmed by being there: waiting
      * for a block queued behind the caller would block the only thread that can run it. Throws
@@ -148,12 +158,12 @@ internal object FxThread {
         // A latch, not a CompletableDeferred: this is reached from the non-suspending isAvailable() and
         // must block its caller (never the FX thread, see the early return) (D-21).
         val started = CountDownLatch(1)
-        val startedHere: Boolean = try {
+        try {
             startup(Runnable {
                 noteToolkitThread()
                 started.countDown()
             })
-            true
+            engineStartedToolkit.value = true
         } catch (e: IllegalStateException) {
             // "Toolkit already initialized" — the app, or an earlier player, started it.
             // After Platform.exit startup throws this too, and runLater would drop the block: wait for
@@ -169,14 +179,13 @@ internal object FxThread {
                 noteToolkitThread()
                 started.countDown()
             }
-            false
         }
         if (!started.await(START_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
             throw FxThreadUnresponsiveException(
                 "The JavaFX application thread did not respond within $START_TIMEOUT_SECONDS s",
             )
         }
-        if (startedHere) Platform.setImplicitExit(false)
+        if (engineStartedToolkit.compareAndSet(true, false)) Platform.setImplicitExit(false)
     }
 
     /**
@@ -223,70 +232,22 @@ internal object FxThread {
     }
 
     /**
-     * Runs [block] on the FX thread, after every block queued before it. Inline when already there
-     * and nothing is queued; queued behind the rest otherwise — run inline then, a `pause()` made on
-     * the FX thread (an engine callback reacting to an event, say) would overtake a `start()` queued
-     * from another thread a moment earlier, and the source would play on while the player above
-     * reports Paused. After the toolkit has exited (the app called `Platform.exit()`) `runLater`
-     * silently drops the block rather than throwing, so it never runs: the engine's transport calls
-     * tolerate the wrong state, and nothing is playing any more either.
+     * Runs [block] on the FX thread, after every block queued before it: inline when already there
+     * and nothing is queued, queued behind the rest otherwise. See [FxQueue.post].
      */
-    fun post(block: () -> Unit) {
-        if (Platform.isFxApplicationThread() && queued.get() == 0) {
-            block()
-            return
-        }
-        try {
-            runLaterCounted(block)
-        } catch (e: IllegalStateException) {
-            // Only when the toolkit was never initialized; after an exit runLater drops silently.
-        }
-    }
+    fun post(block: () -> Unit) = queue.post(block)
+
+    /**
+     * Like [post], but always queued behind whatever is already waiting, even on the FX thread with
+     * nothing queued. See [FxQueue.postLater].
+     */
+    fun postLater(block: () -> Unit) = queue.postLater(block)
 
     /**
      * Runs [block] on the FX thread and suspends for its result or exception. Never resumes if the
-     * toolkit has exited, as `runLater` then drops the block: a caller bounds the wait itself.
+     * toolkit has exited: a caller bounds the wait itself. See [FxQueue.call].
      */
-    suspend fun <T> call(block: () -> T): T {
-        val result = CompletableDeferred<T>()
-        val task: () -> Unit = {
-            try {
-                result.complete(block())
-            } catch (e: Throwable) {
-                result.completeExceptionally(e)
-            }
-        }
-        if (Platform.isFxApplicationThread() && queued.get() == 0) task() else runLaterCounted(task)
-        return result.await()
-    }
-
-    /**
-     * `Platform.runLater`, counted in [queued] until [block] is taken off the queue — uncounted
-     * before it runs, since a call made from inside it comes after it anyway and only what is still
-     * queued may hold that call back. Throws as `runLater` does.
-     */
-    private fun runLaterCounted(block: () -> Unit) {
-        queued.incrementAndGet()
-        try {
-            runLater(
-                Runnable {
-                    queued.decrementAndGet()
-                    // Counted only once it starts running, never at enqueue: after an exit runLater
-                    // drops blocks, and a dropped block must never look like work in progress.
-                    ownWork.update { OwnWork(it.running + 1, System.nanoTime()) }
-                    try {
-                        block()
-                    } finally {
-                        ownWork.update { OwnWork(it.running - 1, System.nanoTime()) }
-                    }
-                },
-            )
-        } catch (e: IllegalStateException) {
-            // Never queued, so never counted.
-            queued.decrementAndGet()
-            throw e
-        }
-    }
+    suspend fun <T> call(block: () -> T): T = queue.call(block)
 }
 
 /**

@@ -34,7 +34,9 @@ explicit `applyLanguageGlobally` call.
 Applying `System` calls `Locale.setDefault` / `LocaleList.setDefault` with the device's own locale
 (read the same way as `getSystemLanguageCode`), rather than leaving whatever was previously forced in
 place. Switching Arabic → System therefore genuinely returns to the device's language, not to
-whatever locale happened to be default before the app ever touched it.
+whatever locale happened to be default before the app ever touched it. On Android only the device's
+first locale is applied; the rest of the device's preference list is not the process default again
+until the next configuration change.
 
 ### Configuration changes *do* undo the override, and this is the important part of this page
 
@@ -99,12 +101,15 @@ configuration delivery, `attachBaseContext` gets the first frame after a recreat
 called by the framework *before* your own code has necessarily run for this launch (a cold start
 racing `Application.onCreate()` against the first `Activity.attachBaseContext()`, or a process
 restarted by the OS after being killed in the background), so the base `Context` an `Activity`
-starts with can still reflect the device's language for that first frame.
+starts with can still reflect the device's language for that first frame. `MyApplication.language` below
+is the `AppLanguageHolder` property of [getting started, step 4](02-getting-started.md#4-create-the-holder).
 
 ```kotlin
 class MainActivity : ComponentActivity() {
     override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(localizedContext(newBase, currentLanguage()))
+        // `application` is not set yet inside attachBaseContext; the application context already is.
+        val app: MyApplication = newBase.applicationContext as MyApplication
+        super.attachBaseContext(localizedContext(newBase, app.language.language))
     }
 }
 ```

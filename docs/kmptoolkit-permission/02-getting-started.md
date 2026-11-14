@@ -9,7 +9,7 @@ Five minutes to a microphone permission your shared code can ask for.
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
             implementation("io.github.jamal-wia:kmptoolkit-permission")
         }
         commonTest.dependencies {

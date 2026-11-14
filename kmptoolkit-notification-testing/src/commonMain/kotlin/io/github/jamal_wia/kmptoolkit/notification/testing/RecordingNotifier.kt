@@ -32,6 +32,14 @@ import io.github.jamal_wia.kmptoolkit.notification.Notifier
  * testing this fixture instead of its subject. Set [result] to [NotificationResult.Coalesced] when
  * you want your code to face that branch.
  *
+ * **Recordings are snapshots.** [posted] and [showing] hold a copy of each notification, taken when
+ * [post] is called, with its own copies of [LocalNotification.actions] and
+ * [LocalNotification.contentExtras], and [PostedNotification.options] holds its own copy of
+ * [NotificationOptions.actionIcons]. A list or map your code edits after the call does not change
+ * what was recorded, just as it would not change what a real notifier showed. The copies are equal
+ * (`==`) to what was passed in, but not the same instances; [NotificationOptions.DEFAULT] is
+ * recorded as itself.
+ *
  * **Not thread-safe**, deliberately: the backing collections are plain ones. Drive it from a single
  * test coroutine and assert once the work under test has finished; making it concurrent would mean
  * an atomics dependency in an artifact whose whole value is being trivial.
@@ -89,13 +97,32 @@ public class RecordingNotifier(
         require(id.isNotBlank()) {
             "Notification id must not be blank; it is the replace and cancel key for this notification."
         }
-        recorded += PostedNotification(id = id, notification = notification).also { posted: PostedNotification ->
-            posted.options = options
+        // Copies of the caller's lists and maps, taken once at the call: the real notifiers read them
+        // once at the start of the post, so the recording must not follow later edits of the caller's
+        // own collections. Shallow copies are full snapshots while the elements are immutable values;
+        // if a model field ever holds a collection inside a collection, the snapshot must deepen.
+        val snapshot: LocalNotification = notification.copy(
+            actions = notification.actions.toList(),
+            contentExtras = notification.contentExtras?.toMap(),
+        )
+        val recordedOptions: NotificationOptions =
+            if (options === NotificationOptions.DEFAULT) {
+                options
+            } else {
+                NotificationOptions(
+                    alertOnce = options.alertOnce,
+                    dismissAction = options.dismissAction,
+                    mediaStyle = options.mediaStyle,
+                    actionIcons = options.actionIcons.toMap(),
+                )
+            }
+        recorded += PostedNotification(id = id, notification = snapshot).also { posted: PostedNotification ->
+            posted.options = recordedOptions
         }
         val outcome: NotificationResult = result
         // Only a real post changes what is on screen. Coalesced leaves whatever was already up
         // exactly where it was, and every failure leaves the screen untouched too.
-        if (outcome == NotificationResult.Posted) current[id] = notification
+        if (outcome == NotificationResult.Posted) current[id] = snapshot
         return outcome
     }
 
@@ -128,7 +155,8 @@ public class RecordingNotifier(
  * One [Notifier.post] call, as [RecordingNotifier] saw it.
  *
  * @property id the id it was posted under — the replace/cancel key.
- * @property notification exactly what the caller passed, unmodified.
+ * @property notification what the caller passed, as it was at the call: equal to it, with its own
+ *   copies of the button list and extras map.
  */
 public data class PostedNotification(
     public val id: String,

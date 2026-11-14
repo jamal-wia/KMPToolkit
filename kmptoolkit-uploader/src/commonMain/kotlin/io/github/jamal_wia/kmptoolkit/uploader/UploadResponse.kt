@@ -38,7 +38,10 @@ public class UploadResponse(
     public val isBodyTruncated: Boolean,
 ) {
 
-    /** The response headers, read-only, with lowercase names. */
+    /**
+     * The response headers, read-only, with lowercase names: a cast of the map, of its `keys`, `values` or `entries`, of their
+     * iterators or of an entry to a mutable type fails.
+     */
     public val headers: Map<String, String> = mergeHeaders(headers)
 
     private val bodyBytes: ByteArray = body.copyOf()
@@ -93,7 +96,7 @@ public class UploadResponse(
                 val previous: String? = merged[key]
                 merged[key] = if (previous == null) value else "$previous, $value"
             }
-            return merged.toMap()
+            return ReadOnlyMap(merged)
         }
 
         fun capHeaders(headers: Map<String, String>): Map<String, String> {
@@ -104,9 +107,53 @@ public class UploadResponse(
                 if (total > MAX_RESPONSE_HEADER_CHARS) break
                 kept[name] = value
             }
-            return if (kept.size == headers.size) headers else kept.toMap()
+            return if (kept.size == headers.size) headers else ReadOnlyMap(kept)
         }
     }
+}
+
+/**
+ * A [Map] that is not a `MutableMap`, and whose `keys`, `values` and `entries` views, their iterators and their entries are
+ * not mutable either: a cast of any of them to its mutable type fails, so nothing reachable from the headers can change
+ * them. Delegating to a `LinkedHashMap` by `toMap()` would hand out the very mutable map, and its views would write
+ * through. Equality, hash and text are the delegate's, so it equals any map with the same entries.
+ */
+private class ReadOnlyMap(private val delegate: Map<String, String>) : Map<String, String> by delegate {
+    override val keys: Set<String> by lazy(LazyThreadSafetyMode.PUBLICATION) { ReadOnlySet(LinkedHashSet(delegate.keys)) }
+    override val values: Collection<String> by lazy(LazyThreadSafetyMode.PUBLICATION) { ReadOnlyCollection(ArrayList(delegate.values)) }
+    override val entries: Set<Map.Entry<String, String>> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        val copy: MutableSet<Map.Entry<String, String>> = LinkedHashSet()
+        delegate.entries.forEach { copy.add(ReadOnlyEntry(it.key, it.value)) }
+        ReadOnlySet(copy)
+    }
+
+    override fun equals(other: Any?): Boolean = delegate == other
+    override fun hashCode(): Int = delegate.hashCode()
+    override fun toString(): String = delegate.toString()
+}
+
+private class ReadOnlyIterator<T>(private val delegate: Iterator<T>) : Iterator<T> {
+    override fun hasNext(): Boolean = delegate.hasNext()
+    override fun next(): T = delegate.next()
+}
+
+private class ReadOnlyCollection<T>(private val delegate: Collection<T>) : Collection<T> by delegate {
+    override fun iterator(): Iterator<T> = ReadOnlyIterator(delegate.iterator())
+    override fun toString(): String = delegate.toString()
+}
+
+private class ReadOnlySet<T>(private val delegate: Set<T>) : Set<T> by delegate {
+    override fun iterator(): Iterator<T> = ReadOnlyIterator(delegate.iterator())
+    override fun equals(other: Any?): Boolean = delegate == other
+    override fun hashCode(): Int = delegate.hashCode()
+    override fun toString(): String = delegate.toString()
+}
+
+/** A `Map.Entry` that is not a `MutableEntry`; equality and hash follow the `Map.Entry` contract. */
+private class ReadOnlyEntry(override val key: String, override val value: String) : Map.Entry<String, String> {
+    override fun equals(other: Any?): Boolean = other is Map.Entry<*, *> && key == other.key && value == other.value
+    override fun hashCode(): Int = key.hashCode() xor value.hashCode()
+    override fun toString(): String = "$key=$value"
 }
 
 /** The most response-body bytes the engine ever keeps, whatever a handler asks for. */

@@ -15,10 +15,11 @@ import kotlinx.coroutines.delay
  * production — with no device, no simulator and no video file. That makes a screen's reaction to a
  * failed load, a stall, a picture size or a finished video a plain unit test.
  *
- * There is no wall clock in here: the playhead moves only when [advancePositionTo] or
- * [advancePositionBy] is called, and events happen only when a `report…`/`complete…`/`fail…`
- * method is called. A load finishes at once, after [loadDelayMs] of virtual time, or — with
- * [suspendLoads] — only when the test calls [finishLoad] or [failLoad].
+ * There is no wall clock in here: the playhead never moves with time, only when a seek, a load, a
+ * release, [advancePositionTo], [advancePositionBy] or [completePlayback] moves it (see [positionMs]),
+ * and events happen only when a `report…`/`complete…`/`fail…` method is called. A load finishes at
+ * once, after [loadDelayMs] of virtual time, or — with [suspendLoads] — only when the test calls
+ * [finishLoad] or [failLoad].
  *
  * Not thread-safe — drive it from the test's thread. (The player built on it serializes its own
  * transitions, but the fake's recorded properties are plain fields.)
@@ -52,7 +53,11 @@ public class FakeVideoPlaybackEngine(
      */
     public var durationMs: Long = durationMs
 
-    /** Current playhead, in milliseconds. Moved by seeks and by [advancePositionTo]/[advancePositionBy]. */
+    /**
+     * Current playhead, in milliseconds. Moved by seeks, by [advancePositionTo]/[advancePositionBy] and, on a
+     * non-looping fake with a known [durationMs], to that duration by [completePlayback]; reset to `0` by a
+     * load, by [VideoPlaybackEngine.release] and by [completePlayback] on a looping fake.
+     */
     public var positionMs: Long = 0L
         private set
 

@@ -1,0 +1,1041 @@
+package io.github.jamal_wia.kmptoolkit.video.player.javafx.model
+
+import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayer
+import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState
+import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
+import io.github.jamal_wia.kmptoolkit.video.player.javafx.EngineEvent
+import io.github.jamal_wia.kmptoolkit.video.player.javafx.JavaFxVideoEngine
+import io.github.jamal_wia.kmptoolkit.video.player.javafx.NativeStatus
+import io.github.jamal_wia.kmptoolkit.video.player.javafx.RecordingListener
+import io.github.jamal_wia.kmptoolkit.video.player.javafx.TestClip
+import kotlin.math.abs
+import kotlin.random.Random
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
+
+/**
+ * The seek family on the model tier (task J9): the deterministic F twins of the real-media seek and speed classes, on
+ * the composed, watched scripted player ([composeAll]) in virtual time. Every scenario runs through the real
+ * `JavaFxVideoEngine` and `FxPlayback` (and, where the real class does, the shared player over [NeverDispatcher]); the
+ * end-of-test check of [fxModel] fails any scenario that violates a fragile window, whatever it asserts itself.
+ *
+ * Real-media twin of each group, and what the F test asserts beyond it (never less):
+ * - D2-PF1 (`JavaFxSpeedAfterSeekFreezeAdversarialTest`): a speed given right after a replay of a playing clip, from the
+ *   FX thread and from a plain thread (30 seeded gaps each), after a settled gap, and the two recorded sequences. The real
+ *   class asserts that the playhead moves within a bound; the twin asserts that the monitor saw no violation, that the
+ *   decoder never froze, that the playhead moved, and that the speed reached the decoder, no sooner than the seek window
+ *   (W-SEEK-RUN, 300 ms) after the last native seek.
+ * - S9 (`JavaFxSeekAtSpeedFreezeR6AdversarialTest`): a seek right after a loop wrap at a speed of 2, at every 7 ms from
+ *   the wrap, and a seek in the middle of playback at 2x; plus the deferred-wait form of S9 (a seek while a deferred speed
+ *   waits restarts the wait).
+ * - Stale reads (`JavaFxStaleReadUnderLoadR9AdversarialTest`, the `LOAD` profile of B3, seeded) and the playhead read
+ *   before a seek (`JavaFxVideoEngineTest.aPlayheadReadBeforeASeekLandsDoesNotReplaceItsTarget`): a sample published
+ *   after the seek it predates never replaces the seek's target.
+ * - Seeks around the end (`JavaFxSeekAcrossTheEndR9AdversarialTest`, `JavaFxSeekAtTheEndR5AdversarialTest`).
+ *
+ * The LOAD group has two kinds of twin (Q-J9-2 of the J9 report, ruled by the advisor, task J-load-fresh). The STRESS
+ * variants (`...UnderLoad`) use the `LOAD` profile of B3 as it was first written, which reads the playhead when the sample
+ * is TAKEN ([SampleRead.AT_TICK]) and so stands in for a native seek latency of up to 400 ms that no backend has shown: a
+ * sample taken before a seek can be published after the seek has run, which JavaFX never does, so they read the DECODER's
+ * position from the seek on and the engine's reading only from the longest sample delay on. The STRICT twins
+ * (`...UnderLoadReadAtPublication`) read the playhead when the publication RUNS ([SampleRead.AT_PUBLISH]), which is what
+ * `MediaPlayer.updateTime` does, and assert the engine's reading from the first millisecond as the real class does. The
+ * property the engine reading adds on top of the decoder is also pinned by
+ * `aPlayheadReadBeforeASeekLandsDoesNotReplaceItsTarget`. And the real class's "replay
+ * after the end" gives the speed between the seek and the play, an order that the model flags W-IDLE on the current code;
+ * that order is not asserted: no caller of the internal engine produces it (the shared player replays with a seek, the
+ * play, then the speed), and the real class could not see a freeze on it (it asserts only an upper bound, which a playhead
+ * frozen at 0 meets), so the model's conservative default stands and the shared player's order is asserted instead, with
+ * `aSharedPlayerNeverWritesARateBetweenASeekAndThePlayWhilePaused` pinning that premise.
+ *
+ * Nothing sleeps and nothing reads real time except the hang bound of [prepare]; every random choice is a seeded
+ * [Random] and the seed is in every failure message.
+ */
+class SeekFamilyModelTest {
+
+    // ---- the rig ----
+
+    private class Rig(
+        val engine: JavaFxVideoEngine,
+        val backend: ComposedBackend,
+        val listener: RecordingListener?,
+        val player: VideoPlayer?,
+    ) {
+        val composed: ComposedPlayer get() = backend.last
+        val native: ScriptedNativePlayer get() = composed.player
+        val hazards: HazardModel get() = composed.hazards
+        val time: TimeModel get() = composed.time
+    }
+
+    /** An engine-level rig: the engine and a recording listener, loaded. */
+    private fun FxModelScope.engineRig(timeScript: TimeScript = TimeScript(), body: Rig.() -> Unit) {
+        val backend: ComposedBackend = composeAll(ScriptedBackend(host), timeScript)
+        val engine = JavaFxVideoEngine(runtime = {}, backend = { backend })
+        val listener = RecordingListener()
+        engine.setListener(listener)
+        load(engine, VideoSource.Asset(TestClip.ASSET))
+        try {
+            Rig(engine, backend, listener, null).body()
+        } finally {
+            engine.release()
+            advanceBy(50)
+        }
+    }
+
+    /** A rig over the shared player (on [NeverDispatcher]), prepared. */
+    private fun FxModelScope.playerRig(timeScript: TimeScript = TimeScript(), body: Rig.() -> Unit) {
+        val backend: ComposedBackend = composeAll(ScriptedBackend(host), timeScript)
+        val engine = JavaFxVideoEngine(runtime = {}, backend = { backend })
+        val player: VideoPlayer = videoPlayer(engine)
+        prepare(player, VideoSource.Asset(TestClip.ASSET))
+        try {
+            Rig(engine, backend, null, player).body()
+        } finally {
+            player.release()
+            advanceBy(50)
+        }
+    }
+
+    /** [FxModelScope.load] for the shared player: drives the host while `prepare` runs, bounded in real time. */
+    private fun FxModelScope.prepare(player: VideoPlayer, source: VideoSource, boundMs: Long = PREPARE_BOUND_MS) {
+        // timing-hygiene-ignore: TH2 bound the real-time hang bound of a prepare whose IO hop is real
+        val deadline: Long = System.nanoTime() + boundMs * NANOS_PER_MILLI_LONG
+        runBlocking {
+            val preparing = async { player.prepare(source) }
+            while (!preparing.isCompleted) {
+                host.runUntilIdle()
+                yield()
+                // timing-hygiene-ignore: TH2 bound the real-time hang bound of a prepare whose IO hop is real
+                if (!preparing.isCompleted && System.nanoTime() - deadline > 0L) {
+                    preparing.cancel()
+                    throw AssertionError("prepare did not finish within $boundMs ms of real time ($host)")
+                }
+                Thread.onSpinWait()
+            }
+            preparing.await()
+        }
+    }
+
+    /** Runs one named case in its own model; returns the failure of the case or of the end-of-test checks, or null. */
+    private fun runCase(name: String, body: FxModelScope.() -> Unit): String? {
+        var failure: Throwable? = null
+        try {
+            fxModel(block = body)
+        } catch (t: Throwable) {
+            failure = t
+        }
+        return failure?.let { "[$name] ${it.message?.take(MESSAGE_LIMIT)}" }
+    }
+
+    private fun assertNoFailures(failures: List<String>, total: Int, what: String) {
+        assertEquals(emptyList(), failures, "${failures.size} of $total $what failed")
+    }
+
+    private fun FxModelScope.nowMs(): Double = host.elapsedNanos / NANOS_PER_MILLI
+
+    // ---- D2-PF1: a speed given right after a replay of a playing clip (design 4.4, both variants) ----
+
+    private fun speedOf(rnd: Random): Float = listOf(0.5f, 1.5f, 2f, 3f)[rnd.nextInt(4)]
+
+    /**
+     * The expectations of one D2-PF1 round, read after the speed was given and 2 s passed: the decoder never froze, the
+     * playhead moved, the speed reached the decoder, and no rate was written inside the 300 ms window of the last native
+     * seek.
+     */
+    private fun FxModelScope.assertSpeedAfterReplay(rig: Rig, target: Float, since: Double) {
+        val native: ScriptedNativePlayer = rig.native
+        assertTrue(!rig.hazards.frozen, "the decoder froze\n${native.log.tail()}")
+        assertEquals(target.toDouble(), rig.hazards.effectiveRate, "the speed never reached the decoder\n${native.log}")
+        val seek: NativeCallEntry = native.log.calls(NativeCall.SEEK).last { it.tMs >= since }
+        val given: List<NativeCallEntry> = native.log.calls(NativeCall.SET_RATE).filter { it.effective && it.tMs >= seek.tMs }
+        assertTrue(given.isNotEmpty(), "no rate was written after the last seek\n${native.log}")
+        assertTrue(
+            given.all { it.tMs - seek.tMs >= HazardConfig.DEFAULT_SEEK_RUN_MS - ROUNDING_MS },
+            "a rate was written ${given.first().tMs - seek.tMs} ms after the seek, inside W-SEEK-RUN\n${native.log}",
+        )
+        assertTrue(native.positionMs >= 1_000.0, "the playhead stands at ${native.positionMs} 2 s after the speed\n${native.log}")
+    }
+
+    @Test
+    fun aSpeedGivenRightAfterAReplayOfAPlayingClipOnTheFxThreadNeverFreezesThePlayhead() {
+        val failures: List<String> = (0 until ROUNDS).mapNotNull { round ->
+            val rnd = Random(100 + round)
+            val target: Float = speedOf(rnd)
+            runCase("fx round $round seed ${100 + round} speed $target") {
+                playerRig {
+                    player!!.play()
+                    advanceBy(300)
+                    val since: Double = nowMs()
+                    onFx {
+                        player.replay()
+                        player.replay()
+                        player.setPlaybackSpeed(target)
+                    }
+                    advanceBy(2_000)
+                    assertSpeedAfterReplay(this, target, since)
+                }
+            }
+        }
+        assertNoFailures(failures, ROUNDS, "rounds")
+    }
+
+    @Test
+    fun aSpeedGivenRightAfterAReplayOfAPlayingClipFromAPlainThreadNeverFreezesThePlayhead() {
+        val failures: List<String> = (0 until ROUNDS).mapNotNull { round ->
+            val rnd = Random(200 + round)
+            val target: Float = speedOf(rnd)
+            val gapOne: Long = rnd.nextLong(0L, 6L)
+            val gapTwo: Long = rnd.nextLong(0L, 6L)
+            runCase("thread round $round seed ${200 + round} speed $target gaps $gapOne $gapTwo") {
+                playerRig {
+                    player!!.play()
+                    advanceBy(300)
+                    val since: Double = nowMs()
+                    player.replay()
+                    advanceBy(gapOne)
+                    player.replay()
+                    advanceBy(gapTwo)
+                    player.setPlaybackSpeed(target)
+                    advanceBy(2_000)
+                    assertSpeedAfterReplay(this, target, since)
+                }
+            }
+        }
+        assertNoFailures(failures, ROUNDS, "rounds")
+    }
+
+    @Test
+    fun aSpeedGivenLongAfterAReplayOfAPlayingClipNeverFreezesThePlayhead() {
+        val failures: List<String> = (0 until ROUNDS).mapNotNull { round ->
+            val rnd = Random(300 + round)
+            val target: Float = speedOf(rnd)
+            val settleMs: Long = 400L + rnd.nextLong(0L, 300L)
+            runCase("settled round $round seed ${300 + round} speed $target after $settleMs ms") {
+                playerRig {
+                    player!!.play()
+                    advanceBy(300)
+                    val since: Double = nowMs()
+                    onFx {
+                        player.replay()
+                        player.replay()
+                    }
+                    advanceBy(settleMs)
+                    player.setPlaybackSpeed(target)
+                    advanceBy(2_000)
+                    assertSpeedAfterReplay(this, target, since)
+                }
+            }
+        }
+        assertNoFailures(failures, ROUNDS, "rounds")
+    }
+
+    /** One call of a recorded sequence: made on the FX thread or on the test thread, then followed by a pause. */
+    private class Op(val onFx: Boolean, val pauseMs: Long, val run: (VideoPlayer) -> Unit)
+
+    private fun fx(pauseMs: Long, run: (VideoPlayer) -> Unit): Op = Op(onFx = true, pauseMs = pauseMs, run = run)
+
+    private fun thread(pauseMs: Long, run: (VideoPlayer) -> Unit): Op = Op(onFx = false, pauseMs = pauseMs, run = run)
+
+    /** The tail of the sequence that the random fuzz found frozen (seed 3): a play, a stop and a play, 3x, two replays, 1.5x. */
+    private fun stopPlaySpeedReplayTail(): List<Op> = listOf(
+        fx(400L) { it.play() },
+        thread(80L) { it.stop() },
+        fx(150L) { it.play() },
+        thread(150L) { it.setPlaybackSpeed(3.0f) },
+        fx(5L) { it.replay() },
+        fx(0L) { it.replay() },
+        thread(80L) { it.setMuted(true) },
+        thread(1L) { it.setPlaybackSpeed(1.5f) },
+    )
+
+    /**
+     * Plays [ops] on a fresh player; the case fails when the decoder froze, when the player is left Playing with a standing
+     * playhead for 3.5 s (the real class's check), or when the last speed never reached the decoder.
+     */
+    private fun recorded(name: String, ops: List<Op>, lastSpeed: Float): String? = runCase(name) {
+        playerRig {
+            val shared: VideoPlayer = player!!
+            for (op: Op in ops) {
+                if (op.onFx) onFx { op.run(shared) } else op.run(shared)
+                if (op.pauseMs > 0L) advanceBy(op.pauseMs)
+            }
+            val first: Long = engine.positionMs()
+            var moved = false
+            var waited = 0L
+            while (waited < 3_500L && !moved) {
+                if (shared.stateFlow.value !is VideoPlayerState.Playing || engine.positionMs() != first) moved = true
+                advanceBy(5)
+                waited += 5
+            }
+            assertTrue(moved, "Playing with the playhead standing at $first for 3.5 s\n${native.log}")
+            advanceBy(1_500)
+            assertTrue(!hazards.frozen, "the decoder froze\n${native.log.tail()}")
+            assertEquals(lastSpeed.toDouble(), hazards.effectiveRate, "the last speed never reached the decoder\n${native.log}")
+        }
+    }
+
+    @Test
+    fun aStopThenPlayThenSpeedThenDoubleReplayThenSpeedSequenceNeverFreezesThePlayhead() {
+        assertNoFailures(listOfNotNull(recorded("tail", stopPlaySpeedReplayTail(), 1.5f)), 1, "sequences")
+    }
+
+    /** All 22 calls of the fuzz class's seed 3, with its own pauses, copied without the randomness. */
+    @Test
+    fun theRecordedSeedThreeCallSequenceOfTheFuzzNeverFreezesThePlayhead() {
+        val ops: List<Op> = listOf(
+            fx(1L) { it.stop() },
+            fx(900L) { it.pause() },
+            fx(0L) { it.setMuted(true) },
+            fx(20L) { it.setMuted(false) },
+            fx(0L) { it.seekBackward(1320L) },
+            thread(0L) { it.setVolume(0.3f) },
+            fx(0L) { it.play() },
+            thread(20L) { it.setVolume(0.0f) },
+            fx(0L) { it.seekTo(1696L) },
+            thread(150L) { it.seekTo(1064L) },
+            fx(1L) { it.seekBackward(305L) },
+            fx(150L) { it.setPlaybackSpeed(1.0f) },
+            fx(900L) { it.setMuted(false) },
+            thread(150L) { it.pause() },
+        ) + stopPlaySpeedReplayTail()
+        assertNoFailures(listOfNotNull(recorded("seed3", ops, 1.5f)), 1, "sequences")
+    }
+
+    // ---- S9: a seek right after a loop wrap at a speed, and in the middle of playback at a speed ----
+
+    /**
+     * The real class's check, on virtual time: after a seek, the first reading taken 300 ms on is the landing, and a later
+     * reading at least 300 ms away from it proves the playhead moves on. Reads [Rig.engine] every 20 virtual ms for 3.5 s.
+     */
+    private fun FxModelScope.movesOnAfterSeek(rig: Rig): Boolean {
+        var landed: Long = -1L
+        var elapsedMs = 0L
+        while (elapsedMs < 3_500L) {
+            val position: Long = rig.engine.positionMs()
+            if (elapsedMs > 300L) {
+                if (landed < 0L) landed = position
+                if (abs(position - landed) >= 300L) return true
+            }
+            advanceBy(20)
+            elapsedMs += 20
+        }
+        return false
+    }
+
+    /** A seek made [afterWrapMs] after the playhead was first seen to wrap at a speed of 2, then watched for 3.5 s. */
+    private fun seekAfterWrap(afterWrapMs: Long): String? = runCase("seek $afterWrapMs ms after the wrap") {
+        engineRig {
+            engine.setLooping(true)
+            engine.setSpeed(2f)
+            engine.start()
+            var last = 0L
+            var wrapped = false
+            var waited = 0L
+            while (waited < 8_000L && !wrapped) {
+                val position: Long = engine.positionMs()
+                if (position + 1_000L < last) wrapped = true
+                last = position
+                if (!wrapped) {
+                    advanceBy(5)
+                    waited += 5
+                }
+            }
+            assertTrue(wrapped, "the source never wrapped\n${native.log}")
+            val wrappedAt: Double = nowMs()
+            advanceBy(afterWrapMs)
+            val seekAt: Double = nowMs()
+            engine.seekTo(2_500L)
+            assertTrue(movesOnAfterSeek(this), "the playhead stood at ${engine.positionMs()} for 3.5 s after the seek\n${native.log}")
+            assertTrue(!hazards.frozen, "the decoder froze\n${native.log.tail()}")
+            assertSpeedGivenOutsideTheSeekWindow(this, seekAt, wrappedAt, 2.0)
+        }
+    }
+
+    /**
+     * What the monitor cannot say by itself: the speed [speed] reached the decoder at some point from [sinceMs] on, and
+     * every rate written after the last native seek at or after [seekAt] (in log order, so a write at the same virtual
+     * instant but before the seek does not count) came at least W-SEEK-RUN (300 ms) after that seek.
+     */
+    private fun FxModelScope.assertSpeedGivenOutsideTheSeekWindow(rig: Rig, seekAt: Double, sinceMs: Double, speed: Double) {
+        val native: ScriptedNativePlayer = rig.native
+        val entries: List<NativeCallEntry> = native.log.entries
+        val seekIndex: Int = entries.indexOfLast { it.call == NativeCall.SEEK && it.tMs >= seekAt }
+        assertTrue(seekIndex >= 0, "the seek never reached the native player\n${native.log}")
+        val seek: NativeCallEntry = entries[seekIndex]
+        val after: List<NativeCallEntry> = entries.drop(seekIndex + 1).filter { it.call == NativeCall.SET_RATE && it.effective }
+        val inside: List<NativeCallEntry> = after.filter { it.tMs - seek.tMs < HazardConfig.DEFAULT_SEEK_RUN_MS - ROUNDING_MS }
+        assertEquals(emptyList(), inside, "a rate was written inside W-SEEK-RUN of the seek at ${seek.tMs}\n${native.log}")
+        assertTrue(
+            entries.any { it.call == NativeCall.SET_RATE && it.effective && it.arg == speed && it.tMs >= sinceMs },
+            "the speed $speed never reached the decoder from $sinceMs ms on\n${native.log}",
+        )
+    }
+
+    @Test
+    fun aSeekMadeJustAfterALoopWrapAtASpeedOfTwoNeverLeavesThePlayheadStandingForGood() {
+        // Every 7 ms from the wrap to 700 ms after it: the samples of the playhead come every 100 ms, so the seek meets every phase.
+        val distances: List<Long> = (0L..700L step 7L).toList()
+        assertNoFailures(distances.mapNotNull { seekAfterWrap(it) }, distances.size, "seeks after a wrap")
+    }
+
+    @Test
+    fun aSeekInTheMiddleOfPlaybackAtASpeedOfTwoNeverLeavesThePlayheadStandingForGood() {
+        val waits: List<Long> = listOf(0L, 100L, 300L, 500L, 800L)
+        val failures: List<String> = waits.mapNotNull { extra ->
+            runCase("seek after the playhead passed 300 ms plus $extra ms") {
+                engineRig {
+                    engine.setSpeed(2f)
+                    engine.start()
+                    var waited = 0L
+                    while (engine.positionMs() <= 300L && waited < 5_000L) {
+                        advanceBy(20)
+                        waited += 20
+                    }
+                    assertTrue(engine.positionMs() > 300L, "the clip never advanced\n${native.log}")
+                    advanceBy(extra)
+                    val seekAt: Double = nowMs()
+                    engine.seekTo(1_100L)
+                    assertTrue(movesOnAfterSeek(this), "the playhead stood at ${engine.positionMs()} for 3.5 s after a seek at a speed of 2\n${native.log}")
+                    assertTrue(!hazards.frozen, "the decoder froze\n${native.log.tail()}")
+                    assertSpeedGivenOutsideTheSeekWindow(this, seekAt, 0.0, 2.0)
+                }
+            }
+        }
+        assertNoFailures(failures, waits.size, "seeks during playback")
+    }
+
+    // ---- stale reads: a read of the playhead taken before a seek never replaces the seek's target ----
+
+    /** The `LOAD` profile of B3 with a seed of this class: samples wait 50-400 ms and a tenth is dropped. */
+    private fun loadScript(seed: Long): TimeScript = TimeScript().load(seed = seed)
+
+    /** The same profile, read when the publication runs as JavaFX does ([SampleRead.AT_PUBLISH]): the strict twins use it. */
+    private fun loadScriptAtPublish(seed: Long): TimeScript = TimeScript().load(seed = seed, read = SampleRead.AT_PUBLISH)
+
+    /**
+     * The longest a sample can wait in the `LOAD` profile plus one sampling interval: from this long after a seek on, every
+     * sample taken before it has been published, so the engine's reading is the current one again.
+     */
+    private val loadSettleMs: Long = (TimeScript.LOAD_MAX_DELAY_MS + TimeScript.DEFAULT_SAMPLE_INTERVAL_MS).toLong()
+
+    /**
+     * STRESS VARIANT of `JavaFxStaleReadUnderLoadR9AdversarialTest` test 1: the `LOAD` profile reads the playhead at the
+     * TICK ([SampleRead.AT_TICK]), which stands in for a native seek latency of up to 400 ms and lets a pre-seek value be
+     * published long after the seek ran, so the engine's reading is asserted only from [loadSettleMs] on, and the decoder and
+     * the native log from the seek on. The strict twin that reads the engine from the first millisecond, as the real class
+     * does, is [aSeekMadeJustAfterAPlayAndFollowedByASpeedIsNotUndoneByTheSpeedUnderLoadReadAtPublication].
+     */
+    @Test
+    fun aSeekMadeJustAfterAPlayAndFollowedByASpeedIsNotUndoneByTheSpeedUnderLoad() {
+        val failures: List<String> = (0 until LOAD_TRIALS).mapNotNull { trial ->
+            val seed: Long = LOAD_SEED + trial
+            runCase("load trial $trial seed $seed") {
+                engineRig(loadScript(seed)) {
+                    engine.start()
+                    advanceBy(80L + (trial % 5) * 40L)
+                    engine.seekTo(2_000L)
+                    engine.setSpeed(2f)
+                    advanceBy(0)
+                    // The caller's seek is the first native SEEK to 2000: a SEEK that setSpeed made after it (to a position it read
+                    // from the native player) must count as a later seek, not as the caller's.
+                    val seekIndex: Int = native.log.entries.indexOfFirst { it.call == NativeCall.SEEK && it.arg == 2_000.0 }
+                    assertTrue(seekIndex >= 0, "the caller's seek to 2000 never reached the native player\n${native.log}")
+                    var lowestDecoder: Double = Double.MAX_VALUE
+                    var lowestSettled: Long = Long.MAX_VALUE
+                    var elapsedMs = 0L
+                    while (elapsedMs < 1_500L) {
+                        lowestDecoder = minOf(lowestDecoder, time.nativePositionMs)
+                        if (elapsedMs >= loadSettleMs) lowestSettled = minOf(lowestSettled, engine.positionMs())
+                        advanceBy(2)
+                        elapsedMs += 2
+                    }
+                    // A seek made after the caller's, to a position read from the native player before the caller's seek
+                    // landed, is what a stale read of the playhead would do (FxPlayback.setSpeed and start read it).
+                    val laterSeeks: List<NativeCallEntry> = native.log.entries.drop(seekIndex + 1).filter { it.call == NativeCall.SEEK }
+                    assertEquals(emptyList(), laterSeeks, "the speed seeked again after the caller's seek\n${native.log}")
+                    assertTrue(lowestDecoder >= 1_500.0, "the decoder stood at $lowestDecoder after a seek to 2000 and a speed of 2\n${native.log}")
+                    assertTrue(lowestSettled >= 1_500L, "the engine read $lowestSettled from $loadSettleMs ms after the seek\n${native.log}")
+                    assertTrue(!hazards.frozen, "the decoder froze\n${native.log.tail()}")
+                }
+            }
+        }
+        assertNoFailures(failures, LOAD_TRIALS, "trials under load")
+    }
+
+    /**
+     * STRESS VARIANT of `JavaFxStaleReadUnderLoadR9AdversarialTest` test 2, read at the tick (see the variant above); the
+     * strict twin is [aSharedPlayerReplayAfterTheEndAtASpeedStartsFromTheStartAndDoesNotReturnToTheEndUnderLoadReadAtPublication].
+     */
+    @Test
+    fun aSharedPlayerReplayAfterTheEndAtASpeedStartsFromTheStartAndDoesNotReturnToTheEndUnderLoad() {
+        val failures: List<String> = (0 until LOAD_TRIALS).mapNotNull { trial ->
+            val seed: Long = LOAD_SEED + 100 + trial
+            runCase("load trial $trial seed $seed") {
+                engineRig(loadScript(seed)) {
+                    engine.setSpeed(4f)
+                    engine.start()
+                    var waited = 0L
+                    while (listener!!.events.none { it is EngineEvent.Completed } && waited < 8_000L) {
+                        advanceBy(10)
+                        waited += 10
+                    }
+                    assertTrue(listener.events.any { it is EngineEvent.Completed }, "never completed at 4x\n${native.log}")
+                    val completions: Int = listener.events.count { it is EngineEvent.Completed }
+                    // The shared player's replay of a completed source: a seek, the play, then the speed in force. The real
+                    // class (JavaFxStaleReadUnderLoadR9AdversarialTest) gives the speed BETWEEN the seek and the play; no
+                    // caller of the internal engine produces that order and the real class cannot see a freeze on it, so it is
+                    // not asserted here and not stepped around (see the class KDoc, Q-J9-1).
+                    engine.seekTo(0L)
+                    engine.start()
+                    engine.setSpeed(2f)
+                    advanceBy(0)
+                    var highestDecoder = 0.0
+                    var highestSettled = 0L
+                    var elapsedMs = 0L
+                    while (elapsedMs < 900L) {
+                        highestDecoder = maxOf(highestDecoder, time.nativePositionMs)
+                        if (elapsedMs >= loadSettleMs) highestSettled = maxOf(highestSettled, engine.positionMs())
+                        advanceBy(2)
+                        elapsedMs += 2
+                    }
+                    val after: Int = listener.events.count { it is EngineEvent.Completed }
+                    assertTrue(highestDecoder <= 2_300.0, "900 ms after a replay at 2x the decoder reached $highestDecoder\n${native.log}")
+                    assertTrue(highestSettled <= 2_300L, "the engine read $highestSettled from $loadSettleMs ms after the replay\n${native.log}")
+                    assertEquals(completions, after, "a replay at 2x completed again within 900 ms\n${native.log}")
+                    // Not frozen is not started: the replay must have played from the start and taken the speed.
+                    assertTrue(time.nativePositionMs >= 600.0, "900 ms after the replay the decoder stands at ${time.nativePositionMs}\n${native.log}")
+                    assertEquals(2.0, hazards.effectiveRate, "the replay never took the speed of 2\n${native.log}")
+                }
+            }
+        }
+        assertNoFailures(failures, LOAD_TRIALS, "trials under load")
+    }
+
+    /**
+     * STRICT TWIN of `JavaFxStaleReadUnderLoadR9AdversarialTest` test 1: the `LOAD` profile reads the playhead when the
+     * publication RUNS ([SampleRead.AT_PUBLISH], what JavaFX does), and the engine's reading is asserted from the first
+     * millisecond after the seek, as the real class does (`lowest >= 1500`), on top of every assertion of the stress variant
+     * [aSeekMadeJustAfterAPlayAndFollowedByASpeedIsNotUndoneByTheSpeedUnderLoad]. The seeded trials are crossed with a sweep of
+     * the gap between the play and the seek in 7 ms steps, so the seek meets every phase of the sample grid.
+     */
+    @Test
+    fun aSeekMadeJustAfterAPlayAndFollowedByASpeedIsNotUndoneByTheSpeedUnderLoadReadAtPublication() {
+        val gaps: List<Long> = (40L..320L step 7L).toList()
+        val failures: List<String> = (0 until LOAD_TRIALS).flatMap { trial ->
+            gaps.mapNotNull { gapMs ->
+                val seed: Long = LOAD_SEED + 200 + trial
+                runCase("strict load trial $trial seed $seed gap $gapMs") {
+                    engineRig(loadScriptAtPublish(seed)) {
+                        engine.start()
+                        advanceBy(gapMs)
+                        engine.seekTo(2_000L)
+                        engine.setSpeed(2f)
+                        advanceBy(0)
+                        val seekIndex: Int = native.log.entries.indexOfFirst { it.call == NativeCall.SEEK && it.arg == 2_000.0 }
+                        assertTrue(seekIndex >= 0, "the caller's seek to 2000 never reached the native player\n${native.log}")
+                        var lowestDecoder: Double = Double.MAX_VALUE
+                        var lowestEngine: Long = Long.MAX_VALUE
+                        var elapsedMs = 0L
+                        while (elapsedMs < 1_500L) {
+                            lowestDecoder = minOf(lowestDecoder, time.nativePositionMs)
+                            // From the first millisecond after the seek on, as the real class reads it.
+                            lowestEngine = minOf(lowestEngine, engine.positionMs())
+                            advanceBy(2)
+                            elapsedMs += 2
+                        }
+                        val laterSeeks: List<NativeCallEntry> = native.log.entries.drop(seekIndex + 1).filter { it.call == NativeCall.SEEK }
+                        assertEquals(emptyList(), laterSeeks, "the speed seeked again after the caller's seek\n${native.log}")
+                        assertTrue(lowestDecoder >= 1_500.0, "the decoder stood at $lowestDecoder after a seek to 2000 and a speed of 2\n${native.log}")
+                        assertTrue(lowestEngine >= 1_500L, "the engine read $lowestEngine after a seek to 2000 and a speed of 2\n${native.log}")
+                        assertTrue(!hazards.frozen, "the decoder froze\n${native.log.tail()}")
+                    }
+                }
+            }
+        }
+        assertNoFailures(failures, LOAD_TRIALS * gaps.size, "strict trials under load")
+    }
+
+    /**
+     * STRICT TWIN of the same real test, with the seek QUEUED BEHIND a publication, which is what the real class's busy FX
+     * thread does and what a call between two blocks of the model cannot do (the model runs everything due before the test
+     * thread calls again, and a publication that waits on a delay is overtaken by a block posted later, which an FX queue
+     * would not allow). The seek and the speed are called from a [VirtualFxHost.beforeEachTask] hook at the first instant
+     * after the gap at which a publication is due now and still waiting: the seek block queues behind it, the publication
+     * runs between the engine's `seekTo` and the seek reaching the FX thread, and carries the playhead as it was (it reads
+     * when it runs, as JavaFX does): the engine must keep the seek's target. The profile has no delay (a publication is due
+     * at its tick; samples are still dropped by the seeded tenth), because a publication that is due now and is the first
+     * of its instant is what lets the hook queue behind it; with the 50-400 ms delays of the faithful twin above every
+     * publication at an instant is a copy of the one before it (the same native position) or lies in the future, and no
+     * stale value is ever published. The engine is read at every block from the call on, the decoder likewise, and the real
+     * class's assertions hold (`lowest >= 1500`, no later native seek). This is the twin that turns the removal of the
+     * in-flight guard of `Session.onTimes` (8759f4df) red under AT_PUBLISH.
+     */
+    @Test
+    fun aSeekQueuedBehindAPublicationAndFollowedByASpeedIsNotUndoneByTheSpeedUnderLoadReadAtPublication() {
+        val gaps: List<Long> = (40L..320L step 7L).toList()
+        var behind = 0
+        val failures: List<String> = (0 until LOAD_TRIALS).flatMap { trial ->
+            gaps.mapNotNull { gapMs ->
+                val seed: Long = LOAD_SEED + 400 + trial
+                runCase("queued-behind trial $trial seed $seed gap $gapMs") {
+                    engineRig(TimeScript().load(seed = seed, minDelayMs = 0.0, maxDelayMs = 0.0, read = SampleRead.AT_PUBLISH)) {
+                        engine.start()
+                        advanceBy(gapMs)
+                        var injected = false
+                        var lowestDecoder: Double = Double.MAX_VALUE
+                        var lowestEngine: Long = Long.MAX_VALUE
+                        // The decoder counts from the moment the caller's seek reached the native player (the engine reports at once).
+                        fun seekLanded(): Boolean = native.log.entries.any { it.call == NativeCall.SEEK && it.arg == 2_000.0 }
+                        host.beforeEachTask {
+                            if (!injected && time.nextPublicationDueNanos == host.elapsedNanos) {
+                                injected = true
+                                behind++
+                                engine.seekTo(2_000L)
+                                engine.setSpeed(2f)
+                            }
+                            if (injected) {
+                                if (seekLanded()) lowestDecoder = minOf(lowestDecoder, time.nativePositionMs)
+                                lowestEngine = minOf(lowestEngine, engine.positionMs())
+                            }
+                        }
+                        var waited = 0L
+                        while (!injected && waited < 2_000L) {
+                            advanceBy(1)
+                            waited++
+                        }
+                        assertTrue(injected, "no publication was ever due while another waited, within 2 s\n${native.log}")
+                        var elapsedMs = 0L
+                        while (elapsedMs < 1_500L) {
+                            if (seekLanded()) lowestDecoder = minOf(lowestDecoder, time.nativePositionMs)
+                            lowestEngine = minOf(lowestEngine, engine.positionMs())
+                            advanceBy(2)
+                            elapsedMs += 2
+                        }
+                        val seekIndex: Int = native.log.entries.indexOfFirst { it.call == NativeCall.SEEK && it.arg == 2_000.0 }
+                        assertTrue(seekIndex >= 0, "the caller's seek to 2000 never reached the native player\n${native.log}")
+                        val laterSeeks: List<NativeCallEntry> = native.log.entries.drop(seekIndex + 1).filter { it.call == NativeCall.SEEK }
+                        assertEquals(emptyList(), laterSeeks, "the speed seeked again after the caller's seek\n${native.log}")
+                        assertTrue(lowestDecoder >= 1_500.0, "the decoder stood at $lowestDecoder after a seek to 2000 and a speed of 2\n${native.log}")
+                        assertTrue(lowestEngine >= 1_500L, "the engine read $lowestEngine after a seek to 2000 and a speed of 2\n${native.log}")
+                        assertTrue(!hazards.frozen, "the decoder froze\n${native.log.tail()}")
+                    }
+                }
+            }
+        }
+        assertNoFailures(failures, LOAD_TRIALS * gaps.size, "queued-behind trials under load")
+        assertEquals(LOAD_TRIALS * gaps.size, behind, "every trial must have queued its seek behind a waiting publication")
+    }
+
+    /**
+     * STRICT TWIN of `JavaFxStaleReadUnderLoadR9AdversarialTest` test 2, read at publication (see the twin above): the
+     * engine's reading is asserted from the replay on (`highest <= 2300`), with every assertion of the stress variant
+     * [aSharedPlayerReplayAfterTheEndAtASpeedStartsFromTheStartAndDoesNotReturnToTheEndUnderLoad]. The replay is the shared
+     * player's order (seek, play, speed), not the real class's (see the class KDoc).
+     */
+    @Test
+    fun aSharedPlayerReplayAfterTheEndAtASpeedStartsFromTheStartAndDoesNotReturnToTheEndUnderLoadReadAtPublication() {
+        val failures: List<String> = (0 until LOAD_TRIALS).mapNotNull { trial ->
+            val seed: Long = LOAD_SEED + 300 + trial
+            runCase("strict load trial $trial seed $seed") {
+                engineRig(loadScriptAtPublish(seed)) {
+                    engine.setSpeed(4f)
+                    engine.start()
+                    var waited = 0L
+                    while (listener!!.events.none { it is EngineEvent.Completed } && waited < 8_000L) {
+                        advanceBy(10)
+                        waited += 10
+                    }
+                    assertTrue(listener.events.any { it is EngineEvent.Completed }, "never completed at 4x\n${native.log}")
+                    val completions: Int = listener.events.count { it is EngineEvent.Completed }
+                    engine.seekTo(0L)
+                    engine.start()
+                    engine.setSpeed(2f)
+                    advanceBy(0)
+                    var highestDecoder = 0.0
+                    var highestEngine = 0L
+                    var elapsedMs = 0L
+                    while (elapsedMs < 900L) {
+                        highestDecoder = maxOf(highestDecoder, time.nativePositionMs)
+                        // From the replay on, as the real class reads it.
+                        highestEngine = maxOf(highestEngine, engine.positionMs())
+                        advanceBy(2)
+                        elapsedMs += 2
+                    }
+                    val after: Int = listener.events.count { it is EngineEvent.Completed }
+                    assertTrue(highestDecoder <= 2_300.0, "900 ms after a replay at 2x the decoder reached $highestDecoder\n${native.log}")
+                    assertTrue(highestEngine <= 2_300L, "the engine read $highestEngine within 900 ms of the replay\n${native.log}")
+                    assertEquals(completions, after, "a replay at 2x completed again within 900 ms\n${native.log}")
+                    assertTrue(time.nativePositionMs >= 600.0, "900 ms after the replay the decoder stands at ${time.nativePositionMs}\n${native.log}")
+                    assertEquals(2.0, hazards.effectiveRate, "the replay never took the speed of 2\n${native.log}")
+                }
+            }
+        }
+        assertNoFailures(failures, LOAD_TRIALS, "strict trials under load")
+    }
+
+    /**
+     * Twin of `JavaFxVideoEngineTest.aPlayheadReadBeforeASeekLandsDoesNotReplaceItsTarget`. The real test holds the FX
+     * thread while the source plays on, so JavaFX's readings of the old playhead wait ahead of the seek in the queue. On
+     * the model that is the instant a sample was taken and its publication is queued but has not run: [TimeModel] queues
+     * the publication at once, so the host is stepped one block at a time until a sample was taken, the pause and the seek
+     * are made from the test thread (queued behind the publication), and a probe is queued right behind the seek. The
+     * publication then runs while the seek is still in flight: the engine must keep the seek's target.
+     */
+    @Test
+    fun aPlayheadReadBeforeASeekLandsDoesNotReplaceItsTarget() {
+        val failures: List<String> = listOf(500L, 700L, 1_100L, 1_600L).mapNotNull { playMs ->
+            runCase("sample taken after $playMs ms of playing") {
+                engineRig {
+                    engine.start()
+                    advanceBy(playMs)
+                    val taken: Int = time.samplesTaken
+                    var steps = 0
+                    while (time.samplesTaken == taken) {
+                        check(host.step() && steps++ < 100) { "no sample was taken ($host)" }
+                    }
+                    assertTrue(host.pendingCount > 0, "the publication of the sample is not queued ($host)")
+                    val stale: Long = native.positionMs.toLong()
+                    assertTrue(stale > 0L, "the sample carries the playhead, not the start")
+                    engine.pause()
+                    engine.seekTo(0L)
+                    assertEquals(0L, engine.positionMs(), "right after seekTo")
+                    var afterSeek: Long = -1L
+                    host.postLater { afterSeek = engine.positionMs() }
+                    advanceBy(0)
+                    assertEquals(0L, afterSeek, "a reading taken before the seek replaced its target (the stale sample was $stale)")
+                }
+            }
+        }
+        assertNoFailures(failures, 4, "stale samples")
+    }
+
+    /**
+     * The FRESH window of `FxPlayback.setSpeed` (a plain play within 600 ms) long after a native seek (more than the 300 ms
+     * seek window): a published playhead that still reads at most 100 ms, because the publications of the playhead wait
+     * [PUBLISH_STALL_MS] (a delayed publication, [TimeScript.publishDelayMs]), must not make the speed seek to that stale
+     * position over the caller's seek. No native SEEK may follow the caller's, and the decoder never goes back.
+     */
+    @Test
+    fun aSpeedGivenInTheFreshWindowOfAPlayLongAfterASeekDoesNotSeekToAStalePlayhead() {
+        val cases: List<Pair<Long, Long>> = listOf(20L to 300L, 20L to 450L, 100L to 300L, 100L to 450L, 200L to 300L, 200L to 390L)
+        val failures: List<String> = cases.mapNotNull { (seekAfterMs, speedAfterMs) ->
+            runCase("seek $seekAfterMs ms after the play, speed $speedAfterMs ms after the seek") {
+                engineRig(TimeScript().apply { publishDelayMs = PUBLISH_STALL_MS }) {
+                    engine.start()
+                    advanceBy(seekAfterMs)
+                    engine.seekTo(2_000L)
+                    advanceBy(speedAfterMs)
+                    assertEquals(0.0, native.positionMs, "the premise: the published playhead still reads the start\n${native.log}")
+                    engine.setSpeed(2f)
+                    var lowestDecoder: Double = Double.MAX_VALUE
+                    var elapsedMs = 0L
+                    while (elapsedMs < 600L) {
+                        lowestDecoder = minOf(lowestDecoder, time.nativePositionMs)
+                        advanceBy(2)
+                        elapsedMs += 2
+                    }
+                    val callerSeek: Int = native.log.entries.indexOfFirst { it.call == NativeCall.SEEK && it.arg == 2_000.0 }
+                    assertTrue(callerSeek >= 0, "the caller's seek to 2000 never reached the native player\n${native.log}")
+                    val later: List<NativeCallEntry> = native.log.entries.drop(callerSeek + 1).filter { it.call == NativeCall.SEEK }
+                    assertEquals(emptyList(), later, "the speed seeked again after the caller's seek\n${native.log}")
+                    assertTrue(lowestDecoder >= 2_000.0, "the decoder went back to $lowestDecoder after a seek to 2000\n${native.log}")
+                    assertTrue(!hazards.frozen, "the decoder froze\n${native.log.tail()}")
+                }
+            }
+        }
+        assertNoFailures(failures, cases.size, "cases")
+    }
+
+    /**
+     * The premise of the Q-J9-1 ruling, on the real consumer: the shared player never sends a seek, then a speed that is
+     * written while the native player is not playing, then the play. The native log of each sequence has no effective
+     * SET_RATE that arrives with the status not PLAYING between a SEEK and the next PLAY. If this fails, a caller now
+     * forwards a speed to a paused engine after a seek: that is the reopen trigger of the ruling (a SEEK-IDLE probe first).
+     */
+    @Test
+    fun aSharedPlayerNeverWritesARateBetweenASeekAndThePlayWhilePaused() {
+        val sequences: List<Pair<String, (VideoPlayer, (Long) -> Unit) -> Unit>> = listOf(
+            "replay of a completed source at 2x" to { shared: VideoPlayer, wait: (Long) -> Unit ->
+                shared.setPlaybackSpeed(2f)
+                shared.play()
+                var waited = 0L
+                while (shared.stateFlow.value !is VideoPlayerState.Completed && waited < 8_000L) {
+                    wait(10)
+                    waited += 10
+                }
+                assertTrue(shared.stateFlow.value is VideoPlayerState.Completed, "never completed at 2x (state ${shared.stateFlow.value})")
+                shared.replay()
+            },
+            "pause then speed then play" to { shared: VideoPlayer, wait: (Long) -> Unit ->
+                shared.play()
+                wait(300)
+                shared.pause()
+                wait(100)
+                shared.setPlaybackSpeed(2f)
+                shared.play()
+            },
+            "paused seek then speed then play" to { shared: VideoPlayer, wait: (Long) -> Unit ->
+                shared.play()
+                wait(300)
+                shared.pause()
+                wait(100)
+                shared.seekTo(1_000L)
+                shared.setPlaybackSpeed(2f)
+                shared.play()
+            },
+            "stop then speed then play" to { shared: VideoPlayer, wait: (Long) -> Unit ->
+                shared.play()
+                wait(300)
+                shared.stop()
+                wait(100)
+                shared.setPlaybackSpeed(2f)
+                shared.play()
+            },
+        )
+        val failures: List<String> = sequences.mapNotNull { (name, run) ->
+            runCase(name) {
+                playerRig {
+                    val from: Int = native.log.entries.size
+                    run(player!!) { ms: Long -> advanceBy(ms) }
+                    advanceBy(1_500)
+                    val entries: List<NativeCallEntry> = native.log.entries.drop(from)
+                    assertTrue(entries.any { it.call == NativeCall.PLAY }, "the sequence never played again\n${native.log}")
+                    var seekPending = false
+                    val idleWrites: MutableList<NativeCallEntry> = mutableListOf()
+                    for (entry: NativeCallEntry in entries) {
+                        when {
+                            entry.call == NativeCall.SEEK -> seekPending = true
+                            entry.call == NativeCall.PLAY -> seekPending = false
+                            seekPending && entry.call == NativeCall.SET_RATE && entry.effective && entry.status != NativeStatus.PLAYING ->
+                                idleWrites += entry
+                        }
+                    }
+                    assertEquals(emptyList(), idleWrites, "a rate was written while paused between a seek and the play\n${native.log}")
+                    assertTrue(!hazards.frozen, "the decoder froze\n${native.log.tail()}")
+                }
+            }
+        }
+        assertNoFailures(failures, sequences.size, "sequences")
+    }
+
+    // ---- S9, the deferred-wait form: a seek while a deferred speed waits restarts the wait ----
+
+    @Test
+    fun aSeekWhileADeferredSpeedWaitsRestartsTheWaitInsteadOfFreezingThePlayhead() {
+        // Every 7 ms from just after the 300 ms window to 400 ms later: the seek meets every phase of the samples.
+        val waits: List<Long> = (310L..710L step 7L).toList()
+        val failures: List<String> = waits.mapNotNull { wait ->
+            runCase("seek $wait ms after the speed was deferred") {
+                playerRig {
+                    player!!.play()
+                    advanceBy(300)
+                    val replayAt: Double = nowMs()
+                    onFx {
+                        player.replay()
+                        player.setPlaybackSpeed(1.5f)
+                    }
+                    advanceBy(wait)
+                    val seekAt: Double = nowMs()
+                    player.seekTo(2_000L)
+                    advanceBy(2_000)
+                    assertTrue(!hazards.frozen, "the decoder froze\n${native.log.tail()}")
+                    assertSpeedGivenOutsideTheSeekWindow(this, seekAt, replayAt, 1.5)
+                    assertEquals(1.5, hazards.effectiveRate, "the speed was not in force at the end\n${native.log}")
+                }
+            }
+        }
+        assertNoFailures(failures, waits.size, "seeks")
+    }
+
+    // ---- seeks around the end ----
+
+    @Test
+    fun aSeekAwayFromTheEndMadeAroundTheNaturalEndResumesAtTheTargetAndNotAtTheStart() {
+        val rnd = Random(END_SEED)
+        val delays: List<Long> = List(END_TRIALS) { rnd.nextLong(0L, 1_500L) } + (300L..500L step 10L).toList()
+        val failures: List<String> = delays.mapIndexedNotNull { trial, delayMs ->
+            runCase("trial $trial (seed $END_SEED) seek $delayMs ms after play") {
+                playerRig {
+                    val shared: VideoPlayer = player!!
+                    shared.seekTo(2_600L)
+                    shared.play()
+                    advanceBy(delayMs)
+                    val seekAt: Double = nowMs()
+                    shared.seekTo(1_000L)
+                    var lowest: Long = Long.MAX_VALUE
+                    var completed = false
+                    var elapsedMs = 0L
+                    while (elapsedMs < 700L) {
+                        lowest = minOf(lowest, engine.positionMs())
+                        if (shared.stateFlow.value is VideoPlayerState.Completed) completed = true
+                        advanceBy(2)
+                        elapsedMs += 2
+                    }
+                    assertTrue(lowest >= 800L && !completed, "a seek to 1000 left the playhead reading $lowest, completed=$completed\n${native.log}")
+                    val restarts: List<NativeCallEntry> = native.log.calls(NativeCall.SEEK).filter { it.tMs >= seekAt && it.arg == 0.0 }
+                    assertEquals(emptyList(), restarts, "the playhead was put back to the start after the seek\n${native.log}")
+                }
+            }
+        }
+        assertNoFailures(failures, delays.size, "seeks around the end")
+    }
+
+    /**
+     * The race of the real class's second test, made exact. The natural order, on the model's single thread: the end of
+     * the source is raised first and the caller's seek is queued right behind it (the hook of [beforeEachTask] runs the
+     * seek call between two blocks, as another thread would).
+     */
+    @Test
+    fun aSeekQueuedRightBehindTheEndOfMediaStillResumesAtTheTarget() {
+        val failures: List<String> = listOf(0L, 1L, 2L).mapNotNull { variant ->
+            runCase("variant $variant") {
+                playerRig {
+                    val shared: VideoPlayer = player!!
+                    shared.seekTo(2_000L)
+                    shared.play()
+                    var seekAt: Double = -1.0
+                    beforeEachTask {
+                        if (seekAt < 0.0 && time.endsReached == 1) {
+                            seekAt = nowMs()
+                            shared.seekTo(1_000L)
+                        }
+                    }
+                    var waited = 0L
+                    while (seekAt < 0.0 && waited < 3_000L) {
+                        advanceBy(10)
+                        waited += 10
+                    }
+                    beforeEachTask(null)
+                    assertTrue(seekAt >= 0.0, "the source never reached its end\n${native.log}")
+                    advanceBy(600L + variant * 100L)
+                    assertTrue(engine.positionMs() >= 800L, "the engine reads ${engine.positionMs()} after a seek to 1000 behind the end\n${native.log}")
+                    val restarts: List<NativeCallEntry> = native.log.calls(NativeCall.SEEK).filter { it.tMs >= seekAt && it.arg == 0.0 }
+                    assertEquals(emptyList(), restarts, "the playhead was put back to the start\n${native.log}")
+                }
+            }
+        }
+        assertNoFailures(failures, 3, "variants")
+    }
+
+    /**
+     * The other order of that race: the caller's seek runs first and the end of media the native player had raised
+     * before it ran is delivered after it (the FX thread was busy). The model delivers that stale end with
+     * [ScriptedNativePlayer.deliverEndOfMedia] right behind the seek.
+     */
+    @Test
+    fun aSeekThatRunsBeforeAnEndOfMediaRaisedEarlierStillResumesAtTheTarget() {
+        val failures: List<String> = listOf(0L, 100L, 200L).mapNotNull { busyMs ->
+            runCase("busy $busyMs ms") {
+                playerRig {
+                    val shared: VideoPlayer = player!!
+                    shared.seekTo(2_000L)
+                    shared.play()
+                    advanceBy(800L)
+                    val seekAt: Double = nowMs()
+                    shared.seekTo(1_000L)
+                    host.postLater { native.deliverEndOfMedia() }
+                    advanceBy(600L + busyMs)
+                    var lowest: Long = Long.MAX_VALUE
+                    var elapsedMs = 0L
+                    while (elapsedMs < 600L) {
+                        lowest = minOf(lowest, engine.positionMs())
+                        advanceBy(2)
+                        elapsedMs += 2
+                    }
+                    assertTrue(lowest >= 800L, "after a seek to 1000 queued across the end the engine read $lowest (state ${shared.stateFlow.value})\n${native.log}")
+                    val restarts: List<NativeCallEntry> = native.log.calls(NativeCall.SEEK).filter { it.tMs >= seekAt && it.arg == 0.0 }
+                    assertEquals(emptyList(), restarts, "the playhead was put back to the start\n${native.log}")
+                }
+            }
+        }
+        assertNoFailures(failures, 3, "variants")
+    }
+
+    /** What a trial of the seek-at-the-end twin turned out to be: the seek came first, or the completion did. */
+    private enum class EndKind { SEEK_FIRST, COMPLETION_FIRST }
+
+    /**
+     * One trial of the seek-at-the-end twin: the source plays at 8x until [trigger] (or until it completed), then the
+     * engine is sought to the start. The copied assertion of the real class (a Completed event, or a native PLAYING, after
+     * 3.5 s) is kept as it was; the classification is added: a Completed that is already there when the seek is made
+     * satisfies the copied check by itself, so the trial is also classified by the number of completions at the seek and
+     * checked against what that kind must do. Seek first: a Completed NEWER than the seek, or native PLAYING. Completion
+     * first: the engine reads 0 and the native player is not PLAYING (a seek after the end does not restart the source).
+     */
+    private fun seekAtTheEndTrial(name: String, trigger: Long, kinds: MutableList<EndKind>): String? = runCase(name) {
+        engineRig {
+            engine.setSpeed(8f)
+            engine.start()
+            var waited = 0L
+            while (waited < 6_000L && engine.positionMs() < trigger && !listener!!.events.contains(EngineEvent.Completed)) {
+                advanceBy(1)
+                waited++
+            }
+            val completionsAtSeek: Int = listener!!.events.count { it == EngineEvent.Completed }
+            engine.seekTo(0L)
+            var settled = 0L
+            while (settled < 3_500L && !listener.events.contains(EngineEvent.Completed)) {
+                advanceBy(25)
+                settled += 25
+            }
+            val status: String = native.status.toString()
+            assertTrue(
+                listener.events.contains(EngineEvent.Completed) || status == "PLAYING",
+                "no completion after 3.5 s, status $status, position ${engine.positionMs()}\n${native.log}",
+            )
+            assertTrue(!hazards.frozen, "the decoder froze\n${native.log.tail()}")
+            if (completionsAtSeek == 0) {
+                kinds += EndKind.SEEK_FIRST
+                val completions: Int = listener.events.count { it == EngineEvent.Completed }
+                assertTrue(
+                    completions > completionsAtSeek || status == "PLAYING",
+                    "the seek came before any completion, yet no newer completion and the status is $status\n${native.log}",
+                )
+            } else {
+                kinds += EndKind.COMPLETION_FIRST
+                advanceBy(100)
+                assertEquals(0L, engine.positionMs(), "a seek to the start after the completion left the engine reading ${engine.positionMs()}\n${native.log}")
+                assertTrue(
+                    native.status != NativeStatus.PLAYING,
+                    "a seek to the start after the completion restarted the native player\n${native.log}",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun aSeekToTheStartMadeAsTheEndIsReachedNeverLeavesTheEngineStuckPausedAndSilent() {
+        val rnd = Random(5)
+        val kinds: MutableList<EndKind> = mutableListOf()
+        val failures: List<String> = (0 until 16).mapNotNull { trial ->
+            val trigger: Long = rnd.nextLong(2_300L, 3_000L)
+            seekAtTheEndTrial("trial $trial (seed 5) trigger $trigger", trigger, kinds)
+        }
+        assertNoFailures(failures, 16, "trials")
+        // Without both kinds the seeded trials would test only one half of the property.
+        assertTrue(EndKind.SEEK_FIRST in kinds, "no trial of the 16 made its seek before the first completion: $kinds")
+        assertTrue(EndKind.COMPLETION_FIRST in kinds, "no trial of the 16 made its seek after the first completion: $kinds")
+    }
+
+    private companion object {
+        const val ROUNDS: Int = 30
+        const val LOAD_TRIALS: Int = 6
+        const val END_SEED: Long = 9L
+        const val END_TRIALS: Int = 40
+        const val LOAD_SEED: Long = 9_000L
+        const val MESSAGE_LIMIT: Int = 1_500
+        const val PREPARE_BOUND_MS: Long = 10_000L
+
+        /** Longer than any wait of the stale-publication case: no sample taken after the seek is published in it. */
+        const val PUBLISH_STALL_MS: Double = 700.0
+        const val NANOS_PER_MILLI: Double = 1_000_000.0
+        const val NANOS_PER_MILLI_LONG: Long = 1_000_000L
+
+        /** The virtual clock is in nanoseconds and the log in milliseconds: 300 ms can read 299.99999999999994. */
+        const val ROUNDING_MS: Double = 0.001
+    }
+}

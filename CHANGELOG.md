@@ -9,6 +9,390 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+### Breaking
+
+- `kmptoolkit-uploader` SPI: `UploaderStore.insertKeep(record)` returns the new public
+  `io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult` (`since 5.0.0`) instead of `Boolean`. Migrate `false` to
+  `KeepResult.Kept` (a `PENDING` or `IN_FLIGHT` holder won: nothing inserted, nothing removed) and `true` to
+  `KeepResult.Inserted(superseded)`, where `superseded` is the `PARKED` row the insert deleted, as it was just before
+  the delete and read in the same atomic step, or `null` when no row held the identity (also for a `null`
+  `uniqueKey`). If identity spellings make one insert remove several rows, return the earliest by insertion order.
+  The engine needs the row to stop its attempt and cancel its upload, as it does for `REPLACE`.
+  **Recompile every custom `UploaderStore`.** On iOS the klib signature changed, so the old build fails to link. On
+  Android and the JVM the erased signature did not change (the old `Boolean` and the new `KeepResult` are both
+  `Object` there), so a store compiled against 4.x still links and then throws a `ClassCastException` on every
+  enqueue with `ConflictPolicy.KEEP`, the default policy; under `TransactionRunner.Direct` its row may already be
+  written by then.
+- `kmptoolkit-uploader-testing`: `InMemoryUploaderStore.insertKeep` returns `KeepResult` (a source break for a test
+  that used its `Boolean`). `UploaderStoreContract` gains `insertKeepReturnsWhatItSuperseded` and
+  `insertKeepReturnsNothingSupersededWhenNoParkedRowHeldTheKey` (`since 5.0.0`), so `verifyAll` runs 60 checks (it
+  ran 58), and a store that returns `Inserted(null)` after it replaced a parked row now fails the contract.
+- `kmptoolkit-uploader-sqldelight`: no API change. `insertKeep` returns the earliest `PARKED` holder. A holder in a
+  state this build does not recognize is removed without being returned, so its upload is not cancelled.
+- `kmptoolkit-uploader` (Android): `UploadTransportConfig` has a new constructor parameter (`journalDirectoryName`,
+  last). Source compatible; code compiled against 4.x that calls its constructor or `copy` must be recompiled.
+- `kmptoolkit-notification-testing` and `kmptoolkit-scheduler-testing`: `RecordingNotifier` and
+  `RecordingAlarmScheduler` now record a snapshot of each notification or alarm taken at call time, so a later change
+  to the caller's lists and maps does not alter a recorded call. A consumer test that compares `posted[i].notification`
+  (or the one passed to `resultFor`) with `assertSame` or `===` now fails and must compare by value. No signature
+  changes.
+
+### Added
+
+- `kmptoolkit-files` (Android, iOS, `jvm`): file-system primitives for shared code behind one `FileAccess`
+  interface - atomic writes with a chosen durability (`Buffered`, `Synced`, `SyncedWithDirectory`, iOS
+  `F_FULLFSYNC`), no-replace writes and moves, moves across volumes, bounded reads, recursive delete and tree size
+  that never follow symbolic links, age-based leftover sweeps, free space at the nearest existing ancestor - with
+  typed `FileError` results instead of exceptions; `KeyedMutex` and `PathLocks` for per-key coroutine locking;
+  `Paths`, `FileNames` and `PathKey` with Windows rules (a path that starts with three or more separators, such as
+  `///a/b`, is rooted, not absolute) and Unicode-safe case folding; `AppDirectories` for the app's private roots
+  with backup exclusion; `withIo` for cancellable use from coroutines.
+- `kmptoolkit-files-testing`: `FakeFileAccess`, an in-memory file system that runs the real engine, with fault
+  injection, crash and power-loss simulation; `FileAccessContract` to check any `FileAccess` decorator.
+- `kmptoolkit-uploader`: the outcome journal's directory name is configurable -
+  `UploadTransportConfig.journalDirectoryName` (Android, handler transport) and
+  `BackgroundUploadConfig.journalDirectoryName` (iOS); the default `kmptoolkit-uploader` is unchanged, so existing
+  journals are found, and is public as `UploadTransportConfig.DEFAULT_JOURNAL_DIRECTORY_NAME` and
+  `BackgroundUploadConfig.DEFAULT_JOURNAL_DIRECTORY_NAME`. On Android the name travels in the work request's input data
+  (`UploadHandlerWorker.JOURNAL_DIRECTORY_NAME_KEY`); a job enqueued by 4.x has none and uses the default. The
+  five-argument `BackgroundUploadConfig` constructor of 4.x stays (Swift and Kotlin callers that pass all five
+  arguments keep working; other code compiled against 4.x must be recompiled).
+
+### Changed
+
+- `kmptoolkit-video-player`: the published playhead (`playbackPositionFlow`, `Playing`/`Paused.currentPosition`)
+  never exceeds a known duration, although a platform can read a few milliseconds past the end of the source.
+  An unknown length (`0`) is not clamped.
+- `kmptoolkit-video-player` docs: an engine given to a second player is not shared; it reports only to the player that
+  took it last, and the first player's `release()` disposes it under the second, which then stops responding. Create
+  one engine for each player.
+- `kmptoolkit-storage` (`jvm`) now depends on `kmptoolkit-files` (its atomic write and per-file lock). No store file
+  name, file format or directory layout changes.
+- `kmptoolkit-storage` (`jvm`): when the file system refuses an atomic rename, a write now fails with
+  `StorageError.OperationFailed` instead of replacing the file non-atomically. On Windows, a replace blocked by
+  another process holding the file open is retried for up to about 210 ms.
+- `kmptoolkit-storage` (`jvm`, Windows): a store whose name is a reserved device name (`CON`, `NUL`, `COM1`...) can
+  no longer be written (reads still work); 4.x wrote it on Windows 11 only.
+- `kmptoolkit-storage` (`jvm`): the temporary file of a write is named `<file name><digits>.tmp` as before; for a store
+  file name longer than 232 UTF-8 bytes the file name in it is shortened (cut to 215 bytes, then `~` and 16 hex
+  characters of its SHA-256), so every store name that fits a file name stays writable.
+- `kmptoolkit-uploader`: an `IN_FLIGHT` item whose type has no registered handler is parked once its lease has
+  ended, not at once while an executor may still hold the lease. An item with a failure outside its handler pending
+  and an unmet constraint now arms its alarm at the failure's backoff gate.
+- `kmptoolkit-uploader` now depends on `kmptoolkit-files` (the outcome journals' writes and reads). The bytes of an
+  entry and the directory layout do not change, and existing journals are found.
+- `kmptoolkit-uploader` (iOS): an item id keeps its own text as the name of its temporary body and its journal entry
+  only when no other id can fold onto it (a canonical upper-case UUID, or an id without an upper-case letter that is
+  not shaped like a UUID); any other id gets a hashed body name and an escaped journal entry name (`~` marks an escape).
+  Entries that a version before 5.0.0 wrote under the id's own spelling are still read, replayed by the sweep and
+  replaced when the id writes again; a build older than 5.0.0 does not read an entry written under the new names.
+- `kmptoolkit-uploader` (iOS): journal entries are written through a sibling `outcomes-partial` directory and synced
+  to disk before they replace the entry, instead of Foundation's atomic write. Entries and leftovers of earlier
+  versions are read and swept as before.
+- `kmptoolkit-uploader` (Android): temporary journal files in `outcomes-partial` are named
+  `.kmptoolkit-<digits>.tmp`; leftovers of either naming are swept after an hour, as before.
+- `kmptoolkit-uploader-sqldelight`: a text that SQLite or a driver would change (a NUL, a lone surrogate, a leading
+  U+FEFF or U+FFFE) is stored in a compact escaped form behind a marker and comes back exactly as it went in; every
+  other text is stored as before, so rows written by 4.x read unchanged. The stored form of a row is bounded as
+  well (2,048,000 bytes of UTF-8 for its text columns together, besides the 1 MiB of the texts as given): an insert
+  over it is refused with `UploaderStorageException`, so a row the queue accepts always fits Android's cursor window.
+  A build older than 5.0.0 does not decode an escaped row: it returns the escaped text, marker included, and does not
+  find the row by the text that was enqueued; it reads every other row as before, so a downgrade is safe once no row
+  with such a text is queued.
+- `kmptoolkit-uploader`: `UploadRequest.toString()` and `UploadField.Text.toString()` no longer print the value of a
+  header or of a text field (the header names, the field name and the length of its value are printed), so a bearer
+  token or personal data no longer reaches a log or a crash report through a request.
+- `kmptoolkit-uploader`: `UploadResponse.headers` is read-only in fact, not only by its type: a cast of the map, of its
+  `keys`, `values` or `entries`, of their iterators or of an entry to a mutable type fails, where 4.x handed out a
+  mutable map for two or more headers.
+- `kmptoolkit-downloader` now depends on `kmptoolkit-files` (its lock registries, the Android tree walk, the no-replace
+  rename and the SQLite sidecar names). The on-disk format and directory layout do not change; a unit whose id has an unpaired surrogate now
+  gets hashed file names (Android could not create files named by such an id before).
+- `kmptoolkit-audio-recorder` now depends on `kmptoolkit-files`. No file name or directory layout changes. It creates
+  its directories through it (`createDirectories`), then checks that the path is a directory with links followed and
+  writable: a link to a directory is accepted, a dangling link is not.
+- `kmptoolkit-audio-recorder`: `RecordingStorage(directoryPath = ...)` and an explicit output path must be absolute for
+  the file system the code runs on. On a Windows JVM, where host tests of an Android module run, a `/...` path is
+  drive-relative and is rejected, like a blank or a relative one; Android and iOS are unchanged.
+  `kmptoolkit-audio-recorder-testing`: `FakeAudioRecorder` accepts a host-absolute `directory` and explicit path as well
+  as a POSIX-style one.
+- `kmptoolkit-audio-recorder`: `stop()` fails with `EngineFailure(STOP)` and the state `Failed(error, outputPath)` when the
+  output file is no longer a regular file once the encoder has finished (deleted, or replaced by a directory);
+  `Completed` never names such a path.
+- `kmptoolkit-audio-recorder`: the free space of an output path that is not an existing directory is reported as
+  unknown (so the free-space check passes) on both platforms; Android used to report the usable space of a file
+  that existed there.
+- `kmptoolkit-storage` (Android): a secure value is bound to the key name it is stored under (the key name is
+  authenticated data of the AES-GCM encryption), so a ciphertext copied to another key reads as `Undecryptable`
+  (an entry written before 5.0.0 carries no binding until it is written again).
+  Entries written earlier are still read, once more as unbound ones; the format on disk is unchanged, but a downgrade
+  to 4.0.0 cannot read entries written by 5.0.0.
+- `kmptoolkit-storage` (iOS): `put` of the key `AppleLanguages` on the plain store is refused with
+  `StorageError.OperationFailed(PUT)`, since `NSUserDefaults` never reads that key back; before, it answered `Success`
+  and then `null`.
+- `kmptoolkit-downloader`: the whole transfer and commit of one unit is exclusive across every engine over one base
+  directory in the process (storages from `createDownloaderStorage`): a second engine waits and then finds the
+  resource available, and a cancel on an engine that does not hold the unit's lock leaves the temp file of the transfer
+  in flight alone.
+- `kmptoolkit-downloader`: a `ZipArchive` that the file system cannot hold as delivered (a name that is both a file and
+  a directory, a name or path that is too long, two entries it stores as one) fails the commit with
+  `ResourceIntegrityException` on both platforms, and the `availabilityMarker` must be a regular file spelled exactly
+  like that.
+- `kmptoolkit-scheduler` (Android): the saturation message and docs name a process death between arming a
+  replacement and retiring the old alarm as a second cause; behaviour unchanged.
+- `kmptoolkit-permission` and `kmptoolkit-activity` docs: an `ActivityAccess` must outlive the permission controller built
+  over it, and a special-access request over a released access waits until its caller is cancelled.
+- `kmptoolkit-permission` docs: a request cancelled while its dialog is up makes the next request wait on Android only;
+  on iOS the queue is freed at once.
+- `kmptoolkit-permission` (iOS): `openSettings` now also logs a warning when the settings URL cannot be built (a URL
+  that could not be opened was already logged).
+
+### Fixed
+
+- `kmptoolkit-logging` (iOS): the iOS log sink writes an event's line and its stack trace in one step under a
+  lock shared by every instance, so loggers on several threads no longer glue lines together or separate a trace
+  from its event.
+- `kmptoolkit-downloader`: an archive entry with thousands of path segments no longer exhausts memory or stalls in
+  directory creation: a path longer than the platform allows fails the commit with `ResourceIntegrityException`
+  before anything is created.
+- `kmptoolkit-logging` (Android): the Android log sink no longer loses the stack trace of a cause chain that holds an
+  `UnknownHostException` (`android.util.Log` renders such a chain as an empty string) and no longer hands a cyclic
+  cause chain to `android.util.Log`, which looped forever. The chain is walked to its end with an identity-based
+  visited set; a chain that holds an `UnknownHostException` or repeats a throwable is rendered by the sink with
+  `stackTraceToString()` and no throwable is passed on, every other chain is passed through unchanged.
+- `kmptoolkit-logging-overlay`: `LogOverlayState.asLogSink()` and `record()` no longer throw for a throwable whose
+  `toString()` or `message` fails with an `AssertionError`, a `NotImplementedError` or (on Android) a `LinkageError`;
+  they contain the same failures the logger contains for a sink, and let any other `Error` (a `StackOverflowError`,
+  say) through.
+- `kmptoolkit-language`: a supported code with no language subtag (private use `x-...`, grandfathered `i-...`) is
+  matched by its whole text, so `fromId` returns `AppLanguage.System` for an unknown one, `byCode` returns `null`, and
+  two such codes are no longer refused as a repeat.
+- `kmptoolkit-video-player` (Android): a Throwable thrown while the Media3 player is built or reset, or its media
+  source is built, reaches `VideoPlayerState.Error` as the same instance, also when kotlinx.coroutines stack-trace
+  recovery is on (JUnit, Robolectric). A load failure whose cleanup also throws now reaches `Error` as the original
+  Throwable, with the cleanup's exception suppressed (before, the cleanup's exception replaced it).
+- `kmptoolkit-video-player`: a seek made just as the source reaches its end wins. When the player drops the
+  completion reported before that seek as stale while it is `Playing`, it calls the engine's `start()` and
+  `setSpeed` again, so an engine whose platform stops at its end resumes from the seek's target instead of staying
+  stopped.
+- `kmptoolkit-video-player`: `setVolume(-0f)` publishes `0f` on `volumeFlow`, not `-0.0f`, which a `StateFlow` treats as
+  a different value.
+- `kmptoolkit-video-player`: `prepare` ends in `Error` carrying the exception, and returns normally, when an engine's
+  `load` throws a `CancellationException` of its own (a timeout inside the engine, say) while the caller is still
+  active; before, the player went `Idle` and the exception reached a caller that was never cancelled.
+- `kmptoolkit-video-player`: the engine never receives a seek target above `Long.MAX_VALUE / 1_000_000` milliseconds,
+  whatever length it reports, so a platform's microsecond conversion cannot wrap; an engine reading that throws during
+  a position poll settles the player on `Error` instead of ending the poll silently.
+- `kmptoolkit-video-player`: a collector of `stateFlow`, or of any other flow of the player, that calls the player from
+  inside an update (on an immediate dispatcher) sees the state the running transition is establishing, and the
+  transition stops writing once the call has changed the player, so the call is never undone and a failure reported
+  meanwhile is never lost to it. Several calls in one update each act on the state the previous one published: the
+  player no longer shows `Playing` over a paused or unloaded engine, a collector's `setRepeatMode` is not undone (the
+  engine is told the mode the flow holds), no engine call is made for a source that was unloaded, and none after
+  `release()`.
+- `kmptoolkit-video-player`: a `prepare` replaced by another `prepare` that a collector of a source flow called from
+  inside its reset no longer leaves `stateFlow` on the old state while the engine holds no source; it shows `Preparing`
+  for the newer call.
+- `kmptoolkit-video-player`: a `prepare` called from an already-cancelled coroutine over a loaded source now stops the
+  old source's polling and settles on `Idle` (or, when a collector calls `prepare` from inside the reset, on that
+  call's `Preparing`), also when the engine's `release()` throws: the engine's exception is attached to the
+  `CancellationException` as suppressed.
+- `kmptoolkit-video-player-compose`: reading `VideoControlsScope.isPlaying` or `durationMs` no longer recomposes the
+  reader on every position update, only when the value changes, as the KDoc states.
+- `kmptoolkit-video-player-compose`: a drag on `VideoSeekBar` cancelled by a change of layout direction or thumb size
+  now ends the scrub (`onScrub(null)`) instead of leaving the handle frozen and the controls open.
+- `kmptoolkit-downloader`: a process killed while an archive resource is replaced or deleted, or during the first
+  commit of an archive under a nested `relativePath` on Android, can no longer leave a tree that reads as available with
+  files missing: the old tree is renamed into the storage's trash and deleted afterwards.
+- `kmptoolkit-downloader`: a directory at the path of a non-archive resource no longer reads as an available resource,
+  and the commit moves it aside and replaces it. Android used to fail every such commit until `deleteResource`; iOS
+  deleted the directory in place.
+- `kmptoolkit-uploader`: a `drain()` called from inside a handler's attempt, or overlapping another pass of the same
+  engine, no longer starts that item a second time or loses the running attempt's withdrawal handle.
+- `kmptoolkit-downloader` (Android): the resource-size walk no longer follows a symbolic link inside a resource
+  directory: a link counted its target's size, and a link cycle recursed until the stack overflowed. Recursive deletes,
+  which already removed a link as a link, now share the same walk.
+- `kmptoolkit-downloader` (iOS): `getResourceSize` follows a symbolic link at the unit's path and reports the size of
+  what it points to, as `isResourceAvailable` already did; it reported the size of the link itself.
+- `kmptoolkit-downloader` (iOS): `getTempFileSize` and `tempFileState` follow a symbolic link at the temp path, as on
+  Android; a dangling link is no temp file.
+- `kmptoolkit-downloader`: a symbolic link in place of the storage's internal trash directory is removed instead of
+  followed, so a sweep never deletes files outside the base directory.
+- `kmptoolkit-downloader` (Android): an archive entry name is resolved without canonicalisation, so a climbing or
+  over-long raw name fails the commit as `ResourceIntegrityException` on every runtime instead of as a plain
+  `IOException` on some JDKs.
+- `kmptoolkit-downloader`: replacing or deleting a `SqliteDatabase` resource now moves the previous database's `-wal`,
+  `-shm` and `-journal` away together with it, so a log left by a reader is never replayed into the newly verified
+  database. Close every connection to the database before its unit is committed again or deleted, and open none while
+  it is. A commit that cannot move one of those files aside fails with `IllegalStateException` and keeps its temp file
+  for the retry; `deleteResource` never throws for it and logs a warning instead (Android and iOS).
+- `kmptoolkit-downloader` (Android): an `availabilityMarker` ending in `/` no longer matches a regular file of that
+  name, as on iOS.
+- `kmptoolkit-uploader`: a `KEEP` enqueue that supersedes a `PARKED` item now withdraws it like a `REPLACE` does:
+  its running attempt is stopped and its upload is cancelled (an item parked at its re-hand and then enqueued again
+  under the default `KEEP` no longer uploads twice). A `KEEP` refused by a `PENDING` or `IN_FLIGHT` holder cancels
+  nothing. A consumer transaction that rolls back restores the row, but the cancel is not rolled back.
+- `kmptoolkit-uploader`: one `drain()` call gives an item with no registered handler one turn, and an orphan park
+  that throws no longer stops the items behind it.
+- `kmptoolkit-uploader`: an effect that ran and was reported as delivered (or dropped) is never run again by the
+  same process when only its confirming delete failed, whichever way it was reported and whichever engine of the
+  process comes next. The process remembers such a row until a delete confirms it, and the drain retries only the
+  delete, never the handler: for an engine built to replace a closed one, for an item reported through `settle` or
+  through the upload channel (the outcome journal included), for a row whose withdrawal was rolled back or failed,
+  for a delete that is retried while the item's type has no handler, its constraints are unmet or its backoff gate has
+  not opened, and for a row that a later verdict (a park, a failure, a give-up with a park or a drop) would otherwise
+  have buried. Such a verdict is not applied to a row whose delivery the process holds: the row is deleted instead,
+  `settle` returns normally and an upload's `onSettled` does not run. The reverse order is covered as well: a row
+  that a verdict parked before the delivery's delete failed (or while it was failing) is deleted by the drain like an
+  active one, once per `drain()` call per row with a growing backoff and an alarm kept armed while the store keeps
+  failing, and `settle` starts a drain pass even when its delete throws. A `KEEP` or `REPLACE` enqueue that
+  supersedes the parked row before that retry succeeds still withdraws it, as the conflict policy says.
+- `kmptoolkit-audio-recorder` (iOS): deleting a recording no longer removes a directory tree that replaced the output
+  file.
+- `kmptoolkit-audio-recorder` (iOS): a generated path no longer keeps a repeated or several trailing separators of
+  `RecordingStorage.directoryPath`, and a file name is no longer returned in decomposed Unicode form instead of the form
+  the caller wrote, so a path is the same string as on Android (`FakeAudioRecorder` already did this). The directory
+  part of the root `/` is none, not `/..`.
+- `kmptoolkit-audio-recorder`: a recording the system ends (storage low, an interruption, a silenced input) no longer
+  ends as `Interrupted` for a file that was deleted or replaced by a directory meanwhile; it fails as
+  `Failed(RecordingLost(reason, cause), outputPath)` and keeps the path, as `stop()` does for the same situation.
+- `kmptoolkit-scheduler` (iOS): a `schedule` cancelled while the notification center was adding the request
+  no longer leaves the alarm armed; the request is removed before the cancellation propagates.
+- `kmptoolkit-scheduler` (Android): a `getSystemService(ALARM_SERVICE)` that throws (a restarting system server) no
+  longer makes `schedule`, `cancel` or `cancelAll` throw; `schedule` answers `Failed(SchedulerUnavailable)` and the
+  cancels log and return.
+- `kmptoolkit-scheduler` (Android): an `Error` (such as `OutOfMemoryError`) thrown by `AlarmManager` while arming no
+  longer leaves its `PendingIntent` slot occupied, so repeated failures cannot make the id answer `Failed` until
+  `cancel(id)`.
+- `kmptoolkit-notification`: a progress run that keeps posting frames inside one bucket for longer than the
+  abandoned-run horizon (the larger of 120 times `minProgressInterval` and ten minutes) is no longer forgotten as if
+  abandoned; only an id that sent no frame at all for that long is. Before, a slow download whose bar stayed in one
+  tenth for over ten minutes had a redundant frame posted roughly every eleven minutes.
+- `kmptoolkit-notification`: a progress run that stays live past the abandoned-run horizon no longer loses the memory
+  of the frame on the tray when one later frame is refused by the platform; the next frame of the same tenth is
+  coalesced instead of posted again.
+- `kmptoolkit-notification` (Android): the notifier remembers only the latest channel spec per channel id, so a channel
+  whose `description` changes over time no longer grows memory and per-post cost without bound; a changed spec is
+  still re-applied.
+- `kmptoolkit-permission-testing`: `FakePermissionController` no longer loses the answer of a request cancelled while
+  `holdRequests` is `true`; the scripted outcome is stored when the hold is cleared, as both real controllers do, and
+  of a cancelled batch only for the permission whose dialog was up.
+- `kmptoolkit-permission` (Android): controllers built without an `activityAccess` share one activity tracker per
+  `Application` instead of registering a new lifecycle callback each.
+- `kmptoolkit-permission` (Android): a refusal flag the storage failed to clear when the permission was granted no
+  longer turns a later system reset into `PermanentlyDenied`.
+- `kmptoolkit-permission` (Android): a refusal learned through an entry that asks Android for the same permission string
+  (`PhotoLibrary` and `AudioLibrary` below API 33, `Calendar` and `CalendarWriteOnly`) is now cleared for that entry too
+  when the permission is granted, so a later system reset (an auto-reset of an unused app) no longer reads
+  `PermanentlyDenied` for it and the request shows its dialog.
+- `kmptoolkit-permission` (Android): after a cancelled request's dialog stayed up past the 30 second wait, later
+  requests no longer launch on the host while that dialog is still pending (a host of your own that keeps one
+  callback slot could otherwise deliver the old answer to the new request); they fail at once like a refused launch.
+- `kmptoolkit-permission` (Android): a special-access request made while a cancelled request's permission dialog is
+  still up now waits for that dialog (at most 30 seconds) instead of opening its Settings screen over it.
+- `kmptoolkit-permission` (Android): the default host no longer leaves a request code in the activity's result registry
+  (and its saved state) for every finished dialog.
+- `kmptoolkit-video-player-javafx`: on macOS a speed given to a playing player right after a seek (`seekTo()`,
+  `seekForward()`/`seekBackward()` or `replay()` while playing, `stop()` followed by `play()`, or playing a completed
+  clip) could leave the player `Playing` with its playhead standing still for good. Such a speed is now held back
+  until at least 300 ms after the seek and the playhead has moved on, so it takes effect up to about half a second
+  later (longer when the speed in use is below 1x: about 0.7 s from 0.5x, about 1.1 s from 0.25x). This includes a
+  speed given soon after a resume (or a first play) and then a seek, and a speed given right after the wrap of a
+  looping clip (which restarts with a native seek), which used to be written at once.
+- `kmptoolkit-video-player-javafx`: on macOS a speed changed shortly after a play near the start of a clip, once the
+  clip has started playing, can no longer freeze the playhead; for that moment the speed arrives after about 200 ms of playback.
+- `kmptoolkit-video-player-javafx`: a `play()` that follows a speed written while the player was not playing within
+  about 200 ms now waits for the rest of those 200 ms on every resume path but one, not only on a resume away from the
+  start (the exception is a `play()` from within about 100 ms of the start at a speed other than 1 with no seek
+  pending, which seeks to where it stands and plays at once), and a speed given while it waits is held and given after
+  the play. The held speed that `pause()`, `stop()` or the end of a clip writes is written after the native pause
+  instead of before it, while the decoder still ran, and a second `play()` while the first one waits no longer plays at
+  once inside that gap. A `seekTo()` during that wait no longer leaves a later resume giving the speed right after its
+  play. A `play()` right next to a speed change can start up to 200 ms late.
+- `kmptoolkit-video-player-javafx`: on macOS a resume at a speed other than 1 with no seek pending no longer gives the
+  speed about 0.17 s after `play()` when the first reported time after the resume is stale; the speed is given once
+  the playhead has really moved about 200 ms, as documented.
+- `kmptoolkit-video-player-javafx`: a speed given to a playing clip right after a seek is no longer given early when the
+  time reported after the seek is stale or steps back; the count of the playhead's 200 ms starts over on such a
+  reading, so the speed is given once the playhead has really moved, as documented.
+- `kmptoolkit-video-player-javafx`: a speed that waited after a seek, a loop wrap or the end of a clip is no longer
+  written on a reading that arrives after `pause()`, and the return to normal speed at a loop wrap that JavaFX delivers
+  after a `pause()` counts as a write while not playing, so a `play()` right after the pause waits out the 200 ms idle
+  gap instead of starting inside it. The same holds while a later `play()` is still waiting: a wrap delivered then
+  counts as such a write and the waiting `play()` checks the gap again before it plays, and no speed (a held one, or
+  one an earlier `play()` from the JavaFX thread left pending) is written before that `play()`.
+- `kmptoolkit-video-player-javafx`: a speed given while a `play()` waits is no longer lost when a looping clip wraps
+  meanwhile (including a speed of 1, which could leave the clip at the old speed), and it wins over an older speed held
+  for a wrap that came before it; the end of a clip cancels a waiting `play()` completely, so a speed given after it is
+  no longer swallowed and that `play()` can no longer run a second time.
+- `kmptoolkit-video-player-javafx`: a speed asked for while an earlier one still waited to be given is no longer lost
+  when it equals the speed the player was set to before (on macOS the clip stayed at normal speed, and asking for the
+  same speed again did not help).
+- `kmptoolkit-video-player-javafx`: an interrupted first `isJavaFxMediaAvailable()` no longer disables JavaFX for the
+  rest of the process (nor does a first load whose worker thread is interrupted), the interrupted thread keeps its
+  interrupt status, and a toolkit the engine started keeps implicit exit off when that first start had to be retried
+  (when the retry is made off the JavaFX thread).
+- `kmptoolkit-video-player-javafx`: on macOS a looping clip at a speed other than 1 that was paused right as it
+  wrapped no longer stands still at its start now and then when it is played again, however long the pause.
+- `kmptoolkit-video-player-javafx`: switching `RepeatMode.One` on at the very moment a clip ends no longer leaves the
+  player `Playing` at the end without looping or completing; the clip starts over and loops.
+- `kmptoolkit-uploader`: `ExponentialBackoffRetryPolicy` follows the documented `min(maxDelayMillis, base * 2^(n-1))`
+  for every failure count: it no longer stops doubling at `2^20` times the base (a 1 ms base under a one-hour ceiling
+  stayed at about 17 minutes), and a count of `Int.MIN_VALUE` is read as `1`, as documented, instead of as a huge one.
+  An item that already holds `Int.MAX_VALUE` failures is still parked or dropped by its give-up policy instead of its
+  count wrapping negative.
+- `kmptoolkit-uploader` (Android): an answer without a final HTTP status (a non-HTTP reply, or an interim `1xx` handed
+  back as the answer) is a `TransportFailure` instead of `Completed` with that status, and an answer body that
+  declares a `Content-Length` (with no content encoding or chunked transfer) is read up to that length, so bytes a
+  confused server or proxy sends behind it are not part of the captured body.
+- `kmptoolkit-scheduler`: `schedule` (Android, iOS) and `cancelAll` (iOS) copy the alarm's payload or the ids when they
+  are called, not after they have waited for the scheduler's lock, so a caller that edits or reuses its map or
+  collection meanwhile no longer changes the alarm armed or the ids cancelled.
+- `kmptoolkit-notification`: `post` takes one copy of the caller's `actions`, `contentExtras` and `actionIcons` before
+  it suspends, and renders the frame, compares it with the progress baseline and writes the tap target from that copy,
+  so a caller that edits its own lists and maps while a post is in flight (or edits and restores them) can no longer
+  make the tray show something other than the baseline describes, or a later frame compare equal to itself.
+- `kmptoolkit-video-player-vlcj`: a seek in flight when the source's end is reported is no longer lost: the player
+  resumes from the seek's target when it plays again.
+- `kmptoolkit-video-player-vlcj`: between the wrap of a looping source and its restart the position reads the start,
+  not the end of the cycle that ended.
+- `kmptoolkit-video-player-vlcj`: a libvlc clock read that throws no longer stops the position updates; the last known
+  position stands and the next poll reads again.
+- `kmptoolkit-video-player-vlcj`: a volume or rate that libvlc refuses when output begins no longer leaves a pending
+  seek unapplied.
+- `kmptoolkit-video-player-vlcj`: a picture of more than `Int.MAX_VALUE` pixels is dropped instead of being given an
+  array of a wrapped size.
+- `kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx`: a classpath `Asset` whose name has a character
+  outside the Basic Multilingual Plane (an emoji) plays, from a directory and from a jar.
+- `kmptoolkit-video-player-vlcj`: the temporary copy of a jar asset keeps the asset's extension only when it is plain
+  (1 to 16 letters, digits, `_` or `-`); any other extension becomes `.tmp`.
+- `kmptoolkit-video-player-javafx`: a jar asset served by a class loader that does not percent-encode its URLs now
+  plays.
+- `kmptoolkit-video-player-javafx`: a `VideoSource.File` that cannot be read fails at once with
+  `FileNotFoundException` instead of with a `MediaException` after several seconds.
+
+### Known issues
+
+- `kmptoolkit-video-player-javafx`: on macOS, releasing a player of a video source, or preparing a new source on it,
+  right after `play()`, `seekTo()` or a resume can crash the JVM inside CoreVideo (an OpenJFX defect in
+  `AVFMediaPlayer`, not catchable from Java). Debounce rapid source switches; see `05-platform-notes.md`.
+- `kmptoolkit-video-player-javafx`: a `stop()` or `seekTo()` in the instant between JavaFX reaching the end of a clip
+  and delivering that end can still be followed by `Completed`.
+- `kmptoolkit-video-player-javafx`: on macOS a speed written right after the engine's own seek to the start (a first
+  play at a speed, or a resume within about 100 ms of the start) left the playhead standing still once in 120 probe
+  rounds.
+- `kmptoolkit-video-player-javafx`: a looping clip shorter than about 0.6 s plays every cycle after the first at normal
+  speed when a speed other than 1 is set (between about 0.6 and 1 s the speed returns late in each cycle).
+- `kmptoolkit-downloader`: everything under the base directory must lie on one volume, and the storage does not look
+  for a boundary: a directory on the way to a unit's `relativePath` that links to another volume (or is a mount point)
+  is one. Behind it a `ZipArchive` unit cannot be replaced (the commit throws `IllegalStateException`; on Android even
+  its first commit throws); a `SqliteDatabase` unit is committed once, but a later commit throws
+  `IllegalStateException` and `deleteResource` only logs a warning and leaves the database where it is. An `Opaque` or
+  `SqliteDatabase` unit reaches its path by copying the temp file there, and that copy is not atomic (on Android it
+  writes straight into the file at the resource path, on iOS it removes the old file first), so a process killed
+  during it can leave a partial file that reads as available. Keep every unit's resource on the volume of the base
+  directory; see `05-platform-notes.md`.
+
 ## [4.0.0]
 
 Source compatible with 3.0.x, except for implementations of the opt-in `ToolkitInheritanceApi` interface
@@ -869,7 +1253,7 @@ release are listed there.
 
 ### Known issues
 
-- `kmptoolkit-downloader`: when two engines with separate storage instances over the same base directory request the same unit at almost the same time, one may start a second transfer after the first has finished but before it is committed. The resource is always committed whole, but a full-size partial temp file of that unit can stay in `tmp/` until `cancelDownload(unit)`. With a downloader that restarts from byte zero (`beginTempFile`), one caller can instead fail once with `DownloadError.Storage`; retrying succeeds. A single engine per directory is not affected. Fixed in 4.1.0.
+- `kmptoolkit-downloader`: when two engines with separate storage instances over the same base directory request the same unit at almost the same time, one may start a second transfer after the first has finished but before it is committed. The resource is always committed whole, but a full-size partial temp file of that unit can stay in `tmp/` until `cancelDownload(unit)`. With a downloader that restarts from byte zero (`beginTempFile`), one caller can instead fail once with `DownloadError.Storage`; retrying succeeds. A single engine per directory is not affected. Fixed in 5.0.0.
 
 ## [3.0.0]
 
@@ -1874,7 +2258,7 @@ signatures of its constructor and `copy`; source code needs no change.
   left no layer behind. Not thread-safe, deliberately — see
   `docs/kmptoolkit-systembars/06-testing.md`.
 - `kmptoolkit-systembars` now also publishes a **`jvm` (desktop) target** — the only module in the
-  suite that does. The module's premise is that a screen states what it wants from the bars without
+  suite that does (at the time of 1.1.0). The module's premise is that a screen states what it wants from the bars without
   knowing where it runs, so a Compose Multiplatform app sharing one UI tree between phone and
   desktop could not compile that tree at all while the types resolved on only two of its three
   targets. Desktop has no system bars, so every platform call in `jvmMain` is a no-op

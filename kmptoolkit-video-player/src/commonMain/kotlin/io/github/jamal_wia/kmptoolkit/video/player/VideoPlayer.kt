@@ -32,7 +32,10 @@ public interface VideoPlayer : AutoCloseable {
     /** Current state. Starts at [VideoPlayerState.Idle], never completes. */
     public val stateFlow: StateFlow<VideoPlayerState>
 
-    /** Playhead in milliseconds, refreshed at [VideoPlayerConfig.positionUpdateIntervalMs] while playing. */
+    /**
+     * Playhead in milliseconds, never above a known duration, refreshed at
+     * [VideoPlayerConfig.positionUpdateIntervalMs] while playing.
+     */
     public val playbackPositionFlow: StateFlow<Long>
 
     /**
@@ -47,7 +50,10 @@ public interface VideoPlayer : AutoCloseable {
     /** Size of the decoded picture, or `null` until the platform reports one (and when idle). */
     public val videoSizeFlow: StateFlow<VideoSize?>
 
-    /** Rate in effect, already clamped to the configured range. `1.0` until [setPlaybackSpeed]. */
+    /**
+     * Rate in effect, already clamped to the configured range. Starts at `1.0` clamped into that range
+     * (a range that excludes `1.0` starts at its nearest bound).
+     */
     public val playbackSpeedFlow: StateFlow<Float>
 
     /**
@@ -71,7 +77,9 @@ public interface VideoPlayer : AutoCloseable {
      * Loads [source], suspending until it is playable or has failed. Discards any previous source and
      * resets the playhead to `0`; keeps speed, volume, mute and repeat mode. Settles on
      * [VideoPlayerState.Ready] or [VideoPlayerState.Error] — **does not throw on failure**. Honors
-     * cancellation. A newer call replaces this one. After [release]: sets
+     * cancellation. A [kotlinx.coroutines.CancellationException] the engine throws on its own while the
+     * load is still wanted (a timeout inside the engine, say) is a failure like any other: `Error`
+     * carrying that exception, and this call returns normally. A newer call replaces this one. After [release]: sets
      * `Error(VideoPlayerReleasedException)` and loads nothing.
      */
     public suspend fun prepare(source: VideoSource)
@@ -87,14 +95,21 @@ public interface VideoPlayer : AutoCloseable {
 
     /**
      * Moves the playhead, clamped to `0..duration`. Playing stays Playing, Paused stays Paused,
-     * Completed becomes Paused.
+     * Completed becomes Paused. While the duration is unknown (`0`) an absolute seek clamps to `0`.
      */
     public fun seekTo(positionMs: Long)
 
-    /** `seekTo(position + amountMs)`. */
+    /**
+     * `seekTo(position + amountMs)`, saturating. On a source of unknown length (duration `0`) the target is
+     * not clamped to `0`: it is floored at `0` and capped at `Long.MAX_VALUE / 1_000_000`. A negative amount
+     * moves backward.
+     */
     public fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)
 
-    /** `seekTo(position - amountMs)`. */
+    /**
+     * `seekTo(position - amountMs)`, saturating, with the same unknown-length rule as [seekForward]. A
+     * negative amount moves forward; `Long.MIN_VALUE` reaches the end.
+     */
     public fun seekBackward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)
 
     /** Seek to `0` and play, from any playable state. */

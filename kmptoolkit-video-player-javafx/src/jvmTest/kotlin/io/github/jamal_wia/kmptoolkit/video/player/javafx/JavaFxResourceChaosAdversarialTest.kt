@@ -1,9 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.video.player.javafx
 
-import com.sun.management.UnixOperatingSystemMXBean
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
-import java.lang.management.ManagementFactory
 import java.lang.ref.WeakReference
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -45,14 +44,19 @@ class JavaFxResourceChaosAdversarialTest {
         withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.ASSET)) }
     }
 
+    /** Churn tests load the audio-only clip: no video track, no display link (see [TestClip.AUDIO_ASSET]). */
+    private fun loadAudio(engine: JavaFxVideoEngine) = runBlocking {
+        withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.AUDIO_ASSET)) }
+    }
+
     private fun drainFxThread() {
         val done = CountDownLatch(1)
         Platform.runLater { done.countDown() }
         assertTrue(done.await(10L, TimeUnit.SECONDS), "the FX thread did not drain")
     }
 
-    private fun openFiles(): Long =
-        (ManagementFactory.getOperatingSystemMXBean() as UnixOperatingSystemMXBean).openFileDescriptorCount
+    /** Open descriptors of this process; skips on a host that cannot count them (Windows), fails on one that should. */
+    private fun openFiles(): Long = TestFs.requireOpenDescriptorCount()
 
     /**
      * JavaFX holds a loaded source's file descriptor until its `Media` object is collected (it has
@@ -80,13 +84,13 @@ class JavaFxResourceChaosAdversarialTest {
     @Test
     fun `eighty load start release cycles leave descriptors and threads where they were`() {
         val engine: JavaFxVideoEngine = newEngine()
-        repeat(6) { load(engine); engine.start(); engine.release() }
+        repeat(6) { loadAudio(engine); engine.start(); engine.release() }
         drainFxThread()
         System.gc()
         val files: Long = openFiles()
         val threads: Int = liveThreads()
         repeat(80) {
-            load(engine)
+            loadAudio(engine)
             engine.start()
             Thread.sleep(Random.nextLong(0L, 25L))
             engine.release()
@@ -100,22 +104,11 @@ class JavaFxResourceChaosAdversarialTest {
 
     @Test
     fun `engines released and dropped become unreachable`() {
-        val references: MutableList<WeakReference<JavaFxVideoEngine>> = mutableListOf()
-        repeat(15) {
-            val engine = JavaFxVideoEngine(readyTimeoutMs = 15_000L)
-            load(engine)
-            engine.start()
-            Thread.sleep(40L)
-            engine.release()
-            references += WeakReference(engine)
-        }
-        drainFxThread()
-        val deadline: Long = System.nanoTime() + 10_000_000_000L
-        while (references.any { it.get() != null } && System.nanoTime() < deadline) {
-            System.gc()
-            Thread.sleep(50L)
-        }
-        assertEquals(0, references.count { it.get() != null }, "released engines still reachable")
+        // Video engines released 40 ms after start() can hit the OpenJFX macOS display link race: the cycles run in a
+        // child JVM (VideoLeakChildMain, scenario reachable) that retries a known CoreVideo crash.
+        val run: ChildRun = runChildRetryingKnownCrash(VideoLeakChildMain::class.java.name, listOf("reachable"))
+        assertEquals(0, run.exit, "child exit; ${run.output}")
+        assertEquals("0", run.results()["stillReachable"], "released engines still reachable; ${run.output}")
     }
 
     @Test
@@ -176,7 +169,7 @@ class JavaFxResourceChaosAdversarialTest {
     fun `a seek storm released mid flight does not leak its count into the next source of the same engine`() {
         val engine: JavaFxVideoEngine = newEngine()
         repeat(5) {
-            load(engine)
+            loadAudio(engine)
             engine.start()
             val storm = thread(isDaemon = true) { repeat(300) { engine.seekTo(it * 7L % 2_900L) } }
             Thread.sleep(Random.nextLong(0L, 30L))
@@ -194,7 +187,7 @@ class JavaFxResourceChaosAdversarialTest {
     @Test
     fun `loads that time out after a millisecond or two leave no player, thread or descriptor behind`() {
         val warm: JavaFxVideoEngine = newEngine()
-        repeat(3) { load(warm); warm.release() }
+        repeat(3) { loadAudio(warm); warm.release() }
         drainFxThread()
         System.gc()
         val files: Long = openFiles()
@@ -203,7 +196,7 @@ class JavaFxResourceChaosAdversarialTest {
         repeat(100) { n ->
             val engine = JavaFxVideoEngine(readyTimeoutMs = 1L + n % 3)
             val outcome: String = try {
-                runBlocking { withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.ASSET)) } }
+                runBlocking { withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.AUDIO_ASSET)) } }
                 "ok"
             } catch (e: Throwable) {
                 e::class.simpleName ?: "?"
@@ -223,7 +216,7 @@ class JavaFxResourceChaosAdversarialTest {
         val files: Long = openFiles()
         val threads: Int = liveThreads()
         val many: List<JavaFxVideoEngine> = List(30) { newEngine() }
-        many.forEach { load(it); it.start() }
+        many.forEach { loadAudio(it); it.start() }
         Thread.sleep(300L)
         many.forEach { it.release() }
         settle()

@@ -48,6 +48,8 @@ kotlin {
             implementation(libs.androidx.media3.exoplayer.hls)
         }
         androidHostTest.dependencies {
+            // Not published; host assumptions for tests that only mean something on a POSIX file system.
+            implementation(project(":test-support"))
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.androidx.media3.test.utils)
             implementation(libs.androidx.media3.test.utils.robolectric)

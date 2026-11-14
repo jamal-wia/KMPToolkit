@@ -67,7 +67,8 @@ internal class ProgressCoalescer(
      * completes, never when one is prepared, because frames are prepared outside the post lock and a
      * newer frame can be prepared between an older frame's liveness check and its completion: a
      * snapshot taken at prepare time would then name a frame the tray no longer shows. Dropped by
-     * [forget] / [clear], by [complete] for a terminal frame and by [pruneStale].
+     * [forget] / [clear], by [complete] for a terminal frame and by [pruneStale] (with the id's baseline,
+     * so a live run keeps it however long it lasts; on its own clock once the id has no baseline).
      */
     private val lastShown: MutableMap<String, Post> = mutableMapOf()
 
@@ -85,7 +86,7 @@ internal class ProgressCoalescer(
      */
     private val claims: MutableMap<String, MutableList<PostClaim>> = mutableMapOf()
 
-    /** How old a baseline must be before [pruneStale] drops it; far above any sensible rate limit. */
+    /** How long an id must have been quiet (see [Post.lastSeen]) before [pruneStale] drops it; far above any sensible rate limit. */
     private val staleAfter: Duration = maxOf(minInterval * STALE_INTERVAL_FACTOR, MIN_STALE_AFTER)
     private var lastPrune: TimeMark = timeSource.markNow()
 
@@ -116,7 +117,11 @@ internal class ProgressCoalescer(
         if (claim?.cancelled == true) return@withLock null
         pruneStale()
         when (val decision: Decision = decide(id, progress, content)) {
-            Decision.Suppress -> null
+            Decision.Suppress -> {
+                // A suppressed frame is a sign of life too: the run is live, only not worth a post.
+                posted[id]?.lastSeen = timeSource.markNow()
+                null
+            }
             Decision.Reset -> {
                 posted.remove(id)
                 issue(id, recorded = null)
@@ -133,7 +138,8 @@ internal class ProgressCoalescer(
     }
 
     /**
-     * Lock held. Drops the baselines of ids that went quiet without a terminal frame or a cancel (a
+     * Lock held. Drops the baselines of ids that went quiet: no frame for the id, posted or suppressed,
+     * reached [prepare] for longer than [staleAfter], without a terminal frame or a cancel (a
      * failed download, a notification the user swiped away), so they do not accumulate for the
      * notifier's lifetime. Dropping a baseline is always safe: the id's next frame simply posts, as
      * the first one for an id does. Scans at most once per tenth of [staleAfter], whatever the
@@ -145,14 +151,20 @@ internal class ProgressCoalescer(
         val iterator: MutableIterator<MutableMap.MutableEntry<String, Post>> = posted.entries.iterator()
         while (iterator.hasNext()) {
             val entry: MutableMap.MutableEntry<String, Post> = iterator.next()
-            if (entry.value.at.elapsedNow() > staleAfter) {
+            if (entry.value.lastSeen.elapsedNow() > staleAfter) {
                 latest.remove(entry.key)
                 inFlight.remove(entry.key)
                 lastShown.remove(entry.key)
                 iterator.remove()
             }
         }
-        lastShown.values.removeAll { record: Post -> record.at.elapsedNow() > staleAfter }
+        // A `lastShown` record of an id that still has a baseline lives and dies with it: the loop above
+        // judged that id by its last sign of life, and aging the record by the (older) time it was posted
+        // would make a live run lose it, so a later refused frame would find nothing to restore. Only a
+        // record whose id has no baseline left (a settled-away or abandoned one) ages on its own clock.
+        lastShown.entries.removeAll { entry: MutableMap.MutableEntry<String, Post> ->
+            posted[entry.key] == null && entry.value.at.elapsedNow() > staleAfter
+        }
         // Tickets with no baseline (terminal frames) and tickets whose caller never completed or
         // rolled them back have no `posted` entry to age out with, so they age out on their own.
         latest.values.removeAll { ticket: PostTicket -> ticket.at.elapsedNow() > staleAfter }
@@ -412,6 +424,13 @@ internal class ProgressCoalescer(
 
     /** One recorded post. A plain class: [rollback] compares records by identity. */
     internal class Post(val bucket: Int, val content: Any?, val at: TimeMark) {
+
+        /**
+         * When a frame for this id last reached [prepare] while this record was the baseline, posted
+         * or suppressed; what [pruneStale] ages. Not the rate-limit clock, which stays [at]. Guarded
+         * by the coalescer's lock.
+         */
+        var lastSeen: TimeMark = at
 
         /**
          * The record that was on the platform when this one was handed over and its outcome was still

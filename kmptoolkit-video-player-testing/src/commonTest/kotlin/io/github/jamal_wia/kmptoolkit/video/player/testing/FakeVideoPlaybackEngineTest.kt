@@ -29,13 +29,26 @@ class FakeVideoPlaybackEngineTest {
 
     private val source: VideoSource = VideoSource.Remote("https://example.test/lesson.mp4")
 
+    private val players: MutableList<VideoPlayer> = mutableListOf()
+
+    // A player left Playing keeps its position poll alive, and runTest drains that poll forever once an assertion
+    // has failed: releasing every player on every exit path turns that hang into the red it hides.
+    private fun runPlayerTest(body: suspend TestScope.() -> Unit): kotlinx.coroutines.test.TestResult = runTest {
+        try {
+            body()
+        } finally {
+            players.forEach { it.release() }
+            players.clear()
+        }
+    }
+
     private fun TestScope.newPlayer(engine: FakeVideoPlaybackEngine): VideoPlayer = createVideoPlayer(
         engine = engine,
         coroutineContext = StandardTestDispatcher(testScheduler),
-    )
+    ).also { players += it }
 
     @Test
-    fun `a player on a fresh fake reaches ready with the configured duration`() = runTest {
+    fun `a player on a fresh fake reaches ready with the configured duration`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine(durationMs = 30_000L)
         val player: VideoPlayer = newPlayer(engine)
 
@@ -48,7 +61,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `loadFailure turns every prepare into an error until cleared`() = runTest {
+    fun `loadFailure turns every prepare into an error until cleared`() = runPlayerTest {
         val failure = IllegalArgumentException("no such host")
         val engine = FakeVideoPlaybackEngine().apply { loadFailure = failure }
         val player: VideoPlayer = newPlayer(engine)
@@ -65,7 +78,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `a suspended load holds the player in preparing until finishLoad`() = runTest {
+    fun `a suspended load holds the player in preparing until finishLoad`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine().apply { suspendLoads = true }
         val player: VideoPlayer = newPlayer(engine)
 
@@ -83,7 +96,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `failLoad fails a suspended load with that exact throwable`() = runTest {
+    fun `failLoad fails a suspended load with that exact throwable`() = runPlayerTest {
         val failure = IllegalStateException("403")
         val engine = FakeVideoPlaybackEngine().apply { suspendLoads = true }
         val player: VideoPlayer = newPlayer(engine)
@@ -100,7 +113,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `cancelling a suspended load clears it`() = runTest {
+    fun `cancelling a suspended load clears it`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine().apply { suspendLoads = true }
         val player: VideoPlayer = newPlayer(engine)
 
@@ -116,7 +129,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `loadDelayMs holds the player in preparing for that long`() = runTest {
+    fun `loadDelayMs holds the player in preparing for that long`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine().apply { loadDelayMs = 1_000L }
         val player: VideoPlayer = newPlayer(engine)
 
@@ -131,7 +144,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `cancelling a prepare inside the load delay frees the engine and settles on idle`() = runTest {
+    fun `cancelling a prepare inside the load delay frees the engine and settles on idle`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine().apply { loadDelayMs = 1_000L }
         val player: VideoPlayer = newPlayer(engine)
 
@@ -152,7 +165,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `a prepare replacing one inside the load delay wins`() = runTest {
+    fun `a prepare replacing one inside the load delay wins`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine().apply { loadDelayMs = 1_000L }
         val player: VideoPlayer = newPlayer(engine)
         val second: VideoSource = VideoSource.Remote("https://example.test/second.mp4")
@@ -186,7 +199,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `transport and settings are visible on the fake`() = runTest {
+    fun `transport and settings are visible on the fake`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine()
         val player: VideoPlayer = newPlayer(engine)
 
@@ -212,7 +225,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `advancing the playhead and the buffer is picked up by the next poll`() = runTest {
+    fun `advancing the playhead and the buffer is picked up by the next poll`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine(durationMs = 30_000L)
         val player: VideoPlayer = newPlayer(engine)
 
@@ -246,7 +259,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `completePlayback drives the player to completed`() = runTest {
+    fun `completePlayback drives the player to completed`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine(durationMs = 30_000L)
         val player: VideoPlayer = newPlayer(engine)
 
@@ -260,7 +273,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `completePlayback on an unknown length leaves the playhead where it is and completes there`() = runTest {
+    fun `completePlayback on an unknown length leaves the playhead where it is and completes there`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine(durationMs = 0L)
         val player: VideoPlayer = newPlayer(engine)
         player.prepare(source)
@@ -276,7 +289,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `completePlayback on a looping fake starts over instead of completing`() = runTest {
+    fun `completePlayback on a looping fake starts over instead of completing`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine(durationMs = 30_000L)
         val player: VideoPlayer = newPlayer(engine)
 
@@ -293,7 +306,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `failPlayback drives the player to error`() = runTest {
+    fun `failPlayback drives the player to error`() = runPlayerTest {
         val failure = IllegalStateException("network lost")
         val engine = FakeVideoPlaybackEngine()
         val player: VideoPlayer = newPlayer(engine)
@@ -308,7 +321,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `reportBuffering and reportVideoSize reach the player`() = runTest {
+    fun `reportBuffering and reportVideoSize reach the player`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine()
         val player: VideoPlayer = newPlayer(engine)
 
@@ -325,7 +338,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `videoSizeOnLoad is reported while preparing`() = runTest {
+    fun `videoSizeOnLoad is reported while preparing`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine().apply { videoSizeOnLoad = VideoSize(720, 1280) }
         val player: VideoPlayer = newPlayer(engine)
 
@@ -336,7 +349,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `release is counted once and detaches the fake`() = runTest {
+    fun `release is counted once and detaches the fake`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine()
         val player: VideoPlayer = newPlayer(engine)
 
@@ -349,7 +362,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `dispose is recorded once on release and never on unload`() = runTest {
+    fun `dispose is recorded once on release and never on unload`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine()
         val player: VideoPlayer = newPlayer(engine)
 
@@ -365,7 +378,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `events after release are ignored`() = runTest {
+    fun `events after release are ignored`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine()
         val player: VideoPlayer = newPlayer(engine)
 
@@ -383,7 +396,7 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
-    fun `a load resets the playhead and the buffer`() = runTest {
+    fun `a load resets the playhead and the buffer`() = runPlayerTest {
         val engine = FakeVideoPlaybackEngine()
         val player: VideoPlayer = newPlayer(engine)
 

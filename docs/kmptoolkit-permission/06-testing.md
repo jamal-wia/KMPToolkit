@@ -51,6 +51,14 @@ own tests:
 - **Requests are serialized**, as the real controllers' are. With `holdRequests`, a test can look at
   your code while the system UI is "up", cancel the request then, or check that a second request
   waits.
+- **A cancelled request keeps the user's answer.** Cancel a request while `holdRequests` is `true` and
+  its scripted outcome is stored when you clear the hold, before any held request resumes, so the next
+  `check` sees it, as on both real controllers. A status changed meanwhile (for example by `setStatus`)
+  to one that shows no UI is left alone. A request cancelled while only queued stores nothing. A
+  cancelled batch stores only the permission whose dialog was up. On Android the runtime permissions
+  that shared that dialog are answered too: use `setStatus` if your test needs that. Like the iOS
+  controller, and unlike the Android one, the fake does not make the next request wait for a cancelled
+  request's dialog.
 - **`observe` follows every change**: `setStatus`, `request` and a changed `defaultStatus` re-emit,
   and only a *different* status is emitted. Collect with an `UnconfinedTestDispatcher` so each change
   is delivered before your next line runs.
@@ -181,6 +189,10 @@ The controller waits up to a second for a resumed activity before it launches an
 controller over an `ActivityAccess` that never resumes pays that second, in virtual time under `runTest`,
 once per request call.
 
+Do not `release()` the `ActivityAccess` while a request is pending or before the controller is done
+with: a special-access request over a released access waits until its caller is cancelled and holds the
+request queue meanwhile. Cancel pending requests (or the scope that runs them) before releasing.
+
 ## What the module tests itself
 
 - **`commonTest`**, run on both Android and iOS: every row of the flow's transition table, the
@@ -197,6 +209,18 @@ once per request call.
   assertion that the merged library manifest contributes no permission.
 - **`iosTest`**: the mapping from every authorization status each entry reads to a
   `PermissionStatus`, the missing-purpose-string path for every entry, the notification options, and
-  a foreign type.
+  a foreign type. The controller's own logic runs against a scripted fake of an internal port that
+  carries every platform call (the real adapter delegates to the platform one to one): the request
+  mutex, the batch de-duplication, the shared Bluetooth and calendar authorizations, the upgrade from a
+  limited grant, the two-step background location request, the missing-purpose-string rule and its
+  single warning, a refused prompt reading permanently denied, the re-read after a request, `observe`
+  (activation, repeats, unregistering) and a caller cancelled while a prompt is up. The decision of
+  the location prompt wait (which event ends it, that it ends once, cancellation included) runs against
+  a test of its own. What no test reaches, because it needs a device: the adapter's one-line
+  delegations, the timer and app-state notifications that drive that wait, the location and Bluetooth
+  delegates, the real `Info.plist` lookup, the `canOpenURL` check before opening settings and
+  `openURL`, the choice between EventKit's split (iOS 17+) and legacy requests and the matching
+  purpose-string keys (whose iOS 15/16 branch the current iOS 17+ simulator runtime never reaches), and the real prompt of every
+  entry.
 - **`kmptoolkit-permission-testing`**: the fixture's own contract, including each place it claims to
   model the OS.

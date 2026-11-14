@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.testing
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState
 import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +79,8 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
             ::insertKeepIsRefusedByPending,
             ::insertKeepIsRefusedByInFlight,
             ::insertKeepSupersedesParked,
+            ::insertKeepReturnsWhatItSuperseded,
+            ::insertKeepReturnsNothingSupersededWhenNoParkedRowHeldTheKey,
             ::uniqueKeysAreScopedPerType,
             ::insertReplaceSupersedesPendingAtTheTail,
             ::insertReplaceSupersedesInFlightAndResetsIt,
@@ -206,9 +209,9 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     /** Keyless items never deduplicate against each other. */
     public suspend fun nullUniqueKeyNeverConflicts() {
         val store: UploaderStore = createStore()
-        val first: Boolean = store.insertKeep(item(id = "a", uniqueKey = null))
-        val second: Boolean = store.insertKeep(item(id = "b", uniqueKey = null))
-        expect(first && second) { "a null unique key must never conflict" }
+        val first: KeepResult = store.insertKeep(item(id = "a", uniqueKey = null))
+        val second: KeepResult = store.insertKeep(item(id = "b", uniqueKey = null))
+        expect(first is KeepResult.Inserted && second is KeepResult.Inserted) { "a null unique key must never conflict" }
         expect(store.getAllActive().map { it.id } == listOf("a", "b")) {
             "both keyless inserts must be stored, in order"
         }
@@ -218,8 +221,8 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     public suspend fun insertKeepIsRefusedByPending() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", uniqueKey = "u"))
-        val inserted: Boolean = store.insertKeep(item(id = "b", uniqueKey = "u"))
-        expect(!inserted) { "insertKeep must return false when a PENDING item holds the key" }
+        val result: KeepResult = store.insertKeep(item(id = "b", uniqueKey = "u"))
+        expect(result == KeepResult.Kept) { "insertKeep must return Kept when a PENDING item holds the key; got $result" }
         expect(store.getById("b") == null) { "the refused item must not be stored" }
     }
 
@@ -228,8 +231,8 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", uniqueKey = "u"))
         claim(store, "a", leaseUntilEpochMillis = 900L)
-        val inserted: Boolean = store.insertKeep(item(id = "b", uniqueKey = "u"))
-        expect(!inserted) { "insertKeep must return false when an IN_FLIGHT item holds the key" }
+        val result: KeepResult = store.insertKeep(item(id = "b", uniqueKey = "u"))
+        expect(result == KeepResult.Kept) { "insertKeep must return Kept when an IN_FLIGHT item holds the key; got $result" }
     }
 
     /** A parked item does not: its key would otherwise be dead forever. */
@@ -237,18 +240,54 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", uniqueKey = "u"))
         parkNow(store, "a", "gave up")
-        val inserted: Boolean = store.insertKeep(item(id = "b", uniqueKey = "u"))
-        expect(inserted) { "insertKeep must supersede a PARKED item holding the key" }
+        val result: KeepResult = store.insertKeep(item(id = "b", uniqueKey = "u"))
+        expect(result is KeepResult.Inserted) { "insertKeep must supersede a PARKED item holding the key; got $result" }
         expect(store.getById("a") == null) { "the superseded parked item must be gone" }
         expect(store.getAllActive().map { it.id } == listOf("b")) { "the new item must be active" }
+    }
+
+    /**
+     * The parked row a KEEP supersedes comes back from the insert itself, as it was just before its removal: the
+     * engine withdraws it like any removed row (stops its attempt, cancels its upload), and a read made beforehand
+     * could miss an item parked in between.
+     *
+     * @since 5.0.0
+     */
+    public suspend fun insertKeepReturnsWhatItSuperseded() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a", uniqueKey = "u", tag = "t"))
+        parkNow(store, "a", "gave up")
+        val parked: UploaderItem? = store.getById("a")
+        val result: KeepResult = store.insertKeep(item(id = "b", uniqueKey = "u"))
+        val superseded: UploaderItem? = (result as? KeepResult.Inserted)?.superseded
+        expect(superseded?.id == "a") { "insertKeep must return the parked item it superseded; got $result" }
+        expect(superseded?.state == UploaderItemState.PARKED) { "as it was: PARKED" }
+        expect(superseded?.tag == "t") { "as it was: with its tag" }
+        expect(superseded == parked) { "as it was just before its removal; got $superseded, read $parked" }
+    }
+
+    /**
+     * Nothing superseded, nothing returned: a fresh key, a keyless item and a key held only under another type
+     * insert with `null`; a PENDING or IN_FLIGHT holder returns [KeepResult.Kept] (see
+     * [insertKeepIsRefusedByPending], [insertKeepIsRefusedByInFlight]).
+     *
+     * @since 5.0.0
+     */
+    public suspend fun insertKeepReturnsNothingSupersededWhenNoParkedRowHeldTheKey() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "other", type = "elsewhere", uniqueKey = "u"))
+        val fresh: KeepResult = store.insertKeep(item(id = "a", uniqueKey = "u"))
+        val keyless: KeepResult = store.insertKeep(item(id = "b", uniqueKey = null))
+        expect(fresh == KeepResult.Inserted(null)) { "a fresh key supersedes nothing; got $fresh" }
+        expect(keyless == KeepResult.Inserted(null)) { "a keyless item supersedes nothing; got $keyless" }
     }
 
     /** The dedup identity is (type, uniqueKey) — the same key under two types is two items. */
     public suspend fun uniqueKeysAreScopedPerType() {
         val store: UploaderStore = createStore()
-        val first: Boolean = store.insertKeep(item(id = "a", type = "one", uniqueKey = "u"))
-        val second: Boolean = store.insertKeep(item(id = "b", type = "two", uniqueKey = "u"))
-        expect(first && second) { "the same unique key under different types must not conflict" }
+        val first: KeepResult = store.insertKeep(item(id = "a", type = "one", uniqueKey = "u"))
+        val second: KeepResult = store.insertKeep(item(id = "b", type = "two", uniqueKey = "u"))
+        expect(first is KeepResult.Inserted && second is KeepResult.Inserted) { "the same unique key under different types must not conflict" }
     }
 
     /** A replacement enters at the tail, so a repeatedly replaced key cannot hold its channel head. */
@@ -712,7 +751,11 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         expect(store.deleteByTag("session").isEmpty()) { "a second wipe of the same tag removes, and returns, nothing" }
     }
 
-    /** The observation flow filters by type and keeps insertion order. */
+    /**
+     * The observation flow filters by type and keeps insertion order. The type is compared exactly: a prefix, a
+     * longer name containing it, the same letters in another case and a name matching it as a wildcard pattern (`_`
+     * or `%`, as SQL `LIKE` reads them) are other types.
+     */
     public suspend fun observeByTypeFiltersAndOrders() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", type = "one"))
@@ -721,6 +764,30 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         val observed: List<String> = store.observeByType("one").first().map { it.id }
         expect(observed == listOf("a", "c")) {
             "observeByType must emit only that type, in order; got $observed"
+        }
+
+        val lookalikes: List<Pair<String, String>> = listOf(
+            "d" to "ones", "e" to "One", "f" to "o_e", "g" to "on", "h" to "xone", "i" to "o%e", "j" to "ONES",
+        )
+        lookalikes.forEach { (id, type) -> store.insertKeep(item(id = id, type = type)) }
+        val expected: List<Pair<String, List<String>>> = listOf(
+            "one" to listOf("a", "c"),
+            "on" to listOf("g"),
+            "ones" to listOf("d"),
+            "One" to listOf("e"),
+            "o_e" to listOf("f"),
+            "o%e" to listOf("i"),
+            "o%" to emptyList(),
+            "_ne" to emptyList(),
+            "%" to emptyList(),
+            "ne" to emptyList(),
+        )
+        for ((type, ids) in expected) {
+            val seen: List<String> = store.observeByType(type).first().map { it.id }
+            expect(seen == ids) {
+                "observeByType('$type') must match the type exactly (no prefix, substring, case folding or " +
+                    "wildcard); expected $ids, got $seen"
+            }
         }
     }
 
@@ -835,9 +902,9 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         val store: UploaderStore = createStore()
         val keys: List<String> = listOf("K", "k", "K ", "K%", "K_", "e\u0301", "\u00E9", "")
         keys.forEachIndexed { index, key ->
-            expect(store.insertKeep(item(id = "k$index", uniqueKey = key))) { "unique key '$key' was taken for another key" }
+            expect(store.insertKeep(item(id = "k$index", uniqueKey = key)) is KeepResult.Inserted) { "unique key '$key' was taken for another key" }
         }
-        expect(!store.insertKeep(item(id = "dup", uniqueKey = "K"))) { "an identical unique key must conflict" }
+        expect(store.insertKeep(item(id = "dup", uniqueKey = "K")) == KeepResult.Kept) { "an identical unique key must conflict" }
         expect(store.getAllActive().size == keys.size) { "a conflicting insertKeep must not add a row" }
     }
 
@@ -940,7 +1007,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         store.insertKeep(item(id = "a", uniqueKey = "k"))
         store.insertKeep(item(id = "b"))
         parkNow(store, "a", "x")
-        expect(store.insertKeep(item(id = "c", uniqueKey = "k"))) { "insertKeep must replace a parked holder of the key" }
+        expect(store.insertKeep(item(id = "c", uniqueKey = "k")) is KeepResult.Inserted) { "insertKeep must replace a parked holder of the key" }
         val ids: List<String> = store.getAllActive().map { it.id }
         expect(ids == listOf("b", "c")) { "the replacement must enter at the tail; got $ids" }
         expect(store.getById("a") == null) { "the parked row must be gone after it was replaced" }
@@ -1005,7 +1072,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         val winners: Int = withContext(Dispatchers.Default) {
             (1..CONCURRENT_CALLS).map { who ->
                 async { store.insertKeep(item(id = "k$who", uniqueKey = "same")) }
-            }.awaitAll().count { it }
+            }.awaitAll().count { it is KeepResult.Inserted }
         }
         expect(winners == 1) { "$winners concurrent insertKeep calls for one key inserted; exactly one must" }
         expect(store.getAllActive().size == 1) { "one key must hold exactly one row" }

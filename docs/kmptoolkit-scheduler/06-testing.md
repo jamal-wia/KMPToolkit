@@ -11,7 +11,7 @@ dependencies {
 
 `kmptoolkit-scheduler-testing` ships one type, `RecordingAlarmScheduler`. It lives in a separate
 artifact for the reason described in
-[`../01-architecture.md`](../01-architecture.md#test-fixtures-ship-as-separate-testing-artifacts):
+[`../01-architecture.md`](../01-architecture.md#test-fixtures-ship-as-separate--testing-artifacts):
 Kotlin Multiplatform cannot expose one module's `commonTest` to a consumer, so a published artifact
 is the only mechanism — and a consumer who never writes a test never downloads it.
 
@@ -54,12 +54,20 @@ fun `a downgraded alarm is surfaced to the user`() = runTest {
 |---|---|
 | `resultFor: (ScheduledAlarm) -> AlarmScheduleResult` | Decides what `schedule` returns. Assignable mid-test, so one instance can succeed for some alarms and fail for others. Defaults to `Exact`. |
 | `armed: List<ScheduledAlarm>` | Currently armed alarms, in the order their ids were first scheduled. |
-| `scheduleCalls: List<ScheduledAlarm>` | Every `schedule` call in order, including replacements and failures. |
+| `scheduleCalls: List<ScheduledAlarm>` | Every `schedule` call in order, including replacements and failures, each as it was at the call. |
 | `cancelledIds: List<String>` | Every id passed to `cancel` / `cancelAll`, including ids that were never armed. |
 | `clear()` | Drops recordings and armed alarms; leaves `resultFor` alone. |
 
 It mirrors the real schedulers where it matters: scheduling an id that is already armed **replaces**
 it, and an alarm whose result is `Failed` is **not** armed — it appears in `scheduleCalls` only.
+
+**Recordings are snapshots.** `scheduleCalls` and `armed` hold a copy of each alarm taken when
+`schedule` is called, with its own copy of `payload`. Code that reuses one mutable map to build
+several alarms is recorded as it was at each call, as the real schedulers, which write the payload
+into the platform request at the call, would arm it (the real schedulers copy the payload before
+they wait for their process-wide lock, so a call queued behind another one arms it as it was at the
+call too). A recorded alarm is equal (`==`) to the one your code passed, not the same instance:
+compare with `assertEquals`, not `assertSame`.
 
 **Not thread-safe.** It is meant for one test's coroutine at a time.
 
@@ -103,7 +111,8 @@ For reference when judging whether a behavior is already guaranteed:
 - **`iosTest`** — the 64-pending-request pre-check of the iOS scheduler against a fake notification
   center: below the cap, a new request at the cap refused, re-scheduling a pending id at the cap
   accepted, a cancel freeing room, and concurrent requests (also across scheduler instances) at 63
-  pending admitting exactly one.
+  pending admitting exactly one; an exception from inside the critical section (a throwing
+  `AlarmSoundResolver`, a throwing fake center) propagating unchanged without poisoning the lock.
 
 The real `UNUserNotificationCenter` calls themselves are not unit-tested: they need a real app
 bundle and an authorization state, and everything around them that can be wrong on its own — the

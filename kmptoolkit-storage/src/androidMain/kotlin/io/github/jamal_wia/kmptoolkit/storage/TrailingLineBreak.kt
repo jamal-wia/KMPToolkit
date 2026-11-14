@@ -12,7 +12,8 @@ package io.github.jamal_wia.kmptoolkit.storage
 // bijection on everything this version writes: the encoded text of a value ending in `\n` + k markers
 // ends in `\n` + (k + 1) markers and decodes back to k; every other value is stored and read byte for
 // byte. A value that an older version already stored with its spaces (`"abc\n    "`) is returned as is,
-// because the damage is ambiguous.
+// because the damage is ambiguous. A value an older version stored that itself ended in `\n` followed by
+// U+E000 reads one marker shorter; the two cannot be told apart.
 
 /** The private-use character appended after a trailing line break; see the note above. */
 private const val LINE_BREAK_MARKER: Char = ''

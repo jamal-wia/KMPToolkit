@@ -5,12 +5,20 @@ A minimal working example, start to finish. Four steps — none of them a manife
 ## 1. Add the dependency
 
 ```kotlin
-dependencies {
-    implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-    implementation("io.github.jamal-wia:kmptoolkit-proximity")
+// build.gradle.kts of your shared module
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-proximity")
+        }
 
-    // Only if you want the FakeProximitySensor double (step 4)
-    testImplementation("io.github.jamal-wia:kmptoolkit-proximity-testing")
+        // Only if you want the FakeProximitySensor double (step 4)
+        commonTest.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-proximity-testing")
+        }
+    }
 }
 ```
 

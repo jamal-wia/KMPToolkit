@@ -1,0 +1,492 @@
+public abstract interface class io/github/jamal_wia/kmptoolkit/files/AppDirectories {
+	public abstract fun directory (Lio/github/jamal_wia/kmptoolkit/files/AppRoot;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/Backup;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun directory$default (Lio/github/jamal_wia/kmptoolkit/files/AppDirectories;Lio/github/jamal_wia/kmptoolkit/files/AppRoot;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/Backup;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public abstract fun excludeFromBackup (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public abstract fun rootPath (Lio/github/jamal_wia/kmptoolkit/files/AppRoot;)Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/AppDirectories$DefaultImpls {
+	public static synthetic fun directory$default (Lio/github/jamal_wia/kmptoolkit/files/AppDirectories;Lio/github/jamal_wia/kmptoolkit/files/AppRoot;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/Backup;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/AppDirectories_jvmKt {
+	public static final fun createAppDirectories (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/FileAccess;)Lio/github/jamal_wia/kmptoolkit/files/AppDirectories;
+	public static synthetic fun createAppDirectories$default (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/FileAccess;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/AppDirectories;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/AppRoot : java/lang/Enum {
+	public static final field Cache Lio/github/jamal_wia/kmptoolkit/files/AppRoot;
+	public static final field Files Lio/github/jamal_wia/kmptoolkit/files/AppRoot;
+	public static final field NoBackup Lio/github/jamal_wia/kmptoolkit/files/AppRoot;
+	public static final field Temporary Lio/github/jamal_wia/kmptoolkit/files/AppRoot;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/AppRoot;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/files/AppRoot;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/Backup : java/lang/Enum {
+	public static final field Excluded Lio/github/jamal_wia/kmptoolkit/files/Backup;
+	public static final field Included Lio/github/jamal_wia/kmptoolkit/files/Backup;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/Backup;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/files/Backup;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/files/CancellationCheck {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck$Companion;
+	public abstract fun isCancelled ()Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/CancellationCheck$Companion {
+	public final fun getNever ()Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/CaseFolding : java/lang/Enum {
+	public static final field Always Lio/github/jamal_wia/kmptoolkit/files/CaseFolding;
+	public static final field Never Lio/github/jamal_wia/kmptoolkit/files/CaseFolding;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/CaseFolding;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/files/CaseFolding;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/Durability : java/lang/Enum {
+	public static final field Buffered Lio/github/jamal_wia/kmptoolkit/files/Durability;
+	public static final field Synced Lio/github/jamal_wia/kmptoolkit/files/Durability;
+	public static final field SyncedWithDirectory Lio/github/jamal_wia/kmptoolkit/files/Durability;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/Durability;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/files/Durability;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/ExistingFile : java/lang/Enum {
+	public static final field Fail Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;
+	public static final field Replace Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/files/FileAccess {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/files/FileAccess$Companion;
+	public static final field MAX_READ_BYTES J
+	public abstract fun createDirectories (Ljava/lang/String;Z)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun createDirectories$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;ZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public abstract fun delete (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public abstract fun deleteRecursively (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun deleteRecursively$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public abstract fun freeSpaceBytes (Ljava/lang/String;)Ljava/lang/Long;
+	public abstract fun list (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public abstract fun metadata (Ljava/lang/String;Z)Lio/github/jamal_wia/kmptoolkit/files/FileMetadata;
+	public static synthetic fun metadata$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;ZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileMetadata;
+	public abstract fun move (Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/MoveOptions;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun move$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/MoveOptions;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public abstract fun readBytes (Ljava/lang/String;J)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public abstract fun sweep (Ljava/lang/String;JLio/github/jamal_wia/kmptoolkit/files/CancellationCheck;Lkotlin/jvm/functions/Function1;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun sweep$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;JLio/github/jamal_wia/kmptoolkit/files/CancellationCheck;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public abstract fun treeSize (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun treeSize$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public abstract fun writeAtomically (Ljava/lang/String;[BLio/github/jamal_wia/kmptoolkit/files/WriteOptions;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun writeAtomically$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;[BLio/github/jamal_wia/kmptoolkit/files/WriteOptions;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileAccess$Companion {
+	public static final field MAX_READ_BYTES J
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileAccess$DefaultImpls {
+	public static synthetic fun createDirectories$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;ZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun deleteRecursively$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun metadata$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;ZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileMetadata;
+	public static synthetic fun move$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/MoveOptions;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun sweep$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;JLio/github/jamal_wia/kmptoolkit/files/CancellationCheck;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun treeSize$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/CancellationCheck;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+	public static synthetic fun writeAtomically$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;[BLio/github/jamal_wia/kmptoolkit/files/WriteOptions;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileAccessConfig {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/files/FileAccessConfig$Companion;
+	public static final field DEFAULT_TEMP_PREFIX Ljava/lang/String;
+	public static final field MAX_TEMP_PREFIX_BYTES I
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileAccessConfig;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccessConfig;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileAccessConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getTempPrefix ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileAccessConfig$Companion {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileAccessFactory_jvmKt {
+	public static final fun createFileAccess (Lio/github/jamal_wia/kmptoolkit/files/FileAccessConfig;)Lio/github/jamal_wia/kmptoolkit/files/FileAccess;
+	public static synthetic fun createFileAccess$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccessConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileAccess;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileAccessKt {
+	public static final fun exists (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Ljava/lang/String;)Z
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/files/FileError {
+	public abstract fun getPath ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$AccessDenied : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileError$AccessDenied;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$AccessDenied;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$AccessDenied;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$AlreadyExists : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileError$AlreadyExists;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$AlreadyExists;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$AlreadyExists;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$Cancelled : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/files/FileError$Cancelled;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$CrossDevice : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileError$CrossDevice;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$CrossDevice;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$CrossDevice;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$DirectoryNotEmpty : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileError$DirectoryNotEmpty;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$DirectoryNotEmpty;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$DirectoryNotEmpty;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$InvalidPath : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileError$InvalidPath;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$InvalidPath;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$InvalidPath;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$Io : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/Integer;
+	public final fun component3 ()Ljava/lang/Throwable;
+	public final fun copy (Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Throwable;)Lio/github/jamal_wia/kmptoolkit/files/FileError$Io;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$Io;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Throwable;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$Io;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public fun getPath ()Ljava/lang/String;
+	public final fun getPlatformCode ()Ljava/lang/Integer;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$IsADirectory : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileError$IsADirectory;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$IsADirectory;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$IsADirectory;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$NameTooLong : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileError$NameTooLong;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$NameTooLong;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$NameTooLong;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$NoSpace : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileError$NoSpace;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$NoSpace;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$NoSpace;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$NotADirectory : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileError$NotADirectory;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$NotADirectory;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$NotADirectory;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$NotFound : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileError$NotFound;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$NotFound;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$NotFound;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$TooLarge : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;JJ)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun component3 ()J
+	public final fun copy (Ljava/lang/String;JJ)Lio/github/jamal_wia/kmptoolkit/files/FileError$TooLarge;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$TooLarge;Ljava/lang/String;JJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$TooLarge;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxBytes ()J
+	public fun getPath ()Ljava/lang/String;
+	public final fun getSizeBytes ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileError$Unsupported : io/github/jamal_wia/kmptoolkit/files/FileError {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileError$Unsupported;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileError$Unsupported;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileError$Unsupported;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileKind : java/lang/Enum {
+	public static final field Directory Lio/github/jamal_wia/kmptoolkit/files/FileKind;
+	public static final field Other Lio/github/jamal_wia/kmptoolkit/files/FileKind;
+	public static final field RegularFile Lio/github/jamal_wia/kmptoolkit/files/FileKind;
+	public static final field SymbolicLink Lio/github/jamal_wia/kmptoolkit/files/FileKind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileKind;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/files/FileKind;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileMetadata {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/files/FileKind;JLjava/lang/Long;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/files/FileKind;
+	public final fun component2 ()J
+	public final fun component3 ()Ljava/lang/Long;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/files/FileKind;JLjava/lang/Long;)Lio/github/jamal_wia/kmptoolkit/files/FileMetadata;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileMetadata;Lio/github/jamal_wia/kmptoolkit/files/FileKind;JLjava/lang/Long;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileMetadata;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKind ()Lio/github/jamal_wia/kmptoolkit/files/FileKind;
+	public final fun getLastModifiedMillis ()Ljava/lang/Long;
+	public final fun getSizeBytes ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileNames {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/files/FileNames;
+	public static final field MAX_NAME_BYTES I
+	public final fun isPlainName (Ljava/lang/String;)Z
+	public final fun isTempName (Ljava/lang/String;Ljava/lang/String;)Z
+	public static synthetic fun isTempName$default (Lio/github/jamal_wia/kmptoolkit/files/FileNames;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Z
+	public final fun isWindowsReserved (Ljava/lang/String;)Z
+	public final fun requirePlainName (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+	public static synthetic fun requirePlainName$default (Lio/github/jamal_wia/kmptoolkit/files/FileNames;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileProtection : java/lang/Enum {
+	public static final field Complete Lio/github/jamal_wia/kmptoolkit/files/FileProtection;
+	public static final field CompleteUnlessOpen Lio/github/jamal_wia/kmptoolkit/files/FileProtection;
+	public static final field CompleteUntilFirstUserAuthentication Lio/github/jamal_wia/kmptoolkit/files/FileProtection;
+	public static final field Default Lio/github/jamal_wia/kmptoolkit/files/FileProtection;
+	public static final field None Lio/github/jamal_wia/kmptoolkit/files/FileProtection;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/FileProtection;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/files/FileProtection;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/files/FileResult {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileResult$Failure : io/github/jamal_wia/kmptoolkit/files/FileResult {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/files/FileError;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/files/FileError;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/files/FileError;)Lio/github/jamal_wia/kmptoolkit/files/FileResult$Failure;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileResult$Failure;Lio/github/jamal_wia/kmptoolkit/files/FileError;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult$Failure;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getError ()Lio/github/jamal_wia/kmptoolkit/files/FileError;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileResult$Success : io/github/jamal_wia/kmptoolkit/files/FileResult {
+	public fun <init> (Ljava/lang/Object;)V
+	public final fun component1 ()Ljava/lang/Object;
+	public final fun copy (Ljava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult$Success;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/FileResult$Success;Ljava/lang/Object;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileResult$Success;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getValue ()Ljava/lang/Object;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/FileResultKt {
+	public static final fun errorOrNull (Lio/github/jamal_wia/kmptoolkit/files/FileResult;)Lio/github/jamal_wia/kmptoolkit/files/FileError;
+	public static final fun getOrNull (Lio/github/jamal_wia/kmptoolkit/files/FileResult;)Ljava/lang/Object;
+	public static final fun isSuccess (Lio/github/jamal_wia/kmptoolkit/files/FileResult;)Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/KeyedMutex {
+	public fun <init> ()V
+	public final fun getActiveKeyCount ()I
+	public final fun tryWithLock (Ljava/lang/Object;Lkotlin/jvm/functions/Function0;)Z
+	public final fun withLock (Ljava/lang/Object;Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/MoveOptions {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;ZZ)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;ZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;
+	public final fun component2 ()Z
+	public final fun component3 ()Z
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;ZZ)Lio/github/jamal_wia/kmptoolkit/files/MoveOptions;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/MoveOptions;Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;ZZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/MoveOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAcrossVolumes ()Z
+	public final fun getCreateParentDirectories ()Z
+	public final fun getExisting ()Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/PathKey {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/files/PathKey;
+	public final fun of (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/CaseFolding;)Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/PathLocks {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/files/PathLocks;
+	public final fun tryWithLock (Ljava/lang/String;Lkotlin/jvm/functions/Function0;)Z
+	public final fun withLock (Ljava/lang/String;Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/Paths {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/files/Paths;
+	public final fun isAbsolute (Ljava/lang/String;)Z
+	public final fun join (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+	public final fun normalizeLexically (Ljava/lang/String;)Ljava/lang/String;
+	public final fun parentOf (Ljava/lang/String;)Ljava/lang/String;
+	public final fun resolveInside (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/SqliteFiles {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/files/SqliteFiles;
+	public final fun sidecarsOf (Ljava/lang/String;)Ljava/util/List;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/WithIoKt {
+	public static final fun withIo (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Lkotlinx/coroutines/CoroutineDispatcher;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun withIo$default (Lio/github/jamal_wia/kmptoolkit/files/FileAccess;Lkotlinx/coroutines/CoroutineDispatcher;Lkotlin/jvm/functions/Function2;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/WriteOptions {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/files/Durability;Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;Lio/github/jamal_wia/kmptoolkit/files/FileProtection;ZLjava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/files/Durability;Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;Lio/github/jamal_wia/kmptoolkit/files/FileProtection;ZLjava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/files/Durability;
+	public final fun component2 ()Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;
+	public final fun component3 ()Lio/github/jamal_wia/kmptoolkit/files/FileProtection;
+	public final fun component4 ()Z
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/files/Durability;Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;Lio/github/jamal_wia/kmptoolkit/files/FileProtection;ZLjava/lang/String;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/WriteOptions;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/files/WriteOptions;Lio/github/jamal_wia/kmptoolkit/files/Durability;Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;Lio/github/jamal_wia/kmptoolkit/files/FileProtection;ZLjava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/WriteOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCreateParentDirectories ()Z
+	public final fun getDurability ()Lio/github/jamal_wia/kmptoolkit/files/Durability;
+	public final fun getExisting ()Lio/github/jamal_wia/kmptoolkit/files/ExistingFile;
+	public final fun getProtection ()Lio/github/jamal_wia/kmptoolkit/files/FileProtection;
+	public final fun getTempDirectory ()Ljava/lang/String;
+	public final fun getTempPrefix ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/spi/FileOpException : java/lang/Exception {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/files/FileError;)V
+	public final fun getError ()Lio/github/jamal_wia/kmptoolkit/files/FileError;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/files/spi/FileSystemOps {
+	public abstract fun createDirectory (Ljava/lang/String;)V
+	public abstract fun createNew (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/FileProtection;)Lio/github/jamal_wia/kmptoolkit/files/spi/WritableFile;
+	public abstract fun getWindowsPaths ()Z
+	public abstract fun link (Ljava/lang/String;Ljava/lang/String;)V
+	public abstract fun list (Ljava/lang/String;)Ljava/util/List;
+	public abstract fun metadata (Ljava/lang/String;Z)Lio/github/jamal_wia/kmptoolkit/files/FileMetadata;
+	public abstract fun nowMillis ()J
+	public abstract fun openForRead (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/files/spi/ReadableFile;
+	public abstract fun remove (Ljava/lang/String;)V
+	public abstract fun rename (Ljava/lang/String;Ljava/lang/String;)V
+	public abstract fun syncDirectory (Ljava/lang/String;Z)V
+	public abstract fun usableSpace (Ljava/lang/String;)Ljava/lang/Long;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/spi/FileSystemOpsKt {
+	public static final fun fileAccessOver (Lio/github/jamal_wia/kmptoolkit/files/spi/FileSystemOps;Lio/github/jamal_wia/kmptoolkit/files/FileAccessConfig;)Lio/github/jamal_wia/kmptoolkit/files/FileAccess;
+	public static synthetic fun fileAccessOver$default (Lio/github/jamal_wia/kmptoolkit/files/spi/FileSystemOps;Lio/github/jamal_wia/kmptoolkit/files/FileAccessConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/files/FileAccess;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/files/spi/FoldCaseKt {
+	public static final fun foldCaseForKey (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/files/spi/ReadableFile {
+	public abstract fun close ()V
+	public abstract fun read ([BII)I
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/files/spi/WritableFile {
+	public abstract fun close ()V
+	public abstract fun sync (Z)V
+	public abstract fun write ([BII)V
+}
+

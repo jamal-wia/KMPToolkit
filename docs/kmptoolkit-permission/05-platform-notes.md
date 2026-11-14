@@ -136,7 +136,8 @@ it there — which is why the Android factory takes a `KeyValueStorage`.
   disagree.
 - Entries that ask Android for the same permission string (or a subset of it) share what was learned: a
   refusal for good through `PhotoLibrary` reads as one through `AudioLibrary` below API 33, and through
-  `Calendar` as one through `CalendarWriteOnly`. The reverse direction is not mirrored (the full calendar
+  `Calendar` as one through `CalendarWriteOnly`, and the flags are cleared for those entries too when the
+  permission is granted. The reverse direction is not mirrored (the full calendar
   can still show a dialog for the read string), and neither is a partial answer. A `Runtime(name)` you
   build for a string a catalog entry already covers keeps its own flags, so ask through one of the two.
   `observe` follows the same model: a request through one of these entries re-reads every observer of
@@ -291,7 +292,8 @@ random token of the running process, so the answer to a dialog that was up when 
 which the restored activity's registry parks under the old key, never matches a request of the new
 process and is never taken for its first one. The dead request's answer stays unread in that
 activity's saved state until the activity finishes (one small entry; no public registry API can
-remove it).
+remove it). The same holds for the key of a dialog that was still up when the process died; the key of an
+answered one is released.
 
 The host holds the activity whose registry the dialog uses only while that dialog is showing; nothing
 is kept between requests. An activity destroyed for recreation (a configuration change, the system
@@ -299,7 +301,11 @@ reclaiming it) is let go at its destroy, and the answer is picked up from the re
 it resumes. An activity that another live one covered while the dialog was up stays registered until
 the request ends, since the answer goes to the registry the dialog was started from; every
 registration, including one the registry handed a waiting answer to during registration, is dropped
-when the request ends. A request ends when the user answers, when the activity the dialog was shown
+when the request ends. A registration dropped from inside the registry's own result callback is unregistered
+at once and again from a post to the main looper, which runs after the registry's dispatch and frees the
+request code (the registry keeps the code of an unregistered key until the dispatch is over, and it would
+otherwise stay for every answered dialog, in memory and in the activity's saved state); the post leaves the
+key alone when a newer request of the host has taken it on that activity meanwhile. A request ends when the user answers, when the activity the dialog was shown
 from (or its recreated instance) is finished (destroyed, or another activity resumes over it), or at
 process death. Only that activity decides it: another activity of the app that opens and finishes
 while the dialog is up (a trampoline or deep-link screen) never ends the request, and the activity the
@@ -315,11 +321,14 @@ host is free (the stale dialog answered or abandoned) and then launches its own 
 bounded at 30 seconds (an internal constant, not configurable) and ends at once if the waiting caller
 is cancelled. When the stale dialog is still up at the bound, the waiting request fails like a refused
 launch: nothing is shown and the current status is returned. A request arriving after the wait has
-timed out is not held again; it goes straight to the host.
+timed out is not held again: it fails at once the same way, without a call to the host, for as long as
+that dialog is up (once the host reports it done, the next request launches its own), so a host never
+sees a launch while a dialog is pending.
 
-Each `createPermissionController` call without an `activityAccess` registers its own activity
-tracker, a lifecycle callback on the `Application` that lives as long as the process. Build the
-controller once, or pass one shared `ActivityAccess` to every factory that takes one.
+Every `createPermissionController` call without an `activityAccess` shares one activity tracker per
+`Application`, a lifecycle callback registered on first use that lives as long as the process and is
+never released, so a controller per screen adds no callbacks. Pass one shared `ActivityAccess` if
+another factory of yours should track the same activities.
 
 ### `minSdk`
 

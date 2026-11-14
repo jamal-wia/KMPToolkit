@@ -20,10 +20,13 @@ kotlin {
 This module is Compose Multiplatform code and is published for `android`, `iosArm64`,
 `iosSimulatorArm64` and `jvm`. There is no `iosX64` variant.
 
-The `jvm` (desktop) target is this module's alone — no other module in the suite publishes one. It
-exists so a UI tree shared with desktop still compiles: a screen states what it wants from the bars
-without knowing where it runs, and desktop simply has no bars to give it. Every platform call there
-is a no-op, while the layer stack behaves exactly as it does everywhere else. See
+The `jvm` (desktop) target is not unique to this module: a few others publish `jvm` as well (the root
+`README.md` module table marks each with "Also publishes `jvm`"). On this module it exists so a UI
+tree shared with desktop still compiles: a screen states what it wants from the bars without knowing
+where it runs, and desktop simply has no bars to give it. Its `createSystemBarsController()` returns
+the same headless controller as `createHeadlessSystemBarsController()`, and its
+`createScreenWakeLockController()` returns a controller whose `setKeepScreenOn` does nothing. Every
+platform call there is a no-op, while the layer stack behaves exactly as it does everywhere else. See
 [`docs/01-architecture.md`](../01-architecture.md) for the full reasoning.
 
 ## 2. Create the controller
@@ -96,7 +99,7 @@ fun AppTheme(controller: SystemBarsController, darkTheme: Boolean, content: @Com
             if (darkTheme) SystemBarsConfig.ForDarkBackground else SystemBarsConfig.ForLightBackground,
         )
     }
-    MaterialTheme(colorScheme = if (darkTheme) darkColors else lightColors, content = content)
+    MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme(), content = content)
 }
 ```
 
@@ -130,8 +133,8 @@ visibility, and neither touches the other's axis.
 
 ## 5. If you use dialogs or bottom sheets on Android
 
-A `Dialog`, `Popup` or `ModalBottomSheet` renders into a window of its own, which the controller
-never sees. One line at the top of its content lambda fixes it:
+A `Dialog` or `ModalBottomSheet` renders into a window of its own, which the controller
+never sees. One line at the top of its content lambda fixes it (a `Popup` is not covered):
 
 ```kotlin
 ModalBottomSheet(onDismissRequest = ::dismiss) {

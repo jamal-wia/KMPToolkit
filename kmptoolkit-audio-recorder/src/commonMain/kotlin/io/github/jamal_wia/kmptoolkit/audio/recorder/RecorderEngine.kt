@@ -142,6 +142,14 @@ internal interface RecordingFileSystem {
     fun parentOf(path: String): String?
 
     /**
+     * Whether [path] is absolute for this file system. The default is the POSIX rule (`/…`), which
+     * is the only one on iOS and on a device; the Android implementation defers to the running JVM
+     * so a Windows host (where host tests of the module run) accepts `C:\…`.
+     */
+    // path-hygiene-ignore: PH5 the documented default is the POSIX rule (iOS, a device); the Android implementation overrides it with the JVM's own
+    fun isAbsolute(path: String): Boolean = path.startsWith('/')
+
+    /**
      * Creates [path] and any missing parents, then reports whether the result is a directory that
      * can be written to. Returns `false` rather than throwing for an ordinary permission problem.
      */
@@ -152,6 +160,13 @@ internal interface RecordingFileSystem {
 
     /** Whether a file or directory exists at [path]. Never throws; `false` when unsure. */
     fun exists(path: String): Boolean
+
+    /**
+     * Whether [path] is an existing regular file, as opposed to missing or a directory. Never throws.
+     * The recorder asks it after the encoder finished, to refuse to call a recording that is no longer
+     * there complete. An implementation that cannot tell answers `true`, so the default does.
+     */
+    fun isRegularFile(path: String): Boolean = true
 
     /** Deletes [path] if it exists. Never throws; a failure to delete is not worth a crash. */
     fun delete(path: String)

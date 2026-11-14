@@ -68,7 +68,7 @@ Nothing moves on its own — there is no wall clock inside.
 | `val isPlaying`, `val positionMs`, `val seekTargets` | Assert what the player asked the platform to do. |
 | `val appliedSpeed`, `val appliedVolume`, `val isLooping` | Assert the settings the platform received — `appliedVolume` is `0f` while the player is muted. |
 | `val loadedSources` | Every source passed to `load`, in order, including failed ones. |
-| `val releaseCount`, `val disposeCount`, `val hasListener` | Assert the release contract. `releaseCount` goes up once per unload, per cancelled load, per `prepare` that replaces a loaded or in-flight source, and for the player's own release (a first `prepare` adds none). `disposeCount` is `1` once the player is released, `0` before — never raised by an unload. |
+| `val releaseCount`, `val disposeCount`, `val hasListener` | Assert the release contract. `releaseCount` goes up once per unload, per cancelled load, per `prepare` that replaces a loaded, in-flight, failed or `Error` source, and for the player's own release (a first `prepare` adds none). `disposeCount` is `1` once the player is released, `0` before — never raised by an unload. |
 
 ## Observing position updates
 
@@ -156,6 +156,10 @@ stays `0`) nor detaches the listener (`hasListener` stays `true`), and the next 
 The fake substitutes the platform, so nothing below it is exercised: Media3's and `AVPlayer`'s own
 behavior, codecs, HLS parsing, asset resolution, cleartext policy, what the surface draws.
 
+`VideoPlayerStaleCompletionRestartTest` pins the other half of the stale-completion rule: a completion
+dropped while `Playing` makes the player call `start()` and `setSpeed` again, one dropped while paused,
+stopped or of a released source starts nothing.
+
 The module's own tests take the same split. The state machine, the release contract, settings,
 buffering and picture size are covered in `commonTest`, on every target — including, with real
 threads, an end of media, a pause and a release racing the position poll, and engine events
@@ -163,6 +167,8 @@ reported from inside one of the player's own calls. On Android, Robolectric
 tests run the real Media3 engine over Media3's test ExoPlayer (fake renderers, a fake clock) and fake
 media sources: loading, completion, looping, buffering on seek, the picture-size mapping, settings,
 marshalling from other threads, `release` versus `dispose`, and the source-to-URI and header mapping.
-What they cannot cover without a device: real decoding, a real network stream and HLS end to end,
-and a playback failure *after* a successful load (Media3's fakes offer no clean way to inject one) —
-that path is covered by the common tests against the engine contract.
+A playback failure *after* a successful load is covered there too: a `FakeRenderer` subclass that
+throws an `ExoPlaybackException` once told to, installed through `TestExoPlayerBuilder.setRenderers`,
+makes Media3's test player report a real `onPlayerError` on the looper (`Media3MidPlaybackFailureR8AdversarialTest`:
+one engine failure carrying the original `PlaybackException`, and the player ending in `Error` with it).
+What they cannot cover without a device: real decoding, and a real network stream and HLS end to end.

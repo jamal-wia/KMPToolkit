@@ -40,7 +40,11 @@ From the [OpenJFX 27 media documentation](https://openjfx.io/javadoc/27/javafx.m
 | HLS (`.m3u8`: MPEG-2 TS or fMP4 segments) | H.264/AVC, H.265/HEVC (fMP4) | AAC, MP3 |
 | MP3, WAV, AIFF, M4A | — (audio only) | MP3, PCM, AAC |
 
-Protocols: `file:`, `http:`, `https:`, `jar:` (which is how a classpath `Asset` inside a jar plays).
+Protocols: `file:`, `http:`, `https:`, `jar:` (which is how a classpath `Asset` inside a jar plays). A class loader that does not percent-encode its
+URLs (`File.toURL()`, plugin loaders) is repaired for `file:` and `jar:file:` alike: the jar's own URI is
+encoded and the entry is encoded as a path. A name with a character outside the Basic Multilingual Plane (an emoji)
+is repaired the same way: the JDK's class loader encodes it one UTF-16 surrogate at a time, which is not valid UTF-8 and
+which JavaFX rejects, so the pairs are joined and the URI is encoded again as UTF-8.
 
 Per OS, decoding is done by the platform:
 
@@ -52,11 +56,19 @@ Per OS, decoding is done by the platform:
 
 What an unsupported source does:
 
-- An unknown container or protocol — `MediaException` from `prepare`, straight away.
+- An unknown container, or a target JavaFX can reach but cannot open (a refused connection, an HTTP
+  error) — `MediaException` from `prepare`, within a few seconds (about 5 s for an HTTP 404 on
+  macOS). A remote source that never answers usefully (an `https` URL whose TLS handshake fails, a
+  connection reset while the clip loads) reports nothing on macOS; the engine fails that load with
+  `LoadTimedOut` after 30 s. A URL JavaFX cannot parse or that has no scheme fails with
+  `IllegalArgumentException`, and a protocol it does not support (for example `ftp:`) with
+  `UnsupportedOperationException`, both straight away.
 - A file JavaFX starts to parse but cannot decode — on macOS JavaFX may report **nothing at all**;
   the engine fails the load with `JavaFxVideoPlayerException.LoadTimedOut` after 30 s.
 - For MP4 over HTTP, the `moov` atom must be at the start of the file (`-movflags +faststart`), or
-  JavaFX stalls until the whole file has downloaded.
+  JavaFX stalls until the whole file has downloaded. The server must also honour byte ranges
+  (answer a `Range` request with `206`): JavaFX on macOS asks for ranges first, and a server that
+  answers with the whole file (`200`) never gets the source ready (`LoadTimedOut` after 30 s).
 
 ## CPU cost
 
@@ -103,7 +115,8 @@ decoder writes straight into memory without a render-and-read-back step.
   Only
   when the engine itself started the toolkit does it call `Platform.setImplicitExit(false)` — it
   never opens a window, and without that JavaFX could shut down when a window of the app's closes.
-  An app that runs its own JavaFX windows keeps its own exit policy.
+  An app that runs its own JavaFX windows keeps its own exit policy (when the engine started the toolkit, it switches
+  implicit exit off once its first start completes, so an app that chooses its policy before that has it overwritten).
   Callers that were waiting meanwhile each try again in turn, so while the thread stays
   unresponsive, N concurrent first calls can take up to N x 10 s; the bound is per attempt, not per
   caller.
@@ -116,7 +129,8 @@ decoder writes straight into memory without a render-and-read-back step.
   are seen through the thread (where it ends with the toolkit) or through a heartbeat block that the
   JavaFX thread has not run for 2 s. Silence counts only while an implicit exit is possible at all
   (implicit exit on; never when the engine started the toolkit, since it switches implicit exit
-  off), and never while the JavaFX thread is running the engine's own work, such as building a
+  off; when an interrupted first start is retried, only when the retry is made off the JavaFX thread), and never while the
+  JavaFX thread is running the engine's own work, such as building a
   player on a cold start. A thread kept busy for 2 s by the app's own work while implicit exit is on
   is still taken for an exited one until it answers: that load fails with `RuntimeUnavailable`,
   which is not remembered, and the next load works. The first call or load after such an exit therefore takes up to
@@ -124,6 +138,10 @@ decoder writes straight into memory without a render-and-read-back step.
   as running again. A load in flight when the toolkit ends fails within about 2 s as well. Where
   JavaFX is hosted on a thread that outlives it (inside Swing or SWT), the heartbeat, with implicit exit on, is the only
   signal.
+  Because of that the JVM does not end on its own when `main` returns: while the toolkit runs, JavaFX keeps a thread of
+  its own (`JavaFX-KeepAlive`) that is not a daemon, and when the engine started the toolkit it also turned implicit exit
+  off. End such a program with `Platform.exit()` or `exitProcess(...)`. Compose Desktop's `application { }` already exits
+  the process when its last window closes (its default).
 - **Where work happens.** Every `MediaPlayer` call runs on the JavaFX application thread, in the
   order the calls were made from whichever threads made them (a call made on that thread runs at
   once only when nothing queued from another thread is still waiting to run); the position, duration and buffered position the core module polls are cached there, so polling never
@@ -142,22 +160,127 @@ decoder writes straight into memory without a render-and-read-back step.
   it until the seek has reached the JavaFX application thread: a playhead reading JavaFX took before
   the seek, but delivered after it because that thread was busy, never puts the old position back.
   JavaFX then seeks asynchronously, so the one reading after that — about 100 ms later — can still
-  show the old playhead before the new one arrives.
+  show the old playhead before the new one arrives. A `pause()` followed by `play()` is not a seek: the
+  clip resumes from exactly where it was paused, at any speed (see "Playback speed" below).
 - **Looping** (`RepeatMode.One`) uses JavaFX's own `cycleCount = INDEFINITE`, so JavaFX restarts
-  the source itself, and `Completed` is never reported while it is on.
+  the source itself, and `Completed` is never reported while it is on. `RepeatMode.One` switched on in the
+  instant a clip ends, after JavaFX has already decided to end it, does not make JavaFX restart it: the engine
+  reports the end, and the player, which is in `RepeatMode.One` by then, starts the clip over from the start at
+  once, so the state stays `Playing` and the clip loops from then on (the vlcj engine restarts the clip itself in
+  that case; the result is the same).
 - **End of media.** JavaFX leaves its own status at `PLAYING` when the last cycle ends; the engine
   pauses it there, so a seek from `Completed` stays `Paused` — in the state and in JavaFX — until
-  `play()`.
+  `play()`. A `stop()` or a `seekTo()` that lands in the instant between JavaFX reaching the end of the clip and
+  delivering that end to the engine (one FX-thread task) can still be followed by `Completed` after the call has
+  returned; a `play()` from there starts at the beginning. 5.0.0 does not change this.
 - **Open files after release.** JavaFX gives a `Media` no way to be closed: the file or connection
   it opened stays open after `release()` until the garbage collector reclaims it. Under the usual
   descriptor limits this matters only for an app that loads thousands of sources between two
   collections.
-- **Playback speed.** On macOS, `MediaPlayer.play()` starts the native player at normal speed
-  whatever rate JavaFX holds, so a speed set while paused would be lost; the engine applies the rate
-  again after every `play()`.
+- **Playback speed.** On macOS, `MediaPlayer.play()` and the start of the next cycle of a looping
+  source begin at normal speed whatever rate JavaFX holds, so a speed set while paused, or one set
+  before a loop wraps, would be lost. The freeze windows below, and the normal-speed start of `play()`, were measured on macOS only; the
+  engine applies the same rules on Windows and Linux, where they are unmeasured. On a decoder that honours the rate
+  property at `play()`, the away-and-back that gives a speed is a short dip to normal speed, and the first moments after
+  a loop wrap play at normal speed although the decoder could keep the speed. A rate change right after a plain `play()` can freeze the playhead
+  for good (about one resume in four in the measurements), while one right after a native seek followed by
+  `play()`, before the native player reports playing, froze it once in 120 probe rounds, one right after a native
+  seek on a player that is already playing can freeze it too (both below), and one after the playhead had moved on
+  for a while did not in any run. A native seek is no cure for a resume
+  that was paused part-way through a key-frame interval, though: it lands on the key frame at or before
+  the position, so the clip would resume from there. So the engine gives the speed to a resume in one of
+  two ways. When a native seek is already pending (the caller's own `seekTo`, or the restart after the
+  source ended), it issues `play()` and gives the speed right after it, as one away-and-back; the shared
+  player gives a speed it changed meanwhile only after `start()`, and a speed that follows `start()`
+  immediately replaces the one `start()` was about to give, whichever thread made the calls (on the FX
+  thread, where `start()` runs at once and the next call queues, the pending speed is given two FX tasks
+  later, so the speed that follows still gets in front of it and the native player sees one away-and-back,
+  not three rate changes next to `play()`); the same holds when the playhead stands within about 100 ms of
+  the start (the first play, a replay, but not a resume of a looping clip from the point where its loop restarted, with no seek since, below), where a seek to it moves nothing visible, but only while the native
+  player has not started playing: a speed that arrives after its status has turned `PLAYING` (a speed changed
+  shortly after a play near the start of a clip, within about 600 ms) is given as for a resume with no seek
+  pending, below, instead, because a seek followed at once by a rate change on a started decoder can freeze the playhead, so that
+  speed takes effect after about 200 ms of playback. When no seek is pending
+  and the playhead is further on, or a looping clip is paused where its loop restarted, with no seek since, however long ago (the native playhead stands
+  at the start where JavaFX's own restart seek put it, and a seek of the engine's own on that state, with the rate change after it, held the macOS playhead still in about one resume in ten), a resume at a speed other than 1
+  (including a speed that arrives within about 600 ms of a plain `play()`, also at a loop restart: it was changed while paused or
+  ready, or right after a play) plays from exactly where it was paused with no native seek, and the speed
+  is given as one away-and-back once the playhead has moved about 200 ms at normal speed (counted only as far as
+  the clock allows: the first reported time after a resume can be stale, and a tick that runs ahead of the clock (or
+  behind its anchor) restarts the count; the speed is given on a tick of the playhead, so a little later). For that
+  time the playhead advances at normal speed, then the reported time catches up; right after the speed is given, the
+  reported time stood still for about a quarter of a second (0.24 to 0.32 s, estimated from the 2x line after it) in
+  all 14 resumes of the probe run before it advanced at the new speed (macOS), and the reported time right after a pause can lag the decoder by about 0.4 to 0.55 s (421 to 538 ms in two probe runs); a pause
+  meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait. The clock bound has a limit on
+  macOS, where the decoder runs at normal speed until the speed is given while the bound allows the held speed: a
+  stale reading that lags by L ms is recognised only if the fresh one follows within (L - 50) / (speed - 1) ms (for the
+  lags of 421 to 538 ms measured in two probe runs: about 371 to 488 ms at speed 2, 124 to 163 ms at speed 4, 53 to 70 ms at speed 8); a later fresh reading counts as
+  playback and the speed is given before 200 ms of playback. The fresh reading followed the stale one within 1 to 22 ms in the probe
+  runs, well inside that limit at every speed (one resume in fourteen had no stale reading).
+  A `play()` that follows a rate written while the player was not playing within about 200 ms waits for the rest of
+  those 200 ms on every resume path but one (a `play()` right next to a rate write froze the playhead at a speed of 8
+  in the measurements). The exception is a `play()` from within about 100 ms of the start of the clip, at a speed other
+  than 1 and with no seek pending, that is not a resume from the point where a loop restarted: it first seeks to where it stands and plays at once, because a native seek after the
+  write clears the gap. Such a write is a `setPlaybackSpeed()` on a paused player, the held speed that a `pause()` or
+  the end of a clip writes, or a speed that a `pause()` overtook before it was given, or the return to normal speed at a loop wrap that JavaFX delivers after a `pause()`, also when a later `play()` is still
+  waiting; a waiting `play()` checks the gap again when its wait ends, so such a write pushes it to 200 ms after the write. So a `setPlaybackSpeed()`
+  immediately followed by `play()` starts up to 200 ms late, except a play near the start (and not just after a loop wrap). A speed given while
+  that `play()` waits is held and given after the play (as a settle, about 200 ms of playback later on the plain path),
+  never written in front of it; a second `play()` meanwhile does nothing (the first one plays once, at the end of the
+  wait), a `seekTo()` meanwhile does not shorten the wait, and a `pause()` or the end of the clip meanwhile cancels it
+  (a speed held for it is kept for the next `play()`); if a looping clip wraps meanwhile, the held speed is given as
+  after any wrap, once the playhead has moved about 200 ms (a held speed of 1 at the wrap itself, as the property then
+  goes back to normal at once). The held speed of a
+  `pause()` or of the end of a clip is written after the native pause, never on the decoder that still runs, so it is
+  a write on a player that is not playing and the next `play()` waits out its 200 ms too.
+  After a loop wrap the speed is given again as one change once the playhead has wrapped and moved about
+  200 ms (counted the same way), and no sooner than 300 ms after a seek made meanwhile (a rate change within about 100 ms of a
+  native seek can freeze the playhead too); the reported time of a loop's second cycle can hold still for
+  about 300 ms and then catch up.
+  Those 200 ms are measured on ticks of the reported time, and the first tick of the new cycle comes only after that
+  hold, so the speed returns about 0.55 s after the wrap on an idle machine and later on a busy one (up to about 1.2 s
+  in the load measurements); meanwhile the clip plays at normal speed, and the speed is never lost for a clip whose cycle
+  outlasts that wait. A looping clip shorter than about 0.6 s of media wraps again before the speed returns, so every cycle
+  after the first plays at normal speed, on every platform (the engine puts the rate back to normal at each wrap); between
+  about 0.6 and 1 s the speed returns late in each cycle. For such a clip, encode it at the speed you need or loop a longer
+  clip.
+  A speed given to a playing clip within about 300 ms of a seek (`seekTo()`, `seekForward()`/`seekBackward()` or
+  `replay()` while playing, a `stop()` followed by `play()`, playing a completed clip, or the wrap of a looping clip,
+  which restarts with a native seek) is not written at once,
+  because on macOS that can leave the player `Playing` with its playhead standing at the seek position for good;
+  this also holds for a speed given soon after a resume (or a first play) and then a seek.
+  On every platform the native player keeps its old speed until 300 ms after the seek and until the playhead has
+  then moved about 200 ms of media (counted as for a resume: a reading that runs ahead of the clock or steps back
+  restarts the count), and then takes the new one.
+  In probe runs on macOS, a speed written right after the engine's own seek to the start (the first play at a
+  speed, or a resume within about 100 ms of the start, not a resume of a looping clip paused where its loop restarted, which takes no seek since 5.0.0) left the playhead standing still once in 120 rounds, and
+  not in 40 first plays of a fresh clip or in 120 resumes after a seek; before the native player reports playing,
+  the engine still gives that speed at once (a speed after that is held as described above),
+  because holding it back would play the start of every such play at normal speed for half a second or more.
+  This is not changed by 5.0.0.
   A rate that is not finite and positive, or a NaN volume, is ignored at the engine (the player never
-  passes one).
+  passes one). Any other speed is handed to JavaFX unchanged; JavaFX documents playback rates from 0 to 8, and what the native
+  decoder does above 8 has not been measured, so give the player a `playbackSpeedRange` within 8x if it plays through this engine.
 - **Buffering** is reported from JavaFX's `STALLED` status; the buffered position comes from
   `bufferProgressTime`, which is meaningful for progressive HTTP sources (for a local file expect it
   to cover the whole duration).
 - **Picture size** is the size JavaFX reports for the media (`Media.width` / `height`).
+
+## Known issue: releasing a video player on macOS can crash the JVM
+
+OpenJFX's macOS media backend (`AVFMediaPlayer`) gives every player that has a video track its own
+CoreVideo display link. The display link is started from a media callback without any guard against
+the player being disposed, while `dispose()` stops and frees it. When a player is released at the
+moment its display link starts, the JVM can die with a native crash inside `CoreVideo`
+(`CVHWTime::reset`, `CVDisplayLink::runIOThread`). The fault is inside OpenJFX, not in this library,
+and it cannot be caught from Java.
+
+`VideoPlayer.release()`, and `prepare()` with a new source, dispose the JavaFX player straight away, so an
+app can reach the window when it releases or replaces a *video* source right after `play()`, `seekTo()` or
+a resume from a long pause, or cancels a load while the player is still preparing. The probability is
+low in normal use and real for rapid switching (playlists, scrubbing thumbnails). Audio-only sources
+have no display link and are not affected.
+
+Until OpenJFX fixes it (the report to OpenJFX is pending), avoid releasing or replacing video
+players in quick succession on macOS: let a started player run for a moment, and debounce rapid
+source switches before they reach the engine.

@@ -7,9 +7,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * The documented limit, at its edge: "A throwable whose cause chain is too deep to render (more than 64 nested
- * causes) is recorded as its first 64 causes, without stack frames." Up to 64 causes the record is the full
- * `stackTraceToString()`; from 65 it is the first 64 causes, no frames, and the rest only counted.
+ * The documented limit on a plain cause chain, at its edge: a graph with a throwable more than 64 levels below
+ * the root is "recorded without stack frames, as its own text, its first 64 causes and a count of the rest".
+ * Up to 64 causes the record is the full `stackTraceToString()`; from 65 it is the first 64 causes, no frames,
+ * and the rest only counted.
  */
 class OverlayCauseDepthBoundaryTest {
 

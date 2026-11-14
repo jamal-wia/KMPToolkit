@@ -16,6 +16,10 @@ package io.github.jamal_wia.kmptoolkit.downloader
  * same [DownloadUnit.id] refer to the same bytes on disk, whatever objects they happen to be.
  * (Deriving every path from the unit's properties, as both shipped implementations do, gives this
  * for free; an implementation that keyed anything on the object itself would break it.)
+ *
+ * A symbolic link at any path the shipped storages name for a unit (resource, temp file) is read
+ * through: sizes and states are those of what it points to, and a dangling link is absent. Links
+ * inside an archive tree are not followed.
  */
 public interface DownloaderStorage {
 
@@ -25,8 +29,11 @@ public interface DownloaderStorage {
     }
 
     /**
-     * True when [unit]'s resource is present AND complete: a plain file must exist, a directory
-     * resource must contain its [ResourceFormat.ZipArchive.availabilityMarker], so an extraction
+     * True when [unit]'s resource is present AND complete. A plain-file resource must exist as a file: a
+     * symbolic link to one counts, while a directory or a dangling link at that path does not. Android reads
+     * this as `File.isFile`, so a FIFO, a socket or a device node does not count there; iOS reads any existing
+     * path that is not a directory as available, so it counts one of those (no download produces such a node).
+     * A directory resource must contain its [ResourceFormat.ZipArchive.availabilityMarker], so an extraction
      * interrupted halfway does not read as available.
      */
     public fun isResourceAvailable(unit: DownloadUnit): Boolean
@@ -142,10 +149,11 @@ public interface DownloaderStorage {
      * [unit] left behind, unless a commit of [unit] is running in this process (the removal never
      * waits for it; the next call or the next commit reclaims the staging). A custom storage that
      * extracts archives through a staging area should do the same, or an interrupted extraction of
-     * a unit that is then dropped stays on disk. They also sweep `tmp/trash/`, where a detached
+     * a unit that is then dropped stays on disk. They also sweep `tmp/kmptoolkit-internal/trash/`, where a detached
      * extraction tree lands before its delete, so a tree whose delete a process kill or an I/O error
      * cut short is reclaimed by the next call for any unit; nothing ever commits from that directory,
-     * so the sweep needs no lock.
+     * so the sweep needs no lock. A symbolic link standing in place of that directory is removed as a
+     * link, never followed.
      */
     public fun deleteTempFile(unit: DownloadUnit)
 
@@ -186,13 +194,31 @@ public interface DownloaderStorage {
      * nothing. A committed resource is never removed before its replacement is ready to take its
      * place. The shipped storages serialize across every instance over the same base directory in
      * the process; a custom implementation must give the same guarantee.
+     *
+     * The engine additionally serializes the whole transfer-and-commit of one unit across engines,
+     * but only for the storages returned by `createDownloaderStorage`. With a storage you implement
+     * or wrap (a logging decorator, for example) two engines over one directory are not coordinated:
+     * use one engine per directory.
      */
     public suspend fun commitResource(unit: DownloadUnit)
 
-    /** Bytes [unit] occupies on disk (summed recursively for a directory), or 0 when absent. */
+    /**
+     * Bytes [unit] occupies on disk (summed recursively for a directory), or 0 when absent. It does not
+     * consult [isResourceAvailable]: a directory at a plain-file unit's path, which reads as unavailable, is
+     * still totalled, as is an archive tree whose marker is missing. A symbolic link at the unit's path is
+     * followed (it is the resource, as for [isResourceAvailable]); links inside a directory are not followed and
+     * add nothing.
+     */
     public fun getResourceSize(unit: DownloadUnit): Long
 
-    /** Removes [unit]'s committed resource, file or directory. Safe when it is not present. */
+    /**
+     * Removes [unit]'s committed resource, file or directory. Safe when it is not present. A directory is moved aside in
+     * one step and then deleted, so it is never seen half removed. A [ResourceFormat.SqliteDatabase] goes into the trash
+     * together with its `-wal`, `-shm` and `-journal` (close every connection to it first); it never throws for a name
+     * that stays at the path (for example a connection still writing to it): it logs a warning and leaves what stays,
+     * so the unit reads as unavailable with stray sidecars that the next commit moves aside, or as still available if
+     * the file itself could not be moved.
+     */
     public fun deleteResource(unit: DownloadUnit)
 }
 

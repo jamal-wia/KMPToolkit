@@ -10,9 +10,13 @@ The BOM pins a matching version for every `kmptoolkit-*` artifact, so you never 
 versions per module by hand:
 
 ```kotlin
-// commonMain source set, or a shared dependencies block that all targets see
-dependencies {
-    implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+// build.gradle.kts of your shared module
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+        }
+    }
 }
 ```
 
@@ -24,9 +28,14 @@ Replace `<version>` with the latest release — see the badge on the root
 With the BOM in place, module coordinates don't need an explicit version:
 
 ```kotlin
-dependencies {
-    implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-    implementation("io.github.jamal-wia:kmptoolkit-logging")
+// build.gradle.kts of your shared module
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-logging")
+        }
+    }
 }
 ```
 

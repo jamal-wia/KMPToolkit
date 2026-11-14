@@ -40,11 +40,35 @@ These paths are an implementation detail, documented so you can find your own da
 depend on them. The suffix is what keeps a queue distinct from a database of yours that happens to
 share a name.
 
+Names are compared the way the volume compares file names, so two names are two queues only where they are two file
+names. Every Apple volume (iPhone, iPad, the simulator, and an iOS app running on a Mac) treats names that differ only
+in Unicode normalization as one name (`é` written as one character or as `e` plus a combining accent). The simulator
+and a Mac also ignore letter case, and so does any case-insensitive volume. There, `Queue` and `queue` are one file and
+therefore one queue. Android's `databases/` directory compares names byte for byte. Two queues that end up on one file
+are two storages over one file, which is not supported (see [`03-guide.md`](03-guide.md)). Give independent queues
+names that differ in more than case or accents. The default, your application id, never collides with itself.
+
 Android's `databases/` directory is inside the app sandbox and is **included in auto-backup** by
 default. A restored backup therefore arrives with somebody's — usually the same person's — queued
 effects in it, on a device that may have different credentials. If that matters for your app, add a
 `data_extraction_rules.xml` exclusion for the file, or wipe the queue on first launch after a
 restore. This module cannot decide that for you.
+
+## Texts are stored as given
+
+Every text of an item (`id`, `type`, `payload`, `uniqueKey`, `orderingKey`, `tag`, `lastError`) comes back from the
+queue exactly as it went in, like it does from `InMemoryUploaderStore`. The drivers alone would not keep some of them:
+SQLite drops a leading U+FEFF and reads a leading U+FFFE as a byte-order mark and the Android driver mangles a lone
+surrogate; the iOS driver ends a text at a NUL, drops a leading U+FEFF and turns a lone surrogate into U+FFFD. A text
+that holds one of these (a NUL or a lone surrogate anywhere, or a U+FEFF or U+FFFE first) is therefore stored in an escaped
+form that starts with U+FDD0 `kmp2` U+FDD1 and is decoded on the way out; every other text is stored as it is, so a row
+written by an earlier version reads back unchanged. The one exception is a text that is itself exactly an escaped form: it starts
+with the noncharacter U+FDD0, then `kmp2` or `kmp1` and U+FDD1, and decodes cleanly. Such a text reads back as the text it encodes,
+and the row is reached by that text. A text that only starts like an escaped form reads back unchanged and reaches its row by every lookup: id, tag (`deleteByTag`), type (`observeByType`) and type plus unique key (the `KEEP`/`REPLACE` identity). The escaped form is compact (a NUL is one two-byte character, a lone
+surrogate five bytes), so it is never more than twice the size of the text it holds, and the row limit counts it (see
+"One row is at most 1 MiB" in the guide). A row written by a 5.0.0 development snapshot in the first escaped form (`kmp1`) is still read.
+The escape matters only if you query the table yourself, which is not supported: read the column of such a row through the
+store.
 
 ## Corrupt database file
 
@@ -119,3 +143,12 @@ database thread instead of dispatching onto it — and shows the uncommitted sta
 `android`, `iosArm64`, `iosSimulatorArm64` — the standard set for this toolkit. No
 JVM or desktop target, and no JS: the module exists to back the two synchronous drivers, and the
 asynchronous web-worker driver would change how transactions are expressed throughout.
+
+## A KEEP over a parked row
+
+`SqlDelightUploaderStore.insertKeep` replaces a `PARKED` holder of the key inside the one transaction that reads it, and
+returns it as `KeepResult.Inserted(superseded)` (a `PENDING` or `IN_FLIGHT` holder wins: `KeepResult.Kept`). The engine
+withdraws the returned row like any removed row: its attempt is stopped and its upload cancelled, whatever its state. When a
+logical identity has more than one row (a 4.0.0 table that stored both a raw text and its escaped form as keys), the earliest
+parked one is returned and the others are removed unreturned. A consumer transaction that rolls back restores the replaced
+row; the cancel the engine issued is not rolled back.

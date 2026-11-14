@@ -17,11 +17,23 @@ public data class AppLanguage(
 
 | Member | Contract |
 |---|---|
-| `code` | BCP-47 / ISO language tag (`"en"`, `"ar"`, `"pt-BR"`, …), or `null` for [`System`](#system). An underscore is read as a hyphen (`ar_EG` is `ar-EG`), for direction, matching and the platform locale alike; the code itself is kept as given |
+| `code` | BCP-47 / ISO language tag (`"en"`, `"ar"`, `"pt-BR"`, …), or `null` for `System` (the last row of this table). An underscore is read as a hyphen (`ar_EG` is `ar-EG`), for direction, matching and the platform locale alike; the code itself is kept as given |
 | `isLtr` | `false` only for a right-to-left language, including regional languages whose default script is right-to-left (`arz`, `ary`, `apc`, `azb`, `pnb`, `skr`, `mzn`, `glk`, `lrc`, `bgn`, `rhg`, ...). Meaningless when `code` is `null` |
 | `System` | Follows the device's own language. `isLtr` on this instance is a placeholder (`true`), never meant to be read — see [`03-guide.md`](03-guide.md#resolving-follow-system) |
 
 No display name, no flag, no fixed language list. See [`01-overview.md`](01-overview.md#what-this-module-deliberately-does-not-carry).
+
+### `AppLanguage(code)` and `isRightToLeft`
+
+```kotlin
+public fun AppLanguage(code: String): AppLanguage
+public fun isRightToLeft(code: String): Boolean
+```
+
+| Function | Contract |
+|---|---|
+| `AppLanguage(code)` | An `AppLanguage` whose direction is derived: `AppLanguage(code = code, isLtr = !isRightToLeft(code))`. `code` is never `null`: "follow the device" is `AppLanguage.System`, which has no direction of its own to derive. The two-argument constructor still exists and wins for a language the derivation gets wrong for your purposes. An underscore is read as a hyphen, and the code is kept as given |
+| `isRightToLeft(code)` | Whether `code` names a language written right-to-left. An explicit script subtag (the four-letter subtag right after the language and its optional three-letter extlangs; a four-letter subtag inside a `-u-` extension or after `-x-` is not a script) decides on its own, so `az-Arab` is right-to-left where `az` is not. With no script subtag, the primary language subtag decides, by its default script. It knows twelve right-to-left scripts, `Arab`, `Aran` (Nastaliq), `Hebr`, `Thaa`, `Syrc`, `Nkoo`, `Adlm`, `Mand`, `Samr`, `Rohg`, `Yezi` and `Mend`, and the languages that default to one of them, including the legacy codes `iw` (Hebrew) and `ji` (Yiddish) next to `he` and `yi`. Anything it does not recognise, and an empty `code`, is reported left-to-right. Underscores are read as hyphens |
 
 ## `AppLanguageCatalog`
 
@@ -43,7 +55,7 @@ public interface AppLanguageCatalog {
 | `supported` | The languages you passed, in the order you passed them, copied at construction. Never contains `System` |
 | `fallback` | Served to a device whose language you do not offer. Always an element of `supported` |
 | `systemId` | The persisted identity of `AppLanguage.System` |
-| `byCode(code)` | The supported language with that code, or `null`. Case-insensitive, reads `_` as `-`, ignores extensions (`-u-...`, `-x-...`) and applies the JDK's legacy code remaps (`in`→`id`, `iw`→`he`, `ji`→`yi`) to the language subtag; region and script subtags must otherwise match |
+| `byCode(code)` | The supported language with that code, or `null`. Case-insensitive, reads `_` as `-`, ignores extensions (`-u-...`, `-x-...`) and applies the JDK's legacy code remaps (`in`→`id`, `iw`→`he`, `ji`→`yi`) to the language subtag; a code with no language subtag (private use `x-...`, grandfathered `i-...`) is compared by its whole text, case and `_` ignored, empty segments (`x--klingon`) too; region and script subtags must otherwise match |
 | `idOf(language)` | The string to persist: the language's `code`, or `systemId` when that is `null` |
 | `fromId(id)` | The language a persisted id denotes. An unknown or `null` id resolves to `System` rather than failing |
 | `resolveSystemLanguage()` | The supported language best matching the device right now — the tag looked up whole, then truncated one subtag at a time (`zh-Hans-CN` → `zh-Hans` → `zh`, `pt-BR` → `pt`); the Chinese script inferred from the region (`zh-TW` → `zh-Hant`, `zh-SG` and bare `zh` → `zh-Hans`); then a same-language, same-script entry (`pt-BR` → your `pt-PT`, `zh-Hans-CN` → your `zh-CN`), the device's region first, else the first listed; then `fallback`. A script is never crossed. `-u-`/`-x-` extensions are ignored. No likely-subtag data beyond Chinese: `sr-RS` is not matched to `sr-Latn`, and `es-MX` against `es-ES` and `es-419` takes the first listed. Re-read on every call, never cached |
@@ -84,7 +96,7 @@ public interface AppLanguageHolder {
 |---|---|
 | `languageFlow` | The currently selected language. Distinct values only |
 | `language` | Snapshot of the above |
-| `setLanguage(language)` | Calls [`applyLanguageGlobally`](#applylanguageglobally-and-getsystemlanguagecode) **on every call**, including one passing the language already in effect — the platform default is shared state the OS itself rewrites, so re-asserting it is the point. Then, only when the language actually changed, updates `languageFlow` and calls the `onLanguageChanged` callback given to [`createAppLanguageHolder`](#createapplanguageholder). Safe from any thread: concurrent calls are serialized, so the platform locale, `languageFlow` and the last value passed to `onLanguageChanged` always agree on whichever call ran last. The callback runs inside that serialized step — a slow one holds up a concurrent call, and calling `setLanguage` from inside it is allowed. It must not block waiting for another thread that may itself call `setLanguage` (a synchronous hop to the main thread, say): hand slow or main-bound persistence off asynchronously |
+| `setLanguage(language)` | Calls [`applyLanguageGlobally`](#applylanguageglobally-and-getsystemlanguagecode) **on every call**, including one passing the language already in effect — the platform default is shared state the OS itself rewrites, so re-asserting it is the point. Then, only when the language actually changed (a different `AppLanguage` value: `AppLanguage("ar_EG")` and `AppLanguage("ar-EG")` are different values, so pass the catalog's own instances), updates `languageFlow` and calls the `onLanguageChanged` callback given to [`createAppLanguageHolder`](#createapplanguageholder). Safe from any thread: concurrent calls are serialized, so the platform locale, `languageFlow` and the last value passed to `onLanguageChanged` always agree on whichever call ran last. The callback runs inside that serialized step — a slow one holds up a concurrent call, and calling `setLanguage` from inside it is allowed. It must not block waiting for another thread that may itself call `setLanguage` (a synchronous hop to the main thread, say): hand slow or main-bound persistence off asynchronously |
 
 ### `createAppLanguageHolder`
 

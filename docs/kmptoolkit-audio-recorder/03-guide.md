@@ -30,7 +30,8 @@ prose because they are the ones people guess wrong:
 1. **`start` never resumes.** From `Paused` you call `resume`; `start` is refused. "Start" always
    means "start from zero", so a mis-wired button cannot silently append to an old recording.
 2. **`cancel` is for abandoning, `release` is for disposing.** `cancel` deletes the partial file and
-   returns to `Idle`, ready to record again. `release` frees the native handle forever and **keeps**
+   returns to `Idle`, ready to record again; from `Interrupted` that file is already finalized and
+   playable, and `cancel` deletes it all the same. `release` frees the native handle forever and **keeps**
    the file — losing the screen is not a decision that the audio was unwanted. (Releasing from
    `Ready` does delete: that file holds nothing, and nothing could clean it up later.)
 3. **An illegal call is inert.** It returns `RecorderError.IllegalState` and changes nothing: not
@@ -41,14 +42,18 @@ prose because they are the ones people guess wrong:
 ## Handling errors
 
 Every operation returns a `RecorderResult`. The interesting branch is `prepare`, which is where all
-the pre-flight checks live:
+the pre-flight checks live. The permission request in the sample is app-level code
+(`permissionController` is a `PermissionController` of `kmptoolkit-permission`, or any flow of your
+own); the recorder itself does not depend on that module:
 
 ```kotlin
 when (val result = recorder.prepare()) {
     is RecorderResult.Success -> recorder.start()
     is RecorderResult.Failure -> when (val error = result.error) {
         RecorderError.PermissionDenied ->
-            permissionRequester.request(Permission.RecordAudio)      // then prepare again
+            if (permissionController.request(CommonPermission.Microphone).isGranted) {
+                recorder.prepare()                                    // the grant came through: prepare again
+            }
 
         is RecorderError.InsufficientStorage ->
             showMessage(freeUpSpace(needed = error.requiredBytes))
@@ -106,7 +111,7 @@ service dies. The recorder notices, tries to finalize the file, and moves `state
 | `state` | The file | Meaning |
 |---|---|---|
 | `Interrupted(recording, reason)` | finalized and playable, holds everything up to the moment it ended (see the iOS suspension caveat below) | `recording.duration` is `elapsed` as it was frozen |
-| `Failed(RecordingLost(reason, cause), outputPath)` | kept, may be unplayable | the file could not be finalized — an unfinalized M4A usually does not play, an AAC (ADTS) file usually does |
+| `Failed(RecordingLost(reason, cause), outputPath)` | kept, may be unplayable | the file could not be finalized (or is gone: deleted or replaced by a directory while recording) — an unfinalized M4A usually does not play, an AAC (ADTS) file usually does |
 | `Failed(RecordingLost(reason), outputPath = null)` | deleted — it was empty | the recorder was prepared but never started |
 
 `reason` is an `InterruptionReason`: `AudioSessionInterrupted` (iOS: a call, Siri, an alarm,

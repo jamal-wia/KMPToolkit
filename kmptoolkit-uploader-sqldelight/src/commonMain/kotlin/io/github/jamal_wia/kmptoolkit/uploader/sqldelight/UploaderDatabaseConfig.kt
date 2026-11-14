@@ -10,7 +10,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
  * // Default: one queue per app, filed under the app's own identifier.
  * val storage: UploaderStorage = createUploaderStorage(context)
  *
- * // Two independent queues in one app — different names, separate files, no shared rows.
+ * // Two independent queues in one app — names that differ in more than letter case, separate files, no shared rows.
  * val chat: UploaderStorage = createUploaderStorage(context, UploaderDatabaseConfig("com.example.chat"))
  * val uploads: UploaderStorage = createUploaderStorage(context, UploaderDatabaseConfig("com.example.uploads"))
  * ```
@@ -26,6 +26,11 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
  *
  *   The name is an identifier, not a path: it becomes part of a file name verbatim, so a path
  *   separator in it would write the queue outside the directory the platform expects.
+ *
+ *   Two names are two queues only where the file system keeps the two file names apart. Names that differ only in
+ *   Unicode normalization are one file on every Apple volume, and names that differ only by letter case are one file
+ *   on a case-insensitive volume (the iOS simulator, an iOS app running on a Mac). One file opened by two storages is
+ *   not supported, so give independent queues names that differ in more than that.
  * @param recreateOnCorruption what to do with a file that is not a usable database (corruption, a
  *   truncated write). `false` — the default — fails the open with [UploaderStorageException] and leaves
  *   the file exactly as found, so nothing the queue still owes is lost without the app's say. `true`
@@ -93,5 +98,8 @@ public data class UploaderDatabaseConfig(
  *
  * The suffix is derived from this module's own package, so a consumer whose name happens to equal
  * another database of theirs still gets a distinct file.
+ *
+ * The name is used verbatim, letter case included: changing the mapping would move every existing queue to a file
+ * it cannot find, so it is part of the on-disk format.
  */
 internal fun uploaderDatabaseFileName(name: String): String = "$name.kmptoolkit.uploader.db"

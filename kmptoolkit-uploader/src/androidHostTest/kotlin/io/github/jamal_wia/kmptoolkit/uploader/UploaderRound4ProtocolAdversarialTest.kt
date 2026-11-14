@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
 import androidx.work.ExistingWorkPolicy
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import java.io.File
 import java.io.RandomAccessFile
 import java.net.InetAddress
@@ -225,16 +226,20 @@ class UploaderRound4ProtocolAdversarialTest {
 
     @Test
     fun `a failed rename after a good write leaves no partial file and reports the outcome as unprotected`() {
+        // path-hygiene-ignore: PH2 POSIX-only test body: it starts with TestHost.assumePosixFileSemantics, so Windows skips it
+        TestHost.assumePosixFileSemantics("File.setWritable(false) / setReadable(false) change nothing on Windows (they set only the legacy read-only flag), so there is no unwritable or unreadable file to test")
         val root: File = tempDir()
         val (journal, _) = journalOn(root)
         File(root, "outcomes").mkdirs()
         File(root, "partial").mkdirs()
         val outcomes = File(root, "outcomes")
+        // path-hygiene-ignore: PH2 POSIX-only test body: it starts with TestHost.assumePosixFileSemantics, so Windows skips it
         assertTrue(outcomes.setWritable(false), "could not make the directory read-only")
         try {
             val recorded: Boolean = journal.record("item-1", UploadResponse(201, emptyMap(), ByteArray(10), false))
             assertFalse(recorded, "a directory the rename cannot enter must not report the answer as journaled")
         } finally {
+            // path-hygiene-ignore: PH2 restores the flags a POSIX-only test cleared; harmless on Windows, where it only touches the legacy read-only flag
             outcomes.setWritable(true)
         }
         assertEquals(emptyList(), File(root, "partial").listFiles()?.map { it.name }.orEmpty(), "partial file leaked")
@@ -243,14 +248,18 @@ class UploaderRound4ProtocolAdversarialTest {
 
     @Test
     fun `an unwritable leftovers directory reports the outcome as unprotected without throwing`() {
+        // path-hygiene-ignore: PH2 POSIX-only test body: it starts with TestHost.assumePosixFileSemantics, so Windows skips it
+        TestHost.assumePosixFileSemantics("File.setWritable(false) / setReadable(false) change nothing on Windows (they set only the legacy read-only flag), so there is no unwritable or unreadable file to test")
         val root: File = tempDir()
         val (journal, _) = journalOn(root)
         File(root, "outcomes").mkdirs()
         val partial = File(root, "partial").apply { mkdirs() }
+        // path-hygiene-ignore: PH2 POSIX-only test body: it starts with TestHost.assumePosixFileSemantics, so Windows skips it
         assertTrue(partial.setWritable(false))
         try {
             assertFalse(journal.record("item-1", UploadResponse(201, emptyMap(), ByteArray(10), false)))
         } finally {
+            // path-hygiene-ignore: PH2 restores the flags a POSIX-only test cleared; harmless on Windows, where it only touches the legacy read-only flag
             partial.setWritable(true)
         }
         assertEquals(null, File(root, "outcomes").listFiles()?.firstOrNull())

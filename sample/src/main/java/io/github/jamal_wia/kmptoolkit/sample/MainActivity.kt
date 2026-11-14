@@ -27,6 +27,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import io.github.jamal_wia.kmptoolkit.files.AppRoot
+import io.github.jamal_wia.kmptoolkit.files.FileAccess
+import io.github.jamal_wia.kmptoolkit.files.FileResult
+import io.github.jamal_wia.kmptoolkit.files.Paths
+import io.github.jamal_wia.kmptoolkit.files.createAppDirectories
+import io.github.jamal_wia.kmptoolkit.files.createFileAccess
+import io.github.jamal_wia.kmptoolkit.files.getOrNull
+import io.github.jamal_wia.kmptoolkit.files.withIo
 import io.github.jamal_wia.kmptoolkit.haptics.HapticType
 import io.github.jamal_wia.kmptoolkit.haptics.createHapticFeedback
 import io.github.jamal_wia.kmptoolkit.logging.LogLevel
@@ -40,7 +48,7 @@ import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
 import kotlinx.coroutines.launch
 
 /**
- * Exercises three KMPToolkit modules against whatever the build resolved them from — project
+ * Exercises four KMPToolkit modules against whatever the build resolved them from — project
  * dependencies by default, or the artifacts published to Maven Central when run with
  * `-PusePublishedArtifacts`.
  *
@@ -63,6 +71,9 @@ class MainActivity : ComponentActivity() {
 }
 
 private const val COUNTER_KEY: String = "sample.launch_counter"
+private const val RECORD_DIRECTORY: String = "sample"
+private const val RECORD_FILE: String = "record.txt"
+private const val RECORD_MAX_BYTES: Long = 4096L
 
 @Composable
 private fun SampleScreen(modifier: Modifier = Modifier) {
@@ -78,6 +89,8 @@ private fun SampleScreen(modifier: Modifier = Modifier) {
 
     val storage = remember { createKeyValueStorage(context) }
     val haptics = remember { createHapticFeedback(context) }
+    val files: FileAccess = remember { createFileAccess() }
+    val directories = remember { createAppDirectories(context, files) }
 
     val scope = rememberCoroutineScope()
 
@@ -109,6 +122,31 @@ private fun SampleScreen(modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Increment and persist")
+        }
+
+        Button(
+            onClick = {
+                val text: String = "launch counter $counter"
+                scope.launch {
+                    // One durable record: written atomically (the old content or the whole new one survives a
+                    // crash), read back with a size bound, every failure a typed value.
+                    val outcome: String = files.withIo { _ ->
+                        when (val directory: FileResult<String> = directories.directory(AppRoot.Files, RECORD_DIRECTORY)) {
+                            is FileResult.Failure -> "directory failed: ${directory.error}"
+                            is FileResult.Success -> {
+                                val path: String = Paths.join(directory.value, RECORD_FILE)
+                                val written: FileResult<Unit> = writeAtomically(path, text.encodeToByteArray())
+                                val read: String? = readBytes(path, RECORD_MAX_BYTES).getOrNull()?.decodeToString()
+                                "wrote=$written, read back='$read'"
+                            }
+                        }
+                    }
+                    logger.i { "record $outcome" }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Write and read back a record")
         }
 
         Button(

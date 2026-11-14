@@ -20,6 +20,8 @@ public interface LoggerFactory {
  * Whether a sink's failure is one the logger contains: every `Exception`, plus the Errors a broken or
  * unfinished sink raises (`AssertionError`, `NotImplementedError`, and on the JVM a `LinkageError`
  * such as `NoSuchMethodError`). Any other Error (`StackOverflowError`, `OutOfMemoryError`) is not.
+ *
+ * `isContainedDescriptionFailure` in kmptoolkit-logging-overlay mirrors this set; the two must stay identical.
  */
 internal fun Throwable.isContainedSinkFailure(): Boolean =
     this is Exception || this is AssertionError || this is NotImplementedError || this.isLinkageError()

@@ -1,8 +1,11 @@
 package io.github.jamal_wia.kmptoolkit.scheduler
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import platform.Foundation.NSDate
 import platform.Foundation.NSError
 import platform.Foundation.timeIntervalSince1970
@@ -42,7 +45,8 @@ public fun createAlarmScheduler(
  *
  * [ScheduledAlarm.id] is the notification-request identifier verbatim, so re-adding one id replaces
  * its pending request and cancelling removes exactly it — no request-code mapping is needed as on
- * Android.
+ * Android. The identifier space is shared with `kmptoolkit-notification`, whose `post` and `cancel`
+ * of the same id replace or remove the request.
  */
 internal class IosAlarmScheduler(
     private val soundResolver: AlarmSoundResolver,
@@ -61,12 +65,16 @@ internal class IosAlarmScheduler(
         // ran while schedule was still awaiting the authorization status removed nothing and the
         // alarm was armed right after. Requests added by code outside this library are still not
         // serialised with it.
+        //
+        // The alarm is copied before the lock: the caller may edit or reuse its payload map while
+        // this call waits behind another one, and the request armed is the alarm passed at the call.
+        val snapshot: ScheduledAlarm = alarm.copy(payload = alarm.payload.toMap())
         return scheduleLock.withLock {
             if (center.isAuthorizationDenied()) {
                 return@withLock AlarmScheduleResult.Failed(AlarmFailure.NotificationPermissionDenied)
             }
 
-            val otherPending: Int = center.pendingIdentifiers().count { it != alarm.id }
+            val otherPending: Int = center.pendingIdentifiers().count { it != snapshot.id }
             if (otherPending >= PENDING_REQUEST_CAP) {
                 return@withLock AlarmScheduleResult.Failed(
                     AlarmFailure.PlatformError(
@@ -77,11 +85,21 @@ internal class IosAlarmScheduler(
             }
 
             val request: UNNotificationRequest = UNNotificationRequest.requestWithIdentifier(
-                identifier = alarm.id,
-                content = contentFor(alarm),
-                trigger = triggerFor(alarm.fireAtEpochMillis),
+                identifier = snapshot.id,
+                content = contentFor(snapshot),
+                trigger = triggerFor(snapshot.fireAtEpochMillis),
             )
-            val error: NSError? = center.add(request)
+            // The center accepts the request when it is handed over; only its answer arrives later.
+            // A cancellation that lands while that answer is awaited would otherwise leave the
+            // request pending behind a caller that was told the call did not happen (and, for a
+            // replacement, the old request is already gone), so the request is removed before the
+            // cancellation propagates. A pending list is cheap to repair, a ghost alarm would fire.
+            val error: NSError? = try {
+                center.add(request)
+            } catch (cancelled: CancellationException) {
+                withContext(NonCancellable) { center.remove(listOf(snapshot.id)) }
+                throw cancelled
+            }
             if (error == null) {
                 AlarmScheduleResult.Exact
             } else {
@@ -95,8 +113,11 @@ internal class IosAlarmScheduler(
     }
 
     override suspend fun cancelAll(ids: Collection<String>) {
-        if (ids.isEmpty()) return
-        scheduleLock.withLock { center.remove(ids.toList()) }
+        // Copied now, not after the lock is won: the caller may edit its collection while this
+        // call waits behind a schedule in flight.
+        val snapshot: List<String> = ids.toList()
+        if (snapshot.isEmpty()) return
+        scheduleLock.withLock { center.remove(snapshot) }
     }
 
     private fun contentFor(alarm: ScheduledAlarm): UNMutableNotificationContent =

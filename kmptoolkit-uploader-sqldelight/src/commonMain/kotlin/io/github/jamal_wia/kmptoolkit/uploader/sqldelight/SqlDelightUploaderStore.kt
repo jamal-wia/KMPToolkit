@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState
 import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db.KmpToolkitUploaderDatabase
 import io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db.Kmptoolkit_uploader_item
@@ -36,40 +37,52 @@ internal class SqlDelightUploaderStore(
 
     private val queries: UploaderItemQueries get() = database.uploaderItemQueries
 
-    override suspend fun insertKeep(record: UploaderItem): Boolean = onDatabaseThread(confinement, UploaderStorageOperation.INSERT_KEEP) {
+    override suspend fun insertKeep(record: UploaderItem): KeepResult = onDatabaseThread(confinement, UploaderStorageOperation.INSERT_KEEP) {
         mapFailures(UploaderStorageOperation.INSERT_KEEP) {
             record.requireWithinRowLimit()
             // The lookup and the insert have to be one atomic step: between them, another writer
             // could take the identity, and the KEEP decision would then be made against a row that
             // no longer describes the queue.
             database.transactionWithResult {
-                val key: String? = record.uniqueKey
-                if (key == null) {
+                val uniqueKey: String? = record.uniqueKey
+                if (uniqueKey == null) {
                     // A null unique key never conflicts — it is not even in the identity index.
                     queries.insert(record)
-                    return@transactionWithResult true
+                    return@transactionWithResult KeepResult.Inserted(null)
                 }
-                val holder: String? =
-                    queries.selectByIdentity(type = record.type, uniqueKey = key)
+                // One identity for every ordinary text, up to four for a type or key that starts like a stored form
+                // (see `spellings`): a 4.0.0 row and a 5.0.0 row of one logical identity must both be seen.
+                val holders: List<Pair<StoredIdentity, Kmptoolkit_uploader_item>> = identitiesOf(record.type, uniqueKey).mapNotNull { identity ->
+                    queries.selectByIdentity(type = identity.type, uniqueKey = identity.uniqueKey)
                         .executeAsOneOrNull()
-                        ?.state
-                when (holder) {
-                    // Compared against the enum's own names rather than string constants, so a
-                    // renamed state cannot drift apart from what is written into the column. The
-                    // matching literals in `selectAllActive` cannot do the same — SQL has no way
-                    // to see the enum — which is called out in UploaderItem.sq.
-                    UploaderItemState.PENDING.name, UploaderItemState.IN_FLIGHT.name -> false
+                        ?.let { row -> identity to row }
+                }
+                // Compared against the enum's own names rather than string constants, so a
+                // renamed state cannot drift apart from what is written into the column. The
+                // matching literals in `selectAllActive` cannot do the same — SQL has no way
+                // to see the enum — which is called out in UploaderItem.sq.
+                if (holders.any { (_, row) -> row.state == UploaderItemState.PENDING.name || row.state == UploaderItemState.IN_FLIGHT.name }) {
+                    KeepResult.Kept
+                } else {
                     // Covers PARKED and — deliberately — any state string this build does not
                     // recognize, which is what a downgrade past a future state looks like. Neither
                     // is in rotation, so neither may keep the key: a held key with no revive path
                     // would swallow every future enqueue for it.
-                    else -> {
-                        if (holder != null) {
-                            queries.deleteByIdentity(type = record.type, uniqueKey = key)
-                        }
-                        queries.insert(record)
-                        true
+                    //
+                    // The row handed back is the parked one the insert removed (the engine withdraws it, so its upload is
+                    // cancelled). Residual, as for insertReplace: more than one row of one logical identity exists only if
+                    // 4.0.0 stored both a raw text and its escaped form as keys; the earliest parked one is returned, the
+                    // others, and a row of an unrecognized state (which cannot be mapped), are removed unreturned.
+                    val superseded: UploaderItem? = holders
+                        .map { (_, row) -> row }
+                        .filter { row -> row.state == UploaderItemState.PARKED.name }
+                        .minByOrNull { row -> row.sequence }
+                        ?.toUploaderItem()
+                    holders.forEach { (identity, _) ->
+                        queries.deleteByIdentity(type = identity.type, uniqueKey = identity.uniqueKey)
                     }
+                    queries.insert(record)
+                    KeepResult.Inserted(superseded)
                 }
             }
         }
@@ -78,8 +91,8 @@ internal class SqlDelightUploaderStore(
     override suspend fun insertReplace(record: UploaderItem): UploaderItem? = onDatabaseThread(confinement, UploaderStorageOperation.INSERT_REPLACE) {
         mapFailures(UploaderStorageOperation.INSERT_REPLACE) {
             record.requireWithinRowLimit()
-            val key: String? = record.uniqueKey
-            if (key == null) {
+            val uniqueKey: String? = record.uniqueKey
+            if (uniqueKey == null) {
                 // Nothing to supersede — a keyless item conflicts with nothing — so this is a plain
                 // append and needs no transaction to be atomic.
                 queries.insert(record)
@@ -90,12 +103,19 @@ internal class SqlDelightUploaderStore(
                 // position at the tail, so a key that is replaced over and over cannot hold the
                 // head of its ordering channel forever. The superseded row is read in the same
                 // transaction, so what is handed back is exactly what the delete removed.
+                //
+                // A marker-prefixed type or key is looked up under every spelling (see `spellings`). Residual: two live
+                // rows of one logical identity exist only if 4.0.0 stored both a raw text and its escaped form as
+                // keys; the earliest is returned and cancelled by the engine, the other is removed unreturned.
                 database.transactionWithResult {
-                    val superseded: UploaderItem? =
-                        queries.selectByIdentity(type = record.type, uniqueKey = key)
-                            .executeAsOneOrNull()
-                            ?.toUploaderItem()
-                    queries.deleteByIdentity(type = record.type, uniqueKey = key)
+                    val identities: List<StoredIdentity> = identitiesOf(record.type, uniqueKey)
+                    val superseded: UploaderItem? = identities
+                        .mapNotNull { identity ->
+                            queries.selectByIdentity(type = identity.type, uniqueKey = identity.uniqueKey).executeAsOneOrNull()
+                        }
+                        .minByOrNull { row -> row.sequence }
+                        ?.toUploaderItem()
+                    identities.forEach { identity -> queries.deleteByIdentity(type = identity.type, uniqueKey = identity.uniqueKey) }
                     queries.insert(record)
                     superseded
                 }
@@ -111,7 +131,7 @@ internal class SqlDelightUploaderStore(
 
     override suspend fun getById(id: String): UploaderItem? = onDatabaseThread(confinement, UploaderStorageOperation.GET_BY_ID) {
         mapFailures(UploaderStorageOperation.GET_BY_ID) {
-            queries.selectById(id).executeAsOneOrNull()?.toUploaderItem()
+            queries.selectById(queries.storedId(id)).executeAsOneOrNull()?.toUploaderItem()
         }
     }
 
@@ -136,7 +156,7 @@ internal class SqlDelightUploaderStore(
             // reader connection — where it is always 0 — on both of this module's drivers.
             val changed: Long = when (disposition) {
                 FailureDisposition.DROP -> queries.dropOnFailure(
-                    id = id,
+                    id = queries.storedId(id),
                     expectedState = expectedState.name,
                     expectedClaim = expectedClaim,
                 ).value
@@ -150,8 +170,8 @@ internal class SqlDelightUploaderStore(
                         },
                         attempts = attempts.toLong(),
                         nextRunAt = nextRunAtEpochMillis,
-                        lastError = fittedLastError(id, lastError),
-                        id = id,
+                        lastError = toStoredTextOrNull(fittedLastError(id, lastError)),
+                        id = queries.storedId(id),
                         expectedState = expectedState.name,
                         expectedClaim = expectedClaim,
                     ).value
@@ -172,7 +192,7 @@ internal class SqlDelightUploaderStore(
             // affected-row count is the answer, so the claim is one atomic step.
             queries.markInFlight(
                 leaseUntil = leaseUntilEpochMillis,
-                id = id,
+                id = queries.storedId(id),
                 expectedState = expectedState.name,
                 expectedClaim = expectedClaim,
             ).value > 0L
@@ -189,8 +209,8 @@ internal class SqlDelightUploaderStore(
             // Guarded like markInFlight: the WHERE clause is the guard, the affected-row count the answer.
             database.transactionWithResult {
                 queries.park(
-                    lastError = fittedLastError(id, lastError),
-                    id = id,
+                    lastError = toStoredTextOrNull(fittedLastError(id, lastError)),
+                    id = queries.storedId(id),
                     expectedState = expectedState.name,
                     expectedClaim = expectedClaim,
                 ).value > 0L
@@ -205,13 +225,13 @@ internal class SqlDelightUploaderStore(
      */
     private fun fittedLastError(id: String, lastError: String?): String? {
         if (lastError == null) return null
-        val row: UploaderItem = queries.selectById(id).executeAsOneOrNull()?.toUploaderItem() ?: return lastError
+        val row: UploaderItem = queries.selectById(queries.storedId(id)).executeAsOneOrNull()?.toUploaderItem() ?: return lastError
         return row.fitLastError(lastError)
     }
 
     override suspend fun deleteById(id: String): Unit = onDatabaseThread(confinement, UploaderStorageOperation.DELETE_BY_ID) {
         mapFailures(UploaderStorageOperation.DELETE_BY_ID) {
-            queries.deleteById(id)
+            queries.deleteById(queries.storedId(id))
         }
     }
 
@@ -222,23 +242,31 @@ internal class SqlDelightUploaderStore(
             // being returned, and its upload never cancelled. (`DELETE … RETURNING` would do it in
             // one statement, but needs SQLite 3.35 — see recordFailure.)
             database.transactionWithResult {
-                val removed: List<UploaderItem> =
-                    queries.selectByTag(tag).executeAsList().map { row -> row.toUploaderItem() }
-                queries.deleteByTag(tag)
-                removed
+                val rows: List<Kmptoolkit_uploader_item> = spellings(tag).flatMap { stored -> queries.selectByTag(stored).executeAsList() }
+                spellings(tag).forEach { stored -> queries.deleteByTag(stored) }
+                rows.sortedBy { row -> row.sequence }.map { row -> row.toUploaderItem() }
             }
         }
     }
 
-    override fun observeByType(type: String): Flow<List<UploaderItem>> =
-        queries.selectByType(type)
+    override fun observeByType(type: String): Flow<List<UploaderItem>> {
+        val spellings: List<String> = spellings(type)
+        val extraSpellings: String? = spellings.getOrNull(1)
+        return queries.selectByType(spellings[0])
             .asFlow()
             // `onDatabaseThread` rather than coroutines-extensions' `mapToList(dispatcher)`: both
             // run the query on the thread every write runs on — so an emission can never observe a
             // half-applied transaction — but only this one recognizes that it may already be there.
             // A plain dispatch would deadlock when the flow is collected from inside a transaction,
             // because the thread it dispatches to is the thread that transaction is occupying.
-            .map { query -> onDatabaseThread(confinement, UploaderStorageOperation.OBSERVE_BY_TYPE) { query.executeAsList() } }
+            // Every spelling of a marker-prefixed type is read inside the one block, so no write can interleave; the
+            // notification is per table, so the first spelling's query is trigger enough.
+            .map { query ->
+                onDatabaseThread(confinement, UploaderStorageOperation.OBSERVE_BY_TYPE) {
+                    val rows: List<Kmptoolkit_uploader_item> = query.executeAsList()
+                    if (extraSpellings == null) rows else (rows + queries.selectByType(extraSpellings).executeAsList()).sortedBy { row -> row.sequence }
+                }
+            }
             .map { rows -> rows.map { row -> row.toUploaderItem() } }
             .catch { cause ->
                 throw when {
@@ -249,6 +277,7 @@ internal class SqlDelightUploaderStore(
                     else -> UploaderStorageException(UploaderStorageOperation.OBSERVE_BY_TYPE, cause)
                 }
             }
+    }
 
     override suspend fun clearAll(): Unit = onDatabaseThread(confinement, UploaderStorageOperation.CLEAR_ALL) {
         mapFailures(UploaderStorageOperation.CLEAR_ALL) {
@@ -256,39 +285,69 @@ internal class SqlDelightUploaderStore(
         }
     }
 
+    /**
+     * The text the id column of the row of [id] holds. It is [toStoredText] of [id], except for a row an earlier version
+     * stored under an id that merely starts like a stored form: that row holds the id as it is (see [fromStoredText]), and
+     * is reached by it. Costs a read only for an id that starts with a marker.
+     */
+    private fun UploaderItemQueries.storedId(id: String): String {
+        val stored: String = toStoredText(id)
+        if (stored == id || !startsWithStoredFormMarker(id)) return stored
+        if (selectById(stored).executeAsOneOrNull() != null) return stored
+        return if (fromStoredText(id) == id && selectById(id).executeAsOneOrNull() != null) id else stored
+    }
+
+    /** One (type, unique key) pair as the table holds it. */
+    private class StoredIdentity(val type: String, val uniqueKey: String)
+
+    /** Every way the table can hold the identity of [type] and [uniqueKey]: the product of both texts' spellings. */
+    private fun identitiesOf(type: String, uniqueKey: String): List<StoredIdentity> =
+        spellings(type).flatMap { storedType -> spellings(uniqueKey).map { storedKey -> StoredIdentity(storedType, storedKey) } }
+
+    /**
+     * Every text the column of [text] can hold, the one a 5.0.0 write stores first: [toStoredText] of it, then [text] itself
+     * when a row an earlier version stored under it reads back as it (see [fromStoredText]). That is the condition [storedId]
+     * uses for an id: a text that starts like a stored form and is not exactly one. A text that is exactly an escaped form
+     * has no second spelling, its raw row reads back as the text it decodes to. Every other text has one spelling.
+     */
+    private fun spellings(text: String): List<String> {
+        val stored: String = toStoredText(text)
+        return if (startsWithStoredFormMarker(text) && fromStoredText(text) == text) listOf(stored, text) else listOf(stored)
+    }
+
     private fun UploaderItemQueries.insert(record: UploaderItem) {
         // `sequence` is omitted so SQLite assigns the next one — see UploaderItem.sq.
         insert(
-            id = record.id,
-            type = record.type,
-            payload = record.payload,
+            id = toStoredText(record.id),
+            type = toStoredText(record.type),
+            payload = toStoredText(record.payload),
             schemaVersion = record.schemaVersion.toLong(),
-            uniqueKey = record.uniqueKey,
-            orderingKey = record.orderingKey,
-            tag = record.tag,
+            uniqueKey = toStoredTextOrNull(record.uniqueKey),
+            orderingKey = toStoredTextOrNull(record.orderingKey),
+            tag = toStoredTextOrNull(record.tag),
             state = record.state.name,
             attempts = record.attempts.toLong(),
             nextRunAt = record.nextRunAtEpochMillis,
             createdAt = record.createdAtEpochMillis,
-            lastError = record.lastError,
+            lastError = toStoredTextOrNull(record.lastError),
             leaseUntil = record.leaseUntilEpochMillis,
             claim = record.claim,
         )
     }
 
     private fun Kmptoolkit_uploader_item.toUploaderItem(): UploaderItem = UploaderItem(
-        id = id,
-        type = type,
-        payload = payload,
+        id = fromStoredText(id),
+        type = fromStoredText(type),
+        payload = fromStoredText(payload),
         schemaVersion = schema_version.toInt(),
-        uniqueKey = unique_key,
-        orderingKey = ordering_key,
-        tag = tag,
+        uniqueKey = fromStoredTextOrNull(unique_key),
+        orderingKey = fromStoredTextOrNull(ordering_key),
+        tag = fromStoredTextOrNull(tag),
         state = state.toStateOrParked(),
         attempts = attempts.toInt(),
         nextRunAtEpochMillis = next_run_at,
         createdAtEpochMillis = created_at,
-        lastError = last_error,
+        lastError = fromStoredTextOrNull(last_error),
         leaseUntilEpochMillis = lease_until,
         claim = claim,
     )

@@ -45,6 +45,10 @@ kotlin {
             // this module's public signature. kmptoolkit-logging itself has no dependencies, so
             // this adds nothing else to a consumer's graph.
             api(project(":kmptoolkit-logging"))
+
+            // implementation: the lock registries, the Android tree walk, the no-replace rename and the
+            // SQLite sidecar names come from kmptoolkit-files; none of its types is in this module's API.
+            implementation(project(":kmptoolkit-files"))
         }
         iosMain.dependencies {
             // The bundled SQLite driver, not the platform's own: Kotlin/Native has no SQLite
@@ -58,6 +62,8 @@ kotlin {
         // engine tests here build their own small, local fakes instead.
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
+            // Not published; the path converter, file-system helpers and host assumptions of the tests.
+            implementation(project(":test-support"))
         }
     }
 }

@@ -274,13 +274,13 @@ class UploadResponseCaptureTest {
         started.drain()
         answer(http("201 Created", listOf("Location: /jobs/5"), """{"job":5}""".encodeToByteArray()))
 
-        val result: ListenableWorker.Result = runWorker("item-1")
+        val result: ListenableWorker.Result = runWorker(ITEM_ID)
 
-        assertIs<ListenableWorker.Result.Success>(result)
-        val delivered: UploadResponse = assertNotNull(handler.delivered.single())
+        assertIs<ListenableWorker.Result.Success>(result, "worker result: $result")
+        val delivered: UploadResponse = assertNotNull(handler.deliveredOnce(store, result))
         assertEquals("""{"job":5}""", delivered.body().decodeToString())
         assertEquals("/jobs/5", delivered.header("location"))
-        assertNull(store.find("item-1"))
+        assertNull(store.find(ITEM_ID))
     }
 
     @Test
@@ -292,9 +292,9 @@ class UploadResponseCaptureTest {
         started.drain()
         answer(http("422 Unprocessable Entity", emptyList(), "bad name".encodeToByteArray()))
 
-        runWorker("item-1")
+        val workerResult: ListenableWorker.Result = runWorker(ITEM_ID)
 
-        val (result: UploadResult, response: UploadResponse?) = handler.classified.single()
+        val (result: UploadResult, response: UploadResponse?) = handler.classifiedOnce(workerResult)
         assertEquals(UploadResult.Completed(422), result)
         assertEquals("bad name", assertNotNull(response).body().decodeToString())
         assertTrue(handler.delivered.isEmpty())
@@ -308,9 +308,9 @@ class UploadResponseCaptureTest {
         started.drain()
         answer(http("200 OK", emptyList(), "abcdefgh".encodeToByteArray()))
 
-        runWorker("item-1")
+        val workerResult: ListenableWorker.Result = runWorker(ITEM_ID)
 
-        val delivered: UploadResponse = assertNotNull(handler.delivered.single())
+        val delivered: UploadResponse = assertNotNull(handler.deliveredOnce(null, workerResult))
         assertEquals("abc", delivered.body().decodeToString())
         assertTrue(delivered.isBodyTruncated)
     }
@@ -322,11 +322,17 @@ class UploadResponseCaptureTest {
         started.enqueue(handler, "one")
         started.drain()
 
-        runWorker("item-1")
+        val workerResult: ListenableWorker.Result = runWorker(ITEM_ID)
 
-        val (result: UploadResult, response: UploadResponse?) = handler.classified.single()
+        val (result: UploadResult, response: UploadResponse?) = handler.classifiedOnce(workerResult)
         assertIs<UploadResult.TransportFailure>(result)
         assertNull(response)
+    }
+
+    private companion object {
+        /** Unique to this class so that no other class's item can share the id (the registry and the hand-off ledger are process-wide). */
+        const val ITEM_ID_PREFIX: String = "capture"
+        const val ITEM_ID: String = "$ITEM_ID_PREFIX-1"
     }
 
     private suspend fun runWorker(itemId: String): ListenableWorker.Result =
@@ -336,7 +342,7 @@ class UploadResponseCaptureTest {
             .doWork()
 
     private fun start(store: TestUploaderStore, handler: UploaderHandler<*>, scope: CoroutineScope): UploaderEngine =
-        testEngine(store, listOf(handler), scope).also {
+        testEngine(store, listOf(handler), scope, idGenerator = SequentialIds(ITEM_ID_PREFIX)::next).also {
             engine = it
             UploaderEngineRegistry.register(it)
         }
@@ -347,6 +353,23 @@ class UploadResponseCaptureTest {
     ) : UploadHandler<String>(NoopTransport()) {
         val classified = mutableListOf<Pair<UploadResult, UploadResponse?>>()
         val delivered = mutableListOf<UploadResponse?>()
+
+        /** The one delivered response; a miss names what the worker did instead, so a flake is never a bare NoSuchElementException. */
+        suspend fun deliveredOnce(store: TestUploaderStore?, workerResult: ListenableWorker.Result): UploadResponse? {
+            assertEquals(
+                1,
+                delivered.size,
+                "onDelivered ran ${delivered.size} times; worker=$workerResult classified=$classified " +
+                    "row=${store?.find(ITEM_ID)} registered=${UploaderEngineRegistry.current != null}",
+            )
+            return delivered.single()
+        }
+
+        /** The one classification; a miss names the worker result instead of a bare NoSuchElementException. */
+        fun classifiedOnce(workerResult: ListenableWorker.Result): Pair<UploadResult, UploadResponse?> {
+            assertEquals(1, classified.size, "classify ran ${classified.size} times; worker=$workerResult delivered=$delivered")
+            return classified.single()
+        }
 
         override val type: String = "capture"
         override val maxResponseBodyBytes: Int get() = limit

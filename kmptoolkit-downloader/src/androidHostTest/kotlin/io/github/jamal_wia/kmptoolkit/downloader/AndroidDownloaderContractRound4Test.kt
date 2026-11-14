@@ -6,10 +6,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.nio.file.Files
-import java.nio.file.attribute.PosixFilePermission
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipEntry
@@ -56,18 +57,22 @@ class AndroidDownloaderContractRound4Test {
         outside.deleteRecursively()
     }
 
+    private val restorers: MutableList<AutoCloseable> = mutableListOf()
+
+    /** Undoes every [setReadOnly] so the tree can be deleted; [dir] is kept for the call sites' sake. */
+    @Suppress("UNUSED_PARAMETER")
     private fun makeTreeWritable(dir: File) {
-        if (!dir.exists()) return
-        dir.walkTopDown().forEach { entry: File ->
-            runCatching { Files.setPosixFilePermissions(entry.toPath(), PosixFilePermission.values().toSet()) }
-        }
+        restorers.asReversed().forEach { restorer: AutoCloseable -> runCatching { restorer.close() } }
+        restorers.clear()
     }
 
+    /**
+     * POSIX permissions, or an ACL deny on Windows (see [TestFs.makeUnwritable]): on Windows that blocks
+     * creating files in [dir], not creating sub-directories or deleting existing files, so the tests
+     * below assert only what holds on both.
+     */
     private fun setReadOnly(dir: File) {
-        Files.setPosixFilePermissions(
-            dir.toPath(),
-            setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_EXECUTE),
-        )
+        restorers += TestFs.makeUnwritable(dir)
     }
 
     private class Group(override val key: String) : ResourceGroup {
@@ -338,6 +343,8 @@ class AndroidDownloaderContractRound4Test {
 
     @Test
     fun `an unwritable target directory fails the commit as a storage error, keeps the temp file and commits it later without a transfer`() = runBlocking {
+        // Measured on Windows: an ACL deny on the directory does not stop a file being moved into it.
+        TestHost.assumePosixFileSemantics("moving a file into a read-only directory must fail")
         withTimeout(60_000) {
             val storage: DownloaderStorage = storage()
             val group = Group("g")
@@ -372,7 +379,8 @@ class AndroidDownloaderContractRound4Test {
             val tmp = File(root, "tmp")
             val staging = File(root, "tmp/staging-h1/sub").apply { mkdirs() }
             File(staging, "f.bin").writeText("x")
-            val trash = File(root, UnitFileLayout.TRASH_DIRECTORY + "/9/inner").apply { mkdirs() }
+            // path-hygiene-ignore: PH4 UnitFileLayout.TRASH_DIRECTORY is a logical '/'-separated layout name; it is handed to TestPaths.join, which makes it native
+            val trash = File(TestPaths.join(root.path, "${UnitFileLayout.TRASH_DIRECTORY}/9/inner")).apply { mkdirs() }
             File(trash, "f.bin").writeText("x")
             val partialAsDirectory = File(storage.getTempFilePath(unit))
             try {
@@ -471,7 +479,7 @@ class AndroidDownloaderContractRound4Test {
                 }
             }
             val files: List<String> = root.walkTopDown().filter { it.isFile }
-                .map { it.relativeTo(root).path }.sorted().toList()
+                .map { TestPaths.relativeLogical(root.path, it.path)!! }.sorted().toList()
             assertEquals(listOf(UnitFileLayout.LEGACY_LAYOUT_MARKER), files)
         }
     }

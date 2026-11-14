@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
+import io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -147,5 +149,14 @@ class AudioRecorderConfigTest {
         assertFailsWith<IllegalArgumentException> { RecordingStorage(directoryPath = " ") }
         assertFailsWith<IllegalArgumentException> { RecordingStorage(directoryName = " ") }
         assertNull(RecordingStorage(directoryPath = null).directoryPath)
+    }
+
+    @Test
+    fun `a directory that is absolute for the running file system is accepted and a relative one is not`() {
+        val absolute: String = if (TestHost.pathSyntax == PathSyntax.WINDOWS) "C:\\recordings\\notes" else "/recordings/notes"
+
+        assertEquals(absolute, RecordingStorage(directoryPath = absolute).directoryPath)
+        assertFailsWith<IllegalArgumentException> { RecordingStorage(directoryPath = "recordings/notes") }
+        assertFailsWith<IllegalArgumentException> { RecordingStorage(directoryPath = "notes") }
     }
 }

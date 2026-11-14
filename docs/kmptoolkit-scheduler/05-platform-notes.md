@@ -117,16 +117,20 @@ What breaks delivery entirely:
 - **Aggressive OEM battery management** (Xiaomi, Huawei, Samsung and others) can suppress alarms for
   apps the user has not whitelisted. Nothing in the Android API can override it.
 
-### A refused cancel
+### A refused or interrupted cancel
 
 When a `schedule` replaces an alarm, the new alarm is armed first and the old one is cancelled
 after. If `AlarmManager` refuses that cancel (a `SecurityException` or `IllegalStateException`,
-logged), `schedule` still reports the new alarm, and the old one stays armed and may fire once more.
-`cancel(id)` is the same: a refusal is logged and the alarm may stay armed.
+logged under the tag `KmpToolkitScheduler`), `schedule` still reports the new alarm, and the old one stays armed and may fire once more.
+`cancel(id)` is the same: a refusal is logged (same tag) and the alarm may stay armed. A process death in the
+one-call window between arming the new alarm and retiring the old one has the same result: the old
+alarm stays armed and may fire once more, and the next successful `schedule` or `cancel` of the id
+retires it.
 
 - An id owns four `PendingIntent` slots. The new alarm goes into a slot the id does not occupy, and a
-  retirement the platform refused leaves its slot occupied.
-- When all four slots are occupied (three replacements in a row whose cancel was refused, with no successful
+  retirement that did not happen (refused by the platform, or cut short by a process death) leaves its
+  slot occupied.
+- When all four slots are occupied (three replacements in a row whose cancel was refused or interrupted, with no successful
   `schedule` or `cancel` of the id in between), a further `schedule` of that id answers
   `Failed(PlatformError)` and changes nothing: the armed alarm stays exactly as it was. A healthy
   `schedule` does not recover it, because the newest alarm cannot be told from the stale ones.
@@ -167,11 +171,20 @@ Practical consequences:
   replaces it and is not counted, so it still succeeds at the cap. The count covers every pending local
   notification of the app, including ones created by your own code or another library, not only this
   scheduler's. The authorization check, the cap check and the add run under one process-wide lock, and
-  `cancel` / `cancelAll` take the same lock, so concurrent `schedule` calls through this library
+  `cancel` / `cancelAll` take the same lock (`cancelAll` copies its ids when it is called, before waiting for it), so concurrent `schedule` calls through this library
   cannot overshoot and a `cancel` of an id can never be overtaken by a `schedule` of it that was
   already in flight (the alarm is never left armed after `cancel` returned); notifications added by code outside it are not serialised
   with it and can still push the total past 64. Schedule a rolling window rather than
   a year of reminders.
+
+- **Refusals are values, not exceptions.** `UNUserNotificationCenter` reports through completion
+  handlers: a denied authorization becomes `Failed(NotificationPermissionDenied)`, the cap and an
+  `NSError` from `addNotificationRequest` become `Failed(PlatformError)`, and removing pending
+  requests cannot fail. Unlike Android, nothing is caught: an exception thrown by your
+  `AlarmSoundResolver` is your code's failure and propagates out of `schedule`, with nothing armed
+  and the lock released. A cancellation that arrives while the notification center is adding a
+  replacement also removes the alarm it was replacing (iOS had already replaced it), so the id is
+  left with no alarm until your next reconcile pass.
 
   Verification status: the pre-check is verified by unit tests against a fake notification center
   only. Confirming the OS behavior on a real device (schedule 65) is still outstanding, as is confirming that a completed add is immediately visible in the pending list, which the lock relies on.
@@ -185,6 +198,14 @@ Practical consequences:
   Centre. To clear it too (for example on logout), call
   `UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers:)` with the same ids;
   the request identifier is the alarm id verbatim.
+- **The alarm id is shared with the notifier.** [`kmptoolkit-notification`](../kmptoolkit-notification/05-platform-notes.md)
+  uses its notification id verbatim as the request identifier too, so on iOS a `Notifier.post` or
+  `Notifier.cancel` with the id of a pending alarm discards that alarm (`post` replaces it with an
+  immediate notification, `cancel` removes it), and an alarm that fires replaces a notification the
+  notifier is showing under the same id. Give alarms and notifications distinct ids. Android keeps the
+  two apart, so the collision exists only on iOS, provided the handler posts its reminder tagged, as
+  [`02-getting-started.md`](02-getting-started.md#3-write-a-handler-android) does: an untagged `notify`
+  under `id.hashCode()` is the key the notifier's 2.x migration sweep removes.
 - `Exact` on iOS means "the OS accepted the request for that instant" — it is not the same
   guarantee as an Android exact alarm, because it is a presentation, not an execution.
 

@@ -368,7 +368,7 @@ internal class SqlDelightUploaderStoreChecks {
                 store.insertKeep(item(id = "a", uniqueKey = "u"))
                 // Read-your-writes inside the transaction: the KEEP refusal below depends on the
                 // insert above being visible to a statement in the same transaction.
-                val refused: Boolean = store.insertKeep(item(id = "b", uniqueKey = "u"))
+                val refused: Boolean = store.insertKeep(item(id = "b", uniqueKey = "u")).inserted
                 assertFalse(refused, "the uncommitted row must already hold its identity")
                 store.getAllActive().map { it.id }
             }
@@ -840,13 +840,13 @@ internal class SqlDelightUploaderStoreChecks {
     suspend fun anEmptyUniqueKeyIsARealIdentity() {
         withStorage { storage ->
             val store: UploaderStore = storage.store
-            assertTrue(store.insertKeep(item(id = "a", uniqueKey = "")))
+            assertTrue(store.insertKeep(item(id = "a", uniqueKey = "")).inserted)
             assertFalse(
-                store.insertKeep(item(id = "b", uniqueKey = "")),
+                store.insertKeep(item(id = "b", uniqueKey = "")).inserted,
                 "an empty unique key must deduplicate like any other key",
             )
             assertTrue(
-                store.insertKeep(item(id = "c", uniqueKey = null)),
+                store.insertKeep(item(id = "c", uniqueKey = null)).inserted,
                 "a null unique key must still never conflict with an empty one",
             )
             assertEquals(listOf("a", "c"), store.getAllActive().map { it.id })
@@ -912,7 +912,7 @@ internal class SqlDelightUploaderStoreChecks {
     private companion object {
 
         /** What [UploaderStoreContract.verifyAll] returns today. */
-        const val EXPECTED_CONTRACT_CHECKS: Int = 58
+        const val EXPECTED_CONTRACT_CHECKS: Int = 60
 
         /** Enough repetitions that a lost race would have to be lucky thirty times running. */
         const val CONTENTION_ROUNDS: Int = 30

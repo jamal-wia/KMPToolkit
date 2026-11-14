@@ -43,7 +43,7 @@ The process-wide registration read by `DialogWindowHardwareKeyEffect`. Main thre
 
 | Parameter | Meaning |
 |---|---|
-| `interceptor` | Called on the main thread for every `android.view.KeyEvent` delivered to a window running the effect, before the window's own dispatch. `true` consumes the event; `false` passes it through unchanged. Retained for the process lifetime — capture only application-scoped objects. |
+| `interceptor` | Called on the main thread for every `android.view.KeyEvent` delivered to a window running the effect: in a dialog window before the window's own dispatch, in a focusable `Popup` or Activity content (API 28+) after the view tree left the key unhandled. `true` consumes the event; `false` passes it through unchanged. Retained for the process lifetime — capture only application-scoped objects. |
 | `logger` | A `kmptoolkit-logging` `Logger`. Receives one error-level event when `install` replaces a policy that was already installed. Defaults to `NoopLogger`. |
 
 Call once from `Application.onCreate`. A second call replaces the first.

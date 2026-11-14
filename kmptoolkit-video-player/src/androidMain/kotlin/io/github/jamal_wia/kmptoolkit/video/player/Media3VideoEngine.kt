@@ -199,10 +199,21 @@ internal class Media3VideoEngine(
     }
 
     override suspend fun load(source: VideoSource) {
-        withContext(playerDispatcher) {
-            val current: ExoPlayer = obtainPlayer()
-                ?: throw IllegalStateException("The Media3 engine was disposed")
-            resetPlayer(current)
+        // Returned, not thrown, out of withContext: an exception crossing that boundary may be replaced by a
+        // stack-trace-recovered copy, and VideoPlayerState.Error promises the platform's own Throwable.
+        val failure: Throwable? = withContext(playerDispatcher) {
+            // The player build and the first reset are platform calls too: their Throwable is returned
+            // as a value like every other failure of this load. Neither suspends, so no cancellation
+            // can arrive from them.
+            val current: ExoPlayer
+            try {
+                current = obtainPlayer()
+                    ?: return@withContext IllegalStateException("The Media3 engine was disposed")
+                resetPlayer(current)
+            } catch (failure: Throwable) {
+                pendingLoad = null
+                return@withContext failure
+            }
             try {
                 suspendCancellableCoroutine { continuation: CancellableContinuation<Unit> ->
                     pendingLoad = continuation
@@ -211,15 +222,23 @@ internal class Media3VideoEngine(
                     current.playWhenReady = false
                     current.prepare()
                 }
+                null
             } catch (failure: Throwable) {
                 // A load failure, a source that would not build, or cancellation: whichever it was,
                 // nothing half-loaded may outlive this call. This runs on the looper thread — the
                 // dispatcher resumes there even when the cancellation came from elsewhere.
                 pendingLoad = null
-                resetPlayer(current)
-                throw failure
+                // A cleanup that itself throws must not replace the failure: it rides along as suppressed,
+                // and never onto itself.
+                try {
+                    resetPlayer(current)
+                } catch (cleanup: Throwable) {
+                    if (cleanup !== failure) failure.addSuppressed(cleanup)
+                }
+                failure
             }
         }
+        if (failure != null) throw failure
     }
 
     override fun start() {

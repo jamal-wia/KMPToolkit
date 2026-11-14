@@ -9,6 +9,7 @@ import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderOperation
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecordingStorage
+import io.github.jamal_wia.kmptoolkit.files.Paths
 import kotlin.time.Duration
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
@@ -77,7 +78,7 @@ public class FakeAudioRecorder(
 ) : AudioRecorder {
 
     init {
-        require(directory.startsWith('/')) { "directory must be an absolute path, was '$directory'" }
+        require(isAbsolutePath(directory)) { "directory must be an absolute path, was '$directory'" }
     }
 
     private val _state: MutableStateFlow<RecorderState> = MutableStateFlow(RecorderState.Idle)
@@ -155,7 +156,7 @@ public class FakeAudioRecorder(
 
         if (!permissionGranted) return fail(RecorderError.PermissionDenied)
         // An argument refusal, like an illegal transition: it consumes no scripted failure.
-        if (outputPath != null && (outputPath.isBlank() || !outputPath.startsWith('/'))) {
+        if (outputPath != null && (outputPath.isBlank() || !isAbsolutePath(outputPath))) {
             return fail(RecorderError.DirectoryNotWritable(outputPath))
         }
 
@@ -385,10 +386,18 @@ public class FakeAudioRecorder(
         _levelSamples.tryEmit(value)
     }
 
+    /**
+     * Absolute for the running file system (`C:\x` on a Windows JVM) or a POSIX-style `/x`: the fake
+     * has no file system, and its own [DEFAULT_FAKE_DIRECTORY] is a `/` path that must keep working
+     * on a Windows build machine.
+     */
+    // path-hygiene-ignore: PH5 the fake's logical paths are POSIX-style; the host's own absolute form is covered by Paths.isAbsolute on the same line
+    private fun isAbsolutePath(path: String): Boolean = path.startsWith('/') || Paths.isAbsolute(path)
+
     private fun generatePath(): String {
         val storage: RecordingStorage = config.storage
         sequence++
-        // The real join (File(directory, name) on Android, URLByAppendingPathComponent on iOS) drops a
+        // The real join (File(directory, name) on Android, a plain string join on iOS) drops a
         // trailing separator and collapses repeated ones, so a consumer test comparing paths sees the same.
         val joined: String = directory.replace(Regex("/{2,}"), "/").trimEnd('/')
         return "$joined/${storage.fileNamePrefix}_$sequence.${config.format.extension}"

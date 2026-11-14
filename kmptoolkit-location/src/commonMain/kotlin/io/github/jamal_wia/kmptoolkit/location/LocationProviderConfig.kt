@@ -14,9 +14,10 @@ package io.github.jamal_wia.kmptoolkit.location
  *   time-based throttle, only [minUpdateDistanceMeters]; see
  *   `docs/kmptoolkit-location/05-platform-notes.md`.
  * @property singleFixTimeoutMillis how long [LocationProvider.getCurrentLocation] waits for a
- *   fresh fix before giving up and returning `null`, when no cached location is available. Both
- *   platforms can otherwise suspend forever indoors or with no signal — this cap is what keeps the
- *   call honest. Defaults to 30 seconds.
+ *   fresh fix before giving up and returning `null`: on Android only when no cached location is
+ *   available, on iOS always (it never reads a cached fix). Both platforms can otherwise suspend
+ *   forever indoors or with no signal — this cap is what keeps the call honest. Defaults to 30
+ *   seconds.
  */
 public data class LocationProviderConfig(
     public val minUpdateDistanceMeters: Float = DEFAULT_MIN_UPDATE_DISTANCE_METERS,

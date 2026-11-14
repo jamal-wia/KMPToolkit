@@ -96,13 +96,14 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
   `prepare()` succeeds and removed before `stop()` and in `release()`; on Android 10+ an
   `AudioRecordingMonitor` callback reports a silenced input too. See "When the system ends a
   recording" below.
-- **Free space** comes from `File.usableSpace` on the output directory, which respects per-user
-  quotas. A directory that does not exist, or a path that throws, is reported as unknown, and an
-  unknown skips the check rather than failing the recording — `usableSpace` answers `0` for a
-  missing path, which would otherwise be indistinguishable from a genuinely full volume.
-- **Directory creation** uses `File.mkdirs()` and then checks `isDirectory && canWrite()`. A
-  `SecurityException` from a path outside the sandbox is exactly the "not writable" answer, so it is
-  reported as `DirectoryNotWritable`, not thrown.
+- **Free space** comes from `kmptoolkit-files` (`FileAccess.freeSpaceBytes`) on the output directory, asked only
+  after the path is confirmed to be an existing directory; it respects per-user quotas. A path that is not an
+  existing directory, or one the platform cannot answer for, is reported as unknown, and an unknown skips the
+  check rather than failing the recording — a bare `0` for a missing path would be indistinguishable from a
+  genuinely full volume.
+- **Directory creation** goes through `kmptoolkit-files` (`createDirectories`), then checks that the path is a
+  directory (links followed) and `canWrite()`. A `SecurityException` from a path outside the sandbox is exactly
+  the "not writable" answer, so it is reported as `DirectoryNotWritable`, not thrown.
 - **iOS directory and file checks.** A `directoryPath` that is a regular file, not a directory, is reported as
   `DirectoryNotWritable` too. A failed `prepareToRecord()` deletes nothing inside the engine: the recorder removes
   the file only when this attempt created it and still owns the path.
@@ -154,6 +155,13 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
 - **Free space** comes from `NSFileSystemFreeSize`, which reports the volume's free space and does
   not account for iOS's "purgeable" space — it can under-report what is actually available. A path
   the platform cannot answer for is reported as unknown, and an unknown never blocks a recording.
+  The recorder reads it through `kmptoolkit-files` (`FileAccess.freeSpaceBytes`), which does the same
+  `NSFileSystemFreeSize` read.
+- **Generated paths** are joined as plain strings, so a trailing or repeated `/` of `directoryPath` is dropped
+  and a file name keeps the exact form you gave it, the same as on Android. The directory part of `/` is none.
+- **Deleting a recording is not recursive.** Discarding a file (`cancel`, `release`) removes a regular
+  file, a link or an empty directory at the path; a non-empty directory that replaced the file is left
+  alone. Earlier versions removed such a directory tree on iOS.
 - **`AVAudioRecorder`'s initializer is failable.** It returns `nil` with an `NSError` for settings
   CoreAudio rejects — an unusual sample rate and channel-count combination, say. Kotlin/Native binds
   it as non-null, so the `NSError` is captured explicitly and folded into

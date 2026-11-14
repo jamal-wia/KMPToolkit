@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * [VideoPlaybackEngine] over JavaFX Media, rendering into memory as a [VideoFrameSource].
  *
- * Holds no JavaFX type itself — those live in [FxPlayback] and [FxThread] — so the class loads, and
+ * Holds no JavaFX type itself — those live in `JavaFxNativePlayer.kt` and [FxThread] — so the class loads, and
  * [load] reports [JavaFxVideoPlayerException.RuntimeUnavailable], on a classpath without OpenJFX.
  *
  * Each [load] opens a [Session]; [release] (or the next [load]) closes it. Every listener call and
@@ -35,6 +35,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * @param classLoader resolves [VideoSource.Asset] paths as classpath resources.
  * @param maxFrameRate the most snapshots per second copied into [frames] while playing.
  * @param readyTimeoutMs how long [load] waits for JavaFX to report the source ready or failed.
+ * @param backend builds the native players; a lambda, not a value, so it is evaluated by [load] after the toolkit has
+ *   started and the class still loads without OpenJFX; a test seam.
  */
 @OptIn(ToolkitInternalApi::class)
 internal class JavaFxVideoEngine(
@@ -42,6 +44,7 @@ internal class JavaFxVideoEngine(
     private val classLoader: ClassLoader = defaultClassLoader(),
     private val maxFrameRate: Int = DEFAULT_MAX_FRAME_RATE,
     private val readyTimeoutMs: Long = DEFAULT_READY_TIMEOUT_MS,
+    private val backend: () -> NativeBackend = { JavaFxBackend },
 ) : VideoPlaybackEngine, VideoFrameSource {
 
     init {
@@ -81,6 +84,7 @@ internal class JavaFxVideoEngine(
             resolveSourceUri(source, classLoader).also { runtime.ensureStarted() }
         }
         currentCoroutineContext().ensureActive()
+        val nativeBackend: NativeBackend = backend()
 
         // A new source replaces the loaded one, which stops talking to the listener right here.
         currentSession()?.close()
@@ -88,7 +92,7 @@ internal class JavaFxVideoEngine(
         synchronized(lock) { this.session = session }
 
         try {
-            FxPlayback.open(uri, session, maxFrameRate, readyTimeoutMs, onCreated = session::attach)
+            FxPlayback.open(uri, session, maxFrameRate, readyTimeoutMs, nativeBackend, onCreated = session::attach)
         } catch (e: Throwable) {
             val releasedMeanwhile: Boolean = session.releasedWhileLoading
             session.close()

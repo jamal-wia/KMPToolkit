@@ -6,7 +6,9 @@ import kotlinx.coroutines.Dispatchers
 /**
  * Creates a [VideoPlayer] over a caller-supplied [engine] — a test fake, or your own backend. The
  * player **takes ownership** of [engine]: it installs itself as the listener and releases the engine
- * from its own [VideoPlayer.release]. One engine per player.
+ * from its own [VideoPlayer.release]. One engine per player. An engine given to a second player is
+ * not shared: it reports only to the player that took it last, and the first player's `release()`
+ * disposes it under the second, which then stops responding. Create one engine for each player.
  *
  * @param coroutineContext hosts the position-polling coroutine only; pass a `TestDispatcher` to make
  *   polling deterministic in tests. A [kotlinx.coroutines.Job] in it is ignored: the player runs under

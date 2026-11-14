@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.downloader
 
 import androidx.sqlite.SQLiteConnection
+import io.github.jamal_wia.kmptoolkit.files.SqliteFiles
 import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
@@ -10,6 +11,7 @@ import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
+import kotlinx.cinterop.BooleanVar
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.UByteVar
@@ -20,6 +22,7 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.usePinned
+import kotlinx.cinterop.value
 import platform.CoreCrypto.CC_SHA256_CTX
 import platform.CoreCrypto.CC_SHA256_DIGEST_LENGTH
 import platform.CoreCrypto.CC_SHA256_Final
@@ -41,6 +44,7 @@ import platform.Foundation.NSFileSize
 import platform.Foundation.NSFileType
 import platform.Foundation.NSFileTypeDirectory
 import platform.Foundation.NSFileTypeRegular
+import platform.Foundation.NSFileTypeSymbolicLink
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSNumber
 import platform.Foundation.NSString
@@ -49,14 +53,21 @@ import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
 import platform.Foundation.NSURLVolumeSupportsCaseSensitiveNamesKey
+import platform.Foundation.decomposedStringWithCanonicalMapping
+import platform.Foundation.stringByResolvingSymlinksInPath
 import platform.Foundation.timeIntervalSince1970
 import platform.Foundation.NSUserDomainMask
+import platform.posix.EISDIR
+import platform.posix.ENAMETOOLONG
+import platform.posix.ENOENT
+import platform.posix.ENOTDIR
 import platform.posix.FILE
 import platform.posix.SEEK_CUR
 import platform.posix.SEEK_END
 import platform.posix.SEEK_SET
 import platform.posix.ftell
 import platform.posix.fclose
+import platform.posix.errno
 import platform.posix.ferror
 import platform.posix.fflush
 import platform.posix.fileno
@@ -67,6 +78,8 @@ import platform.posix.fsync
 import platform.posix.fwrite
 import platform.posix.remove
 import platform.posix.rename
+import platform.posix.stat
+import platform.posix.unlink
 import platform.zlib.Z_BUF_ERROR
 import platform.zlib.Z_NO_FLUSH
 import platform.zlib.Z_OK
@@ -107,7 +120,7 @@ internal class IosDownloaderStorage(
     private val logger: Logger,
     /** Test seam: null asks the volume, which is what production does. */
     private val caseInsensitiveOverride: Boolean? = null,
-) : DownloaderStorage, RelativePathChecking {
+) : DownloaderStorage, RelativePathChecking, TransferLockScope {
 
     private val baseDir: String by lazy {
         // Application Support, not Documents: these are re-downloadable assets, and Apple
@@ -137,9 +150,16 @@ internal class IosDownloaderStorage(
      * case-variant `TMP/...` paths, while the opposite guess could let two case variants of an id
      * commit at once over the same files.
      */
-    private val layout: UnitFileLayout by lazy {
-        UnitFileLayout(caseInsensitive = caseInsensitiveOverride ?: !volumeIsCaseSensitive(baseDir))
-    }
+    private val volumeFoldsCase: Boolean by lazy { caseInsensitiveOverride ?: !volumeIsCaseSensitive(baseDir) }
+
+    private val layout: UnitFileLayout by lazy { UnitFileLayout(caseInsensitive = volumeFoldsCase) }
+
+    override val transferLockScope: String get() = lockScope
+
+    override fun transferLockKey(unit: DownloadUnit): String = layout.lockKey(unit)
+
+    /** [baseDir] as the volume sees it: spelled in one case on a volume that folds case, so every spelling shares the locks. */
+    private val lockScope: String by lazy { layout.lockScope(baseDir) }
 
     private val tmpPathWarnings: FirstSightings = FirstSightings()
 
@@ -211,9 +231,12 @@ internal class IosDownloaderStorage(
             return false
         }
         return if (unit.isDirectoryResource) {
-            fileExists("$path/${unit.archiveMarker()}")
+            markerIsFile(path, unit.archiveMarker())
         } else {
-            fileExists(path)
+            // A plain file, or a link to one. A directory at the path (an archive unit of the same id, or a
+            // stray one) is not the resource: the commit moves it aside. fileExistsAtPath follows links, so
+            // a link to a file stays available (isRegularFile does not follow links).
+            existsAndIsNotDirectory(path)
         }
     }
 
@@ -275,12 +298,14 @@ internal class IosDownloaderStorage(
 
     override fun getTempFileSize(unit: DownloadUnit): Long = sizeOf("$baseDir/${names(unit).partial}")
 
-    private fun sizeOf(path: String): Long {
-        val attributes: Map<Any?, *>? = NSFileManager.defaultManager
-            .attributesOfItemAtPath(path, error = null)
-
-        val size: Long? = attributes?.get(NSFileSize) as? Long
-        return size ?: 0L
+    /**
+     * The size of what [path] names, a symbolic link followed: POSIX `stat` follows it and fails on a dangling
+     * one, which reads as 0. `attributesOfItemAtPath` is lstat and would report the length of the link text, and
+     * resolving the path first does not help, because a dangling link resolves to itself.
+     */
+    private fun sizeOf(path: String): Long = memScoped {
+        val info: stat = alloc<stat>()
+        if (stat(path, info.ptr) == 0) info.st_size else 0L
     }
 
     override fun beginTempFile(unit: DownloadUnit, expectedSha256: Sha256?) {
@@ -327,11 +352,10 @@ internal class IosDownloaderStorage(
         // is retried, never taken for a running commit. Under the lock the tree is only renamed away; the recursive delete
         // runs after the lock is released so it cannot stall other units.
         UnitCommitLocks.tryDetachThenDispose(
-            baseDirectory = baseDir,
+            baseDirectory = lockScope,
             unitId = layout.lockKey(unit),
             detach = {
-                val trash = "$baseDir/${layout.trashEntry(Random.nextLong().toULong())}"
-                createParentDirectory(trash)
+                val trash: String = newTrashEntry()
                 if (rename("$baseDir/${names.staging}", trash) == 0) trash else null
             },
             dispose = { trash: String -> NSFileManager.defaultManager.removeItemAtPath(trash, error = null) },
@@ -357,10 +381,34 @@ internal class IosDownloaderStorage(
      * id's length can make the rename into it fail.
      */
     private fun sweepTrash() {
-        val trashDir = "$baseDir/${UnitFileLayout.TRASH_DIRECTORY}"
+        val trashDir: String = realTrashDirectory()
         NSFileManager.defaultManager.contentsOfDirectoryAtPath(trashDir, error = null).orEmpty().forEach { name ->
             NSFileManager.defaultManager.removeItemAtPath("$trashDir/$name", error = null)
         }
+    }
+
+    /**
+     * The trash directory, after a symbolic link standing in its place has been removed as a link (never
+     * followed, its target untouched), so a sweep never deletes files outside the base directory and a
+     * move into the trash lands inside it: the next directory creation makes a real directory. Runs before
+     * every use of the trash. `tmp/` and `tmp/kmptoolkit-internal/` as links are out of scope: a link there
+     * redirects every internal file, not only deletes, and no deletion goes through them.
+     */
+    private fun realTrashDirectory(): String {
+        val trashDir = "$baseDir/${UnitFileLayout.TRASH_DIRECTORY}"
+        // attributesOfItemAtPath is lstat: it reports the link itself, and a dangling link as well.
+        val type: String? = NSFileManager.defaultManager.attributesOfItemAtPath(trashDir, error = null)?.get(NSFileType) as? String
+        // unlink(2) removes the link entry only and is never recursive, so a real directory that appears in its place meanwhile is never removed here.
+        if (type == NSFileTypeSymbolicLink) unlink(trashDir)
+        return trashDir
+    }
+
+    /** A fresh entry path under the real trash directory, whose parents are created. */
+    private fun newTrashEntry(): String {
+        realTrashDirectory()
+        val trash = "$baseDir/${layout.trashEntry(Random.nextLong().toULong())}"
+        createParentDirectory(trash)
+        return trash
     }
 
     private fun deleteTempData(names: UnitFileLayout.Names) {
@@ -417,8 +465,11 @@ internal class IosDownloaderStorage(
             return 0L
         }
         if (!fileExists(path)) return 0L
+        // fileExists follows links, so a dangling link is 0 above. A link AT the unit's path is the resource (as for
+        // isResourceAvailable): its size is the size of what it points to. Links inside a tree are not followed.
+        val target: String = (path as NSString).stringByResolvingSymlinksInPath
         val fm: NSFileManager = NSFileManager.defaultManager
-        val attributes: Map<Any?, *>? = fm.attributesOfItemAtPath(path, error = null)
+        val attributes: Map<Any?, *>? = fm.attributesOfItemAtPath(target, error = null)
 
         val isDir: Boolean = (attributes?.get(NSFileType) as? String) == NSFileTypeDirectory
 
@@ -427,12 +478,12 @@ internal class IosDownloaderStorage(
         }
 
         // Recursive enumeration for directories
-        val enumerator: NSDirectoryEnumerator = fm.enumeratorAtPath(path) ?: return 0L
+        val enumerator: NSDirectoryEnumerator = fm.enumeratorAtPath(target) ?: return 0L
         var total = 0L
         while (true) {
             val next: Any = enumerator.nextObject() ?: break
             val relative: String = next as? String ?: continue
-            val full = "$path/$relative"
+            val full = "$target/$relative"
             val attrs: Map<Any?, *>? = fm.attributesOfItemAtPath(full, error = null)
 
             val type: String? = attrs?.get(NSFileType) as? String
@@ -446,10 +497,125 @@ internal class IosDownloaderStorage(
 
     override fun deleteResource(unit: DownloadUnit) {
         val path: String = getResourcePath(unit)
+        if (unit.format is ResourceFormat.SqliteDatabase) {
+            // The database moves into the trash together with its -wal, -shm and -journal, also when the file is
+            // already gone and only sidecars remain: the next download must never meet the old log. No lock, as for
+            // a tree: the renames are atomic and a commit racing this delete moves whatever it finds.
+            //
+            // A name that stays at the path (a rename that keeps failing) never throws here: this call is safe when
+            // the resource is not present and has never thrown. It logs a warning and returns; the unit then reads
+            // as unavailable or keeps stray sidecars, which the next commit's quarantine moves or, where a log would
+            // be replayed into the new file, refuses by throwing.
+            val quarantine: DatabaseQuarantine = quarantineDatabase(path)
+            if (quarantine.stuck) {
+                logger.w { "Could not move $unit aside completely at $path; leaving what stays" }
+                // Nothing in the trash is ever read back: this also reclaims the entries a failed attempt left.
+                sweepTrash()
+            } else if (quarantine.entry != null) {
+                NSFileManager.defaultManager.removeItemAtPath(quarantine.entry, error = null)
+                sweepTrash()
+                logger.i { "Deleted resource $unit at $path" }
+            }
+            return
+        }
         if (!fileExists(path)) return
-        NSFileManager.defaultManager.removeItemAtPath(path, error = null)
+        if (isDirectoryAt(path)) {
+            // Moved aside in one rename, then deleted: a process killed inside the walk leaves the
+            // partial tree under trash/, never at the resource path, where a surviving marker would
+            // read as a complete resource with files missing. No lock: the rename is atomic, and a
+            // commit racing this delete finds either the whole tree or nothing to move aside.
+            //
+            // A rename that fails is retried while the target is still there (bounded): a commit of the same
+            // unit may have renamed our tree away first and put its new tree in place before the re-check,
+            // and that tree must be moved aside whole too, never walked in place. Only a rename that keeps
+            // failing on a present tree falls back to the in-place delete.
+            var detached: String? = null
+            var attempts = 0
+            while (detached == null && attempts < MAX_DETACH_ATTEMPTS && fileExists(path)) {
+                detached = detachTree(path)
+                attempts++
+            }
+            if (detached != null) {
+                NSFileManager.defaultManager.removeItemAtPath(detached, error = null)
+                sweepTrash()
+            } else if (fileExists(path)) {
+                // Unreachable on a sandbox volume, and this call has never thrown: fall back to the
+                // in-place delete rather than start now.
+                logger.w { "Could not move $unit aside; deleting it in place" }
+                NSFileManager.defaultManager.removeItemAtPath(path, error = null)
+            }
+        } else {
+            NSFileManager.defaultManager.removeItemAtPath(path, error = null)
+        }
         logger.i { "Deleted resource $unit at $path" }
     }
+
+    /**
+     * Renames [path] to a fresh entry of the trash directory (`tmp/kmptoolkit-internal/trash/`) and returns
+     * it; null when the rename failed, which includes [path] being absent (the caller tells them apart by
+     * [fileExists] after the failure). There is deliberately no [fileExists] pre-check: it follows links, so a
+     * dangling symbolic link would read as absent, while the rename moves the link itself.
+     * The rename is atomic and stays on one volume, so [path] holds its whole tree or nothing at every instant.
+     */
+    private fun detachTree(path: String): String? {
+        val trash: String = newTrashEntry()
+        return if (rename(path, trash) == 0) trash else null
+    }
+
+    /**
+     * Moves the database file [path] (or whatever stands at it, a directory or a link included) and then its `-wal`,
+     * `-shm` and `-journal` into one fresh trash entry and returns that entry; null when nothing was there to move (the
+     * entry is removed again). The file goes first: a process killed after it leaves the resource unavailable beside its
+     * complete temp file, which the next commit finishes, never the old file without its log. Nothing of the old
+     * version is deleted here; it leaves with the entry, after the unit lock on a commit and at once on a delete.
+     *
+     * There is deliberately no [fileExists] pre-check (it follows links; the rename moves the link itself). A rename
+     * that fails while something still stands at its source is retried with a fresh entry, bounded: a sweep of
+     * another unit may have deleted the empty entry in between. A name that stays in place after every attempt is reported
+     * as stuck, never ignored: the commit throws on it (a log left at the path would be replayed into the file that is
+     * moved in next), the delete only logs a warning. While the file itself stays no sidecar is moved, so the old version
+     * keeps its log. On that path the 1 to 3 entries made (empty, or holding the old
+     * file) are not returned: after a commit's throw they wait for the next sweep of any unit, a delete sweeps at once.
+     */
+    private fun quarantineDatabase(path: String): DatabaseQuarantine {
+        val parts: List<String> = listOf(path) + SqliteFiles.sidecarsOf(path)
+        val fileName: String = path.substringAfterLast('/')
+        var movedAny = false
+        var trash: String = newTrashEntry()
+        var attempts = 0
+        while (true) {
+            attempts++
+            NSFileManager.defaultManager.createDirectoryAtPath(trash, true, null, null)
+            for (part: String in parts) {
+                // "db" for the file itself, "db-wal", "db-shm" and "db-journal" for its sidecars.
+                val inside = "$trash/db${part.substringAfterLast('/').removePrefix(fileName)}"
+                if (rename(part, inside) == 0) {
+                    movedAny = true
+                } else if (part == path && presentWithoutFollowing(path)) {
+                    // The file itself stays: move no sidecar in this attempt, or the old version would stay
+                    // at the path without its log (its uncheckpointed frames would go with the next sweep).
+                    break
+                }
+            }
+            if (parts.none { part: String -> presentWithoutFollowing(part) }) break
+            if (attempts >= MAX_DETACH_ATTEMPTS) return DatabaseQuarantine(entry = null, stuck = true)
+            trash = newTrashEntry()
+        }
+        if (movedAny) return DatabaseQuarantine(entry = trash, stuck = false)
+        // Nothing moved into it, so it is empty.
+        NSFileManager.defaultManager.removeItemAtPath(trash, error = null)
+        return DatabaseQuarantine(entry = null, stuck = false)
+    }
+
+    /**
+     * The outcome of [quarantineDatabase]: [entry] is the trash entry holding the old version, null when nothing was
+     * there to move or when [stuck]; [stuck] is true when a name stayed at the path after every attempt.
+     */
+    private class DatabaseQuarantine(val entry: String?, val stuck: Boolean)
+
+    /** True when something stands at [path], a dangling link included (lstat: the entry itself, never what it points to). */
+    private fun presentWithoutFollowing(path: String): Boolean =
+        NSFileManager.defaultManager.attributesOfItemAtPath(path, error = null) != null
 
     override suspend fun commitResource(
         unit: DownloadUnit,
@@ -460,29 +626,44 @@ internal class IosDownloaderStorage(
         val names: UnitFileLayout.Names = names(unit)
         // Serialized per unit across every instance over this directory — see UnitCommitLocks for
         // who races here. Everything below is decided only once the lock is held.
-        UnitCommitLocks.withUnitLock(baseDir, layout.lockKey(unit)) {
-            val tempFilePath = "$baseDir/${names.complete}"
-            if (!fileExists(tempFilePath) && isResourceAvailable(unit)) {
-                // A concurrent commit finalized the unit while this one waited. Its record is
-                // already gone, and one present now belongs to a newer transfer: touch nothing.
-                logger.i { "$unit was already committed by a concurrent commit" }
-                return@withUnitLock
+        // An old archive tree replaced by this commit is only renamed away under the lock; it is deleted
+        // after the lock is released (UnitCommitLocks), also when the commit failed after the rename.
+        var detached: String? = null
+        try {
+            UnitCommitLocks.withUnitLock(lockScope, layout.lockKey(unit)) {
+                val tempFilePath = "$baseDir/${names.complete}"
+                if (!fileExists(tempFilePath) && isResourceAvailable(unit)) {
+                    // A concurrent commit finalized the unit while this one waited. Its record is
+                    // already gone, and one present now belongs to a newer transfer: touch nothing.
+                    logger.i { "$unit was already committed by a concurrent commit" }
+                    return@withUnitLock
+                }
+                check(fileExists(tempFilePath)) {
+                    "No complete temp file for $unit — a partial transfer is resumed, never committed"
+                }
+                try {
+                    commitCompleteTempFile(unit, tempFilePath, names) { tree: String -> detached = tree }
+                } finally {
+                    // The record belongs to the temp file. Once the file is gone — committed, or deleted
+                    // by a failed check — the record goes with it, last. A failure that left the file in
+                    // place keeps its record, so the retry is still checked against it.
+                    if (!fileExists(tempFilePath)) remove("$baseDir/${names.record}")
+                }
             }
-            check(fileExists(tempFilePath)) {
-                "No complete temp file for $unit — a partial transfer is resumed, never committed"
-            }
-            try {
-                commitCompleteTempFile(unit, tempFilePath, names)
-            } finally {
-                // The record belongs to the temp file. Once the file is gone — committed, or deleted
-                // by a failed check — the record goes with it, last. A failure that left the file in
-                // place keeps its record, so the retry is still checked against it.
-                if (!fileExists(tempFilePath)) remove("$baseDir/${names.record}")
+        } finally {
+            detached?.let { tree: String ->
+                NSFileManager.defaultManager.removeItemAtPath(tree, error = null)
+                sweepTrash()
             }
         }
     }
 
-    private fun commitCompleteTempFile(unit: DownloadUnit, tempFilePath: String, names: UnitFileLayout.Names) {
+    private fun commitCompleteTempFile(
+        unit: DownloadUnit,
+        tempFilePath: String,
+        names: UnitFileLayout.Names,
+        onDetached: (String) -> Unit,
+    ) {
         verifySha256(tempFilePath, unit, names)
         if (unit.isDirectoryResource) {
             val targetDir: String = getResourcePath(unit)
@@ -496,33 +677,31 @@ internal class IosDownloaderStorage(
                 // Handle nested directory: ZIP may contain a root directory prefix
                 // (e.g., entries like "pages/page001.webp" instead of "page001.webp"),
                 // causing files to land in staging/pages/ instead of staging/.
-                if (!fileExists("$stagingDir/${unit.archiveMarker()}")) moveSingleRootUp(stagingDir, unit)
+                if (!markerIsFile(stagingDir, unit.archiveMarker())) moveSingleRootUp(stagingDir, unit)
                 // The tree must be what the unit declares before anything at the final path is touched:
                 // a directory without its marker is not "ready", and it must not replace one that is.
-                if (!fileExists("$stagingDir/${unit.archiveMarker()}")) {
+                if (!markerIsFile(stagingDir, unit.archiveMarker())) {
                     throw ResourceIntegrityException("Archive of $unit has no '${unit.archiveMarker()}' after extraction")
                 }
-                // Atomic swap: remove old target, rename staging to target
-                NSFileManager.defaultManager.removeItemAtPath(targetDir, error = null)
-                // moveItemAtPath and copyItemAtPath both fail when the parent is missing, which a
-                // nested relativePath (e.g. "archives/pages") leaves it on first use.
+                // The swap, in renames only: the resource path holds the whole old tree, nothing, or the
+                // whole new tree, so a process killed at any step never leaves a marker over a partial tree.
+                // The parent of a nested relativePath (e.g. "archives/pages") is absent on a first commit.
                 createParentDirectory(targetDir)
+                // The old tree moves into the trash; it is never renamed back (a sweep of another unit may
+                // already be deleting it) and never deleted in place. No fileExists pre-check decides whether
+                // to try: it follows links, so a dangling link at the path would read as absent and block
+                // the move into place forever. A failed rename with nothing at the path is nothing to detach.
+                val oldTree: String? = detachTree(targetDir)
+                check(oldTree != null || !fileExists(targetDir)) { "Could not move the committed $unit aside" }
+                if (oldTree != null) onDetached(oldTree)
+                // No copy fallback: staging and target both sit under baseDir, one volume. A copy writes
+                // top-down, so it could land the marker before the rest.
                 val moved: Boolean = NSFileManager.defaultManager.moveItemAtPath(
                     srcPath = stagingDir,
                     toPath = targetDir,
                     error = null,
                 )
-                if (!moved) {
-                    // Fallback: copy + delete. A failed copy must not be followed by the deletes: the
-                    // staging directory and the temp file are all that is left of the download.
-                    val copied: Boolean = NSFileManager.defaultManager
-                        .copyItemAtPath(stagingDir, targetDir, null)
-                    if (!copied) {
-                        NSFileManager.defaultManager.removeItemAtPath(targetDir, error = null)
-                        throw IllegalStateException("Could not move the extracted $unit into place")
-                    }
-                    NSFileManager.defaultManager.removeItemAtPath(stagingDir, error = null)
-                }
+                check(moved) { "Could not move the extracted $unit into place" }
             } catch (e: ResourceIntegrityException) {
                 // Bytes that are not what the unit declares: the temp file is worthless, and one fresh download
                 // is the fix. Everything above ran before the committed resource was touched.
@@ -537,8 +716,23 @@ internal class IosDownloaderStorage(
         } else {
             (unit.format as? ResourceFormat.SqliteDatabase)?.let { format: ResourceFormat.SqliteDatabase ->
                 verifySqlite(tempFilePath, format)
+                // The previous database leaves WITH its -wal, -shm and -journal, before the new file takes its place:
+                // SQLite would replay an old log into the new file. Every commit of this format runs it, whether or
+                // not the file exists, so sidecars an earlier killed commit left behind are moved aside as well.
+                val destinationPath: String = getResourcePath(unit)
+                createParentDirectory(destinationPath)
+                val quarantine: DatabaseQuarantine = quarantineDatabase(destinationPath)
+                // The commit throws (the delete only warns): going on would put the new file beside a log
+                // that SQLite replays into it. The temp file stays complete and the next request retries.
+                check(!quarantine.stuck) { "Could not move the committed $unit aside" }
+                quarantine.entry?.let(onDetached)
             }
-            moveFile(tempFilePath = tempFilePath, destinationPath = getResourcePath(unit))
+            moveFile(
+                tempFilePath = tempFilePath,
+                destinationPath = getResourcePath(unit),
+                unit = unit,
+                onDetached = onDetached,
+            )
         }
     }
 
@@ -558,7 +752,7 @@ internal class IosDownloaderStorage(
         if (candidates.size != 1) return
         val rootName: String = candidates[0]
         val root = "$stagingDir/$rootName"
-        if (!fileExists("$root/${unit.archiveMarker()}")) return
+        if (!markerIsFile(root, unit.archiveMarker())) return
         logger.i { "Detected nested directory '$rootName', moving contents up" }
         val children: List<String> = manager.contentsOfDirectoryAtPath(root, error = null)
             ?.filterIsInstance<String>() ?: emptyList()
@@ -591,6 +785,34 @@ internal class IosDownloaderStorage(
         check(isEmptyDirectory(temporary)) { "The root directory of $unit still holds entries after moving its contents up" }
         check(manager.removeItemAtPath(temporary, error = null)) { "Could not remove the emptied root directory of $unit" }
     }
+
+    private fun isRegularFile(path: String): Boolean =
+        (NSFileManager.defaultManager.attributesOfItemAtPath(path, error = null)?.get(NSFileType) as? String) == NSFileTypeRegular
+
+    private fun isDirectoryAt(path: String): Boolean =
+        (NSFileManager.defaultManager.attributesOfItemAtPath(path, error = null)?.get(NSFileType) as? String) == NSFileTypeDirectory
+
+    /**
+     * True when [marker] (relative to [directory]) is a regular file spelled exactly like that. A directory of the
+     * marker's name does not count, and neither does `MARKER.TXT` for `marker.txt` on a volume that folds case, where
+     * `fileExists` alone would say yes (a case-sensitive volume says no). Unicode normalization is not told apart: the
+     * volume treats the spellings as one name for every read too.
+     */
+    private fun markerIsFile(directory: String, marker: String): Boolean {
+        if (!isRegularFile("$directory/$marker")) return false
+        if (!volumeFoldsCase) return true
+        var current: String = directory
+        for (segment: String in marker.split('/').filter { part: String -> part.isNotEmpty() && part != "." }) {
+            val names: List<String> = NSFileManager.defaultManager.contentsOfDirectoryAtPath(current, error = null)
+                ?.filterIsInstance<String>() ?: return false
+            val wanted: String = canonicalForm(segment)
+            val found: String = names.firstOrNull { name: String -> canonicalForm(name) == wanted } ?: return false
+            current = "$current/$found"
+        }
+        return true
+    }
+
+    private fun canonicalForm(name: String): String = (name as NSString).decomposedStringWithCanonicalMapping
 
     /** True when [path] is a directory with something in it. */
     private fun isNonEmptyDirectory(path: String): Boolean =
@@ -662,6 +884,8 @@ internal class IosDownloaderStorage(
      */
     private fun verifySqlite(tempFilePath: String, format: ResourceFormat.SqliteDatabase) {
         requireSqliteHeader(tempFilePath)
+        // A leftover -wal would be replayed into this file, and opening it may leave its own: neither stays.
+        deleteSqliteSidecars(tempFilePath)
         val counts: Pair<Int, Int?>? = try {
             val connection: SQLiteConnection = BundledSQLiteDriver().open(tempFilePath)
             try {
@@ -691,6 +915,8 @@ internal class IosDownloaderStorage(
                 "Downloaded resource failed integrity check: not a valid database (${e.message})",
                 e,
             )
+        } finally {
+            deleteSqliteSidecars(tempFilePath)
         }
         val (actualCount: Int, declaredCount: Int?) = counts ?: return
         if (declaredCount == null || actualCount != declaredCount) {
@@ -700,6 +926,11 @@ internal class IosDownloaderStorage(
                     "$actualCount rows, meta declares $declaredCount",
             )
         }
+    }
+
+    /** Removes the write-ahead log, shared-memory and journal files SQLite keeps next to [databasePath]. */
+    private fun deleteSqliteSidecars(databasePath: String) {
+        for (sidecar: String in SqliteFiles.sidecarsOf(databasePath)) NSFileManager.defaultManager.removeItemAtPath(sidecar, error = null)
     }
 
     /** Deletes the file and throws when it does not start with the 16-byte SQLite header or is shorter than 100 bytes. */
@@ -743,7 +974,12 @@ internal class IosDownloaderStorage(
         }
     }
 
-    private fun moveFile(tempFilePath: String, destinationPath: String) {
+    private fun moveFile(
+        tempFilePath: String,
+        destinationPath: String,
+        unit: DownloadUnit,
+        onDetached: (String) -> Unit,
+    ) {
         val parentDir: String = destinationPath.substringBeforeLast('/')
         NSFileManager.defaultManager.createDirectoryAtPath(
             path = parentDir,
@@ -751,8 +987,17 @@ internal class IosDownloaderStorage(
             attributes = null,
             error = null,
         )
-        // POSIX rename replaces an existing destination atomically, so a resource already in place
-        // is never missing, not even for a moment. The old remove-then-move removed it first, and a
+        // A real directory at the path (an archive unit of the same id, or a stray one) cannot be replaced by a
+        // file rename. It moves into the trash in one rename, under the unit lock, and is deleted after the lock;
+        // it is never deleted in place. A plain file, a link or a dangling link is replaced by the rename itself.
+        if (isDirectoryAt(destinationPath)) {
+            val oldTree: String? = detachTree(destinationPath)
+            check(oldTree != null || !isDirectoryAt(destinationPath)) { "Could not move the committed $unit aside" }
+            if (oldTree != null) onDetached(oldTree)
+        }
+        // POSIX rename replaces an existing destination atomically, so a resource still in place (any format except
+        // SqliteDatabase, whose old file quarantineDatabase moved aside first) is never missing, not even for a
+        // moment. The old remove-then-move removed it first, and a
         // commit whose source was already gone then deleted a committed resource and failed.
         if (rename(tempFilePath, destinationPath) != 0) {
             // Only the fallback below removes the destination, so it must first be sure the source
@@ -760,6 +1005,11 @@ internal class IosDownloaderStorage(
             check(fileExists(tempFilePath)) {
                 "The downloaded file at $tempFilePath vanished before it could be moved into place"
             }
+            // A real directory never gets here: it was moved into the trash above, so this removes a file or a link.
+            // That holds under the per-id lock only. Two units with DIFFERENT ids that share one relativePath are
+            // not serialized by it: a tree committed by the other unit between the check above and the rename makes
+            // the rename fail and would then be removed here in place. Such units are outside the identity rule
+            // (DownloaderStorage requires one relativePath per resource), so this is documented, not guarded.
             NSFileManager.defaultManager.removeItemAtPath(destinationPath, error = null)
             // Fallback: copy + delete. A failed copy must not delete the only copy of the download.
             val copied: Boolean = NSFileManager.defaultManager
@@ -789,9 +1039,12 @@ internal class IosDownloaderStorage(
         var size: Long = 0L
     }
 
-    /** Logs and throws: the archive cannot be extracted as delivered (bytes that are not what a valid archive holds). */
+    /**
+     * Logs and throws: the archive cannot be extracted as delivered (bytes that are not what a valid archive holds).
+     * The entry name is cut for the log line and the message ([shortEntryName]): it can be 64 kB long and hold line breaks.
+     */
     private fun zipFail(entry: String?, reason: String): Nothing {
-        val message: String = if (entry == null) "ZIP archive: $reason" else "ZIP entry '$entry': $reason"
+        val message: String = if (entry == null) "ZIP archive: $reason" else "ZIP entry '${shortEntryName(entry)}': $reason"
         logger.e { message }
         throw ResourceIntegrityException(message)
     }
@@ -806,8 +1059,10 @@ internal class IosDownloaderStorage(
      * Every entry is extracted or the call fails with [ResourceIntegrityException]; nothing is skipped.
      * A truncated header, name, data or data descriptor, a size or CRC-32 that disagrees with the
      * bytes, a stream that does not end where it declares, an unsupported method, an encrypted or
-     * ZIP64 entry and a name that leaves [targetDir] all fail. A full disk or a file that cannot be
-     * created is [IllegalStateException]: the bytes were fine.
+     * ZIP64 entry, a name that leaves [targetDir], a path of more than 1,023 UTF-8 bytes (PATH_MAX less the NUL;
+     * refused before anything of the entry is created), two entries the volume would store as one (names that
+     * differ only in case or Unicode normalization, or one name that is a file and a directory) and a name or
+     * path the volume cannot hold all fail. A full disk is [IllegalStateException]: the bytes were fine.
      */
     private fun extractZip(filePath: String, targetDir: String) {
         logger.i { "Extracting ZIP to $targetDir..." }
@@ -827,6 +1082,7 @@ internal class IosDownloaderStorage(
             throw e
         }
 
+        val entryLayout = ZipEntryLayout()
         val headerBuf = ByteArray(LOCAL_HEADER_SIZE)
         val ioBuf = ByteArray(WRITE_BUFFER_SIZE)
         val outBuf = ByteArray(WRITE_BUFFER_SIZE)
@@ -879,9 +1135,19 @@ internal class IosDownloaderStorage(
                 if (fileName.indexOf('\u0000') >= 0) zipFail(fileName, "the name contains a NUL character")
 
                 val isDirectory: Boolean = fileName.endsWith("/")
-                val segments: List<String> = normalizedSegments(fileName)
+                val segments: List<String> = resolveEntrySegments(fileName)
                     ?: zipFail(fileName, "ZIP entry attempts path traversal")
                 if (segments.isEmpty() && !isDirectory) zipFail(fileName, "the name has no file part")
+                // Before the layout check and any directory is created: a path this long never fits a Darwin volume.
+                if (entryPathBytes(targetDir, segments) > MAX_ENTRY_PATH_BYTES) {
+                    zipFail(fileName, "the path is longer than this volume allows")
+                }
+                if (segments.isNotEmpty()) {
+                    val conflict: String? = entryLayout.conflict(segments, isDirectory) { path: String ->
+                        fileExists("$targetDir/$path")
+                    }
+                    if (conflict != null) zipFail(fileName, conflict)
+                }
                 val outputPath: String = if (segments.isEmpty()) targetDir else "$targetDir/${segments.joinToString("/")}"
 
                 // A directory entry is created (an empty directory is part of the tree) under the same rule
@@ -894,6 +1160,7 @@ internal class IosDownloaderStorage(
                         attributes = null,
                         error = null,
                     )
+                    if (!isDirectoryAt(outputPath)) zipFail(fileName, "the directory cannot be created on this volume")
                 } else {
                     NSFileManager.defaultManager.createDirectoryAtPath(
                         path = outputPath.substringBeforeLast('/'),
@@ -901,7 +1168,14 @@ internal class IosDownloaderStorage(
                         attributes = null,
                         error = null,
                     )
-                    outFile = fopen(outputPath, "wb") ?: error("Failed to create output file: $outputPath")
+                    outFile = fopen(outputPath, "wb") ?: run {
+                        val code: Int = errno
+                        // A name or path the volume cannot hold is the archive's fault; a full disk is not.
+                        if (code == ENAMETOOLONG || code == ENOENT || code == ENOTDIR || code == EISDIR) {
+                            zipFail(fileName, "the file cannot be created on this volume (errno $code)")
+                        }
+                        error("Failed to create output file: $outputPath (errno $code)")
+                    }
                 }
                 val sink = EntrySink(outFile, outputPath)
                 var completed = false
@@ -929,7 +1203,7 @@ internal class IosDownloaderStorage(
                         throw IllegalStateException("Failed to write $outputPath")
                     }
                 }
-                logger.d { "Extracted: $fileName" }
+                logger.d { "Extracted: ${shortEntryName(fileName)}" }
             }
         } finally {
             fclose(zipFile)
@@ -942,26 +1216,6 @@ internal class IosDownloaderStorage(
             buf[1].toInt() and 0xFF == 0x4B &&
             buf[2].toInt() and 0xFF == 0x03 &&
             buf[3].toInt() and 0xFF == 0x04
-
-    /**
-     * An entry name as the segments left after resolving it lexically, splitting on `/` only: empty and `.`
-     * segments are dropped, `..` removes one, and null when a `..` has nothing to remove (the entry would land
-     * outside the extraction directory). A name that merely contains two dots is an ordinary name.
-     */
-    private fun normalizedSegments(name: String): List<String>? {
-        val segments: ArrayList<String> = ArrayList()
-        for (segment: String in name.split('/')) {
-            when (segment) {
-                "", "." -> Unit
-                ".." -> {
-                    if (segments.isEmpty()) return null
-                    segments.removeAt(segments.lastIndex)
-                }
-                else -> segments.add(segment)
-            }
-        }
-        return segments
-    }
 
     /** Fails when the bytes written for [entry] are not the CRC-32 and size its header declared. */
     private fun checkEntry(entry: String, sink: EntrySink, expectedCrc: Long, expectedSize: Long) {
@@ -1165,8 +1419,19 @@ internal class IosDownloaderStorage(
 
     private fun fileExists(path: String): Boolean =
         NSFileManager.defaultManager.fileExistsAtPath(path)
+
+    /** True when [path] exists and is not a directory; follows symbolic links, as [fileExists] does. */
+    private fun existsAndIsNotDirectory(path: String): Boolean = memScoped {
+        val isDirectory: BooleanVar = alloc<BooleanVar>()
+        NSFileManager.defaultManager.fileExistsAtPath(path, isDirectory = isDirectory.ptr) && !isDirectory.value
+    }
 }
 
+/** How often deleteResource retries moving a present tree aside before it deletes it in place. */
+private const val MAX_DETACH_ATTEMPTS: Int = 3
+
+/** The longest path, in UTF-8 bytes, an entry may get: PATH_MAX (1024 on Darwin) less the terminating NUL. */
+private const val MAX_ENTRY_PATH_BYTES: Int = 1023
 private const val LOCAL_HEADER_SIZE: Int = 30
 private const val SQLITE_MIN_BYTES: Int = 100
 private const val FLAG_ENCRYPTED: Int = 0x0001

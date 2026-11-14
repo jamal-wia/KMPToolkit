@@ -68,17 +68,56 @@ The tree is only renamed to `tmp/kmptoolkit-internal/trash/<random number>` unde
 deleted after it is released, so a large extraction never stalls other units' commits (the entry is
 named by a number alone, so no id's length can make the rename fail). If the process dies or the
 delete fails midway, the remainder stays in `tmp/kmptoolkit-internal/trash/`; every later
-`deleteTempFile`, for any unit, sweeps that directory (nothing ever commits from it, so no lock is needed). A plain file
+`deleteTempFile`, every commit that replaced a tree or moved a `SqliteDatabase` aside, and every `deleteResource` of a directory or of a `SqliteDatabase` that found something at its path or beside it, for any unit, sweeps that directory (nothing ever commits from it, so no lock is needed). A symbolic link in place of the trash
+directory is removed as a link, never followed. A replaced
+or deleted archive tree passes through the same directory: it is renamed there in one step and deleted afterwards,
+so a process killed inside that delete leaves its partial tree in the trash and never at the resource path, where a
+surviving marker would read as a complete resource. A process killed after an archive commit's final rename and before
+its temp file is deleted leaves that complete temp file; it is reclaimed by the next `beginTempFile` or `deleteTempFile`,
+and a `deleteResource` followed by a request commits those same bytes again without a transfer. A plain file
 is moved into place by an atomic rename that replaces the old file, on both platforms, so a
-committed resource never goes missing while it is replaced. The lock is per process: a
+committed resource never goes missing while it is replaced — except a `SqliteDatabase` unit, whose old file and sidecars are
+first moved into the trash together: the path holds the old database with its log, nothing, or the new database alone, and a
+process killed in between leaves it unavailable beside its complete temp file, which the next request commits. A directory found at a plain-file resource's path (an
+archive unit of the same id, or a stray one) reads as unavailable and is moved into the trash by the commit, the same
+way a replaced archive tree is. The two platforms read a path that is neither a regular file nor a directory
+differently: Android's availability check is `File.isFile`, which is false for a FIFO, a socket or a device node,
+while iOS reads anything that exists and is not a directory as available (no download produces such a node).
+The lock is per process: a
 `BackgroundResourceDownloader` that commits from a separate Android process is not covered by it. The hash a transfer must have (`beginTempFile`) is a one-line file at
 `<base>/tmp/expect/<unit.id>.sha256`, keyed by id alone so a free-form `tempExtension` cannot make two
 units share or miss a record; it is written to `<base>/tmp/expect-staged/<unit.id>.sha256` and flushed to
 disk first, then moved into place by an atomic rename once the old temp files are gone.
 
+Everything under the base directory must lie on one volume. Staging trees, temp files, the trash and resources are
+moved with `rename`, which cannot cross a volume, and the storage does not look for a boundary: a directory on the way
+to a unit's `relativePath` that is a link to another volume (or a mount point) is one. A `ZipArchive` unit behind such a
+boundary cannot be replaced: its commit throws `IllegalStateException` when the old tree cannot be moved aside, and on
+Android even its first commit throws, because the extracted tree is moved into place by a rename alone (a
+`deleteResource` of a tree that cannot be moved aside deletes it in place and logs a warning). An `Opaque` or
+`SqliteDatabase` unit falls back to copying the temp file into place, so its first commit succeeds. A later commit of a
+`SqliteDatabase` unit must first move the old database into the trash, cannot, and throws `IllegalStateException` (the
+temp file is kept); `deleteResource` of it only logs a warning and leaves the database where it is, so a refresh
+(`deleteResource`, then a request) keeps serving the old version. The copy fallback is not atomic: on Android it writes
+the bytes straight into the file at the resource path, and on iOS it removes the old file and then copies, so a process
+killed during the copy can leave a partial file at the path. The availability check tests the path, not the length, so
+the engine reads that file as available and the complete temp file beside it is not committed. Keep every unit's
+resource on the volume of the base directory.
+
+Two engines over one base directory in the same process (two DI graphs, for example) never transfer
+the same unit at the same time: the second one waits for the first one's download and commit, then
+returns because the resource is available. This holds for the storages returned by
+`createDownloaderStorage` only; with a storage you implement or wrap, use one engine per directory.
+A call that is cancelled while it waits for the other engine's transfer ends when that transfer
+ends. A cancel issued on an engine that is not the one transferring the unit (`cancelDownload`, or the
+cleanup of a call cancelled while it waited) never deletes the temp file of the transfer in flight: it
+leaves the file alone when another engine holds the unit's lock. The lock lives in the process, not on
+disk, so two processes over one directory are still not
+coordinated.
+
 #### Units whose id is not a plain file name
 
-The names above are those of a unit whose id has no `/` and no NUL, whose `<id>.<ext>.complete`
+The names above are those of a unit whose id has no `/`, no NUL and no unpaired surrogate (an id with one has no UTF-8 form: Android cannot create a file named by it and iOS would give two such ids one file), whose `<id>.<ext>.complete`
 (and `staging-<id>`) fit in 255 bytes, and whose `tempExtension` is one plain name. For every other
 unit the same files live under `<base>/tmp/kmptoolkit-internal/`, named by a key: the lowercase
 base32 SHA-256 of the id (52 characters of `a-z2-7`). So `models/v1` has its partial at
@@ -93,7 +132,7 @@ never build it, and never cache it across launches: it may be under a subdirecto
 
 A unit whose names are hashed gets its 3.0.0 temp files moved on first touch in each process: the
 record, the complete file and the partial file move to their hashed place with a move that never
-overwrites (`link(2)` of the new name, then removal of the old one, so a destination created at the
+overwrites (`FileAccess.move` of `kmptoolkit-files` with `ExistingFile.Fail`: `link(2)` of the new name, then removal of the old one, so a destination created at the
 same moment is not replaced; when the destination already exists it wins and the old file is
 deleted), and a leftover staged record is deleted. A file system without hard links cannot do the
 move: it is logged and the old file stays. A process killed in between finishes the move next time. The move
@@ -124,7 +163,9 @@ per storage; an unanswerable volume counts as case-insensitive) the commit lock 
 `model` is shared, so they never commit or detach a staging tree at the same time, and a
 `relativePath` such as `TMP/Expect/x` is rejected like `tmp/expect/x` (case is folded with the full
 mapping, so `tmp/ſtaging-x` is rejected too, and ids such as `ß`, `ẞ`, `straße` and `STRASSE` share a commit
-lock). Android is case-sensitive.
+lock). Android is case-sensitive. The same fold applies to the base directory's own path, so two storages over one
+directory spelled in different cases (`Models` and `models` as `baseDirectoryName`) share the commit lock and the
+cross-engine transfer lock.
 
 On iOS the OS may restart a background download from zero while claiming to resume it from
 `resumeData`. The bytes of the new file then do not match the hash recorded for the first one, so
@@ -194,12 +235,37 @@ archives (a stub in front of the first header) fail on their first bytes. Entry 
 or not the archive sets the UTF-8 flag; a name that is not valid UTF-8 (an archive written in a legacy code page)
 fails the commit. Android 14 and later (`targetSdk` 34+) also refuse entry names containing `..` segments or
 starting with `/` inside `java.util.zip` (Zip path validation); on those devices such archives fail as
-`Corrupted`, while older devices and iOS extract them under their normalized names.
+`Corrupted`, while older devices and iOS extract them under their normalized names. On those other
+devices an entry name with a leading `/` (`/a.txt`) is not absolute: the empty first segment is dropped and
+the file is extracted inside the tree as the relative name `a.txt`, never at the file-system root.
+
+Extraction has no bound of its own: there is no limit on the number of entries or on the extracted size (a
+highly compressed entry is extracted in full at its declared size), and a full disk fails the commit as
+`DownloadError.Storage` (see "No disk-space precondition" below). A host that wants a bound has to check the
+archive's size itself, or give the unit a `sha256` it trusts, which is checked before anything is extracted.
+
+An archive that cannot be laid out on the file system as delivered fails the commit with `ResourceIntegrityException` on both
+platforms, and its temp file is deleted (one fresh download, then `DownloadError.Corrupted`): one name that is a file in one
+entry and a directory in another (`a` and `a/`, or `a` and `a/b.txt`), a name or path longer than the volume allows (on Android
+more than 4,095 bytes, on iOS more than 1,023, counted in UTF-8 with the extraction directory; refused before anything of
+the entry is created), and two
+entries that differ only in case or Unicode normalization on a volume that treats them as one name (APFS on iOS, whose
+volume is case-insensitive by default; an Android device's `filesDir` is case-sensitive, so both are extracted there). The
+same entry name twice is not a conflict: the later bytes win, as in every unzip. The availability marker must be a regular
+file, spelled exactly like `availabilityMarker`: a directory of that name, or `MARKER.TXT` for `marker.txt` on a
+case-insensitive volume, does not make the resource available, and neither does a marker ending in `/`.
 
 When the marker is not at the top and the archive holds exactly one non-empty top-level directory that
 contains it, that directory's contents are moved up; files and empty directories beside it stay where they
 are, and a name that exists at the top as a file fails the commit with `ResourceIntegrityException`. An empty
 directory of the same name is replaced; a non-empty directory is never deleted.
+
+Verifying a `SqliteDatabase` leaves nothing beside the temp file: the `-wal`, `-shm` and `-journal` files SQLite keeps
+for a database in write-ahead-log mode are removed before and after the check (a stale one would otherwise be replayed
+into the next download of the unit), on both platforms, and the same is done beside the resource when it is replaced or
+deleted: the old file and its `-wal`, `-shm` and `-journal` are moved into the trash together, a `SqliteDatabase` that is
+already gone but left a log is cleaned by the next commit or delete of the unit, and a file named like a sidecar beside any
+other format is never touched.
 
 A `SqliteDatabase` file must be at least 100 bytes long and start with the 16-byte SQLite header
 (`SQLite format 3` and a NUL); an empty or cut body fails the commit, before the database is opened. The row

@@ -64,8 +64,9 @@ Posting a notification looks like one line on each platform, and behaves like ne
   [`03-guide.md`](03-guide.md#action-buttons).
 
 Dependencies: [`kmptoolkit-permission`](../kmptoolkit-permission/01-overview.md) (to check
-`CommonPermission.Notifications`, never to request it), `kotlinx-coroutines-core`, and `androidx.core` on
-Android. No DI framework, no Compose, no push SDK.
+`CommonPermission.Notifications`, never to request it), `kotlinx-coroutines-core`, and, on Android only, `androidx.core` and `androidx.media` (the latter for
+`NotificationOptions.mediaStyle`). Both are `implementation` dependencies of the Android source set, so the Android
+POM lists them with runtime scope and none of their types appears in this module's API. No DI framework, no Compose, no push SDK.
 
 ## What this is **not**
 

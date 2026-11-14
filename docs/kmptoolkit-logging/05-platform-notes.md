@@ -25,6 +25,18 @@ a `toString()`:
 
 Things to know:
 
+- **A chain with an `UnknownHostException` is rendered by the module, not by logcat.**
+  `android.util.Log.getStackTraceString` returns an empty string for any throwable that has an
+  `UnknownHostException` anywhere in its cause chain, so a plain `Log.e(tag, message, throwable)`
+  prints the message and no trace. For such a throwable the sink appends
+  `throwable.stackTraceToString()` (the whole chain, causes included) to the message on its own
+  lines and passes no `Throwable` to `android.util.Log`; every other throwable is passed through
+  unchanged. The whole chain is searched however long it is, and a cyclic chain (a throwable that is
+  its own indirect cause, which `initCause` can build) is rendered the same way, because
+  `android.util.Log.getStackTraceString` never returns on a cycle and `stackTraceToString()` prints
+  `CIRCULAR REFERENCE` for the repeated throwable and stops. The trace is then part of the message
+  text, so logcat shows it on several lines and, like any long message, it is subject to logcat's
+  per-entry length limit.
 - **Logcat has its own filter.** `android.util.Log` applies the device's per-tag log level on top of
   this module's `minLevel`. An event this module passes can still be dropped by the platform —
   historically `VERBOSE` and `DEBUG` were suppressed unless enabled with
@@ -37,7 +49,11 @@ Things to know:
   building its message is not.
 - **`android.util.Log` is not available on a plain JVM.** In a local unit test without Robolectric,
   calling it throws `"not mocked"`. Tests should use their own sink or an empty sink list — this
-  module's own tests never touch `platformLogSink()` for exactly this reason.
+  module's common tests never touch `platformLogSink()` for exactly this reason. The tests that
+  create it are the Android host tests (`PlatformLogSinkStackTraceTest`, `PlatformLogSinkLongChainTest`),
+  which run under Robolectric, where `android.util.Log` is a working shadow that records what the sink
+  passes to it, and the iOS tests: `PlatformLogSinkIosChainTest` calls it and checks only that it
+  returns, `PlatformLogSinkIosConcurrencyTest` redirects standard output to a file and reads what it wrote.
 
 ## iOS
 
@@ -49,6 +65,11 @@ D/UserRepository: loading user 42
 
 The prefix is the level's initial (`V`, `D`, `I`, `W`, `E`), then the tag, then the message. A
 non-null `Throwable` is followed by `throwable.stackTraceToString()` on its own lines.
+
+Each event, its line and its stack trace, is written in one step under a lock shared by every
+instance of the sink, so loggers on several threads never glue lines together or separate a trace
+from its event. Anything else that writes to standard output (`println` elsewhere in the app,
+`NSLog`) does not take that lock, so its output is not ordered against the sink's.
 
 **Why `println` and not `NSLog` or `os_log`:**
 
@@ -67,6 +88,12 @@ createLoggerFactory(minLevel = LogLevel.INFO, sinks = listOf(osLogSink))
 ```
 
 The sink interface exists precisely so this stays your decision rather than the library's.
+
+## Limitation: a throwable that cannot render itself (both platform sinks)
+
+A throwable whose `toString()` or `getCause()` throws costs the whole event on that platform sink,
+header and message included, not only the trace; the logger contains the error (for the failures it
+contains, see the `LogSink` KDoc) and the other sinks still get the event.
 
 ## Behavior that is identical on both platforms
 

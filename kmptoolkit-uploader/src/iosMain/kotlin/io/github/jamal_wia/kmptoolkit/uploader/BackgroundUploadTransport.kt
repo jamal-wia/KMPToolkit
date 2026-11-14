@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.files.FileNames
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.e
@@ -33,7 +34,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import platform.CoreCrypto.CC_SHA256
 import platform.Foundation.NSBundle
 import platform.Foundation.NSData
 import platform.Foundation.NSError
@@ -52,6 +52,7 @@ import platform.Foundation.NSURLSessionConfiguration
 import platform.Foundation.NSURLSessionDataDelegateProtocol
 import platform.Foundation.NSURLSessionDataTask
 import platform.Foundation.NSURLSessionTask
+import platform.Foundation.NSURLSessionUploadTask
 import platform.Foundation.NSUUID
 import platform.Foundation.appendData
 import platform.Foundation.inputStreamWithFileAtPath
@@ -82,7 +83,13 @@ import platform.posix.memcpy
  * @param resourceTimeout the session's `timeoutIntervalForResource`: how long the whole transfer, retries
  *   after an idle timeout included, may take before iOS fails it. The default, 7 days, is the system's
  *   own. It therefore bounds how long an upload may be re-sent; keep [lease] below it. Must be positive and finite.
- * @since 1.5.0 ([requestTimeout] and [resourceTimeout] since 4.0.0)
+ * @param journalDirectoryName the name of the directory in Application Support that holds the outcome journal
+ *   (`<journalDirectoryName>/outcomes`). The default, `kmptoolkit-uploader`, is the name earlier versions used, so
+ *   existing journals are found; give each independent uploader in one app its own name, or their item ids share one
+ *   journal. Must be a plain file name ([FileNames.isPlainName]).
+ * @throws IllegalArgumentException if a duration or [sessionIdentifierPrefix] is out of range or
+ *   [journalDirectoryName] is not a plain file name.
+ * @since 1.5.0 ([requestTimeout] and [resourceTimeout] since 4.0.0, [journalDirectoryName] since 5.0.0)
  */
 public class BackgroundUploadConfig(
     public val sessionIdentifierPrefix: String? = null,
@@ -90,7 +97,30 @@ public class BackgroundUploadConfig(
     public val rehandFlushWindow: Duration = 3.seconds,
     public val requestTimeout: Duration = DEFAULT_REQUEST_TIMEOUT,
     public val resourceTimeout: Duration = DEFAULT_RESOURCE_TIMEOUT,
+    public val journalDirectoryName: String = DEFAULT_JOURNAL_DIRECTORY_NAME,
 ) {
+    /**
+     * The constructor before [journalDirectoryName] existed (4.x): same five parameters, journal in the default
+     * directory. Kept so that Swift and binary callers of the five-argument form keep working. A call that leaves
+     * a parameter out resolves to the primary constructor.
+     *
+     * @since 4.0.0
+     */
+    public constructor(
+        sessionIdentifierPrefix: String?,
+        lease: Duration,
+        rehandFlushWindow: Duration,
+        requestTimeout: Duration,
+        resourceTimeout: Duration,
+    ) : this(
+        sessionIdentifierPrefix,
+        lease,
+        rehandFlushWindow,
+        requestTimeout,
+        resourceTimeout,
+        DEFAULT_JOURNAL_DIRECTORY_NAME,
+    )
+
     /**
      * The constructor before [requestTimeout] and [resourceTimeout] existed; kept so that Swift code calling
      * `BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` still compiles. It has no
@@ -115,7 +145,14 @@ public class BackgroundUploadConfig(
         sessionIdentifierPrefix: String?,
         lease: Duration,
         rehandFlushWindow: Duration,
-    ) : this(sessionIdentifierPrefix, lease, rehandFlushWindow, DEFAULT_REQUEST_TIMEOUT, DEFAULT_RESOURCE_TIMEOUT)
+    ) : this(
+        sessionIdentifierPrefix,
+        lease,
+        rehandFlushWindow,
+        DEFAULT_REQUEST_TIMEOUT,
+        DEFAULT_RESOURCE_TIMEOUT,
+        DEFAULT_JOURNAL_DIRECTORY_NAME,
+    )
 
     init {
         require(sessionIdentifierPrefix == null || sessionIdentifierPrefix.isNotBlank()) {
@@ -129,6 +166,7 @@ public class BackgroundUploadConfig(
         require(resourceTimeout.isPositive() && resourceTimeout.isFinite()) {
             "resourceTimeout must be positive and finite, was $resourceTimeout."
         }
+        FileNames.requirePlainName(journalDirectoryName, "journalDirectoryName")
     }
 
     override fun equals(other: Any?): Boolean =
@@ -137,7 +175,8 @@ public class BackgroundUploadConfig(
             lease == other.lease &&
             rehandFlushWindow == other.rehandFlushWindow &&
             requestTimeout == other.requestTimeout &&
-            resourceTimeout == other.resourceTimeout
+            resourceTimeout == other.resourceTimeout &&
+            journalDirectoryName == other.journalDirectoryName
 
     override fun hashCode(): Int {
         var result: Int = sessionIdentifierPrefix.hashCode()
@@ -145,22 +184,29 @@ public class BackgroundUploadConfig(
         result = 31 * result + rehandFlushWindow.hashCode()
         result = 31 * result + requestTimeout.hashCode()
         result = 31 * result + resourceTimeout.hashCode()
+        result = 31 * result + journalDirectoryName.hashCode()
         return result
     }
 
     override fun toString(): String =
         "BackgroundUploadConfig(sessionIdentifierPrefix=$sessionIdentifierPrefix, lease=$lease, " +
             "rehandFlushWindow=$rehandFlushWindow, requestTimeout=$requestTimeout, " +
-            "resourceTimeout=$resourceTimeout)"
+            "resourceTimeout=$resourceTimeout, journalDirectoryName=$journalDirectoryName)"
 
-    internal companion object {
+    public companion object {
+        /**
+         * The default [journalDirectoryName]: the directory name the outcome journal has always used.
+         * @since 5.0.0
+         */
+        public const val DEFAULT_JOURNAL_DIRECTORY_NAME: String = "kmptoolkit-uploader"
+
         /** The system's `timeoutIntervalForRequest` default. */
-        val DEFAULT_REQUEST_TIMEOUT: Duration = 60.seconds
+        internal val DEFAULT_REQUEST_TIMEOUT: Duration = 60.seconds
 
         /** The system's `timeoutIntervalForResource` default. */
-        val DEFAULT_RESOURCE_TIMEOUT: Duration = 7.days
+        internal val DEFAULT_RESOURCE_TIMEOUT: Duration = 7.days
 
-        const val DEFAULT_PREFIX_SUFFIX: String = ".uploader.upload."
+        internal const val DEFAULT_PREFIX_SUFFIX: String = ".uploader.upload."
     }
 }
 
@@ -290,13 +336,13 @@ internal class BackgroundSessionUploadTransport(
     private val identifierPrefix: String,
     private val config: BackgroundUploadConfig,
     logger: Logger,
-    private val journal: OutcomeJournal = iosOutcomeJournal(logger),
+    private val journal: OutcomeJournal = iosOutcomeJournal(logger, config.journalDirectoryName),
     private val sessionFactory: UploadSessionFactory = NsUrlUploadSessionFactory(config),
     /** How long a hand-off waits for the previous session of the same identifier to report itself invalid. */
     private val invalidationWait: Duration = DEFAULT_INVALIDATION_WAIT,
     /** Called after a hand-off wrote its body and before it takes the lock to create the task. Test seam. */
     private val onBodyWritten: (String) -> Unit = {},
-) : UploadTransport {
+) : AttemptStampedTransport {
 
     /** A logger that throws is ignored: it never stops a hand-off, a settlement or the process. */
     private val logger: Logger = logger.nonThrowing()
@@ -334,7 +380,12 @@ internal class BackgroundSessionUploadTransport(
         // Outcomes a dead process journaled and nobody collected: replay them to the engine, or delete the
         // expired ones. Once per transport, so once per process; the engine may not be up yet, which the
         // gateway waits for.
-        scope.launch { journal.sweep(gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT)) }
+        scope.launch {
+            journal.sweep(
+                gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT),
+                knows = { UploadGateway.knowsItem(it, UploadGateway.DEFAULT_ENGINE_WAIT) },
+            )
+        }
     }
 
     /** The item id carried by [identifier], or `null` for a session this transport does not own. */
@@ -346,13 +397,34 @@ internal class BackgroundSessionUploadTransport(
     }
 
     override fun launch(itemId: String, isRehandOff: Boolean, request: UploadRequest) {
-        // First of all: an outcome this item's earlier upload journaled is replayed INSTEAD of uploading — the
-        // session it ran on is gone and its events will not come again. Nothing is started, not even a session.
-        if (replayJournaled(itemId, isRehandOff)) return
-        handOff(itemId, isRehandOff, request)
+        launchWithStamp(itemId, isRehandOff, null, request)
     }
 
-    private fun handOff(itemId: String, isRehandOff: Boolean, request: UploadRequest, deferredToken: Any? = null) {
+    /**
+     * The hand-off the engine makes: [attemptStamp] is the attempt the upload answers. It travels with the session
+     * task (its `taskDescription`, which the system keeps for a task that outlives the process), so the delegate
+     * that receives the answer in whichever process stamps the journal entry with it. A hand-off without one (a
+     * consumer driving the transport directly) leaves the entry unstamped, settled by the older delete-before-commit
+     * protocol.
+     */
+    override fun launch(itemId: String, isRehandOff: Boolean, attemptStamp: Int, request: UploadRequest) {
+        launchWithStamp(itemId, isRehandOff, attemptStamp, request)
+    }
+
+    private fun launchWithStamp(itemId: String, isRehandOff: Boolean, attemptStamp: Int?, request: UploadRequest) {
+        // First of all: an outcome this item's earlier upload journaled is replayed INSTEAD of uploading — the
+        // session it ran on is gone and its events will not come again. Nothing is started, not even a session.
+        if (replayJournaled(itemId, isRehandOff, attemptStamp)) return
+        handOff(itemId, isRehandOff, request, attemptStamp)
+    }
+
+    private fun handOff(
+        itemId: String,
+        isRehandOff: Boolean,
+        request: UploadRequest,
+        attemptStamp: Int?,
+        deferredToken: Any? = null,
+    ) {
         val live: LiveUpload = when (val claim: HandOffClaim = claimForHandOff(itemId, deferredToken)) {
             HandOffClaim.Joined -> {
                 logger.i { "Upload hand-off joins the live session — item=$itemId" }
@@ -373,7 +445,7 @@ internal class BackgroundSessionUploadTransport(
                         forgetInvalidating(itemId, claim.predecessor)
                         claim.predecessor.closeProgress()
                     }
-                    handOff(itemId, isRehandOff, request, claim.token)
+                    handOff(itemId, isRehandOff, request, attemptStamp, claim.token)
                 }
                 return
             }
@@ -385,10 +457,10 @@ internal class BackgroundSessionUploadTransport(
                 running > 0 -> logger.i { "Rejoined a running upload — item=$itemId" }
                 isRehandOff -> scope.launch {
                     delay(config.rehandFlushWindow)
-                    if (!live.delegate.receivedAnyEvent) startUpload(live, itemId, request)
+                    if (!live.delegate.receivedAnyEvent) startUpload(live, itemId, request, attemptStamp)
                 }
 
-                else -> startUpload(live, itemId, request)
+                else -> startUpload(live, itemId, request, attemptStamp)
             }
         }
     }
@@ -453,16 +525,25 @@ internal class BackgroundSessionUploadTransport(
      *
      * A lost settlement always leaves the item in flight until its lease expires, so only a re-hand can be
      * owed a replay: for a first hand-off an entry is stale, and is deleted so that it cannot stand in for
-     * the upload this hand-off was made for.
+     * the upload this hand-off was made for. Neither is an entry stamped with another attempt than the one this
+     * hand-off carries ([attemptStamp]): it answers an attempt the item has moved past (a late duplicate that reached
+     * the disk), so it is dropped here and the upload goes on, instead of a replay that applies nothing and leaves the
+     * item waiting for its next lease. An unstamped entry or hand-off is replayed as before.
      *
      * @return whether a replay was started — the caller then starts nothing. An unusable entry is deleted by
      *   the inspection and reads as none.
      */
-    private fun replayJournaled(itemId: String, isRehandOff: Boolean): Boolean {
+    private fun replayJournaled(itemId: String, isRehandOff: Boolean, attemptStamp: Int?): Boolean {
         val entry: JournalEntry = journal.inspect(itemId)
         if (entry !is JournalEntry.Valid) return false
         if (!isRehandOff) {
             logger.i { "Discarded a stale journaled outcome at a first hand-off — item=$itemId" }
+            journal.delete(itemId)
+            return false
+        }
+        val entryStamp: Int? = entry.attemptStamp
+        if (attemptStamp != null && entryStamp != null && entryStamp != attemptStamp) {
+            logger.i { "Discarded a journaled outcome of attempt $entryStamp at the re-hand of attempt $attemptStamp — item=$itemId" }
             journal.delete(itemId)
             return false
         }
@@ -648,7 +729,7 @@ internal class BackgroundSessionUploadTransport(
         }
     }
 
-    private fun startUpload(live: LiveUpload, itemId: String, request: UploadRequest) {
+    private fun startUpload(live: LiveUpload, itemId: String, request: UploadRequest, attemptStamp: Int?) {
         val url: NSURL = NSURL.URLWithString(request.url) ?: run {
             failBeforeStart(live, itemId, "malformed url: ${request.url}")
             return
@@ -684,7 +765,7 @@ internal class BackgroundSessionUploadTransport(
                 return
             }
             logger.i { "Starting upload — item=$itemId" }
-            live.session.startUploadTask(urlRequest, bodyPath)
+            live.session.startUploadTask(urlRequest, bodyPath, attemptStamp?.let(::attemptTaskDescription))
         } finally {
             liveLock.unlock()
         }
@@ -823,40 +904,21 @@ internal fun temporaryBodyPath(itemId: String): String = NSTemporaryDirectory() 
 
 /**
  * The name of the temporary body file of [itemId]. The id is the consumer's (`idGenerator`) and may be anything, so
- * an id that is not a plain file name — empty, longer than [MAX_PLAIN_ID_CHARS], a character outside
- * `[A-Za-z0-9._-]`, `.` or `..` — is named after the SHA-256 of its UTF-8 bytes instead: fixed length, never a path
- * separator, and deterministic, so every path that removes the file finds it without state. A canonical UUID (the
- * default id) keeps the name it always had, so a file written by an earlier version is still removed. The `~` cannot
- * occur in a plain name, so the two name spaces are disjoint.
+ * an id that is not its own file name ([keepsOwnFileName]: empty, longer than 200 characters, a character outside
+ * `[A-Za-z0-9._-]`, `.` or `..`, or a spelling that another id could share on a case-insensitive volume, which is
+ * any upper-case letter except in a canonical upper-case UUID) is named after the SHA-256 of its UTF-16 code units instead (UTF-8 would give two ids that differ only by a lone surrogate one name):
+ * fixed length, never a path separator, and deterministic, so every path that removes the file finds it without
+ * state. A canonical UUID (the default id) keeps the name it always had, so a file written by an earlier version is
+ * still removed. The `~` cannot occur in a plain name, so the two name spaces are disjoint. (A body file an earlier
+ * version left for an id with an upper-case letter that is not a UUID keeps its old name and is not removed by this
+ * one; it sits in the temporary directory, which the system cleans.)
  */
 internal fun temporaryBodyFileName(itemId: String): String =
-    if (isPlainFileNameId(itemId)) {
+    if (keepsOwnFileName(itemId)) {
         "kmptoolkit_upload_$itemId.tmp"
     } else {
-        "kmptoolkit_upload_~${sha256Hex(itemId.encodeToByteArray())}.tmp"
+        "kmptoolkit_upload_~${sha256Hex(utf16BigEndian(itemId))}.tmp"
     }
-
-private const val MAX_PLAIN_ID_CHARS: Int = 200
-
-private fun isPlainFileNameId(itemId: String): Boolean =
-    itemId.length in 1..MAX_PLAIN_ID_CHARS && itemId != "." && itemId != ".." && itemId.all { c ->
-        c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '.' || c == '_' || c == '-'
-    }
-
-private const val SHA256_DIGEST_BYTES: Int = 32
-
-@OptIn(ExperimentalForeignApi::class)
-private fun sha256Hex(bytes: ByteArray): String {
-    val digest = UByteArray(SHA256_DIGEST_BYTES)
-    digest.usePinned { out ->
-        if (bytes.isEmpty()) {
-            CC_SHA256(null, 0u, out.addressOf(0))
-        } else {
-            bytes.usePinned { input -> CC_SHA256(input.addressOf(0), bytes.size.convert(), out.addressOf(0)) }
-        }
-    }
-    return digest.joinToString("") { it.toString(16).padStart(2, '0') }
-}
 
 private const val COPY_CHUNK_BYTES: Int = 64 * 1024
 
@@ -876,8 +938,11 @@ internal interface UploadSession {
     /** Cancels every task the session has and reports how many there were. */
     fun cancelTasks(callback: (Int) -> Unit)
 
-    /** Creates AND resumes an upload task for [bodyPath]; the real session raises on an invalidated one. */
-    fun startUploadTask(request: NSMutableURLRequest, bodyPath: String)
+    /**
+     * Creates AND resumes an upload task for [bodyPath], labelled [taskDescription] when there is one; the real
+     * session raises on an invalidated one.
+     */
+    fun startUploadTask(request: NSMutableURLRequest, bodyPath: String, taskDescription: String?)
 
     fun invalidateAndCancel()
 
@@ -916,8 +981,11 @@ internal class NsUrlUploadSession(private val session: NSURLSession) : UploadSes
         }
     }
 
-    override fun startUploadTask(request: NSMutableURLRequest, bodyPath: String) {
-        session.uploadTaskWithRequest(request, fromFile = NSURL.fileURLWithPath(bodyPath)).resume()
+    override fun startUploadTask(request: NSMutableURLRequest, bodyPath: String, taskDescription: String?) {
+        val task: NSURLSessionUploadTask = session.uploadTaskWithRequest(request, fromFile = NSURL.fileURLWithPath(bodyPath))
+        // Kept by nsurlsessiond with the task, so a delegate in a relaunched process reads it back.
+        if (taskDescription != null) task.taskDescription = taskDescription
+        task.resume()
     }
 
     override fun invalidateAndCancel() = session.invalidateAndCancel()
@@ -1063,15 +1131,24 @@ internal class UploadSessionDelegate(
             headerFields = httpResponse?.allHeaderFields,
             errorDescription = didCompleteWithError?.localizedDescription,
             invalidate = session::invalidateAndCancel,
+            taskDescription = task.taskDescription,
         )
     }
 
     /**
      * The terminal event, however the session delivered it: [statusCode] is [STATUS_UNKNOWN] without an HTTP
      * response, [errorDescription] is set for a transport error — with a status it marks the body as cut short,
-     * not the attempt as failed — and [invalidate] invalidates the session.
+     * not the attempt as failed — and [invalidate] invalidates the session. [taskDescription] is the finished
+     * task's `taskDescription`: it carries the attempt stamp the hand-off labelled the task with (see
+     * [attemptTaskDescription]); a task without one — an earlier version's — has its answer journaled unstamped.
      */
-    fun complete(statusCode: Long, headerFields: Map<Any?, *>?, errorDescription: String?, invalidate: () -> Unit) {
+    fun complete(
+        statusCode: Long,
+        headerFields: Map<Any?, *>?,
+        errorDescription: String?,
+        taskDescription: String? = null,
+        invalidate: () -> Unit,
+    ) {
         // Under the lock startUpload creates its task under: a hand-off that has not created its task yet sees
         // the terminal state and starts nothing, so no task is ever created on the session invalidated below —
         // which raises an Objective-C exception Kotlin/Native cannot catch. A hand-off that already created
@@ -1098,10 +1175,11 @@ internal class UploadSessionDelegate(
             null
         }
         val wasCancelled: Boolean = cancelled
+        val attemptStamp: Int? = attemptStampOf(taskDescription)
         // Written here, synchronously, before the session is invalidated and before any coroutine runs: the
         // process may be suspended or killed as soon as this callback returns, and the outcome would exist
         // nowhere else. A failed write leaves today's behaviour.
-        val journaled: Boolean = !wasCancelled && response != null && journal.record(itemId, response)
+        val journaled: Boolean = !wasCancelled && response != null && journal.record(itemId, response, attemptStamp = attemptStamp)
         logger.i { "Upload completed — item=$itemId, outcome=$outcome, transportError=${errorDescription != null}, cancelled=$wasCancelled" }
         // Before the settlement is launched, not after: the settlement can return the item to the queue,
         // and a re-hand landing at once replaces this session — terminal now — with a new one under the
@@ -1117,14 +1195,26 @@ internal class UploadSessionDelegate(
                 response != null && journaled -> {
                     // Written in full, synchronously; now that an engine can say what the handler asked
                     // for, the body is cut to it before the settlement.
-                    UploadGateway.responseBodyLimit(itemId, UploadGateway.DEFAULT_ENGINE_WAIT)
-                        ?.let { limit -> journal.restrictBody(itemId, limit) }
-                    journal.settleRecorded(itemId, response, settle = gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT))
+                    val limit: Int? = UploadGateway.responseBodyLimit(itemId, UploadGateway.DEFAULT_ENGINE_WAIT)
+                    if (limit != null) journal.restrictBody(itemId, limit)
+                    journal.settleRecorded(
+                        itemId,
+                        response,
+                        attemptStamp = attemptStamp,
+                        bodyLimit = limit ?: MAX_RESPONSE_BODY_BYTES,
+                        settle = gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT),
+                    )
                 }
 
-                response != null -> UploadGateway.complete(itemId, response)
-
-                else -> UploadGateway.complete(itemId, outcome)
+                // Not journaled (a failed write, or no answer at all): settled from memory, as the Android worker
+                // does, so a report of an attempt the item has moved past is not charged to the new one.
+                else -> UploadGateway.completeAttempt(
+                    itemId,
+                    outcome,
+                    response,
+                    attemptStamp,
+                    UploadGateway.DEFAULT_ENGINE_WAIT,
+                )
             }
             if (!landed) {
                 // The row stays in flight and the lease expiry re-hands it.
@@ -1188,6 +1278,21 @@ internal fun uploadResponseOf(
     val (bytes: ByteArray, cut: Boolean) = body.toBodyAndCut()
     return UploadResponse(statusCode, headers, bytes, cut || (transportBroke && !statusCarriesNoContent(statusCode)))
 }
+
+/**
+ * The `taskDescription` a hand-off labels its session task with: the attempt the upload answers. The system keeps
+ * it with the task, so the delegate of a relaunched process can stamp the journal entry without an engine.
+ */
+internal fun attemptTaskDescription(attemptStamp: Int): String = "$ATTEMPT_DESCRIPTION_PREFIX$attemptStamp"
+
+/** The attempt stamp [attemptTaskDescription] wrote, or `null` for a task without one (an earlier version's, or foreign). */
+internal fun attemptStampOf(taskDescription: String?): Int? =
+    taskDescription?.takeIf { it.startsWith(ATTEMPT_DESCRIPTION_PREFIX) }
+        ?.removePrefix(ATTEMPT_DESCRIPTION_PREFIX)
+        ?.toIntOrNull()
+        ?.takeIf { it >= 0 }
+
+private const val ATTEMPT_DESCRIPTION_PREFIX: String = "kmptoolkit-uploader-attempt:"
 
 /** Progress is quantized against a fixed basis, so byte totals above Int range stay exact. */
 private const val PERCENT_BASIS: Long = 10_000L

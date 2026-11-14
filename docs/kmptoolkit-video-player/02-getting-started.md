@@ -20,11 +20,23 @@ kotlin {
 }
 ```
 
-With the BOM, drop the versions:
+With the BOM, drop the versions and name the BOM in every source set that declares a dependency:
 
 ```kotlin
-implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-implementation("io.github.jamal-wia:kmptoolkit-video-player")
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-video-player")
+            implementation("io.github.jamal-wia:kmptoolkit-video-player-compose")
+        }
+
+        commonTest.dependencies {
+            implementation(project.dependencies.platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
+            implementation("io.github.jamal-wia:kmptoolkit-video-player-testing")
+        }
+    }
+}
 ```
 
 Streaming on Android needs `android.permission.INTERNET` in **your** manifest — the library declares

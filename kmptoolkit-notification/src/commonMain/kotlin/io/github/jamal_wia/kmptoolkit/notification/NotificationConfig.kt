@@ -20,15 +20,19 @@ import kotlin.time.Duration.Companion.milliseconds
  *   blank when non-null.
  * @param progressBucketPercent the width, in percent, of a progress bucket. A determinate update
  *   whose percentage falls in the same bucket as the last one actually posted for that id is
- *   suppressed, so a per-byte loop turns into at most `100 / progressBucketPercent + 1` posts — as
- *   long as only the percentage changes. A frame whose other content changed (a body that repeats the
+ *   suppressed, so a per-byte loop over a full 0..100 run turns into at most
+ *   `ceil(100 / progressBucketPercent) + 1` posts (the last of them the terminal 100% frame, which
+ *   is never suppressed; for a width that divides 100 that is `100 / progressBucketPercent + 1`) —
+ *   as long as only the percentage changes. A frame whose other content changed (a body that repeats the
  *   percentage, say) is not held back by the bucket, only by [minProgressInterval].
  *   `1` disables bucketing (every distinct percent may post, subject to [minProgressInterval]).
  *   Must be in `1..100`.
  * @param minProgressInterval the shortest time between two posts for the same id while its progress
  *   is determinate. Bucketing alone does not bound the *rate*: a fast download crosses ten buckets
  *   in a second, and both platforms rate-limit an app that posts that often — Android starts
- *   dropping notifications outright. `Duration.ZERO` disables the throttle. Must not be negative.
+ *   dropping notifications outright. `Duration.ZERO` is the knob for no throttle; an infinite value is accepted but
+ *   suppresses every determinate frame after an id's first until a terminal frame and keeps the baselines
+ *   of abandoned ids, so it is not a way to disable updates. Must not be negative.
  * @throws IllegalArgumentException if any parameter is outside the range described above. Failing
  *   at construction beats discovering months later that a progress bar moves in one jump.
  */

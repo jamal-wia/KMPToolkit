@@ -44,6 +44,8 @@ public interface Notifier {
      * @param id your own stable identifier. It is the replace key and the cancel key — the platform's
      *   own key for the notification, Android's tag and iOS's request identifier, so two different
      *   ids are always two notifications. It is never shown to the user. Must not be blank.
+     *   On iOS this is the same identifier space as `kmptoolkit-scheduler`'s alarm ids: posting an id
+     *   that is also a pending alarm's id replaces the alarm.
      * @return what the platform made of the request; see [NotificationResult]. Safe to ignore, and
      *   worth logging.
      * @throws IllegalArgumentException if [id] is blank. This is the one thing [post] throws for,
@@ -81,6 +83,10 @@ public interface Notifier {
      *
      * A no-op when nothing is showing under [id] — including an id this notifier never posted.
      * Never throws for a platform refusal: it is logged and the notification may stay showing.
+     *
+     * On iOS it also removes a pending request with the identifier [id], and `kmptoolkit-scheduler`
+     * uses an alarm's id as that same identifier: cancelling an alarm's id here discards the alarm.
+     * Keep notification ids and alarm ids distinct.
      */
     public fun cancel(id: String)
 

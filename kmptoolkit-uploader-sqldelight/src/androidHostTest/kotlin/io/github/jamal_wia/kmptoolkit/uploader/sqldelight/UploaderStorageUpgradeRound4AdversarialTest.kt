@@ -83,7 +83,7 @@ class UploaderStorageUpgradeRound4AdversarialTest {
         assertEquals(true, store.insertKeep(io.github.jamal_wia.kmptoolkit.uploader.UploaderItem(
             id = "new", type = "old.type", payload = "n", schemaVersion = 1, uniqueKey = null, orderingKey = null, tag = null,
             state = UploaderItemState.PENDING, attempts = 0, nextRunAtEpochMillis = 0L, createdAtEpochMillis = 0L, lastError = null,
-        )))
+        )).inserted)
         assertEquals(listOf("pending", "inflight", "new"), store.getAllActive().map { it.id })
         assertEquals(listOf("acct"), store.deleteByTag("acct").map { it.tag }.distinct())
     }

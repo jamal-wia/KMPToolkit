@@ -33,9 +33,10 @@ class MyApplication : Application() {
 }
 ```
 
-The interceptor runs on the main thread for every key event delivered to a dialog window that calls
-the effect, before the dialog itself sees the event. `true` consumes it; `false` lets it through
-untouched.
+The interceptor runs on the main thread. In a dialog window it sees every key event delivered to that
+window, before the dialog itself does. In a focusable `Popup` and in Activity content it sees only the
+keys the view tree left unhandled, and only on API 28 and higher (below that the effect does nothing
+there). `true` consumes the event; `false` lets it through untouched.
 
 Pass a `Logger` from `kmptoolkit-logging` as the first argument if you want a warning when a second
 policy replaces the first — see [`03-guide.md`](03-guide.md#install-once).

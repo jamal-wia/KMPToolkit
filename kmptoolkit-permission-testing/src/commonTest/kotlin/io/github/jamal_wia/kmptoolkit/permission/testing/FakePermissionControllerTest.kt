@@ -339,16 +339,21 @@ class FakePermissionControllerTest {
         }
 
     @Test
-    fun `a held request cancelled mid-request leaves the status unchanged`() = runTest(UnconfinedTestDispatcher()) {
+    fun `a held request cancelled mid-request keeps the answer once released`() = runTest(UnconfinedTestDispatcher()) {
         val controller = FakePermissionController()
         controller.holdRequests = true
 
         val request = launch { controller.request(CommonPermission.Camera) }
         request.cancel()
+
+        // Nothing lands before the user answers.
+        assertEquals(PermissionStatus.NotDetermined, controller.check(CommonPermission.Camera))
+        assertTrue(request.isCancelled)
+        assertContentEquals(listOf<Permission>(CommonPermission.Camera), controller.requests)
+
         controller.holdRequests = false
 
-        assertEquals(PermissionStatus.NotDetermined, controller.check(CommonPermission.Camera))
-        assertContentEquals(listOf<Permission>(CommonPermission.Camera), controller.requests)
+        assertEquals(PermissionStatus.Granted, controller.check(CommonPermission.Camera))
     }
 
     @Test

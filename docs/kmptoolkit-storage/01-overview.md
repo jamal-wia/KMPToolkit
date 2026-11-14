@@ -31,7 +31,8 @@ Four things follow from that shape, and they are why the module exists:
 
 - **Every failure is a value.** A key store that will not open, an entry whose key the platform
   destroyed, a write that could not be committed — each is a `StorageError` case you branch on.
-  Nothing in the public API throws.
+  No storage operation throws (apart from `CancellationException`); only the constructors reject a developer
+  error, such as a blank `StorageConfig` name, with `IllegalArgumentException`.
 - **Absent and unreadable are different.** `Success(null)` means nobody ever wrote that key;
   `Failure(Undecryptable)` means something was written and cannot be read back. Collapsing the two
   into `null` is how apps end up silently signing a user out and calling it a cache miss. The

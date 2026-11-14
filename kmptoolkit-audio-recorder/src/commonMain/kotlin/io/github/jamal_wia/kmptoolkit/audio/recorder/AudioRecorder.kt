@@ -23,7 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
  * | [RecorderState.Recording] | no | no | yes | no | yes | yes |
  * | [RecorderState.Paused] | no | no | no | yes | yes | yes |
  * | [RecorderState.Completed] | yes | no | no | no | no | no |
- * | [RecorderState.Interrupted] | yes | no | no | no | yes² | yes |
+ * | [RecorderState.Interrupted] | yes | no | no | no | yes² | yes³ |
  * | [RecorderState.Failed] | yes | no | no | no | no | yes¹ |
  * | [RecorderState.Released] | no | no | no | no | no | no |
  *
@@ -32,6 +32,10 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * ² `stop` from [RecorderState.Interrupted] returns the interrupted recording again as a success
  * and leaves the state unchanged — nothing is emitted, and it is not [RecorderState.Completed].
+ *
+ * ³ `cancel` from [RecorderState.Interrupted] deletes the interrupted file, although it is finalized
+ * and playable, and returns to [RecorderState.Idle]: `cancel` is the discard. To keep the file, do
+ * not call `cancel`; `prepare` starts a fresh recording and never deletes it.
  *
  * While the system's event is being finalized, [state] still shows the old value, and a call of
  * yours races with it: `start`, `pause` and `resume` return [RecorderError.IllegalState] carrying
@@ -201,7 +205,7 @@ public interface AudioRecorder {
      * is deleted only when this call created it; a file that was already there is left in place,
      * though the platform may already have truncated it.
      *
-     * @param outputPath absolute path of the file to record into. Must be absolute and non-blank; a
+     * @param outputPath absolute path of the file to record into. Must be absolute for the running file system and non-blank; a
      *   blank or relative path fails with [RecorderError.DirectoryNotWritable] before the filesystem
      *   is touched, because `NSURL.fileURLWithPath("")` raises an Objective-C exception that
      *   Kotlin/Native cannot catch. `null` — the default — generates a path inside the configured
@@ -251,6 +255,13 @@ public interface AudioRecorder {
      * On engine failure the state becomes [RecorderState.Failed] carrying the output path, and the
      * partial file is **kept**: a library does not delete a user's audio because the encoder
      * complained on close. The path on the state is how you find the file; [cancel] deletes it.
+     *
+     * The same failure answers a file that is no longer there when the encoder has finished: deleted,
+     * or replaced by something that is not a regular file (a directory), by a cache cleaner, the user
+     * or another process while the recording ran. [RecorderState.Completed] always names an existing
+     * file, so such a stop is [RecorderError.EngineFailure] with [RecorderOperation.STOP] whose
+     * `cause` is an `IllegalStateException`; the path stays on the [RecorderState.Failed] state and
+     * [cancel] clears it.
      *
      * Suspending because the platform finalizes the container here — on Android, writing the
      * MPEG-4 `moov` atom — which takes a noticeable fraction of a second on a long recording. That

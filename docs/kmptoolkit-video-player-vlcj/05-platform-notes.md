@@ -82,7 +82,7 @@ user for access to protected folders (Desktop, Documents, removable volumes) the
 | First frame | Shown once prepared | Nothing decoded before the first `play()` |
 | Remote headers | Any header | `User-Agent` and `Referer` only; any other fails the prepare with `IllegalArgumentException` |
 | `bufferedPositionFlow` | How far the platform buffered | Duration (local) / playhead (remote) — VLC does not report it |
-| `RepeatMode.One` | Restarted by the platform player | The input re-opens at the end; a short gap is possible |
+| `RepeatMode.One` | Restarted by the platform player | The input re-opens at the end; a short gap is possible, and the playhead reads 0 (not the end) until the restart reports a time |
 | Volume above `1f` | Not possible | Not done either — VLC's amplification (up to 200 %) is never used |
 | Failure detail | Platform exception | `VlcPlaybackException` without detail; VLC's log (`-vvv`) has it |
 | Assets | App bundle | Classpath resources; copied to a temporary file when packed in a jar |
@@ -120,6 +120,13 @@ A seek made before playback has begun (before the first `start()`, between `star
 reporting Playing, or after the end) is applied when output begins, and its target is held from then
 on in exactly the same way.
 
+A seek that is in flight when the source's end is reported is not lost: libvlc 3 makes `set_time` wait
+for the running end-of-media callback and then ignores the seek on the ended input. The engine keeps the
+seek's target as a pending seek, like a seek made after the end; the player drops the stale completion and
+starts the engine again, which replays the media, and the target is applied when libvlc reports Playing.
+Known limit: a completion that the player reads after the seek has finished is accepted, so the player
+reads `Completed` and the seek is lost (a window of nanoseconds; `play()` replays).
+
 ## Rendering
 
 The engine asks VLC for 32-bit RGB frames of the decoded picture size and copies each one into an
@@ -132,6 +139,16 @@ hold a frame for as long as it likes, so a reused buffer could be overwritten wh
 (a torn picture). The cost is short-lived garbage — about 8 MB per 1080p frame, collected in the young
 generation (the JVM's default G1 collector reclaims such large arrays eagerly); only the frames still
 referenced are in memory at any time.
+
+A picture of more than `Int.MAX_VALUE` pixels (for example 65536×65536) cannot be held in an array and is
+**dropped**: no frame is published for it, and the previous frame stays.
+
+### Native calls that throw
+
+An exception from libvlc's clock read is treated as no reading: the position keeps its last value and the
+next poll tries again, so the shared player keeps following the playhead. An exception from applying the
+volume or rate when output begins is swallowed (the next `setVolume` or `setSpeed` applies the latest values
+again), so a seek made before output still reaches libvlc and the playhead does not stay on its target.
 
 ### Picture size and anamorphic video
 
