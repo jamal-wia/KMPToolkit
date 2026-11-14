@@ -617,7 +617,12 @@ internal class FxPlayback private constructor(
         }
     }
 
-    /** Called on every tick of the playhead: gives the native player the deferred speed once it is safe. */
+    /**
+     * Called on every tick of the playhead: gives the native player the deferred speed once it is safe. A speed equal to
+     * the one the property holds (and not 1.0) is given as one away-and-back, like [applyResumeRate] gives its speed: a plain
+     * play() on macOS starts at normal speed whatever the property holds, and a plain write of the property's own value would
+     * forward nothing and leave the decoder there.
+     */
     private fun applyDeferredRate() {
         // A tick JavaFX queued before dispose() can still arrive after it, with a late status that reads PLAYING again.
         if (disposed) return
@@ -641,6 +646,12 @@ internal class FxPlayback private constructor(
         // did not count (the wrap of a looping source before its end handler runs): either way it is not movement.
         if (!deferredGauge.moved(position, host.nanoTime(), native.rate, LOOP_RATE_SETTLE_MS)) return
         deferredRate = null
+        if (native.rate == rate && rate != 1.0) {
+            // The decoder can run at a speed the property does not say: a plain play() on macOS starts at normal speed
+            // whatever the property holds (the start() plain branch with a deferred 1.0), and a held speed equal to the
+            // property would forward nothing and leave it there. Away and back, as applyResumeRate gives its speed.
+            native.rate = 1.0
+        }
         native.rate = rate
     }
 

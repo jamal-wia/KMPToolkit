@@ -19,10 +19,11 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
+import org.junit.Assume
 
 /**
  * Tier C of the JavaFX playback port (task J14a, plans/javafx-port-design.md section 5.3, plans/javafx-port-ruling.md):
- * one test per port promise, C1 to C11, on the real adapter ([JavaFxBackend] and [JavaFxNativePlayer], `MediaPlayer` underneath), never on the scripted fake. The
+ * one test per port promise, C1 to C12, on the real adapter ([JavaFxBackend] and [JavaFxNativePlayer], `MediaPlayer` underneath), never on the scripted fake. The
  * scripted fake of the model tier claims the same behaviours (B1 to B13); these tests are what keeps those claims
  * honest against real media.
  *
@@ -677,6 +678,65 @@ class JavaFxNativePlayerConformanceTest {
         assertTrue(problems.isEmpty(), "C11: ${problems.joinToString("; ")}")
     }
 
+    // ---- C12 -----------------------------------------------------------------------------------------------------
+
+    /**
+     * C12 (fact f1 of D2 r14 ruling 4, `reviews/d2-r14-ruling4-opus.md`; macOS only, skipped elsewhere): a plain `play()`
+     * with the rate property at 2.0 starts the decoder at normal speed whatever the property holds, and the property then
+     * forwards nothing for a write of 2.0 (C1), so only a write of another value and then 2.0 (the away-and-back that
+     * `FxPlayback` gives a held speed) brings the decoder to 2x. `FxPlayback.applyDeferredRate` relies on both halves: a speed
+     * held equal to the property is given away and back because a plain write of it would leave the decoder at normal speed.
+     * The slope of the playhead, from the `currentTime` events as the FX thread publishes them (producer-side stamps), is
+     * measured over [SLOPE_WINDOW_MS]: the first window after the play (from its first event) must stay below [UNITY_SLOPE_MAX]; the window that opens
+     * [AFTER_CHANGE_SKIP_MS] after the away-and-back (the native player holds its position for a moment after a rate change
+     * and then recovers, D-156) must be above [AT_RATE_SLOPE_MIN]. The away-and-back comes at least 400 ms after the play, past
+     * the 200 ms the engine itself waits (H0 NUDGE: no freeze).
+     */
+    @Test
+    fun `C12 a plain play at a rate of 2 starts at normal speed and a change to 1 and back to 2 brings the decoder to 2x`() {
+        Assume.assumeTrue("C12 states a macOS decoder fact", System.getProperty("os.name").startsWith("Mac"))
+        val rig: Rig = openReady()
+        fx { rig.native.rate = 2.0 }
+        // The idle gap of a rate written while paused: a play() inside it can freeze the decoder (W-IDLE), so the play waits it out.
+        gap(QUIET_GAP_MS)
+        val plain: Double = slopeAfter(rig, skipMs = 0L) { rig.native.play() }
+        assertTrue(plain < UNITY_SLOPE_MAX, "a plain play() with the rate property at 2.0 moved the playhead $plain ms per ms: the decoder did not start at normal speed (f1)")
+        assertEquals(2.0, fx { rig.native.rate }, "the property still holds 2.0 after the plain play()")
+
+        val away: Double = slopeAfter(rig, skipMs = AFTER_CHANGE_SKIP_MS) {
+            rig.native.rate = 1.0
+            rig.native.rate = 2.0
+        }
+        println("C12 on this host: slope after a plain play at 2.0 = $plain, slope after the away-and-back = $away")
+        assertTrue(away > AT_RATE_SLOPE_MIN, "after 1.0 and then 2.0 the playhead moved $away ms per ms: the away-and-back did not bring the decoder to 2x")
+    }
+
+    /**
+     * The speed of the playhead in ms of media per ms of wall time: [stimulus] runs on the FX thread, and the window opens at
+     * the first `currentTime` event [skipMs] or more after it and ends at the first event [SLOPE_WINDOW_MS] or more after the
+     * opening one. Stamps are the producer-side ones of the events themselves; the first watch is registered in the task of
+     * the stimulus, so no event can slip between them.
+     */
+    private fun slopeAfter(rig: Rig, skipMs: Long, stimulus: () -> Unit): Double {
+        val opening: Watch<TimeSample> = fx {
+            val bound: Long = producerNanos() + skipMs * NANOS_PER_MS
+            rig.events.watchTime { it.nanos >= bound }.also { stimulus() }
+        }
+        val first: TimeSample = opening.await(HANG_BOUND_MS) { "no currentTime event $skipMs ms after the stimulus; samples ${rig.events.samples.map { it.valueMs }}" }
+        val closing: Watch<TimeSample> = rig.events.watchTime { it.nanos >= first.nanos + SLOPE_WINDOW_MS * NANOS_PER_MS }
+        val last: TimeSample = rig.events.samples.firstOrNull { it.nanos >= first.nanos + SLOPE_WINDOW_MS * NANOS_PER_MS }
+            ?: closing.await(HANG_BOUND_MS) { "no currentTime event $SLOPE_WINDOW_MS ms after the opening one; samples ${rig.events.samples.map { it.valueMs }}" }
+        val elapsedMs: Double = (last.nanos - first.nanos) / NANOS_PER_MS.toDouble()
+        assertTrue(elapsedMs > 0.0, "the window of the slope is empty: first ${first.nanos}, last ${last.nanos}")
+        return (last.valueMs - first.valueMs) / elapsedMs
+    }
+
+    /** The only real-time pause of C12: a gap between two stimuli, the independent variable of the check, never a wait for a condition. */
+    private fun gap(ms: Long) {
+        // timing-hygiene-ignore: TH1 inject the stimulus gap outside the idle gap of a rate written while paused (the variable of C12)
+        Thread.sleep(ms)
+    }
+
     private fun sentinelArray(size: Int): IntArray = IntArray(size + TAIL).also { it.fill(SENTINEL) }
 
     private fun tailIsIntact(pixels: IntArray, size: Int): Boolean = (size until size + TAIL).all { pixels[it] == SENTINEL }
@@ -762,5 +822,12 @@ class JavaFxNativePlayerConformanceTest {
         const val PROBE_PERIOD_MS: Long = 50L
         const val STARVED_LATENCY_MS: Double = 400.0
         const val DRAIN_ROUND_TRIPS: Int = 3
+
+        const val NANOS_PER_MS: Long = 1_000_000L
+        const val QUIET_GAP_MS: Long = 400L
+        const val SLOPE_WINDOW_MS: Long = 400L
+        const val AFTER_CHANGE_SKIP_MS: Long = 300L
+        const val UNITY_SLOPE_MAX: Double = 1.3
+        const val AT_RATE_SLOPE_MIN: Double = 1.6
     }
 }
