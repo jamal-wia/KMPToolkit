@@ -235,6 +235,8 @@ reads as unavailable; iOS tests that the path exists and is not a directory, so 
 at a plain-file unit's path, which reads as unavailable, the same way it totals an archive tree whose marker is
 missing. A symbolic link at the unit's path is followed (it is the resource, as for `isResourceAvailable`); links
 inside a directory are not followed and add nothing.
+On an Android device, a link to a directory whose chain of links resolves to a path longer than `PATH_MAX` (4,096
+bytes) may be sized as `0` although the resource reads as available.
 
 A symbolic link at any path the storage names for a unit (resource, temp file) is read through: sizes and states are
 those of what it points to, and a dangling link is absent. Links inside an archive tree are not followed.
