@@ -39,8 +39,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `F_FULLFSYNC`), no-replace writes and moves, moves across volumes, bounded reads, recursive delete and tree size
   that never follow symbolic links, age-based leftover sweeps, free space at the nearest existing ancestor - with
   typed `FileError` results instead of exceptions; `KeyedMutex` and `PathLocks` for per-key coroutine locking;
-  `Paths`, `FileNames` and `PathKey` with Windows rules and Unicode-safe case folding; `AppDirectories` for the
-  app's private roots with backup exclusion; `withIo` for cancellable use from coroutines.
+  `Paths`, `FileNames` and `PathKey` with Windows rules (a path that starts with three or more separators, such as
+  `///a/b`, is rooted, not absolute) and Unicode-safe case folding; `AppDirectories` for the app's private roots
+  with backup exclusion; `withIo` for cancellable use from coroutines.
 - `kmptoolkit-files-testing`: `FakeFileAccess`, an in-memory file system that runs the real engine, with fault
   injection, crash and power-loss simulation; `FileAccessContract` to check any `FileAccess` decorator.
 - `kmptoolkit-uploader`: the outcome journal's directory name is configurable -
@@ -102,7 +103,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   unknown (so the free-space check passes) on both platforms; Android used to report the usable space of a file
   that existed there.
 - `kmptoolkit-storage` (Android): a secure value is bound to the key name it is stored under (the key name is
-  authenticated data of the AES-GCM encryption), so a ciphertext copied to another key reads as `Undecryptable`.
+  authenticated data of the AES-GCM encryption), so a ciphertext copied to another key reads as `Undecryptable`
+  (an entry written before 5.0.0 carries no binding until it is written again).
   Entries written earlier are still read, once more as unbound ones; the format on disk is unchanged, but a downgrade
   to 4.0.0 cannot read entries written by 5.0.0.
 - `kmptoolkit-storage` (iOS): `put` of the key `AppleLanguages` on the plain store is refused with
@@ -116,8 +118,6 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   a directory, a name or path that is too long, two entries it stores as one) fails the commit with
   `ResourceIntegrityException` on both platforms, and the `availabilityMarker` must be a regular file spelled exactly
   like that.
-- `kmptoolkit-core` no longer contains `isAbsoluteFilePath` (internal API without a compatibility promise); use
-  `Paths.isAbsolute` from `kmptoolkit-files`.
 - `kmptoolkit-scheduler` (Android): the saturation message and docs name a process death between arming a
   replacement and retiring the old alarm as a second cause; behaviour unchanged.
 - `kmptoolkit-notification-testing` and `kmptoolkit-scheduler-testing`: `RecordingNotifier` and
@@ -128,8 +128,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   over it, and a special-access request over a released access waits until its caller is cancelled.
 - `kmptoolkit-permission` docs: a request cancelled while its dialog is up makes the next request wait on Android only;
   on iOS the queue is freed at once.
-- `kmptoolkit-permission` (iOS): `openSettings` logs a warning when the settings URL cannot be built, as the other
-  failures of the controller do.
+- `kmptoolkit-permission` (iOS): `openSettings` logs a warning when the settings URL cannot be built or opened, as
+  the other failures of the controller do.
 
 ### Fixed
 
@@ -139,11 +139,11 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-downloader`: an archive entry with thousands of path segments no longer exhausts memory or stalls in
   directory creation: a path longer than the platform allows fails the commit with `ResourceIntegrityException`
   before anything is created.
-- `kmptoolkit-logging` (Android): the Android log sink no longer loses the stack trace of a cause chain with an
-  `UnknownHostException` beyond the 64th link and no longer hands a cyclic cause chain to `android.util.Log`, which
-  looped forever. The chain is now walked to its end with an identity-based visited set; a chain that holds an
-  `UnknownHostException` or repeats a throwable is rendered by the sink with `stackTraceToString()` and no throwable
-  is passed on, every other chain is passed through unchanged.
+- `kmptoolkit-logging` (Android): the Android log sink no longer loses the stack trace of a cause chain that holds an
+  `UnknownHostException` (`android.util.Log` renders such a chain as an empty string) and no longer hands a cyclic
+  cause chain to `android.util.Log`, which looped forever. The chain is walked to its end with an identity-based
+  visited set; a chain that holds an `UnknownHostException` or repeats a throwable is rendered by the sink with
+  `stackTraceToString()` and no throwable is passed on, every other chain is passed through unchanged.
 - `kmptoolkit-logging-overlay`: `LogOverlayState.asLogSink()` and `record()` no longer throw for a throwable whose
   `toString()` or `message` fails with an `AssertionError`, a `NotImplementedError` or (on Android) a `LinkageError`;
   they contain the same failures the logger contains for a sink, and let any other `Error` (a `StackOverflowError`,
@@ -191,9 +191,6 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-downloader`: a directory at the path of a non-archive resource no longer reads as an available resource,
   and the commit moves it aside and replaces it. Android used to fail every such commit until `deleteResource`; iOS
   deleted the directory in place.
-- `kmptoolkit-files`: `Paths.normalizeLexically` on a Windows JVM no longer turns a rooted path that starts with three or
-  more separators (`///a/b`) into an absolute `\\a\b\` UNC path: such a path is a rooted path of the current drive,
-  not absolute, before and after.
 - `kmptoolkit-uploader`: a `drain()` called from inside a handler's attempt, or overlapping another pass of the same
   engine, no longer starts that item a second time or loses the running attempt's withdrawal handle.
 - `kmptoolkit-downloader` (Android): the resource-size walk no longer follows a symbolic link inside a resource
