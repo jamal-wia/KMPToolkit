@@ -248,7 +248,17 @@ internal class EngineVideoPlayer(
                 // this prepare is a request of its own and goes on unless it was replaced or the player released.
                 establishing(VideoPlayerState.Preparing) {
                     resetSourceFlowsFully()
-                    if (!isCurrent(load)) return@exclusive false
+                    if (!isCurrent(load)) {
+                        // Replaced from inside this reset by a prepare that waits for this one to unwind: the old
+                        // source is already gone, so show the state of the load that replaced it rather than the
+                        // state of a source the engine no longer holds. An unload or release that replaced it has
+                        // published Idle itself (its placeholder is cancelled).
+                        val replacing: Load? = currentLoad.value
+                        if (!released && replacing != null && replacing.job.isActive) {
+                            publish(_stateFlow, VideoPlayerState.Preparing)
+                        }
+                        return@exclusive false
+                    }
                     engineHoldsSource = true
                     publish(_stateFlow, VideoPlayerState.Preparing)
                 }

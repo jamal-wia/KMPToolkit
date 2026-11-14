@@ -21,9 +21,9 @@ import kotlinx.coroutines.withTimeout
  * D1 round 13, Q1/Q2/Q4: the round 12 re-entrancy fuzz with SUSPENDING loads. A prepare is started in the scripted scope
  * (top level or from a collector), its engine load waits on a gate the driver opens at a later step (or fails), so a
  * collector's call lands while a load is in flight, and a nested prepare waits behind another. Judged after every gate was
- * opened and every prepare returned. A second oracle, OFF by default (`-Pkmptoolkit.test.fuzz.sourceOracle=on`): no transport
- * or settings call reaches an engine that holds no source (after `release()` and before the next `load`); seed 13976 breaks
- * it, see `adversarial/D1/suspects/r13-F1-prepare-cut-by-a-nested-prepare-leaves-the-state-stale.kt`.
+ * opened and every prepare returned. A second oracle, ON by default (`-Pkmptoolkit.test.fuzz.sourceOracle=off` turns it off):
+ * no transport or settings call reaches an engine that holds no source (after `release()` and before the next `load`);
+ * seed 13976 broke it before the D1 round 13 fix and is a fixed regression entry (`seed 13976 ...` below).
  *
  * Original header (round 12): a seeded re-entrancy fuzz of the core with the scripted engine (depth at most 3).
  *
@@ -299,7 +299,7 @@ class AsyncLoadReentrancyFuzzD1R13AdversarialTest {
             if (open.isEmpty() && s.prepares.any { it.isActive }) s.fail("an active prepare with no gate to open: it is stuck")
         }
         s.suspending = false
-        if (System.getProperty("kmptoolkit.test.fuzz.sourceOracle") == "on") sourceViolations(s)
+        if (System.getProperty("kmptoolkit.test.fuzz.sourceOracle") != "off") sourceViolations(s)
         val player = s.rig.player
         val engine = s.rig.engine
         if (s.escaped.isNotEmpty()) s.fail("an exception escaped: ${s.escaped}")
@@ -395,6 +395,12 @@ class AsyncLoadReentrancyFuzzD1R13AdversarialTest {
             if (state.currentPosition != shown) s.fail("state $state but the engine holds $shown")
         }
         if (state is VideoPlayerState.Completed) assertTrue(state.duration == engine.duration, "seed ${s.seed}: Completed with a different length: $state")
+    }
+
+    /** The seed that found r13-F1: a prepare whose reset was cut by a nested prepare left the old state over a released engine. */
+    @Test
+    fun `seed 13976 never leaves a stale state over a source the engine released`() {
+        run(13_976L)
     }
 
     @Test
