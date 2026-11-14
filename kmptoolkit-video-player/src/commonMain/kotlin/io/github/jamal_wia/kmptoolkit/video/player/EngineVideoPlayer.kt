@@ -56,10 +56,11 @@ import kotlinx.coroutines.withContext
  * dropped (its load replaced, [unload], [release]), and after a transport call those writes act on the state that
  * call published; the picture size is published as soon as it is reported; in a failure every transport call is a
  * no-op under `Error`, so none of them cuts the failure's own writes. The exceptions are the calls whose result is
- * the point of the call: [unload] and [release] reset the source flows and end in `Idle` (an [unload] leaves the
- * state, and the flows it has not reset yet, to a [prepare] a collector called from inside it), and a [prepare]
- * that has not been replaced resets them and loads. A composite call ([replay]: seek, then play) stops after its
- * seek in that case, and re-reads the state between its steps otherwise.
+ * the point of the call: [unload], [release] and a [prepare] whose caller was cancelled reset the source flows and
+ * end in `Idle` through one shared step (an [unload] leaves the state, and the flows it has not reset yet, to a
+ * [prepare] a collector called from inside it), and a [prepare] that has not been replaced resets them and loads. A
+ * composite call ([replay]: seek, then play) stops after its seek in that case, and re-reads the state between its
+ * steps otherwise.
  *
  * ### Dropped sources
  *
@@ -302,10 +303,17 @@ internal class EngineVideoPlayer(
                 // released check and its installing itself in currentLoad, so the identity holds again
                 // here while the engine is already released and disposed, and nothing of it may be
                 // called after dispose.
-                // Not in establishing(Idle): every consumer call treats Preparing like the Idle this closes on.
                 if (isCurrent(load)) {
-                    freeEngineSource()
-                    if (resetSourceFlows()) publish(_stateFlow, VideoPlayerState.Idle)
+                    // Cancelled before the start step: the state is still the old source's and its poll still runs.
+                    stopPositionUpdates()
+                    try {
+                        freeEngineSource()
+                    } catch (@Suppress("TooGenericExceptionCaught") releaseFailure: Throwable) {
+                        // Idle however the engine's release goes (a cancelled prepare settles on Idle); the caller
+                        // still gets its cancellation, with the engine's exception attached.
+                        if (releaseFailure !== cancellation) cancellation.addSuppressed(releaseFailure)
+                    }
+                    settleIdle { isCurrent(load) }
                 }
             }
             throw cancellation
@@ -478,13 +486,9 @@ internal class EngineVideoPlayer(
         try {
             abandonLoad(placeholder, dispose = false)
         } finally {
-            // Idle is what this call promises, so a collector's call during the reset does not stop the reset. A
-            // prepare a collector called from inside it replaced the placeholder and owns the source and the state now:
-            // the reset stops there, or it would overwrite what that prepare published for its own source.
-            establishing(VideoPlayerState.Idle) {
-                resetSourceFlowsFully { currentLoad.value === placeholder }
-                if (currentLoad.value === placeholder) publish(_stateFlow, VideoPlayerState.Idle)
-            }
+            // A prepare a collector called from inside the reset replaced the placeholder and owns the source and the
+            // state now: the reset stops there, or it would overwrite what that prepare published for its own source.
+            settleIdle { currentLoad.value === placeholder }
         }
     }
 
@@ -502,11 +506,32 @@ internal class EngineVideoPlayer(
                 abandonLoad(newPlaceholder(), dispose = true)
             }
         } finally {
-            // Idle is what this call promises, so a collector's call during the reset does not stop it; a nested
-            // prepare is refused.
-            establishing(VideoPlayerState.Idle) {
-                resetSourceFlowsFully()
+            // A nested prepare is refused, so nothing replaces this reset.
+            settleIdle { true }
+        }
+    }
+
+    /**
+     * Lock held. Settles on [VideoPlayerState.Idle] after the engine's source was dropped ([unload], [release] and the
+     * cancel path of [prepare]). Idle is what these calls promise, so a collector's call from inside the reset sees
+     * Idle (and does nothing) and does not stop the reset. A [prepare] such a call started owns the state from then on
+     * ([stillOwner] turns false): the reset stops, and if that prepare has not finished (it waits for this call to
+     * unwind, or is loading) the state shows [VideoPlayerState.Preparing] for it, as the cut start step of [prepare]
+     * does; a prepare that already finished inside the reset (its load did not suspend) has published its own result,
+     * which stands.
+     *
+     * @param stillOwner whether the call that settles still owns the source and the state; checked before each write.
+     */
+    private fun settleIdle(stillOwner: () -> Boolean) {
+        establishing(VideoPlayerState.Idle) {
+            resetSourceFlowsFully(stillOwner)
+            if (stillOwner()) {
                 publish(_stateFlow, VideoPlayerState.Idle)
+            } else {
+                val replacing: Load? = currentLoad.value
+                if (!released && replacing != null && !replacing.isPlaceholder && !replacing.finished.isCompleted) {
+                    publish(_stateFlow, VideoPlayerState.Preparing)
+                }
             }
         }
     }
