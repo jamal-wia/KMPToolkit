@@ -182,6 +182,70 @@ class VlcjConsumerSentencesR15AdversarialTest {
         player.release()
     }
 
+
+    @Test
+    fun `a play with the playhead on the end starts over from zero from Ready and from Paused`() {
+        // core API reference, play(): "with the playhead on the end of the source, it starts over from 0"
+        val player: VideoPlayer = newPlayer()
+        prepare(player)
+        player.seekTo(Long.MAX_VALUE)
+        assertEquals(3_000L, player.playbackPositionFlow.value)
+        player.play()
+        outputBegins()
+        assertTrue(player.stateFlow.value is VideoPlayerState.Playing, "state ${player.stateFlow.value}")
+        assertEquals(0L, player.playbackPositionFlow.value, "play from a Ready player on the end")
+        assertTrue("setTime(3000)" !in runtime.player.calls, "the old end was applied: ${runtime.player.calls}")
+        player.pause()
+        runtime.drainTasks()
+        player.seekTo(Long.MAX_VALUE)
+        runtime.drainTasks()
+        assertEquals(VideoPlayerState.Paused(3_000L, 3_000L), player.stateFlow.value)
+        val seeksBefore: Int = runtime.player.calls.count { it.startsWith("setTime") }
+        player.play()
+        outputBegins()
+        assertTrue(player.stateFlow.value is VideoPlayerState.Playing, "state ${player.stateFlow.value}")
+        assertEquals(0L, player.playbackPositionFlow.value, "play from a Paused player on the end")
+        assertTrue(runtime.player.calls.drop(0).count { it == "setTime(0)" } >= 1 || runtime.player.playhead == 0L, "the restart never reached libvlc: ${runtime.player.calls} (seeks before $seeksBefore)")
+        player.release()
+    }
+
+
+    /** Records the media options each native player was prepared with; everything else is the fake's. */
+    private class OptionSpyRuntime(private val inner: FakeVlcRuntime, val options: MutableList<List<String>>) : VlcRuntime {
+        override fun newPlayer(callbacks: VlcPlayerCallbacks): VlcNativePlayer {
+            val player: VlcNativePlayer = inner.newPlayer(callbacks)
+            return object : VlcNativePlayer by player {
+                override fun prepare(mrl: String, options: List<String>): Boolean {
+                    this@OptionSpyRuntime.options += options
+                    return player.prepare(mrl, options)
+                }
+            }
+        }
+
+        override fun release() = inner.release()
+    }
+
+    @Test
+    fun `the two headers libvlc can send are sent under any capitalisation and no header means no http option`() {
+        // guide, "Remote": User-Agent as :http-user-agent, Referer as :http-referrer, "Header names are matched case-insensitively"
+        val options: MutableList<List<String>> = mutableListOf()
+        val spy = OptionSpyRuntime(runtime, options)
+        val player: VideoPlayer = createVlcjVideoPlayer(
+            VlcjVideoEngine(vlcArgs = emptyList(), discover = { true }, createRuntime = { spy }),
+            VideoPlayerConfig(positionUpdateIntervalMs = ONE_HOUR_MS),
+            Dispatchers.Default,
+        )
+        prepare(player, VideoSource.Remote("https://example.test/a.mp4", mapOf("user-agent" to "UA/1", "REFERER" to "https://r.example/")))
+        assertTrue(player.stateFlow.value is VideoPlayerState.Ready, "state ${player.stateFlow.value}")
+        val sent: List<String> = options.last()
+        assertTrue(sent.any { it.startsWith(":http-user-agent") && "UA/1" in it }, "no user agent option in $sent")
+        assertTrue(sent.any { it.startsWith(":http-referrer") && "https://r.example/" in it }, "no referrer option in $sent")
+        assertEquals(2, sent.size, "options $sent")
+        prepare(player, VideoSource.Remote("https://example.test/a.mp4"))
+        assertTrue(options.last().none { it.startsWith(":http-") }, "an http option without a header: ${options.last()}")
+        player.release()
+    }
+
     private fun withHang(condition: () -> Boolean) {
         // timing-hygiene-ignore: TH2 bound the real-time hang bound of a teardown that runs on the engine's own thread
         val deadline: Long = System.nanoTime() + BOUND_MS * NANOS_PER_MILLI

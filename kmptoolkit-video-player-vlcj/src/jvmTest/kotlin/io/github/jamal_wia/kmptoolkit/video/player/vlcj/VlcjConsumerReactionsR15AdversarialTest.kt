@@ -167,6 +167,43 @@ class VlcjConsumerReactionsR15AdversarialTest {
         }
     }
 
+
+    @Test
+    fun `two players of the same app are independent in pause speed and release`() {
+        val runtimeB: FakeVlcRuntime = FakeVlcRuntime().also { it.parsedInfo = runtime.parsedInfo }
+        try {
+            val a: VideoPlayer = newPlayer()
+            val b: VideoPlayer = createVlcjVideoPlayer(
+                VlcjVideoEngine(vlcArgs = emptyList(), discover = { true }, createRuntime = { runtimeB }),
+                VideoPlayerConfig(positionUpdateIntervalMs = ONE_HOUR_MS),
+                Dispatchers.Default,
+            )
+            prepare(a)
+            prepare(b)
+            a.setPlaybackSpeed(2f)
+            a.play()
+            b.play()
+            runtime.drainTasks(); runtime.player.fire { playing() }; runtime.drainTasks()
+            runtimeB.drainTasks(); runtimeB.player.fire { playing() }; runtimeB.drainTasks()
+            assertEquals(2f, runtime.player.rate())
+            assertEquals(1f, runtimeB.player.rate(), "B untouched by A's speed")
+            a.pause()
+            runtime.drainTasks()
+            assertTrue(runtimeB.player.calls.none { it == "pause" }, "pausing A paused B: ${runtimeB.player.calls}")
+            assertTrue(b.stateFlow.value is VideoPlayerState.Playing)
+            a.release()
+            runtime.drainTasks()
+            assertTrue(runtimeB.player.calls.none { it == "release" } && runtimeB.released == 0, "releasing A freed something of B")
+            b.pause()
+            runtimeB.drainTasks()
+            assertTrue(b.stateFlow.value is VideoPlayerState.Paused)
+            b.release()
+            runtimeB.drainTasks()
+        } finally {
+            runtimeB.shutdown()
+        }
+    }
+
     private companion object {
         const val ONE_HOUR_MS: Long = 3_600_000L
         const val BOUND_MS: Long = 10_000L
