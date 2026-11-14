@@ -186,14 +186,14 @@ decoder writes straight into memory without a render-and-read-back step.
   thread, where `start()` runs at once and the next call queues, the pending speed is given two FX tasks
   later, so the speed that follows still gets in front of it and the native player sees one away-and-back,
   not three rate changes next to `play()`); the same holds when the playhead stands within about 100 ms of
-  the start (the first play, a replay, but not a resume less than about half a second after a loop wrapped, below), where a seek to it moves nothing visible, but only while the native
+  the start (the first play, a replay, but not a resume of a looping clip from the point where its loop restarted, with no seek since, below), where a seek to it moves nothing visible, but only while the native
   player has not started playing: a speed that arrives after its status has turned `PLAYING` (a speed changed
   shortly after a play near the start of a clip, within about 600 ms) is given as for a resume with no seek
   pending, below, instead, because a seek followed at once by a rate change on a started decoder can freeze the playhead, so that
   speed takes effect after about 200 ms of playback. When no seek is pending
-  and the playhead is further on, or a loop wrapped less than about half a second ago (the reported time stands at the start
-  for about 300 ms after a wrap, longer under load, where JavaFX has just made a native seek of its own, and a second one of the engine's would sit right next to it), a resume at a speed other than 1
-  (including a speed that arrives within about 600 ms of a plain `play()`: it was changed while paused or
+  and the playhead is further on, or a looping clip is paused where its loop restarted, with no seek since, however long ago (the native playhead stands
+  at the start where JavaFX's own restart seek put it, and a seek of the engine's own on that state, with the rate change after it, held the macOS playhead still in about one resume in ten), a resume at a speed other than 1
+  (including a speed that arrives within about 600 ms of a plain `play()`, also at a loop restart: it was changed while paused or
   ready, or right after a play) plays from exactly where it was paused with no native seek, and the speed
   is given as one away-and-back once the playhead has moved about 200 ms at normal speed (counted only as far as
   the clock allows: the first reported time after a resume can be stale, and a tick that runs ahead of the clock (or
@@ -210,7 +210,7 @@ decoder writes straight into memory without a render-and-read-back step.
   A `play()` that follows a rate written while the player was not playing within about 200 ms waits for the rest of
   those 200 ms on every resume path but one (a `play()` right next to a rate write froze the playhead at a speed of 8
   in the measurements). The exception is a `play()` from within about 100 ms of the start of the clip, at a speed other
-  than 1 and with no seek pending, that did not follow a loop wrap by less than about half a second: it first seeks to where it stands and plays at once, because a native seek after the
+  than 1 and with no seek pending, that is not a resume from the point where a loop restarted: it first seeks to where it stands and plays at once, because a native seek after the
   write clears the gap. Such a write is a `setPlaybackSpeed()` on a paused player, the held speed that a `pause()` or
   the end of a clip writes, or a speed that a `pause()` overtook before it was given, or the return to normal speed at a loop wrap that JavaFX delivers after a `pause()`, also when a later `play()` is still
   waiting; a waiting `play()` checks the gap again when its wait ends, so such a write pushes it to 200 ms after the write. So a `setPlaybackSpeed()`
@@ -243,7 +243,7 @@ decoder writes straight into memory without a render-and-read-back step.
   then moved about 200 ms of media (counted as for a resume: a reading that runs ahead of the clock or steps back
   restarts the count), and then takes the new one.
   In probe runs on macOS, a speed written right after the engine's own seek to the start (the first play at a
-  speed, or a resume within about 100 ms of the start, not one within half a second of a loop wrap, which takes no seek since 5.0.0) left the playhead standing still once in 120 rounds, and
+  speed, or a resume within about 100 ms of the start, not a resume of a looping clip paused where its loop restarted, which takes no seek since 5.0.0) left the playhead standing still once in 120 rounds, and
   not in 40 first plays of a fresh clip or in 120 resumes after a seek; before the native player reports playing,
   the engine still gives that speed at once (a speed after that is held as described above),
   because holding it back would play the start of every such play at normal speed for half a second or more.

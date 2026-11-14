@@ -84,10 +84,19 @@ The real-media classes (tiers C, K and R) run the real engine against real JavaF
   remembered, keeps the caller's interrupt status, and a retried first start still keeps implicit exit off for a toolkit the
   engine started.
 - **Resume at a loop wrap (tier F, tier R)** — `ResumeAtWrapD2Boss1B6ModelTest`: a looping clip at a speed other than 1
-  paused at a wrap and started within half a second resumes with no native seek of its own and gets its speed after about
-  200 ms of movement; 600 ms after the wrap near the start it still takes the seek path.
-  `JavaFxResumeAtWrapD2Boss1B6RealMediaTest` plays the same on the real decoder, 60 trials, at most 1 held (the old seek
-  path held in 6 to 11 of 60); knobs `-Pkmptoolkit.test.b6.b6Trials` and `-Pkmptoolkit.test.b6.b6MaxHeld`.
+  paused where its loop restarted and started again (0 to 450 ms after the pause in the first test) resumes with no native seek
+  of its own and gets its speed after about 200 ms of movement; started 600 ms after the wrap, with the player still paused
+  there, it takes the same settle path (until 5.0.0 it took the seek path, which held the real playhead; the state flag `atLoopRestart` replaced the
+  500 ms window). `LoopRestartStateD2Boss2FixModelTest` pins the state: a start 0.55 s, 1.5 s and 3 s after a pause at the wrap
+  takes the settle path (no seek, one play, the speed after 200 ms of movement, no fragile window violated); a caller's
+  `seekTo(0)` after a wrap clears the state, so the next resume near the start takes the seek path; the first play and a
+  replay take the seek path too. `FreshSpeedAfterWrapBoss2W1ModelTest` pins that a speed given right after a plain resume at a
+  loop restart is given without a native seek. `AroundTheWrapD2Boss2ModelTest` pins the orderings around a wrap (a seek, a
+  speed, looping off, a second resume, a release between the wrap and the next play).
+  `JavaFxResumeAtWrapD2Boss1B6RealMediaTest` plays the same on the real decoder, 60 trials, at most 1 held, with no pause, with a
+  pause of 0.6 s and with a pause of 3 s between the pause at the wrap and the start (the old seek path held in 6 to 11 of 60, and
+  at the 500 ms window's edge in 5 of 60 at 0.6 s and 5 of 30 at 3 s; each of the three tests takes about 3 to 5 minutes);
+  knobs `-Pkmptoolkit.test.b6.b6Trials` and `-Pkmptoolkit.test.b6.b6MaxHeld`.
 - **Freeze after a resume (tier R)** — `JavaFxResumeSettlesAtSpeedR5FixerTest`: after a pause and a start at 2 and at
   4 (six fresh engines each, or `-Pkmptoolkit.test.freeze.trials` for a longer run) the playhead passes where it
   paused plus 1200 ms within 3 s, so a playhead that freezes after the speed is given fails it.
