@@ -463,7 +463,7 @@ class EngineBossRound2AdversarialTest {
         }
     }
 
-    /** S4 kept what drain() did before 4.1.0 for a store failure: it reaches the caller, a leaked cancellation too. */
+    /** S4 kept what drain() did before 5.0.0 for a store failure: it reaches the caller, a leaked cancellation too. */
     @Test
     fun `a manual drain passes a store failure and a leaked cancellation to its live caller`() = runTest {
         val parent = Job()

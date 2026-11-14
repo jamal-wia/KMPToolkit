@@ -171,7 +171,7 @@ verbatim payloads, whole-row equality after every guarded write, absolute attemp
 under falling creation times, a live observation that never completes, the tail revival of a parked key, exact
 point reads, snapshot lists and the one-winner races of concurrent claims and keeps. The new checks are additive
 public functions of `UploaderStoreContract`; a store that passed the old 46 may now fail one of them, which is the
-check doing its job. Since 4.1.0 `observeByTypeFiltersAndOrders` also pins the type match to exact equality: a store that
+check doing its job. Since 5.0.0 `observeByTypeFiltersAndOrders` also pins the type match to exact equality: a store that
 matches by prefix or substring, ignores case, or reads `_` or `%` in a type as a wildcard (the classic SQL `LIKE`
 mistake) now fails it. The check count is unchanged.
 

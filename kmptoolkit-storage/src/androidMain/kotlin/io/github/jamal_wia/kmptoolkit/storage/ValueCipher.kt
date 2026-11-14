@@ -98,8 +98,8 @@ internal class KeystoreValueCipher(
 
     /**
      * Tries the binding to [key] first; an entry that fails its tag that way is read once more as an unbound one (a
-     * value written before 4.1.0 has none). A ciphertext moved from another key fails both, so it is never taken for
-     * this key's value. A moved entry that was itself unbound (written before 4.1.0) is still accepted until it is
+     * value written before 5.0.0 has none). A ciphertext moved from another key fails both, so it is never taken for
+     * this key's value. A moved entry that was itself unbound (written before 5.0.0) is still accepted until it is
      * written again.
      */
     override suspend fun decryptFor(key: String, encoded: String): String = try {

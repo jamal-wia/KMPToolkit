@@ -51,7 +51,7 @@ internal class SqlDelightUploaderStore(
                     return@transactionWithResult KeepResult.Inserted(null)
                 }
                 // One identity for every ordinary text, up to four for a type or key that starts like a stored form
-                // (see `spellings`): a 4.0.0 row and a 4.1.0 row of one logical identity must both be seen.
+                // (see `spellings`): a 4.0.0 row and a 5.0.0 row of one logical identity must both be seen.
                 val holders: List<Pair<StoredIdentity, Kmptoolkit_uploader_item>> = identitiesOf(record.type, uniqueKey).mapNotNull { identity ->
                     queries.selectByIdentity(type = identity.type, uniqueKey = identity.uniqueKey)
                         .executeAsOneOrNull()
@@ -305,7 +305,7 @@ internal class SqlDelightUploaderStore(
         spellings(type).flatMap { storedType -> spellings(uniqueKey).map { storedKey -> StoredIdentity(storedType, storedKey) } }
 
     /**
-     * Every text the column of [text] can hold, the one a 4.1.0 write stores first: [toStoredText] of it, then [text] itself
+     * Every text the column of [text] can hold, the one a 5.0.0 write stores first: [toStoredText] of it, then [text] itself
      * when a row an earlier version stored under it reads back as it (see [fromStoredText]). That is the condition [storedId]
      * uses for an id: a text that starts like a stored form and is not exactly one. A text that is exactly an escaped form
      * has no second spelling, its raw row reads back as the text it decodes to. Every other text has one spelling.

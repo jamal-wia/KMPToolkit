@@ -15,7 +15,7 @@ package io.github.jamal_wia.kmptoolkit.testsupport
  * The functions are lexical: they never touch a file system. The Windows extended prefix (`\\?\`,
  * `\\?\UNC\`) is dropped by every function, because `java.io.File` never produces one.
  *
- * @since 4.1.0
+ * @since 5.0.0
  */
 public object TestPaths {
 
@@ -27,7 +27,7 @@ public object TestPaths {
      * On [PathSyntax.WINDOWS] the separators of [base] become `\`.
      *
      * @throws IllegalArgumentException when [logical] is absolute in [syntax].
-     * @since 4.1.0
+     * @since 5.0.0
      */
     public fun join(base: String, logical: String, syntax: PathSyntax = TestHost.pathSyntax): String {
         require(!isLogicalAbsolute(logical, syntax)) { "A logical path must be relative, was: $logical" }
@@ -41,7 +41,7 @@ public object TestPaths {
     /**
      * The native parent of [path], or `null` for a bare name or a root (as `java.io.File.getParent`).
      *
-     * @since 4.1.0
+     * @since 5.0.0
      */
     public fun parent(path: String, syntax: PathSyntax = TestHost.pathSyntax): String? {
         val parsed: Parsed = parse(path, syntax)
@@ -54,7 +54,7 @@ public object TestPaths {
     /**
      * The last segment of [path]; empty for a root.
      *
-     * @since 4.1.0
+     * @since 5.0.0
      */
     public fun fileName(path: String, syntax: PathSyntax = TestHost.pathSyntax): String =
         parse(path, syntax).segments.lastOrNull().orEmpty()
@@ -66,7 +66,7 @@ public object TestPaths {
      * drive is kept (`C:/x`). [PathSyntax.POSIX]: the identity, because a backslash is an ordinary
      * file-name character there and must not be converted.
      *
-     * @since 4.1.0
+     * @since 5.0.0
      */
     public fun toLogical(path: String, syntax: PathSyntax = TestHost.pathSyntax): String {
         if (syntax == PathSyntax.POSIX) return path
@@ -83,7 +83,7 @@ public object TestPaths {
      * path is kept; a relative path that cancels out becomes `.`. The root is kept (`/`, `C:\`,
      * `\\srv\share\`).
      *
-     * @since 4.1.0
+     * @since 5.0.0
      */
     public fun normalize(path: String, syntax: PathSyntax = TestHost.pathSyntax): String {
         val parsed: Parsed = parse(path, syntax)
@@ -110,7 +110,7 @@ public object TestPaths {
      * Case is exact on [PathSyntax.POSIX] and ignored on [PathSyntax.WINDOWS] (the NTFS default); use
      * it for containment only, never for equality.
      *
-     * @since 4.1.0
+     * @since 5.0.0
      */
     public fun relativeLogical(base: String, path: String, syntax: PathSyntax = TestHost.pathSyntax): String? {
         val b: Parsed = parseNormalized(base, syntax)
@@ -126,7 +126,7 @@ public object TestPaths {
     /**
      * True when [path] is strictly below [base] (see [relativeLogical]).
      *
-     * @since 4.1.0
+     * @since 5.0.0
      */
     public fun isInside(base: String, path: String, syntax: PathSyntax = TestHost.pathSyntax): Boolean =
         !relativeLogical(base, path, syntax).isNullOrEmpty()

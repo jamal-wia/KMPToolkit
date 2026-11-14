@@ -7,7 +7,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
  * SQLite and its drivers change some texts: the Android driver binds UTF-16 and SQLite drops a leading U+FEFF, reads a
  * leading U+FFFE as a byte-order mark and mangles a lone surrogate; the iOS driver binds UTF-8, so a NUL ends the text,
  * a leading U+FEFF is dropped and a lone surrogate becomes U+FFFD. [toStoredText] leaves a text that survives
- * untouched (every text a version before 4.1.0 stored stays as it is, except one that is itself exactly an escaped form: it reads back as the text it encodes) and rewrites only the others behind
+ * untouched (every text a version before 5.0.0 stored stays as it is, except one that is itself exactly an escaped form: it reads back as the text it encodes) and rewrites only the others behind
  * [MARKER]. The rewritten form is compact so that it is never more than twice as large in UTF-8 as the text it
  * holds (a NUL is one two-byte character, a lone surrogate five bytes), which is what lets [fitsStoredBudget] keep every
  * accepted row inside Android's cursor window:
@@ -17,7 +17,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
  * - a leading U+FEFF or U+FFFE is stored as U+0081 followed by `m` and `n`;
  * - a lone surrogate is stored as U+0081 followed by three lower-case hex digits of its distance from U+D000.
  *
- * [fromStoredText] reverses it. A text stored by the first 4.1.0 snapshots behind [LEGACY_MARKER] (every escaped unit as
+ * [fromStoredText] reverses it. A text stored by the first 5.0.0 development snapshots behind [LEGACY_MARKER] (every escaped unit as
  * U+FDD1 and four hex digits) is still read. A stored text that starts with a marker but is not exactly the
  * form the writer produces for what it decodes to (it is malformed, or a text an earlier version stored that merely starts like
  * one) is returned as it is, and the store reaches its row by that text through every lookup it has: id, tag, type and
@@ -134,7 +134,7 @@ private fun decode(stored: String): String {
 
 private fun isLowerHex(c: Char): Boolean = c in '0'..'9' || c in 'a'..'f'
 
-/** The first 4.1.0 snapshots' form: every offending unit is [LEGACY_ESCAPE] and four hex digits. */
+/** The first 5.0.0 development snapshots' form: every offending unit is [LEGACY_ESCAPE] and four hex digits. */
 private fun decodeLegacy(stored: String): String {
     val out = StringBuilder()
     var i: Int = LEGACY_MARKER.length
@@ -153,7 +153,7 @@ private fun decodeLegacy(stored: String): String {
     return out.toString()
 }
 
-/** The writer of the first 4.1.0 snapshots' form, kept only to tell a text in that form from one that starts like it. */
+/** The writer of the first 5.0.0 development snapshots' form, kept only to tell a text in that form from one that starts like it. */
 private fun encodeLegacy(text: String): String {
     val needs: Boolean = text.startsWith(MARKER) || text.startsWith(LEGACY_MARKER) ||
         text.firstOrNull().let { it == BYTE_ORDER_MARK || it == REVERSED_BYTE_ORDER_MARK } ||

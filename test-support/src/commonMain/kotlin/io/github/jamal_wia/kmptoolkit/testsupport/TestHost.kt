@@ -8,7 +8,7 @@ package io.github.jamal_wia.kmptoolkit.testsupport
  * Windows build machine would only test the imitation. Modules with a desktop target use `TestFs`
  * (JVM source sets), because Windows is a real target there.
  *
- * @since 4.1.0
+ * @since 5.0.0
  */
 public object TestHost {
 
@@ -72,7 +72,7 @@ public object TestHost {
      * ordinary file when an extension follows, earlier versions open the device. A test that meets such a name
      * cannot expect one outcome and must accept both, proving a success instead. Always false on [PathSyntax.POSIX].
      *
-     * @since 4.1.0
+     * @since 5.0.0
      */
     public fun isReservedDeviceNameOnly(name: String, syntax: PathSyntax = pathSyntax): Boolean {
         if (syntax != PathSyntax.WINDOWS || name.isEmpty()) return false

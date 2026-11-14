@@ -22,7 +22,7 @@ import kotlinx.coroutines.test.runTest
 
 /**
  * Round 9 (mutation survivors): behaviours that a hand-made mutant of the engine left every earlier test green on, found by
- * deleting the `trigger()` of `cancel`, and the `PARKED` exclusion of a REPLACE (that exclusion was removed in 4.1.0, A1 boss round 3, rule P8;
+ * deleting the `trigger()` of `cancel`, and the `PARKED` exclusion of a REPLACE (that exclusion was removed in 5.0.0, A1 boss round 3, rule P8;
  * the test now pins the cancel for a parked item too).
  */
 class EngineSurvivorsRound9AdversarialTest {

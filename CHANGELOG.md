@@ -74,8 +74,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-uploader` (iOS): an item id keeps its own text as the name of its temporary body and its journal entry
   only when no other id can fold onto it (a canonical upper-case UUID, or an id without an upper-case letter that is
   not shaped like a UUID); any other id gets a hashed body name and an escaped journal entry name (`~` marks an escape).
-  Entries that a version before 4.1.0 wrote under the id's own spelling are still read, replayed by the sweep and
-  replaced when the id writes again; a build older than 4.1.0 does not read an entry written under the new names.
+  Entries that a version before 5.0.0 wrote under the id's own spelling are still read, replayed by the sweep and
+  replaced when the id writes again; a build older than 5.0.0 does not read an entry written under the new names.
 - `kmptoolkit-uploader` (iOS): journal entries are written through a sibling `outcomes-partial` directory and synced
   to disk before they replace the entry, instead of Foundation's atomic write. Entries and leftovers of earlier
   versions are read and swept as before.
@@ -101,7 +101,7 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-storage` (Android): a secure value is bound to the key name it is stored under (the key name is
   authenticated data of the AES-GCM encryption), so a ciphertext copied to another key reads as `Undecryptable`.
   Entries written earlier are still read, once more as unbound ones; the format on disk is unchanged, but a downgrade
-  to 4.0.0 cannot read entries written by 4.1.0.
+  to 4.0.0 cannot read entries written by 5.0.0.
 - `kmptoolkit-storage` (iOS): `put` of the key `AppleLanguages` on the plain store is refused with
   `StorageError.OperationFailed(PUT)`, since `NSUserDefaults` never reads that key back; before, it answered `Success`
   and then `null`.
@@ -1114,7 +1114,7 @@ release are listed there.
 
 ### Known issues
 
-- `kmptoolkit-downloader`: when two engines with separate storage instances over the same base directory request the same unit at almost the same time, one may start a second transfer after the first has finished but before it is committed. The resource is always committed whole, but a full-size partial temp file of that unit can stay in `tmp/` until `cancelDownload(unit)`. With a downloader that restarts from byte zero (`beginTempFile`), one caller can instead fail once with `DownloadError.Storage`; retrying succeeds. A single engine per directory is not affected. Fixed in 4.1.0.
+- `kmptoolkit-downloader`: when two engines with separate storage instances over the same base directory request the same unit at almost the same time, one may start a second transfer after the first has finished but before it is committed. The resource is always committed whole, but a full-size partial temp file of that unit can stay in `tmp/` until `cancelDownload(unit)`. With a downloader that restarts from byte zero (`beginTempFile`), one caller can instead fail once with `DownloadError.Storage`; retrying succeeds. A single engine per directory is not affected. Fixed in 5.0.0.
 
 ## [3.0.0]
 
@@ -2119,7 +2119,7 @@ signatures of its constructor and `copy`; source code needs no change.
   left no layer behind. Not thread-safe, deliberately — see
   `docs/kmptoolkit-systembars/06-testing.md`.
 - `kmptoolkit-systembars` now also publishes a **`jvm` (desktop) target** — the only module in the
-  suite that does. The module's premise is that a screen states what it wants from the bars without
+  suite that does (at the time of 1.1.0). The module's premise is that a screen states what it wants from the bars without
   knowing where it runs, so a Compose Multiplatform app sharing one UI tree between phone and
   desktop could not compile that tree at all while the types resolved on only two of its three
   targets. Desktop has no system bars, so every platform call in `jvmMain` is a no-op

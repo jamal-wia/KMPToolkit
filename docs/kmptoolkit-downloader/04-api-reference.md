@@ -268,7 +268,7 @@ process (a custom or wrapping `DownloaderStorage` is not coordinated across engi
 directory): a second engine asked for a unit another engine is
 downloading waits, and then finds the resource available instead of starting a second transfer. So the
 port never sees two `enqueueDownload` calls for a unit whose first transfer finished but has not been
-committed yet. A call cancelled with `cancelDownload` while it waits for the other engine's transfer ends when that transfer ends: the cancel is seen right after the wait. A cancel (or the cleanup of a cancelled call) on an engine that does not hold the unit's lock leaves the temp file alone: it belongs to the engine that is transferring. Since 4.1.0.
+committed yet. A call cancelled with `cancelDownload` while it waits for the other engine's transfer ends when that transfer ends: the cancel is seen right after the wait. A cancel (or the cleanup of a cancelled call) on an engine that does not hold the unit's lock leaves the temp file alone: it belongs to the engine that is transferring. Since 5.0.0.
 
 `beginTempFile(unit, expectedSha256)` is called by the party that owns the writer, exactly when it
 is about to write from byte 0, and replaces whatever transfer was there: afterwards `tempFileState`

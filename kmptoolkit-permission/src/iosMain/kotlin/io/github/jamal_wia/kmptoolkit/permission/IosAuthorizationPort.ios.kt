@@ -40,7 +40,7 @@ import platform.darwin.dispatch_get_main_queue
  * A one-to-one adapter, [SystemIosAuthorizations], is the only implementation in the library. Internal: it is
  * not API.
  *
- * @since 4.1.0
+ * @since 5.0.0
  */
 internal interface IosAuthorizationPort {
 
@@ -129,7 +129,7 @@ internal interface IosAuthorizationPort {
  * shared application are fetched on every call, never at construction, so building a controller in a test
  * binary touches neither.
  *
- * @since 4.1.0
+ * @since 5.0.0
  */
 internal object SystemIosAuthorizations : IosAuthorizationPort {
 

@@ -270,7 +270,7 @@ body content and go out untouched.
 
 `toString` of a request prints the url, the method, the header *names* and the fields, and never a header value or a
 text field's value (it prints that value's length): bearer tokens and personal data do not reach a log or a crash
-report through a request, nor through `UploadPreparation.Proceed` or `UploadAttempt.Ready`, which hold one. Since 4.1.0;
+report through a request, nor through `UploadPreparation.Proceed` or `UploadAttempt.Ready`, which hold one. Since 5.0.0;
 earlier versions printed the values.
 
 ## `UploadResult` / `defaultUploadClassification`

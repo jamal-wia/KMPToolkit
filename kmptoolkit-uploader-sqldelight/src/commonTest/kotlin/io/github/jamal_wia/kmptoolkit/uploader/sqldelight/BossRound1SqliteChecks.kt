@@ -47,7 +47,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 /**
- * A1 final boss round 1 over real SQLite, run by the Android host and the iOS simulator alike: the 4.1.0 changes read
+ * A1 final boss round 1 over real SQLite, run by the Android host and the iOS simulator alike: the 5.0.0 changes read
  * together (stored text forms, ids that need escaping, saturating time at the top of the Long range, close racing a
  * settle, rule P3's lease token), plus rows an earlier version wrote.
  */
