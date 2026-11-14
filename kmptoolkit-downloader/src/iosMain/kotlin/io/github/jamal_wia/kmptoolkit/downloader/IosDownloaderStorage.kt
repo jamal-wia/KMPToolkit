@@ -467,7 +467,7 @@ internal class IosDownloaderStorage(
         if (!fileExists(path)) return 0L
         // fileExists follows links, so a dangling link is 0 above. A link AT the unit's path is the resource (as for
         // isResourceAvailable): its size is the size of what it points to. Links inside a tree are not followed.
-        val target: String = (path as NSString).stringByResolvingSymlinksInPath
+        val target: String = NSString.create(string = path).stringByResolvingSymlinksInPath
         val fm: NSFileManager = NSFileManager.defaultManager
         val attributes: Map<Any?, *>? = fm.attributesOfItemAtPath(target, error = null)
 
@@ -812,7 +812,7 @@ internal class IosDownloaderStorage(
         return true
     }
 
-    private fun canonicalForm(name: String): String = (name as NSString).decomposedStringWithCanonicalMapping
+    private fun canonicalForm(name: String): String = NSString.create(string = name).decomposedStringWithCanonicalMapping
 
     /** True when [path] is a directory with something in it. */
     private fun isNonEmptyDirectory(path: String): Boolean =
