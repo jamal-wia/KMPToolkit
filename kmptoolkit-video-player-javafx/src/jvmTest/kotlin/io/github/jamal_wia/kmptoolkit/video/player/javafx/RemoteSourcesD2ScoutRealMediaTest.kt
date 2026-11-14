@@ -31,7 +31,8 @@ import kotlinx.coroutines.withTimeout
  * `03-guide.md` "Sources on desktop" and "Errors you can see", `04-api-reference.md` and `05-platform-notes.md` "Formats":
  *
  * - `Remote(url)` is "passed to JavaFX as is", and a target JavaFX "cannot reach or open" arrives as `Error(MediaException)`, with
- *   `MEDIA_INACCESSIBLE` for "connection refused, 404" (the type of a 404 is not pinned here: see the scout report, D1);
+ *   `MEDIA_INACCESSIBLE` for a refused connection and `MEDIA_UNAVAILABLE` for an HTTP 404 on macOS (the type of a 404 is pinned
+ *   by `RemoteSourceFailuresD2ScoutDocsRealMediaTest`, not here);
  * - "a failure during playback (a network drop mid-stream) arrives the same way, as `Error(MediaException)`";
  * - "the engine waits ... and then fails the load, so `prepare` never hangs", `readyTimeoutMs` bounding a slow server, and a stalled
  *   load that "keeps the FX thread free";
