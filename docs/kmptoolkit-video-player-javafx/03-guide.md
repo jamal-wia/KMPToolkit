@@ -33,7 +33,7 @@ promise that every source decodes: formats are OS-dependent (see
 |---|---|---|
 | `VideoSource.Asset(path)` | a **classpath resource** (`src/jvmMain/resources/…`), leading `/` optional; works from a directory and from inside a jar; any name the file system accepts, an emoji included | `FileNotFoundException` |
 | `VideoSource.File(path)` | the file at that absolute path | `FileNotFoundException` (also for a directory, and for a file that cannot be read) |
-| `VideoSource.Remote(url)` | `http://`, `https://`, or an HLS playlist — passed to JavaFX as is | `MediaException` from JavaFX for a target it cannot reach or open; `IllegalArgumentException` for a URL it cannot parse or that has no scheme; `UnsupportedOperationException` for a protocol JavaFX does not support (for example `ftp:`) |
+| `VideoSource.Remote(url)` | `http://`, `https://`, or an HLS playlist — passed to JavaFX as is | `MediaException` from JavaFX for a target it cannot reach or open; `LoadTimedOut` after 30 s for one that never answers usefully (see below); `IllegalArgumentException` for a URL it cannot parse or that has no scheme; `UnsupportedOperationException` for a protocol JavaFX does not support (for example `ftp:`) |
 | `VideoSource.Remote(url, headers)` with any header | — | `JavaFxVideoPlayerException.HeadersNotSupported` |
 
 An `Asset` path that names a directory of the class path (or `/`) is not checked up front: JavaFX
@@ -71,11 +71,14 @@ when (val state = player.stateFlow.value) {
 ```
 
 - **`LoadTimedOut`** exists because JavaFX sometimes reports *nothing*: on macOS a file it cannot
-  parse leaves the player in `UNKNOWN` forever, with neither `READY` nor an error. The engine waits
-  30 seconds for either and then fails the load, so `prepare` never hangs on a bad file.
-- **`MediaException.type`** distinguishes, among others, `MEDIA_INACCESSIBLE` (connection refused,
-  404), `MEDIA_UNSUPPORTED` (a format JavaFX does not decode) and `MEDIA_CORRUPTED`. A failure during
-  playback (a network drop mid-stream) arrives the same way, as `Error(MediaException)`.
+  parse, or a remote source that never answers usefully (a failed TLS handshake, a connection reset
+  while the clip loads, a server that ignores byte ranges), leaves the player in `UNKNOWN` forever,
+  with neither `READY` nor an error. The engine waits 30 seconds for either and then fails the load,
+  so `prepare` never hangs on a bad file.
+- **`MediaException.type`** distinguishes, among others, `MEDIA_INACCESSIBLE` (connection refused),
+  `MEDIA_UNAVAILABLE` (an HTTP 404 on macOS, after a few seconds), `MEDIA_UNSUPPORTED` (a format
+  JavaFX does not decode) and `MEDIA_CORRUPTED`. A failure during playback (a network drop
+  mid-stream) arrives the same way, as `Error(MediaException)`.
 - A `Remote` URL JavaFX rejects before it opens anything arrives as `IllegalArgumentException`
   (unparseable, no scheme) or `UnsupportedOperationException` (unknown protocol), in the `else`
   branch above.

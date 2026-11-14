@@ -113,6 +113,12 @@ The real-media classes (tiers C, K and R) run the real engine against real JavaF
   change (while playing, while paused, or both) the playhead 600 ms after `play()` is not more than 300 ms
   below the paused position (a native seek would land on the key frame before it: a pause at 1540 ms resumed
   at 1000 ms with the 3 s clip, whose key frames are a second apart).
+- **Remote sources that fail (tier K)** — `RemoteSourceFailuresD2ScoutDocsRealMediaTest`, against a local server on
+  127.0.0.1 with a ready timeout of 3 s, 15 s for the 404 that macOS reports after about 5 s (macOS only, skipped
+  elsewhere): an HTTP 404 is a `MediaException` of type `MEDIA_UNAVAILABLE`; an `https` URL against a server that only speaks plain HTTP, a connection reset while the clip
+  loads and a server that answers a `Range` request with `200` each end in `LoadTimedOut`; the same clip served with
+  `206` becomes ready (the control). They pin the documented kind of failure, not a duration. Beside them,
+  `RemoteSourcesD2ScoutRealMediaTest` pins the other remote cases (ranges, a redirect, a faststart clip, a slow server).
 - **Unreadable file** — `SourceUrisUnreadableFileR5Test`: a `VideoSource.File` the process cannot read
   fails with `FileNotFoundException` before JavaFX is involved (JavaFX itself took 4 s to fail it).
 - **Reading JavaFX back.** Volume, rate and status have no getter on the engine contract; an

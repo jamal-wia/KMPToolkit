@@ -56,14 +56,19 @@ Per OS, decoding is done by the platform:
 
 What an unsupported source does:
 
-- An unknown container, or a target JavaFX cannot reach or open — `MediaException` from `prepare`,
-  straight away. A URL JavaFX cannot parse or that has no scheme fails with
+- An unknown container, or a target JavaFX can reach but cannot open (a refused connection, an HTTP
+  error) — `MediaException` from `prepare`, within a few seconds (about 5 s for an HTTP 404 on
+  macOS). A remote source that never answers usefully (an `https` URL whose TLS handshake fails, a
+  connection reset while the clip loads) reports nothing on macOS; the engine fails that load with
+  `LoadTimedOut` after 30 s. A URL JavaFX cannot parse or that has no scheme fails with
   `IllegalArgumentException`, and a protocol it does not support (for example `ftp:`) with
   `UnsupportedOperationException`, both straight away.
 - A file JavaFX starts to parse but cannot decode — on macOS JavaFX may report **nothing at all**;
   the engine fails the load with `JavaFxVideoPlayerException.LoadTimedOut` after 30 s.
 - For MP4 over HTTP, the `moov` atom must be at the start of the file (`-movflags +faststart`), or
-  JavaFX stalls until the whole file has downloaded.
+  JavaFX stalls until the whole file has downloaded. The server must also honour byte ranges
+  (answer a `Range` request with `206`): JavaFX on macOS asks for ranges first, and a server that
+  answers with the whole file (`200`) never gets the source ready (`LoadTimedOut` after 30 s).
 
 ## CPU cost
 

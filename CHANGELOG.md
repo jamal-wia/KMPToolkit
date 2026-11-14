@@ -316,9 +316,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-video-player-javafx`: an interrupted first `isJavaFxMediaAvailable()` no longer disables JavaFX for the
   rest of the process (nor does a first load whose worker thread is interrupted), the interrupted thread keeps its
   interrupt status, and a toolkit the engine started keeps implicit exit off when that first start had to be retried.
-- `kmptoolkit-video-player-javafx`: on macOS a looping clip at a speed other than 1 that was paused right after it
-  wrapped and played again no longer stands still for seconds now and then (in the measurements about 1 of 10 such
-  resumes did).
+- `kmptoolkit-video-player-javafx`: on macOS a looping clip at a speed other than 1 that was paused right as it
+  wrapped no longer stands still at its start now and then when it is played again, however long the pause.
 
 ### Known issues
 
