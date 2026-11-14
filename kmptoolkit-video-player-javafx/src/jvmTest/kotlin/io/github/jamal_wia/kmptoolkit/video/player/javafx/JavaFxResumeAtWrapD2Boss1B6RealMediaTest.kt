@@ -21,8 +21,14 @@ import kotlinx.coroutines.withTimeout
  * the platform may still hold now and then on its own, the engine must not add to it). Its exact F twin is
  * `model.ResumeAtWrapD2Boss1B6ModelTest`.
  *
+ * D2 boss 2, W2 (ruling reviews/d2-boss2-ruling-opus.md, D-295 and D-296): the same shape with a pause of 0.6 s and of 3 s between the
+ * `pause()` at the wrap and the `start()` (two more tests below, knobs `b6Trials` and `b6MaxHeld` as well). The 500 ms clock of the B6
+ * fix took the seek path again at those gaps, which held 5 of 60, 5 of 30 and 6 of 40 (loaded); the state flag `atLoopRestart` keeps
+ * the settle path whatever the gap (0 of 60 at 0.6 s, 1.5 s and 3 s, and 0 of 40 loaded; adversarial/D2/boss-2-w2-ab.md). Their exact
+ * F twin is `model.LoopRestartStateD2Boss2FixModelTest`.
+ *
  * One trial: seek to 2.3 s, start, wait until the published time has passed 2.6 s and then fallen below 1 s (the wrap), then
- * `pause()` and `start()` at once; the trial is HELD when the playhead does not advance by 400 ms from the lowest position seen since
+ * `pause()`, wait the gap (none in the B6 test) and `start()`; the trial is HELD when the playhead does not advance by 400 ms from the lowest position seen since
  * the call within 5 s. A held trial is recovered (a seek to the position it stands at, then 400 ms of advance awaited) so that it
  * cannot carry into the next trial and the count stays honest on a regression. Every wait is a polled condition with a real-time hang bound (`awaitTrue`); the verdict is a boolean the
  * condition produced, never an elapsed time.
@@ -47,6 +53,21 @@ class JavaFxResumeAtWrapD2Boss1B6RealMediaTest {
 
     @Test
     fun `a looping clip at twice the speed paused at the wrap and started again moves on in all but at most one of sixty trials`() {
+        runWrapTrials(gapMs = 0L)
+    }
+
+    @Test
+    fun `a looping clip at twice the speed paused at the wrap and started again after six tenths of a second moves on in all but at most one of sixty trials`() {
+        runWrapTrials(gapMs = 600L)
+    }
+
+    @Test
+    fun `a looping clip at twice the speed paused at the wrap and started again after three seconds moves on in all but at most one of sixty trials`() {
+        runWrapTrials(gapMs = 3_000L)
+    }
+
+    /** [trials] trials of the shape in the class comment with a pause of [gapMs] between the pause at the wrap and the start. */
+    private fun runWrapTrials(gapMs: Long) {
         val trials: Int = knob("b6Trials", DEFAULT_TRIALS)
         val maxHeld: Int = knob("b6MaxHeld", DEFAULT_MAX_HELD)
         val engine = JavaFxVideoEngine(readyTimeoutMs = 15_000L).also { this.engine = it }
@@ -60,6 +81,8 @@ class JavaFxResumeAtWrapD2Boss1B6RealMediaTest {
             awaitTrue(HANG_MS, { "the playhead never passed 2600 ms (trial $trial)" }) { engine.positionMs() >= 2_600L }
             awaitTrue(HANG_MS, { "the clip never wrapped (trial $trial)" }) { engine.positionMs() < 1_000L }
             engine.pause()
+            // timing-hygiene-ignore: TH1 inject the caller's pause between pause() and start() is the premise of the pin; nothing waits on it
+            if (gapMs > 0L) Thread.sleep(gapMs)
             engine.start()
             var lowest: Long = engine.positionMs()
             val advanced: Boolean = try {
@@ -90,11 +113,11 @@ class JavaFxResumeAtWrapD2Boss1B6RealMediaTest {
             }
             engine.pause()
         }
-        println("B6-GATE-PIN held=${held.size} of $trials trials (allowed at most $maxHeld) held trials=$held")
+        println("B6-GATE-PIN gap=${gapMs}ms held=${held.size} of $trials trials (allowed at most $maxHeld) held trials=$held")
         assertTrue(
             held.size <= maxHeld,
-            "the playhead stood still for ${HOLD_WINDOW_MS / 1_000L} s in ${held.size} of $trials trials after pause() and start() at a loop wrap " +
-                "(allowed: at most $maxHeld; held trials: $held)",
+            "the playhead stood still for ${HOLD_WINDOW_MS / 1_000L} s in ${held.size} of $trials trials after pause(), a pause of ${gapMs} ms " +
+                "and start() at a loop wrap (allowed: at most $maxHeld; held trials: $held)",
         )
     }
 
