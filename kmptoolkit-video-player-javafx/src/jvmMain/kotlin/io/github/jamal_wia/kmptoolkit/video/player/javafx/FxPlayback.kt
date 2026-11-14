@@ -106,6 +106,16 @@ internal class FxPlayback private constructor(
     private var lastNativeSeekNanos: Long? = null
 
     /**
+     * When the restart of a looping source at a wrap was last seen ([System.nanoTime], stamped next to [lastNativeSeekNanos]
+     * in `onEndOfMedia`), or null when no loop has wrapped. A [start] within [WRAP_RESUME_NANOS] of it does not take the
+     * seek path even though the playhead reads near the start (see [wrappedRecently]): right after a wrap the published
+     * time is held at 0, and a native seek of the engine's own, with the pause before it and the play and rate writes after
+     * it, lands within milliseconds of JavaFX's own restart seek, which on macOS left the player PLAYING with the playhead
+     * standing at 0 for the whole observation window in 6 of 60 trials (the settle path: 0 of 60).
+     */
+    private var lastWrapNanos: Long? = null
+
+    /**
      * The speed [start] has still to give after its play(): given two FX tasks later, so a speed the caller gives right
      * after [start] (the shared player gives it that way, from any thread, the FX thread included) replaces it and
      * reaches the native player once, not as a second change on top of the first. Null when nothing is pending.
@@ -220,6 +230,7 @@ internal class FxPlayback private constructor(
                     // one given after any other native seek (see [setSpeed]). The stamp lands slightly after JavaFX's seek,
                     // which errs on the safe side.
                     lastNativeSeekNanos = host.nanoTime()
+                    lastWrapNanos = host.nanoTime()
                     // The native player starts the next cycle at normal speed (macOS), so a speed other than 1 is lost
                     // here unless it is given again.
                     deferRate(afterWrap = true)
@@ -319,12 +330,16 @@ internal class FxPlayback private constructor(
             return@post
         }
         deferredRate = null
-        if (!seekedSincePlay && !nearStart()) {
+        if (!seekedSincePlay && (!nearStart() || wrappedRecently())) {
             // A plain resume at a speed other than 1 (macOS: play() starts the native player at normal speed whatever
             // the rate property says, and a rate change right after a plain play() can freeze the playhead). No native
             // seek here: a seek lands on the key frame at or before the playhead, so the clip would resume from there,
             // up to a whole key-frame interval earlier. Play at the speed the player stands at, and give the speed
             // as one away-and-back once the native player has been playing for a moment (see [applyResumeRate]).
+            // A loop that wrapped a moment ago reads near the start too (the published time is held at 0 for about 300 ms),
+            // and takes this path for the same reason as a playhead further on: JavaFX has just made a native seek of its
+            // own to the start, and a second one of ours, with the pause, play and rate writes around it, is the sequence
+            // that left the macOS player standing at 0 (see [lastWrapNanos]).
             settleNudge = rate
             settleNotBeforeNanos = null
             resumeGauge.reset()
@@ -771,6 +786,12 @@ internal class FxPlayback private constructor(
         return position.isNaN() || position <= NEAR_START_MS
     }
 
+    /**
+     * Whether a looping source wrapped less than [WRAP_RESUME_NANOS] ago, so the native player is still settling after
+     * JavaFX's own restart seek (see [lastWrapNanos]). A difference of the clock readings, which survives a wrap of the clock.
+     */
+    private fun wrappedRecently(): Boolean = lastWrapNanos?.let { stamp: Long -> host.nanoTime() - stamp < WRAP_RESUME_NANOS } ?: false
+
     /** The first error only: JavaFX reports one failure through both the player and the media. */
     private fun fail(cause: Throwable?) {
         if (disposed || failed) return
@@ -883,6 +904,12 @@ internal class FxPlayback private constructor(
 
         /** Within this of the start a native seek to the playhead moves it by no more than the documented quantisation (see [nearStart]). */
         private const val NEAR_START_MS: Double = 100.0
+
+        /**
+         * How long after a loop wrap a [start] still counts as right after it (see [wrappedRecently]): the publish hold of about
+         * 300 ms after a wrap plus a margin, so a start inside it never adds a native seek to JavaFX's own restart seek.
+         */
+        private const val WRAP_RESUME_NANOS: Long = 500_000_000L
 
         /** How far the playhead must move, at normal speed, before the speed of a resume without a seek is given (see [applyResumeRate]). */
         private const val RESUME_RATE_SETTLE_MS: Double = 200.0
