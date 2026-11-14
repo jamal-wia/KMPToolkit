@@ -83,6 +83,11 @@ The real-media classes (tiers C, K and R) run the real engine against real JavaF
 - **Interrupted first start** — `InterruptedStartD2Boss1Test`: an interrupted first `isJavaFxMediaAvailable()` is not
   remembered, keeps the caller's interrupt status, and a retried first start still keeps implicit exit off for a toolkit the
   engine started.
+- **Resume at a loop wrap (tier F, tier R)** — `ResumeAtWrapD2Boss1B6ModelTest`: a looping clip at a speed other than 1
+  paused at a wrap and started within half a second resumes with no native seek of its own and gets its speed after about
+  200 ms of movement; 600 ms after the wrap near the start it still takes the seek path.
+  `JavaFxResumeAtWrapD2Boss1B6RealMediaTest` plays the same on the real decoder, 60 trials, at most 1 held (the old seek
+  path held in 6 to 11 of 60); knobs `-Pkmptoolkit.test.b6.b6Trials` and `-Pkmptoolkit.test.b6.b6MaxHeld`.
 - **Freeze after a resume (tier R)** — `JavaFxResumeSettlesAtSpeedR5FixerTest`: after a pause and a start at 2 and at
   4 (six fresh engines each, or `-Pkmptoolkit.test.freeze.trials` for a longer run) the playhead passes where it
   paused plus 1200 ms within 3 s, so a playhead that freezes after the speed is given fails it.
@@ -129,7 +134,8 @@ run (it is the flag to use for every gate run; `jvmRealMediaTest` never reuses a
 
 The real-media soak (R), the classes of `realMediaSoakClasses`. It plays real media and is timing-sensitive, so
 run it alone on an idle machine, and split it with `--tests` when one command would take longer than about ten minutes
-(all fourteen classes together took about twelve minutes on an Apple-silicon Mac, J16, so it is split in practice):
+(the fourteen classes of J16 together took about twelve minutes on an Apple-silicon Mac, and the 60-trial pin of the loop
+wrap, `JavaFxResumeAtWrapD2Boss1B6RealMediaTest`, adds about three, so it is split in practice):
 
 ```sh
 ./gradlew :kmptoolkit-video-player-javafx:jvmRealMediaTest -Pjavafx.required=true

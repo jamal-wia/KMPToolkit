@@ -191,8 +191,8 @@ decoder writes straight into memory without a render-and-read-back step.
   shortly after a play near the start of a clip, within about 600 ms) is given as for a resume with no seek
   pending, below, instead, because a seek followed at once by a rate change on a started decoder can freeze the playhead, so that
   speed takes effect after about 200 ms of playback. When no seek is pending
-  and the playhead is further on, or a loop wrapped less than about half a second ago (the reported time then still stands at
-  the start, where JavaFX has just made a native seek of its own, and a second one of the engine's would sit right next to it), a resume at a speed other than 1
+  and the playhead is further on, or a loop wrapped less than about half a second ago (the reported time stands at the start
+  for about 300 ms after a wrap, longer under load, where JavaFX has just made a native seek of its own, and a second one of the engine's would sit right next to it), a resume at a speed other than 1
   (including a speed that arrives within about 600 ms of a plain `play()`: it was changed while paused or
   ready, or right after a play) plays from exactly where it was paused with no native seek, and the speed
   is given as one away-and-back once the playhead has moved about 200 ms at normal speed (counted only as far as
@@ -243,7 +243,7 @@ decoder writes straight into memory without a render-and-read-back step.
   then moved about 200 ms of media (counted as for a resume: a reading that runs ahead of the clock or steps back
   restarts the count), and then takes the new one.
   In probe runs on macOS, a speed written right after the engine's own seek to the start (the first play at a
-  speed, or a resume within about 100 ms of the start) left the playhead standing still once in 120 rounds, and
+  speed, or a resume within about 100 ms of the start, not one within half a second of a loop wrap, which takes no seek since 5.0.0) left the playhead standing still once in 120 rounds, and
   not in 40 first plays of a fresh clip or in 120 resumes after a seek; before the native player reports playing,
   the engine still gives that speed at once (a speed after that is held as described above),
   because holding it back would play the start of every such play at normal speed for half a second or more.
