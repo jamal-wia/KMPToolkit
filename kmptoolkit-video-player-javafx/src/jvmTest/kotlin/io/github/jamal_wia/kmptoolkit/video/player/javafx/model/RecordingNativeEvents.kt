@@ -7,7 +7,7 @@ import io.github.jamal_wia.kmptoolkit.video.player.javafx.NativeStatus
  * A [NativeEvents] that writes down what it was told, with the virtual time and whether the call came on the
  * model's FX thread, for the self-tests of the scripted player and the parts that follow it.
  *
- * Names are `ready`, `playerError`, `mediaError`, `endOfMedia`, `status:<STATUS>`, `currentTime`,
+ * Names are `ready`, `playerError`, `mediaError`, `cycleDecision`, `endOfMedia`, `status:<STATUS>`, `currentTime`,
  * `bufferProgress`, `duration`, `size` and `pulse`.
  */
 internal class RecordingNativeEvents(private val host: VirtualFxHost) : NativeEvents {
@@ -35,6 +35,8 @@ internal class RecordingNativeEvents(private val host: VirtualFxHost) : NativeEv
     override fun onPlayerError() = add("playerError")
 
     override fun onMediaError() = add("mediaError")
+
+    override fun onCycleDecision() = add("cycleDecision")
 
     override fun onEndOfMedia() = add("endOfMedia")
 

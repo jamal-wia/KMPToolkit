@@ -60,6 +60,9 @@ class JavaFxNativePlayerConformanceTest {
 
     private data class TimeSample(val valueMs: Double, val nanos: Long, val status: NativeStatus)
 
+    /** One `onCycleDecision`: JavaFX's `currentCount` as it stood in that callback, and how many `onEndOfMedia` had been reported before it. */
+    private data class CycleDecision(val currentCount: Int, val endsBefore: Int)
+
     private data class EndReading(val status: NativeStatus, val currentTimeMs: Double, val samplesBefore: Int)
 
     private data class ReadyReading(
@@ -80,6 +83,7 @@ class JavaFxNativePlayerConformanceTest {
         val samples: MutableList<TimeSample> = CopyOnWriteArrayList()
         val statuses: MutableList<NativeStatus> = CopyOnWriteArrayList()
         val ends: MutableList<EndReading> = CopyOnWriteArrayList()
+        val cycleDecisions: MutableList<CycleDecision> = CopyOnWriteArrayList()
         val errors: MutableList<String> = CopyOnWriteArrayList()
         val durationEvents: AtomicInteger = AtomicInteger()
         val sizeEvents: AtomicInteger = AtomicInteger()
@@ -121,6 +125,11 @@ class JavaFxNativePlayerConformanceTest {
         override fun onMediaError() {
             onFx("onMediaError")
             errors += "onMediaError: ${player.mediaError ?: player.playerError}"
+        }
+
+        override fun onCycleDecision() {
+            onFx("onCycleDecision")
+            cycleDecisions += CycleDecision(player.mediaPlayer.currentCount, ends.size)
         }
 
         override fun onEndOfMedia() {
