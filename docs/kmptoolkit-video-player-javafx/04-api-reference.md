@@ -63,7 +63,7 @@ public sealed class JavaFxVideoPlayerException(message: String, cause: Throwable
 The failures specific to this engine. A player reports each as `VideoPlayerState.Error(cause)` after
 `prepare`. The messages are developer diagnostics, not text for a user. Every other failure is
 passed through as the platform reported it (`FileNotFoundException`, `IllegalArgumentException`,
-`javafx.scene.media.MediaException`) — see [`03-guide.md`](03-guide.md#errors-you-can-see).
+`UnsupportedOperationException`, `javafx.scene.media.MediaException`) — see [`03-guide.md`](03-guide.md#errors-you-can-see).
 
 Instances are created only by the library (the constructors are `internal`).
 

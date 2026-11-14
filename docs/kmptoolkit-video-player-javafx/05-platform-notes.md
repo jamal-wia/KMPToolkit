@@ -56,7 +56,10 @@ Per OS, decoding is done by the platform:
 
 What an unsupported source does:
 
-- An unknown container or protocol — `MediaException` from `prepare`, straight away.
+- An unknown container, or a target JavaFX cannot reach or open — `MediaException` from `prepare`,
+  straight away. A URL JavaFX cannot parse or that has no scheme fails with
+  `IllegalArgumentException`, and a protocol it does not support (for example `ftp:`) with
+  `UnsupportedOperationException`, both straight away.
 - A file JavaFX starts to parse but cannot decode — on macOS JavaFX may report **nothing at all**;
   the engine fails the load with `JavaFxVideoPlayerException.LoadTimedOut` after 30 s.
 - For MP4 over HTTP, the `moov` atom must be at the start of the file (`-movflags +faststart`), or
