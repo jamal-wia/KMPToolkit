@@ -184,7 +184,9 @@ decoder writes straight into memory without a render-and-read-back step.
   property at `play()`, the away-and-back that gives a speed is a short dip to normal speed, and the first moments after
   a loop wrap play at normal speed although the decoder could keep the speed. A rate change right after a plain `play()` can freeze the playhead
   for good (about one resume in four in the measurements), while one right after a native seek followed by
-  `play()`, before the native player reports playing, froze it once in 120 probe rounds, one right after a native
+  `play()`, before the native player reports playing, froze it once in 120 probe rounds, once in 60 later trials of a
+  seek to the start followed by `play()` at speed 2, and once in a real-media soak run of a play from `Completed` at
+  speed 2 (a `seekTo` of the current position recovers it in about a second), one right after a native
   seek on a player that is already playing can freeze it too (both below), and one after the playhead had moved on
   for a while did not in any run. A native seek is no cure for a resume
   that was paused part-way through a key-frame interval, though: it lands on the key frame at or before

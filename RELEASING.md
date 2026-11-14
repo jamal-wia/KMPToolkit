@@ -34,7 +34,7 @@ The build machine needs:
    `./gradlew testAndroidHostTest iosSimulatorArm64Test` must both pass on the commit you intend to
    release (see `.claude/CLAUDE.md` § Verification). If the release changes
    `kmptoolkit-video-player-javafx`, also run its real-media soak on a Mac with a display, in the split
-   commands of `docs/kmptoolkit-video-player-javafx/06-testing.md` (`jvmRealMediaTest`).
+   commands of `docs/kmptoolkit-video-player-javafx/06-testing.md` (`jvmRealMediaTest`). The `ResumeAtWrapD2Boss1B6RealMediaTest` class does not fit one 10-minute command (about 12.6 minutes): run it per method with `--tests`.
 2. **Bump the version.** Edit `kmptoolkit.version` in `gradle.properties` — this is the single
    source of truth; every `kmptoolkit-*` module and the `kmptoolkit-bom` constraints read it.
    Follow semver: see `.claude/CLAUDE.md` § Public API and compatibility for what qualifies as
