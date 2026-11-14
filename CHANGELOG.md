@@ -313,6 +313,12 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-video-player-javafx`: a speed asked for while an earlier one still waited to be given is no longer lost
   when it equals the speed the player was set to before (on macOS the clip stayed at normal speed, and asking for the
   same speed again did not help).
+- `kmptoolkit-video-player-javafx`: an interrupted first `isJavaFxMediaAvailable()` no longer disables JavaFX for the
+  rest of the process (nor does a first load whose worker thread is interrupted), the interrupted thread keeps its
+  interrupt status, and a toolkit the engine started keeps implicit exit off when that first start had to be retried.
+- `kmptoolkit-video-player-javafx`: on macOS a looping clip at a speed other than 1 that was paused right after it
+  wrapped and played again no longer stands still for seconds now and then (in the measurements about 1 of 10 such
+  resumes did).
 
 ### Known issues
 
@@ -324,6 +330,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-video-player-javafx`: on macOS a speed written right after the engine's own seek to the start (a first
   play at a speed, or a resume within about 100 ms of the start) left the playhead standing still once in 120 probe
   rounds.
+- `kmptoolkit-video-player-javafx`: a looping clip shorter than about 0.6 s plays every cycle after the first at normal
+  speed when a speed other than 1 is set (between about 0.6 and 1 s the speed returns late in each cycle).
 - `kmptoolkit-downloader`: everything under the base directory must lie on one volume, and the storage does not look
   for a boundary: a directory on the way to a unit's `relativePath` that links to another volume (or is a mount point)
   is one. Behind it a `ZipArchive` unit cannot be replaced (the commit throws `IllegalStateException`; on Android even
