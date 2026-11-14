@@ -116,6 +116,7 @@ val realMediaSoakClasses: List<String> = listOf(
     "JavaFxOperationSequenceFuzzR6AdversarialTest",
     "JavaFxRateGivingR8AdversarialTest",
     "JavaFxResumeAtSpeedR5AdversarialTest",
+    "JavaFxResumeAtWrapD2Boss1B6RealMediaTest",
     "JavaFxResumeKeepsPositionR10AdversarialTest",
     "JavaFxResumeSettlesAtSpeedR5FixerTest",
     "JavaFxSeekAtSpeedFreezeR6AdversarialTest",
