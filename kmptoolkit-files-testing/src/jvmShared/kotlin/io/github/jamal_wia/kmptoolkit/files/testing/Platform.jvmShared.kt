@@ -7,10 +7,12 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 
-internal actual class Monitor {
+internal actual fun newMonitor(): Monitor = ReentrantMonitor()
+
+private class ReentrantMonitor : Monitor {
     private val lock: ReentrantLock = ReentrantLock()
 
-    actual fun <T> withLock(block: () -> T): T {
+    override fun <T> withLock(block: () -> T): T {
         lock.lock()
         try {
             return block()
