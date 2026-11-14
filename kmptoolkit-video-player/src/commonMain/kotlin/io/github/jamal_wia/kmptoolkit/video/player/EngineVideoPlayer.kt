@@ -795,10 +795,11 @@ internal class EngineVideoPlayer(
 
     /**
      * Resets everything that describes a source like [resetSourceFlows], but writes all four flows and ignores the write
-     * guard: for the calls whose promise is the reset itself (a [prepare] start, [unload], [release]). [whileHeld] is
-     * checked before the pending fields are cleared and before each write, and the reset stops at the first `false`:
-     * for an [unload] it says the placeholder is still the current load, so the reset does not overwrite what a
-     * [prepare] a collector called from inside it published for its own source.
+     * guard: for the calls whose promise is the reset itself (the start of a [prepare], and through [settleIdle] the
+     * cancel path of a [prepare], [unload] and [release]). [whileHeld] is checked before the pending fields are
+     * cleared and before each write, and the reset stops at the first `false`: it says the caller still owns the
+     * state (the placeholder of an [unload] or the cancelled load of a [prepare] is still the current load), so the
+     * reset does not overwrite what a [prepare] a collector called from inside it published for its own source.
      */
     private fun resetSourceFlowsFully(whileHeld: () -> Boolean = { true }) {
         if (!whileHeld()) return
@@ -941,8 +942,8 @@ internal class EngineVideoPlayer(
     /**
      * Lock held. The length to publish: a positive platform value wins, because a length reported after
      * playback started replaces the `0` of "not known yet"; `0` never overwrites a length already known,
-     * so a live stream that flaps back to `0` does not reset a progress bar. [reported] is a reading the
-     * caller already took.
+     * so a live stream that flaps back to `0` does not reset a progress bar. [reported] defaults to the engine's
+     * length read when the function is called; every caller passes only [known].
      */
     private fun freshDuration(known: Long, reported: Long = engine.durationMs()): Long =
         if (reported > 0L) reported else known
