@@ -327,6 +327,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-video-player-javafx`: on macOS a speed written right after the engine's own seek to the start (a first
   play at a speed, or a resume within about 100 ms of the start) left the playhead standing still once in 120 probe
   rounds.
+- `kmptoolkit-downloader`: everything under the base directory must lie on one volume, and the storage does not look
+  for a boundary: a directory on the way to a unit's `relativePath` that links to another volume (or is a mount point)
+  is one. Behind it a `ZipArchive` unit cannot be replaced (the commit throws `IllegalStateException`; on Android even
+  its first commit throws); a `SqliteDatabase` unit is committed once, but a later commit throws
+  `IllegalStateException` and `deleteResource` only logs a warning and leaves the database where it is. An `Opaque` or
+  `SqliteDatabase` unit reaches its path by copying the temp file there, and that copy is not atomic (on Android it
+  writes straight into the file at the resource path, on iOS it removes the old file first), so a process killed
+  during it can leave a partial file that reads as available. Keep every unit's resource on the volume of the base
+  directory; see `05-platform-notes.md`.
 
 ## [4.0.0]
 
