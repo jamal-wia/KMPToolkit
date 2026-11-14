@@ -116,7 +116,8 @@ survives `unload()`, so a surface attached to it stays attached.
 
 A `prepare` that arrives while another is still loading replaces it. The older load is cancelled and
 fully unwound before the newer one starts — the platform never loads two sources on one decoder — and
-the replaced call returns normally without writing any state — except a `prepare` that a newer `prepare`
+the replaced call returns normally (unless its own caller was cancelled as well: then `CancellationException`
+propagates) without writing any state — except a `prepare` that a newer `prepare`
 replaces while it is already resetting the source flows (for example, a collector of one of them called the newer
 `prepare`): it has freed the old source by then, so the state shows `Preparing` for the newer call rather than
 describe a source the engine no longer holds. For example:
@@ -133,7 +134,9 @@ that loaded the current one.
 
 `prepare` is the only suspending call, and it honors cancellation. If its coroutine goes away
 mid-load — a `LaunchedEffect` whose key changed — the half-loaded source is freed, the state returns
-to `Idle` (not `Error`: nothing failed), and the `CancellationException` propagates.
+to `Idle` (not `Error`: nothing failed), and the `CancellationException` propagates. The same holds for a `prepare`
+called from a coroutine that is already cancelled over a source that is loaded: the old source's polling stops and the
+state shows `Idle`.
 
 ```kotlin
 LaunchedEffect(url) {
