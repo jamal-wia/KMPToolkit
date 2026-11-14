@@ -21,7 +21,10 @@ import kotlin.test.assertNull
  * unity-start decoder; a decoder that honours the property is modelled WITHOUT it here (`playWindowMs = 0`). With the window kept, 3 of
  * 20000 seeds violate it (r16-P1, `adversarial/D2/suspects/r16-P1-*`: the away-and-back is given 59 to 91 ms after the play because the
  * clock bound of the movement gauge is `max(1.0, property)`, so a decoder that really runs at the property moves 200 ms of media in
- * 50 ms of wall time at 4x). Everything else is copied from the r14 class; see its KDoc for the generator and the knobs (`-Pkmptoolkit.test.fuzz.seeds=K`,
+ * 50 ms of wall time at 4x). Why W-PLAY is off here, by the D2 r16 ruling (`reviews/d2-r16-ruling-opus.md`, section 2, r16-P1): every freeze window
+ * and the unity start of `play()` are macOS measurements that the engine applies on every platform, nothing is measured on Windows or Linux,
+ * and `05-platform-notes.md` states the windows as measurements, not as a promise for other decoders; so this variant pins the other decoder
+ * without the macOS-only window, and the suspect stays an evidence file. Everything else is copied from the r14 class; see its KDoc for the generator and the knobs (`-Pkmptoolkit.test.fuzz.seeds=K`,
  * `-Pkmptoolkit.test.seed=N`).
  */
 class HolderInvariantExplorerDecoderAtPropertyR16ModelTest {

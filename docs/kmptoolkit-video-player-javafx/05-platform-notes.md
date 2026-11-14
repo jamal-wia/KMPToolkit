@@ -131,6 +131,10 @@ decoder writes straight into memory without a render-and-read-back step.
   as running again. A load in flight when the toolkit ends fails within about 2 s as well. Where
   JavaFX is hosted on a thread that outlives it (inside Swing or SWT), the heartbeat, with implicit exit on, is the only
   signal.
+  Because of that the JVM does not end on its own when `main` returns: while the toolkit runs, JavaFX keeps a thread of
+  its own (`JavaFX-KeepAlive`) that is not a daemon, and when the engine started the toolkit it also turned implicit exit
+  off. End such a program with `Platform.exit()` or `exitProcess(...)`. Compose Desktop's `application { }` already exits
+  the process when its last window closes (its default).
 - **Where work happens.** Every `MediaPlayer` call runs on the JavaFX application thread, in the
   order the calls were made from whichever threads made them (a call made on that thread runs at
   once only when nothing queued from another thread is still waiting to run); the position, duration and buffered position the core module polls are cached there, so polling never
@@ -164,7 +168,10 @@ decoder writes straight into memory without a render-and-read-back step.
   collections.
 - **Playback speed.** On macOS, `MediaPlayer.play()` and the start of the next cycle of a looping
   source begin at normal speed whatever rate JavaFX holds, so a speed set while paused, or one set
-  before a loop wraps, would be lost. A rate change right after a plain `play()` can freeze the playhead
+  before a loop wraps, would be lost. The freeze windows below, and the normal-speed start of `play()`, were measured on macOS only; the
+  engine applies the same rules on Windows and Linux, where they are unmeasured. On a decoder that honours the rate
+  property at `play()`, the away-and-back that gives a speed is a short dip to normal speed, and the first moments after
+  a loop wrap play at normal speed although the decoder could keep the speed. A rate change right after a plain `play()` can freeze the playhead
   for good (about one resume in four in the measurements), while one right after a native seek followed by
   `play()`, before the native player reports playing, froze it once in 120 probe rounds, one right after a native
   seek on a player that is already playing can freeze it too (both below), and one after the playhead had moved on
