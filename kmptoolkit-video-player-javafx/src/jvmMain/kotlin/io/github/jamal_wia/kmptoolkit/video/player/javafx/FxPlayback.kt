@@ -585,10 +585,12 @@ internal class FxPlayback private constructor(
      * stand still). A resume from a pause is not handled here: see [start].
      */
     private fun deferRate(afterWrap: Boolean) {
-        // The newest held speed: [setSpeed] fills pendingNudge first, then settleNudge, then deferredRate, so a speed given
-        // while a seek-path play waits is in pendingNudge, newer than a value [deferredRate] may still hold. One holder
-        // is left: the others are cleared, or the speed they hold would be given again over it.
-        val rate: Double = pendingNudge ?: deferredRate ?: settleNudge ?: native.rate
+        // The newest held speed, in the order [setSpeed] fills the holders: pendingNudge first, then settleNudge, then
+        // deferredRate. A speed given while a seek-path play waits is in pendingNudge, and one given while a plain play waits
+        // is in settleNudge; either is newer than the value [deferredRate] may still hold (a plain start() keeps a deferred
+        // 1.0 next to the settleNudge it sets, and [setSpeed] then updates only the settleNudge). One holder is left: the
+        // others are cleared, or the speed they hold would be given again over it.
+        val rate: Double = pendingNudge ?: settleNudge ?: deferredRate ?: native.rate
         pendingNudge = null
         settleNudge = null
         deferredRate = if (rate == 1.0) null else rate

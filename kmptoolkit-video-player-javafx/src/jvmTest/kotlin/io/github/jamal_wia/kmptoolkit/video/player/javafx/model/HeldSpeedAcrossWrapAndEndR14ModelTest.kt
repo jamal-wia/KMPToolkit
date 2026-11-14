@@ -14,6 +14,8 @@ import kotlin.test.assertEquals
  *   before the wrap does not come back over it.
  * - W2, a held speed of 1 at a wrap: the property is put to 1.0 (a wrap whose held speed is 1 used to write nothing and
  *   left the old speed in the property), and a later speed reaches the decoder.
+ * - W3, two wraps around a speed given while a plain play waits: the second wrap takes the newest held speed (the one of
+ *   `setSpeed`), not a 1.0 that an older `setSpeed` left in the deferred holder, so the clip ends at the speed asked for.
  * - E1, the end of a non-looping clip cancels a waiting seek-path play: the speed held for it is flushed, so a speed
  *   given after the end is written and not swallowed into a holder nobody gives.
  * - E2, the same end cancels the play for good: a `start()` that plays at once right after it is the only play, the
@@ -123,6 +125,44 @@ class HeldSpeedAcrossWrapAndEndR14ModelTest {
             advanceBy(500)
             assertEquals(2.0, native.rate, "a later speed is written to the property\n${native.trace()}")
             assertEquals(2.0, composed.hazards.effectiveRate, "a later speed reaches the decoder\n${native.trace()}")
+        }
+    }
+
+    // ---- W3. two wraps around a speed given while a plain play waits: the second wrap takes the newest held speed ----
+
+    /**
+     * The reviewer's scenario (`reviews/d2-r14-fix-opus.md`, MF-1). A looping clip playing at 2x is paused with two end-of-cycle
+     * events still queued. The first is delivered: the speed 2 waits in the deferred holder and the property goes to 1.0.
+     * `setSpeed(1f)` while paused replaces the deferred value, then a `start()` inside the idle gap plays at 1x with a delayed
+     * play (it holds 1.0 for the settle nudge and keeps the deferred 1.0). `setSpeed(2f)` during that wait updates only the
+     * settle holder, the newest. The second event is delivered during the wait: it must take that 2, not the older 1.0 of
+     * the deferred holder (the old order read the deferred holder first, wrote nothing as the property was already 1.0, and
+     * the clip played at 1x for good).
+     */
+    @Test
+    fun aSecondLoopWrapDuringAPlainPlayWaitTakesTheSpeedGivenDuringTheWaitAndNotTheOlderDeferredOne() = fxModel {
+        rig {
+            engine.setLooping(true)
+            engine.setSpeed(2f)
+            engine.start()
+            advanceBy(1_000)
+            engine.pause()
+            advanceBy(10)
+            onFx { native.deliverEndOfMedia() }
+            advanceBy(10)
+            engine.setSpeed(1f)
+            advanceBy(10)
+            val startedAt: Double = nowMs()
+            engine.start()
+            advanceBy(10)
+            engine.setSpeed(2f)
+            advanceBy(20)
+            onFx { native.deliverEndOfMedia() }
+            advanceBy(2_000)
+            val plays: List<NativeCallEntry> = native.log.calls(NativeCall.PLAY).filter { it.tMs > startedAt }
+            assertEquals(1, plays.size, "the start issued exactly one play() after its wait\n${native.trace()}")
+            assertEquals(2.0, native.rate, "the property holds the speed given during the wait\n${native.trace()}")
+            assertEquals(2.0, composed.hazards.effectiveRate, "the clip ends at the speed given during the wait, not at the older 1x\n${native.trace()}")
         }
     }
 
