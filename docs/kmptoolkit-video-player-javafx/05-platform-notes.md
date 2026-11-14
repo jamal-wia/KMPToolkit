@@ -185,12 +185,13 @@ decoder writes straight into memory without a render-and-read-back step.
   thread, where `start()` runs at once and the next call queues, the pending speed is given two FX tasks
   later, so the speed that follows still gets in front of it and the native player sees one away-and-back,
   not three rate changes next to `play()`); the same holds when the playhead stands within about 100 ms of
-  the start (the first play, a replay), where a seek to it moves nothing visible, but only while the native
+  the start (the first play, a replay, but not a resume less than about half a second after a loop wrapped, below), where a seek to it moves nothing visible, but only while the native
   player has not started playing: a speed that arrives after its status has turned `PLAYING` (a speed changed
   shortly after a play near the start of a clip, within about 600 ms) is given as for a resume with no seek
   pending, below, instead, because a seek followed at once by a rate change on a started decoder can freeze the playhead, so that
   speed takes effect after about 200 ms of playback. When no seek is pending
-  and the playhead is further on, a resume at a speed other than 1
+  and the playhead is further on, or a loop wrapped less than about half a second ago (the reported time then still stands at
+  the start, where JavaFX has just made a native seek of its own, and a second one of the engine's would sit right next to it), a resume at a speed other than 1
   (including a speed that arrives within about 600 ms of a plain `play()`: it was changed while paused or
   ready, or right after a play) plays from exactly where it was paused with no native seek, and the speed
   is given as one away-and-back once the playhead has moved about 200 ms at normal speed (counted only as far as
@@ -208,11 +209,11 @@ decoder writes straight into memory without a render-and-read-back step.
   A `play()` that follows a rate written while the player was not playing within about 200 ms waits for the rest of
   those 200 ms on every resume path but one (a `play()` right next to a rate write froze the playhead at a speed of 8
   in the measurements). The exception is a `play()` from within about 100 ms of the start of the clip, at a speed other
-  than 1 and with no seek pending: it first seeks to where it stands and plays at once, because a native seek after the
+  than 1 and with no seek pending, that did not follow a loop wrap by less than about half a second: it first seeks to where it stands and plays at once, because a native seek after the
   write clears the gap. Such a write is a `setPlaybackSpeed()` on a paused player, the held speed that a `pause()` or
   the end of a clip writes, or a speed that a `pause()` overtook before it was given, or the return to normal speed at a loop wrap that JavaFX delivers after a `pause()`, also when a later `play()` is still
   waiting; a waiting `play()` checks the gap again when its wait ends, so such a write pushes it to 200 ms after the write. So a `setPlaybackSpeed()`
-  immediately followed by `play()` starts up to 200 ms late, except a play near the start. A speed given while
+  immediately followed by `play()` starts up to 200 ms late, except a play near the start (and not just after a loop wrap). A speed given while
   that `play()` waits is held and given after the play (as a settle, about 200 ms of playback later on the plain path),
   never written in front of it; a second `play()` meanwhile does nothing (the first one plays once, at the end of the
   wait), a `seekTo()` meanwhile does not shorten the wait, and a `pause()` or the end of the clip meanwhile cancels it
