@@ -76,7 +76,7 @@ public class RuntimeUnavailable : JavaFxVideoPlayerException
 The OpenJFX runtime is not on the classpath, or the JavaFX toolkit cannot start here (typically: no
 display). `cause` is what JavaFX reported — a `ClassNotFoundException`, an `UnsatisfiedLinkError`, an
 `UnsupportedOperationException("Unable to open DISPLAY")`, … Permanent for the process, except when
-the JavaFX thread was only too busy to answer, or the calling thread was interrupted (a later load tries again; an interrupted call keeps its interrupt status). Also reported by a load
+the JavaFX thread was only too busy to answer, or the thread that waited for the JavaFX thread was interrupted (a later load tries again; that thread keeps its interrupt status). Also reported by a load
 when the toolkit has exited, so no work reaches the JavaFX thread any more, or (with implicit exit on)
 when the JavaFX thread stayed silent for 2 s while busy with the app's own work; that case is not
 remembered.

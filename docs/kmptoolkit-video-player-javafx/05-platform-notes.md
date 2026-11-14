@@ -110,7 +110,8 @@ decoder writes straight into memory without a render-and-read-back step.
   Only
   when the engine itself started the toolkit does it call `Platform.setImplicitExit(false)` — it
   never opens a window, and without that JavaFX could shut down when a window of the app's closes.
-  An app that runs its own JavaFX windows keeps its own exit policy.
+  An app that runs its own JavaFX windows keeps its own exit policy (when the engine started the toolkit, it switches
+  implicit exit off once its first start completes, so an app that chooses its policy before that has it overwritten).
   Callers that were waiting meanwhile each try again in turn, so while the thread stays
   unresponsive, N concurrent first calls can take up to N x 10 s; the bound is per attempt, not per
   caller.
