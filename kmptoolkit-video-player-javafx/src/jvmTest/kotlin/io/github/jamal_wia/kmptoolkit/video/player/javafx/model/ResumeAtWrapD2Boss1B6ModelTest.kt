@@ -17,8 +17,9 @@ import kotlin.test.assertTrue
  * observation window in 6 of 60 trials (adversarial/D2/boss-1-b6-ab.md); the settle path held in 0 of 60, and so did raw JavaFX
  * and the engine at speed 1. The replay `adversarial/D2/suspects/boss1-B6-model-replay.kt` is the shape of these tests.
  *
- * A start more than half a second after the wrap (the window is 500 ms) near the start of the clip still takes the seek path:
- * the seek to where the playhead stands moves nothing there, and it is the guard the seek path exists for.
+ * A start 600 ms after the wrap, with the player still paused where the loop restarted, takes the same settle path (D2 boss 2:
+ * the 500 ms window of the B6 fix is replaced by the state flag atLoopRestart, see LoopRestartStateD2Boss2FixModelTest). The
+ * seek path stays for the first play, a replay and a play after the end.
  *
  * Both decoder variants of the model are run: one that starts every play at normal speed (macOS) and one that honours the rate
  * property (the assumed Windows and Linux behaviour).
@@ -149,16 +150,17 @@ class ResumeAtWrapD2Boss1B6ModelTest {
     }
 
     /**
-     * A start 600 ms after the wrap near the start of the clip is past the window: it still takes the seek path (PAUSE is the
-     * pause before it, then SEEK to where the playhead stands, PLAY), the guard that path exists for.
+     * A start 600 ms after the wrap, with the player paused where the loop restarted, takes the settle path (no SEEK, one PLAY):
+     * the state, not the 500 ms clock of the B6 fix, decides (D-295: the assertion of the former pin that it still takes the
+     * seek path was flipped by the D2 boss 2 ruling).
      */
     @Test
-    fun aStartSixHundredMillisecondsAfterAWrapNearTheStartStillTakesTheSeekPath() {
+    fun aStartSixHundredMillisecondsAfterAWrapWithThePlayerStillPausedAtTheLoopRestartTakesTheSettlePath() {
         for (unity: Boolean in listOf(true, false)) {
             val seen: Observation = observe(600L, unity)
             println("BOSS1-B6-PIN $seen")
             assertTrue(seen.nativeAtPauseMs <= NEAR_START_MS, "the premise: the native playhead stands near 0 at the pause: $seen")
-            assertEquals(1, seen.seeks.size, "the start did not take the seek path: $seen")
+            assertEquals(0, seen.seeks.size, "the start did not take the settle path (it issued a native seek): $seen")
             assertEquals(1, seen.plays.size, "the start did not issue exactly one play: $seen")
             assertEquals(emptyList(), seen.violations, "a fragile window was violated: $seen")
             assertTrue(!seen.frozen, "the playhead froze: $seen")

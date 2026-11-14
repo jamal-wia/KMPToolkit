@@ -8,7 +8,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * D2 boss 2: the orderings around a loop wrap that the B6 fix (a start within 500 ms of a wrap takes the settle path) did not
+ * D2 boss 2: the orderings around a loop wrap that the B6 fix (a start from a loop restart takes the settle path, keyed on the state atLoopRestart since D2 boss 2) did not
  * pin by itself. A looping 3 s clip is paused the instant it wraps; between that pause and the next start, and right after the
  * start, the caller does one more thing: seeks, changes the speed, switches looping off, pauses and starts again, or gives the
  * speed only after a plain play at 1x (the FRESH branch of setSpeed right after a wrap). Every ordering must keep every fragile
@@ -203,7 +203,7 @@ class AroundTheWrapD2Boss2ModelTest {
 
     /**
      * Playing at 1x, paused at the wrap, started again (a plain play), then the speed given shortly after: setSpeed's seek
-     * window and its FRESH branch both meet the stamps the wrap left (LOW-1 of reviews/d2-boss1-b6-fix-opus.md).
+     * window and its FRESH branch both meet the state the wrap left (LOW-1 of reviews/d2-boss1-b6-fix-opus.md).
      */
     @Test
     fun aSpeedGivenRightAfterAPlainResumeAtTheWrapKeepsEveryWindowClear() {
@@ -263,7 +263,7 @@ class AroundTheWrapD2Boss2ModelTest {
     }
 
     /**
-     * The wrap window belongs to the wrap alone: a resume near the start shortly after a native seek of the engine's own (the
+     * The loop restart state belongs to the wrap alone: a resume near the start shortly after a native seek of the engine's own (the
      * first play's seek) with no loop wrap still takes the near-start seek path of 05 ("it first seeks to where it stands").
      */
     @Test
