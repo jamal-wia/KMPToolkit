@@ -56,6 +56,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-video-player`: the published playhead (`playbackPositionFlow`, `Playing`/`Paused.currentPosition`)
   never exceeds a known duration, although a platform can read a few milliseconds past the end of the source.
   An unknown length (`0`) is not clamped.
+- `kmptoolkit-video-player` docs: an engine given to a second player is not shared; it reports only to the player that
+  took it last, and the first player's `release()` disposes it under the second, which then stops responding. Create
+  one engine for each player.
 - `kmptoolkit-storage` (`jvm`) now depends on `kmptoolkit-files` (its atomic write and per-file lock). No store file
   name, file format or directory layout changes.
 - `kmptoolkit-storage` (`jvm`): when the file system refuses an atomic rename, a write now fails with
@@ -141,9 +144,47 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   looped forever. The chain is now walked to its end with an identity-based visited set; a chain that holds an
   `UnknownHostException` or repeats a throwable is rendered by the sink with `stackTraceToString()` and no throwable
   is passed on, every other chain is passed through unchanged.
-- `kmptoolkit-video-player` (Android): a Throwable thrown while the Media3 media source is built reaches
-  `VideoPlayerState.Error` as the same instance, also when kotlinx.coroutines stack-trace recovery is on (JUnit,
-  Robolectric).
+- `kmptoolkit-logging-overlay`: `LogOverlayState.asLogSink()` and `record()` no longer throw for a throwable whose
+  `toString()` or `message` fails with an `AssertionError`, a `NotImplementedError` or (on Android) a `LinkageError`;
+  they contain the same failures the logger contains for a sink, and let any other `Error` (a `StackOverflowError`,
+  say) through.
+- `kmptoolkit-language`: a supported code with no language subtag (private use `x-...`, grandfathered `i-...`) is
+  matched by its whole text, so `fromId` returns `AppLanguage.System` for an unknown one, `byCode` returns `null`, and
+  two such codes are no longer refused as a repeat.
+- `kmptoolkit-video-player` (Android): a Throwable thrown while the Media3 player is built or reset, or its media
+  source is built, reaches `VideoPlayerState.Error` as the same instance, also when kotlinx.coroutines stack-trace
+  recovery is on (JUnit, Robolectric). A load failure whose cleanup also throws now reaches `Error` as the original
+  Throwable, with the cleanup's exception suppressed (before, the cleanup's exception replaced it).
+- `kmptoolkit-video-player`: a seek made just as the source reaches its end wins. When the player drops the
+  completion reported before that seek as stale while it is `Playing`, it calls the engine's `start()` and
+  `setSpeed` again, so an engine whose platform stops at its end resumes from the seek's target instead of staying
+  stopped.
+- `kmptoolkit-video-player`: `setVolume(-0f)` publishes `0f` on `volumeFlow`, not `-0.0f`, which a `StateFlow` treats as
+  a different value.
+- `kmptoolkit-video-player`: `prepare` ends in `Error` carrying the exception, and returns normally, when an engine's
+  `load` throws a `CancellationException` of its own (a timeout inside the engine, say) while the caller is still
+  active; before, the player went `Idle` and the exception reached a caller that was never cancelled.
+- `kmptoolkit-video-player`: the engine never receives a seek target above `Long.MAX_VALUE / 1_000_000` milliseconds,
+  whatever length it reports, so a platform's microsecond conversion cannot wrap; an engine reading that throws during
+  a position poll settles the player on `Error` instead of ending the poll silently.
+- `kmptoolkit-video-player`: a collector of `stateFlow`, or of any other flow of the player, that calls the player from
+  inside an update (on an immediate dispatcher) sees the state the running transition is establishing, and the
+  transition stops writing once the call has changed the player, so the call is never undone and a failure reported
+  meanwhile is never lost to it. Several calls in one update each act on the state the previous one published: the
+  player no longer shows `Playing` over a paused or unloaded engine, a collector's `setRepeatMode` is not undone (the
+  engine is told the mode the flow holds), no engine call is made for a source that was unloaded, and none after
+  `release()`.
+- `kmptoolkit-video-player`: a `prepare` replaced by another `prepare` that a collector of a source flow called from
+  inside its reset no longer leaves `stateFlow` on the old state while the engine holds no source; it shows `Preparing`
+  for the newer call.
+- `kmptoolkit-video-player`: a `prepare` called from an already-cancelled coroutine over a loaded source now stops the
+  old source's polling and settles on `Idle` (or, when a collector calls `prepare` from inside the reset, on that
+  call's `Preparing`), also when the engine's `release()` throws: the engine's exception is attached to the
+  `CancellationException` as suppressed.
+- `kmptoolkit-video-player-compose`: reading `VideoControlsScope.isPlaying` or `durationMs` no longer recomposes the
+  reader on every position update, only when the value changes, as the KDoc states.
+- `kmptoolkit-video-player-compose`: a drag on `VideoSeekBar` cancelled by a change of layout direction or thumb size
+  now ends the scrub (`onScrub(null)`) instead of leaving the handle frozen and the controls open.
 - `kmptoolkit-downloader`: a process killed while an archive resource is replaced or deleted, or during the first
   commit of an archive under a nested `relativePath` on Android, can no longer leave a tree that reads as available with
   files missing: the old tree is renamed into the storage's trash and deleted afterwards.
@@ -158,6 +199,23 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-downloader` (Android): the resource-size walk no longer follows a symbolic link inside a resource
   directory: a link counted its target's size, and a link cycle recursed until the stack overflowed. Recursive deletes,
   which already removed a link as a link, now share the same walk.
+- `kmptoolkit-downloader`: `getResourceSize` follows a symbolic link at the unit's path and reports the size of what it
+  points to, as `isResourceAvailable` already did: iOS reported the size of the link itself, and Android reported `0`
+  for a link to a directory, which now totals the target tree.
+- `kmptoolkit-downloader` (iOS): `getTempFileSize` and `tempFileState` follow a symbolic link at the temp path, as on
+  Android; a dangling link is no temp file.
+- `kmptoolkit-downloader`: a symbolic link in place of the storage's internal trash directory is removed instead of
+  followed, so a sweep never deletes files outside the base directory.
+- `kmptoolkit-downloader` (Android): an archive entry name is resolved without canonicalisation, so a climbing or
+  over-long raw name fails the commit as `ResourceIntegrityException` on every runtime instead of as a plain
+  `IOException` on some JDKs.
+- `kmptoolkit-downloader`: replacing or deleting a `SqliteDatabase` resource now moves the previous database's `-wal`,
+  `-shm` and `-journal` away together with it, so a log left by a reader is never replayed into the newly verified
+  database. Close every connection to the database before its unit is committed again or deleted, and open none while
+  it is. A commit that cannot move one of those files aside fails with `IllegalStateException` and keeps its temp file
+  for the retry; `deleteResource` never throws for it and logs a warning instead (Android and iOS).
+- `kmptoolkit-downloader` (Android): an `availabilityMarker` ending in `/` no longer matches a regular file of that
+  name, as on iOS.
 - `kmptoolkit-uploader`: a `KEEP` enqueue that supersedes a `PARKED` item now withdraws it like a `REPLACE` does:
   its running attempt is stopped and its upload is cancelled (an item parked at its re-hand and then enqueued again
   under the default `KEEP` no longer uploads twice). A `KEEP` refused by a `PENDING` or `IN_FLIGHT` holder cancels
@@ -242,6 +300,22 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-video-player-javafx`: on macOS a resume at a speed other than 1 with no seek pending no longer gives the
   speed about 0.17 s after `play()` when the first reported time after the resume is stale; the speed is given once
   the playhead has really moved about 200 ms, as documented.
+- `kmptoolkit-video-player-javafx`: a speed given to a playing clip right after a seek is no longer given early when the
+  time reported after the seek is stale or steps back; the count of the playhead's 200 ms starts over on such a
+  reading, so the speed is given once the playhead has really moved, as documented.
+- `kmptoolkit-video-player-javafx`: a speed that waited after a seek, a loop wrap or the end of a clip is no longer
+  written on a reading that arrives after `pause()`, and the return to normal speed at a loop wrap that JavaFX delivers
+  after a `pause()` counts as a write while not playing, so a `play()` right after the pause waits out the 200 ms idle
+  gap instead of starting inside it. The same holds while a later `play()` is still waiting: a wrap delivered then
+  counts as such a write and the waiting `play()` checks the gap again before it plays, and no speed (a held one, or
+  one an earlier `play()` from the JavaFX thread left pending) is written before that `play()`.
+- `kmptoolkit-video-player-javafx`: a speed given while a `play()` waits is no longer lost when a looping clip wraps
+  meanwhile (including a speed of 1, which could leave the clip at the old speed), and it wins over an older speed held
+  for a wrap that came before it; the end of a clip cancels a waiting `play()` completely, so a speed given after it is
+  no longer swallowed and that `play()` can no longer run a second time.
+- `kmptoolkit-video-player-javafx`: a speed asked for while an earlier one still waited to be given is no longer lost
+  when it equals the speed the player was set to before (on macOS the clip stayed at normal speed, and asking for the
+  same speed again did not help).
 
 ### Known issues
 
