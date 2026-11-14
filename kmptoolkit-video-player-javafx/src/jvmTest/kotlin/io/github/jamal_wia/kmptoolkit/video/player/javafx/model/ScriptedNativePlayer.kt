@@ -152,6 +152,15 @@ internal class ScriptedNativePlayer(
         if (endOfMediaHandlerInstalled || ignoreClearedHandler) events?.onEndOfMedia()
     }
 
+    /**
+     * Delivers `onCycleDecision` to the listener the way JavaFX's `currentCount` listener would: in the task in which the native side
+     * decides what the end of a cycle means, before that decision is acted on and before the `onEndOfMedia` task is posted. The
+     * `currentCount` property is not part of `onEndOfMedia`, so `clearEndOfMedia` does not silence it. For the time and loop parts.
+     */
+    fun deliverCycleDecision() {
+        events?.onCycleDecision()
+    }
+
     override fun play() {
         val live: Boolean = !state.isDisposed
         record(NativeCall.PLAY, null, live)

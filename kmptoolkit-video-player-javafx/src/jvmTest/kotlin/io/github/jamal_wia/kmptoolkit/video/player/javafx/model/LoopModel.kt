@@ -73,10 +73,15 @@ internal class LoopModel(
      * The playhead reached the end of a cycle. Wraps and returns true when the source loops and has a cycle left
      * (always, for INDEFINITE; fewer than `cycleCount` cycles begun, for a finite count); otherwise changes nothing,
      * delivers nothing and returns false.
+     *
+     * [decided] is the caller's own step at the instant of the decision, run once, after the part has read `cycleCount` and before it
+     * acts on what it read (the time part delivers `onCycleDecision` there, JavaFX's `currentCount` change inside the deciding task): a
+     * `setLooping` made by a listener of that event does not change this decision. The default does nothing.
      */
-    fun endCycle(): Boolean {
+    fun endCycle(decided: () -> Unit = {}): Boolean {
         val count: Int = player.cycleCount
         val another: Boolean = count == INDEFINITE || (count > SINGLE_CYCLE && cycle < count)
+        decided()
         if (!another) return false
         cycle++
         player.positionMs = player.startMs

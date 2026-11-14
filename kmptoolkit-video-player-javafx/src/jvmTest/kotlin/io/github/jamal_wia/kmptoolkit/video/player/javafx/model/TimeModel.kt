@@ -464,7 +464,13 @@ internal class TimeModel(
         }
         pin()
         anchorMs = durationMs
-        if (loop?.endCycle() == true) {
+        // JavaFX changes currentCount in the task that decides, after it read cycleCount and before it acts on it (the loop part runs
+        // the step at that instant), and posts the end of media as a later task: a task a listener of the decision queues runs between the two.
+        val wrapped: Boolean = loop?.endCycle { player.deliverCycleDecision() } ?: run {
+            player.deliverCycleDecision()
+            false
+        }
+        if (wrapped) {
             // The loop part wrapped the playhead and published the start of the new cycle; the decoder goes on from it.
             anchorMs = player.startMs
             anchorNanos = host.elapsedNanos

@@ -134,6 +134,7 @@ internal class JavaFxNativePlayer(private val media: Media) : NativePlayer {
         mediaPlayer.setOnError { events.onPlayerError() }
         media.setOnError { events.onMediaError() }
         mediaPlayer.setOnEndOfMedia { events.onEndOfMedia() }
+        mediaPlayer.currentCountProperty().addListener { _, _, _ -> events.onCycleDecision() }
         mediaPlayer.statusProperty().addListener { _, _, status -> events.onStatus(status.toNative()) }
         mediaPlayer.currentTimeProperty().addListener { _, _, _ -> events.onCurrentTime() }
         mediaPlayer.bufferProgressTimeProperty().addListener { _, _, _ -> events.onBufferProgress() }

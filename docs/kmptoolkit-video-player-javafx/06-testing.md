@@ -22,7 +22,7 @@ what they prove and in what can make them flaky, which is why they run in differ
 | Tier | What it is | Where | Task | Runs |
 |---|---|---|---|---|
 | F (model) | The real `FxPlayback` and the engine over a scripted native player on a virtual clock: no media, no sleep, no real thread, every random choice from a printed seed. Asserts the contract exactly (the instants of the native calls, the speed that reaches the decoder, no frozen playhead, no violated fragile window), including seeded fuzzers and exhaustive short interleavings. | `src/jvmTest/.../javafx/model/` | `jvmTest` | on every run of the gate; seconds |
-| C (conformance) | One test per promise the engine makes about the real `MediaPlayer` (`JavaFxNativePlayerConformanceTest`, C1 to C12) and `JavaFxReferenceModelDifferentialR10AdversarialTest`, seeded public calls against a reference model on real media. Keeps the scripted native player honest. | `src/jvmTest/.../javafx/` | `jvmTest` | on every run of the gate |
+| C (conformance) | One test per promise the engine makes about the real `MediaPlayer` (`JavaFxNativePlayerConformanceTest`, C1 to C13) and `JavaFxReferenceModelDifferentialR10AdversarialTest`, seeded public calls against a reference model on real media. Keeps the scripted native player honest. | `src/jvmTest/.../javafx/` | `jvmTest` | on every run of the gate |
 | K (real-media gate, kept) | Everything else that needs a real toolkit, real threads or real disposal: lifecycle, toolkit start and exit, source resolution, odd paths, jar and temp files, hostile media, huge pictures, leaks, storms in child JVMs, the release at the loop point, every frame owning its array, and the cases of `JavaFxVideoEngineTest`. Also the real-media sequencing classes that have no complete deterministic twin yet. | `src/jvmTest/.../javafx/` | `jvmTest` | on every run of the gate; minutes |
 | R (real-media soak) | The real-media sequencing classes whose contract an F test asserts exactly (speed after a seek, a resume, a loop wrap, calls from the FX thread, random operation sequences, a seek at the end of the clip, a stale playhead read under load). They measure with wall-clock sleeps on a real decoder, so their verdict depends on the machine; a red there is checked against the F twin first, never rerun until green. | `src/jvmTest/.../javafx/` | `jvmRealMediaTest` | before a release, after a change to `FxPlayback`, `JavaFxNativePlayer`, `FxThread` or `FxQueue`, and on an OpenJFX, macOS or JDK upgrade |
 | H (hazard probes) | Statistical probes (40 rounds each) of the native player's fragile windows after a play, a seek, a loop wrap and an idle rate write. They test the operating system against the assumptions of the F tier, not this code; they skip unless asked. | `JavaFxNativeHazardCharacterizationTest` | `jvmRealMediaTest` with `-Pkmptoolkit.test.hazards=true` | when the F tier's model parameters change, and on an OpenJFX or macOS upgrade |
@@ -97,6 +97,16 @@ The real-media classes (tiers C, K and R) run the real engine against real JavaF
   pause of 0.6 s and with a pause of 3 s between the pause at the wrap and the start (the old seek path held in 6 to 11 of 60, and
   at the 500 ms window's edge in 5 of 60 at 0.6 s and 5 of 30 at 3 s; each of the three tests takes about 3 to 5 minutes);
   knobs `-Pkmptoolkit.test.b6.b6Trials` and `-Pkmptoolkit.test.b6.b6MaxHeld`.
+- **Repeat mode switched at the end of a clip (tier F, tier K, tier C)** — `CycleDecisionD2Boss3FixModelTest`: JavaFX decides
+  loop-or-end in one FX task and runs the engine's end handler in a later one, and the model delivers the same two steps
+  (`onCycleDecision`, then `onEndOfMedia`). `RepeatMode.One` switched on between them gives `Completed` once, with no wrap
+  branch (no native rate of 1.0, no loop-restart state), and the next `start()` restarts from the start and loops at the following
+  end; switched off between a loop's decision and its end handler gives `Completed`; a normal loop, a normal end and a replay are
+  unchanged; a decision event that never came falls back to the current setting, and an earlier end's snapshot never outlives its
+  end handler. `JavaFxRepeatToggleAtEndD2Boss3Test` runs the race on the real decoder (a `currentCount` listener posts the
+  `setLooping` call into the gap): `Completed`, and the next play loops; the control (the mode set again to what it was) and the
+  switch off stay green. C13 of the conformance class pins the order the fix relies on: `currentCount` changes and `onCycleDecision`
+  fires before `onEndOfMedia`, at a plain end and at every wrap.
 - **Freeze after a resume (tier R)** — `JavaFxResumeSettlesAtSpeedR5FixerTest`: after a pause and a start at 2 and at
   4 (six fresh engines each, or `-Pkmptoolkit.test.freeze.trials` for a longer run) the playhead passes where it
   paused plus 1200 ms within 3 s, so a playhead that freezes after the speed is given fails it.

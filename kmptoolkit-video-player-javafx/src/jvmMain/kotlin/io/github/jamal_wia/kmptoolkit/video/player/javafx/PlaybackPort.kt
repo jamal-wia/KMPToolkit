@@ -135,6 +135,14 @@ internal interface NativeEvents {
     /** `media.onError`: the cause is `mediaError ?: playerError`. */
     fun onMediaError()
 
+    /**
+     * `player.currentCountProperty()` changed. JavaFX changes it inside the FX task in which it decides what the end of a
+     * cycle means (another cycle, or the end), before it makes that decision, and posts `onEndOfMedia` as a later task. So
+     * this call, and any setting [FxPlayback] reads in it, is what the decision saw; a call between this one and
+     * [onEndOfMedia] is one the decision did not see. No default body: every implementation states what it does.
+     */
+    fun onCycleDecision()
+
     /** `player.onEndOfMedia`. */
     fun onEndOfMedia()
 

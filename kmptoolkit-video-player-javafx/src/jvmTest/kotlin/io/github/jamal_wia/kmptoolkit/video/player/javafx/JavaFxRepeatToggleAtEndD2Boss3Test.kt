@@ -11,6 +11,8 @@ import javafx.application.Platform
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -27,10 +29,11 @@ import kotlinx.coroutines.withTimeout
  * handled by a rewind and restart): the clip either loops or reports Completed. The control (the block sets the mode it already
  * had) shows the trick itself does not disturb the end.
  *
- * Only the green pins are here: the control, and looping switched OFF in the gap (JavaFX has already restarted the clip, the engine
- * reads the new mode and reports Completed, which the contract allows). Looping switched ON in the gap leaves the player PLAYING at
- * the end for good, neither looping nor completing (2 of 2 on macOS, also after pause and play): that red test is parked as
- * adversarial/D2/suspects/boss3-R1.kt (finding R1 of the D2 boss 3 report), not committed.
+ * The pins: the control, and looping switched OFF in the gap (JavaFX has already restarted the clip, the engine reads the new mode and
+ * reports Completed, which the contract allows). Looping switched ON in the gap used to leave the player PLAYING at the end for good,
+ * neither looping nor completing (finding R1 of the D2 boss 3 report, 3 of 3 on macOS, also after pause and play); since the fix (the
+ * engine takes the loop-or-end decision from the looping setting as JavaFX's own decision read it, `NativeEvents.onCycleDecision`) the
+ * clip reports Completed, and the next play restarts it and loops (javafx 05 "Looping").
  */
 @OptIn(ToolkitInternalApi::class)
 class JavaFxRepeatToggleAtEndD2Boss3Test {
@@ -113,7 +116,55 @@ class JavaFxRepeatToggleAtEndD2Boss3Test {
         assertTrue(outcome.completed || outcome.looped, "neither looped nor completed: $outcome")
     }
 
+    @Test
+    fun `looping switched on between JavaFX's end decision and the engine's end handler reports Completed`() {
+        val outcome: Outcome = runEnd(loopingBefore = false, loopingInGap = true)
+        println("BOSS3-R1-ON $outcome")
+        assertTrue(outcome.completed, "the end JavaFX decided was not reported as Completed (the player stands at the end as Playing, or looped): $outcome")
+        assertFalse(outcome.looped, "a clip JavaFX had ended was reported as looping: $outcome")
+    }
+
+    @Test
+    fun `after the Completed of a looping switch in the gap the next play restarts the clip and loops`() {
+        val outcome: Outcome = runEnd(loopingBefore = false, loopingInGap = true)
+        println("BOSS3-R1-ON-REPLAY first $outcome")
+        assertTrue(outcome.completed, "the premise: the end was reported as Completed: $outcome")
+        val engine: JavaFxVideoEngine = checkNotNull(this.engine)
+        val completedAgain = AtomicInteger(0)
+        engine.setListener(object : VideoPlaybackEngineListener {
+            override fun onCompleted() {
+                completedAgain.incrementAndGet()
+            }
+            override fun onFailed(cause: Throwable) = Unit
+            override fun onBufferingChanged(isBuffering: Boolean) = Unit
+            override fun onVideoSizeChanged(size: VideoSize?) = Unit
+        })
+        engine.start()
+        // Three stages: the restart (the position leaves the end for the start), a whole cycle (it nears the end), the wrap (it is at the start again).
+        var restarted = false
+        var nearedEnd = false
+        var looped = false
+        val positions: MutableList<Long> = mutableListOf()
+        // A bounded observation, polled by awaitTrue: the verdict is what the engine reported, or a second Completed.
+        try {
+            awaitTrue(REPLAY_OBSERVE_MS, { "no wrap" }) {
+                val p: Long = engine.positionMs()
+                positions += p
+                if (!restarted) restarted = p < 1_000L
+                else if (!nearedEnd) nearedEnd = p > 2_500L
+                else if (p < 1_000L) looped = true
+                looped || completedAgain.get() > 0
+            }
+        } catch (_: AssertionError) {
+            // Neither within the bound: the verdict below says so.
+        }
+        println("BOSS3-R1-ON-REPLAY looped=$looped completedAgain=${completedAgain.get()} positions=${positions.takeLast(40)}")
+        assertTrue(looped, "the play after the Completed did not loop (completed again ${completedAgain.get()} times): ${positions.takeLast(40)}")
+        assertEquals(0, completedAgain.get(), "the looping replay was reported as Completed: ${positions.takeLast(40)}")
+    }
+
     private companion object {
         const val OBSERVE_MS: Long = 4_000L
+        const val REPLAY_OBSERVE_MS: Long = 8_000L
     }
 }

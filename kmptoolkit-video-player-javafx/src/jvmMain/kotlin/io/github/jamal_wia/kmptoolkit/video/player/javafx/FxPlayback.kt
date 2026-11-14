@@ -72,6 +72,14 @@ internal class FxPlayback private constructor(
     private var awaitingPicture: Boolean = true
     private var refreshUntilNanos: Long? = null
     private var looping: Boolean = false
+
+    /**
+     * [looping] as JavaFX's end-of-cycle decision read it, taken in the task where JavaFX decided (see [NativeEvents.onCycleDecision]);
+     * null when no decision was seen since the last end handler. JavaFX decides loop-or-end in one FX task and posts the end handler as a
+     * later one, so a [setLooping] in between must not change what that handler does with an end JavaFX has already made (a loop it
+     * has already restarted is not an end, and an end is not a loop): the loop branch of the handler runs only when this and [looping] say loop.
+     */
+    private var loopingAtDecision: Boolean? = null
     private var atEnd: Boolean = false
 
     /**
@@ -216,12 +224,19 @@ internal class FxPlayback private constructor(
 
             override fun onMediaError() = fail(native.mediaError ?: native.playerError)
 
+            override fun onCycleDecision() {
+                if (!disposed) loopingAtDecision = looping
+            }
+
             override fun onEndOfMedia() {
                 // Fired at the end of every cycle, including while cycleCount is INDEFINITE and JavaFX
                 // is already starting the next one — that is not an end. A handler JavaFX queued before
                 // dispose() can still run after it, and must then do nothing.
                 if (disposed) return
-                if (looping) {
+                // A decision event that never came (a currentCount that did not change) leaves today's reading: the current setting.
+                val javaFxLooped: Boolean = loopingAtDecision ?: looping
+                loopingAtDecision = null
+                if (looping && javaFxLooped) {
                     // JavaFX starts the next cycle with a native seek to the start time of its own, which this class does
                     // not issue: stamp it, so a speed given to a player playing at 1x right after the wrap is held back like
                     // one given after any other native seek (see [setSpeed]). The stamp lands slightly after JavaFX's seek,

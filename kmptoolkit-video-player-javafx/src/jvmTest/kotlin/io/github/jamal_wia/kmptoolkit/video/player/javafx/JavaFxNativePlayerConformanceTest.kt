@@ -60,6 +60,9 @@ class JavaFxNativePlayerConformanceTest {
 
     private data class TimeSample(val valueMs: Double, val nanos: Long, val status: NativeStatus)
 
+    /** One `onCycleDecision`: JavaFX's `currentCount` as it stood in that callback, and how many `onEndOfMedia` had been reported before it. */
+    private data class CycleDecision(val currentCount: Int, val endsBefore: Int)
+
     private data class EndReading(val status: NativeStatus, val currentTimeMs: Double, val samplesBefore: Int)
 
     private data class ReadyReading(
@@ -80,6 +83,7 @@ class JavaFxNativePlayerConformanceTest {
         val samples: MutableList<TimeSample> = CopyOnWriteArrayList()
         val statuses: MutableList<NativeStatus> = CopyOnWriteArrayList()
         val ends: MutableList<EndReading> = CopyOnWriteArrayList()
+        val cycleDecisions: MutableList<CycleDecision> = CopyOnWriteArrayList()
         val errors: MutableList<String> = CopyOnWriteArrayList()
         val durationEvents: AtomicInteger = AtomicInteger()
         val sizeEvents: AtomicInteger = AtomicInteger()
@@ -121,6 +125,11 @@ class JavaFxNativePlayerConformanceTest {
         override fun onMediaError() {
             onFx("onMediaError")
             errors += "onMediaError: ${player.mediaError ?: player.playerError}"
+        }
+
+        override fun onCycleDecision() {
+            onFx("onCycleDecision")
+            cycleDecisions += CycleDecision(player.mediaPlayer.currentCount, ends.size)
         }
 
         override fun onEndOfMedia() {
@@ -735,6 +744,47 @@ class JavaFxNativePlayerConformanceTest {
     private fun gap(ms: Long) {
         // timing-hygiene-ignore: TH1 inject the stimulus gap outside the idle gap of a rate written while paused (the variable of C12)
         Thread.sleep(ms)
+    }
+
+    // ---- C13 -----------------------------------------------------------------------------------------------------
+
+    /**
+     * C13 (D2 boss 3, finding R1; ruling `reviews/d2-boss3-ruling-opus.md`): JavaFX changes `currentCount` inside the FX task in
+     * which it decides what the end of a cycle means, and posts `onEndOfMedia` as a later task. So `onCycleDecision` is delivered
+     * on the FX thread, once for each end of a cycle, with `currentCount` changed, before that cycle's `onEndOfMedia`, at the end of a
+     * non-looping player and at every wrap of a looping one. `FxPlayback` takes the looping setting that JavaFX's decision read
+     * from this event, so a `setLooping` between the decision and the end handler does not turn a real end into a loop restart.
+     */
+    @Test
+    fun `C13 onCycleDecision fires with a changed currentCount before onEndOfMedia at a plain end and at a wrap`() {
+        val plain: Rig = openReady()
+        val countAtStart: Int = fx { plain.native.mediaPlayer.currentCount }
+        val plainEnd: Watch<EndReading> = plain.events.watchEnd(1)
+        fx { plain.native.play() }
+        plainEnd.await(END_BOUND_MS) { "no onEndOfMedia of the plain player; samples ${plain.events.samples.map { it.valueMs }}" }
+        val plainDecisions: List<CycleDecision> = plain.events.cycleDecisions.toList()
+        assertTrue(plainDecisions.isNotEmpty(), "no onCycleDecision came before the end of media of a plain player")
+        assertEquals(0, plainDecisions.first().endsBefore, "the first decision of a plain player came after its onEndOfMedia: $plainDecisions")
+        assertTrue(
+            plainDecisions.first().currentCount != countAtStart,
+            "currentCount stood at $countAtStart before the play and in the decision callback: no change ($plainDecisions)",
+        )
+
+        val looping: Rig = openReady()
+        fx { looping.native.cycleCount = INDEFINITE }
+        val countAtLoopStart: Int = fx { looping.native.mediaPlayer.currentCount }
+        val secondEnd: Watch<EndReading> = looping.events.watchEnd(2)
+        fx { looping.native.play() }
+        secondEnd.await(LOOP_BOUND_MS) { "fewer than 2 onEndOfMedia while looping; ends ${looping.events.ends}" }
+        val wraps: List<CycleDecision> = looping.events.cycleDecisions.toList()
+        assertTrue(wraps.size >= 2, "fewer than 2 decisions for 2 ends of media of a looping player: $wraps")
+        wraps.forEachIndexed { index: Int, decision: CycleDecision ->
+            assertEquals(index, decision.endsBefore, "decision ${index + 1} of the looping player did not come right before end of media ${index + 1}: $wraps")
+        }
+        assertTrue(wraps.first().currentCount != countAtLoopStart, "currentCount did not change at the first wrap: before $countAtLoopStart, $wraps")
+        assertTrue(wraps.zipWithNext().all { (a: CycleDecision, b: CycleDecision) -> a.currentCount != b.currentCount }, "currentCount did not change at every wrap: $wraps")
+        println("C13 on this host: plain decisions $plainDecisions (currentCount $countAtStart before the play), looping decisions $wraps (currentCount $countAtLoopStart before the play)")
+        assertEquals(emptyList(), plain.events.offFx + looping.events.offFx, "callbacks that ran off the FX thread")
     }
 
     private fun sentinelArray(size: Int): IntArray = IntArray(size + TAIL).also { it.fill(SENTINEL) }
