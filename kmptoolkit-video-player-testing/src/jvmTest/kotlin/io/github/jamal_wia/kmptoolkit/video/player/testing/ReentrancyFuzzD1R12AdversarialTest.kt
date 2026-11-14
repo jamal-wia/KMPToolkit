@@ -47,6 +47,8 @@ class ReentrancyFuzzD1R12AdversarialTest {
     private val nestedFired: MutableMap<Op, Int> = mutableMapOf()
     private var maxDepth: Int = 0
     private var landedFailures: Int = 0
+    private var sequentialSteps: Int = 0
+    private var topLevelSteps: Int = 0
 
     private class Expectation(val statesAt: Int, val dropsAt: Int, val label: String)
 
@@ -57,8 +59,8 @@ class ReentrancyFuzzD1R12AdversarialTest {
         val escaped: MutableList<Throwable> get() = rig.escaped
         var depth: Int = 0
         var armed: Boolean = true
-        var suppressed: Boolean = false
-        val sequential: Boolean = System.getProperty("kmptoolkit.test.fuzz.sequential") == "on"
+        var stateChangedInStep: Boolean = false
+        var secondReactionInStep: Boolean = false
         var drops: Int = 0
         var watchedNow: Watched? = null
         var released: Boolean = false
@@ -184,7 +186,7 @@ class ReentrancyFuzzD1R12AdversarialTest {
             var fires = 0
             s.rig.scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 flow.drop(1).collect {
-                    if (s.armed && !s.suppressed && s.depth < 3 && fires < budget && s.random.nextInt(100) < 85) {
+                    if (s.armed && s.depth < 3 && fires < budget && s.random.nextInt(100) < 85) {
                         fires++
                         val outerWatched: Watched? = s.watchedNow
                         s.watchedNow = watched
@@ -194,12 +196,11 @@ class ReentrancyFuzzD1R12AdversarialTest {
                             nestedFired[op] = (nestedFired[op] ?: 0) + 1
                             maxDepth = maxOf(maxDepth, s.depth + 1)
                             val before: VideoPlayerState = s.rig.player.stateFlow.value
+                            // Sequential chains (D1 r12 fix): a reaction that follows one which already changed the state in
+                            // this top-level step acts on the state the first one published; the vacuity guard counts them.
+                            if (s.stateChangedInStep) s.secondReactionInStep = true
                             exec(s, op)
-                            // Known defects r12-F1 and r12-F2: once a reaction has changed the state inside a write, a later
-                            // call from the same chain acts on the state the outer transition is still establishing, not on
-                            // the one the reaction published. The default run does not make a second such call; the property
-                            // kmptoolkit.test.fuzz.sequential=on lifts the exclusion and the fuzz goes red.
-                            if (!s.sequential && s.rig.player.stateFlow.value != before) s.suppressed = true
+                            if (s.rig.player.stateFlow.value != before) s.stateChangedInStep = true
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (thrown: Throwable) {
@@ -227,7 +228,9 @@ class ReentrancyFuzzD1R12AdversarialTest {
                     install(s)
                     val steps: Int = 4 + s.random.nextInt(7)
                     repeat(steps) {
-                        s.suppressed = false
+                        s.stateChangedInStep = false
+                        s.secondReactionInStep = false
+                        topLevelSteps++
                         if (s.random.nextInt(100) < 25) {
                             val engine = s.rig.engine
                             if (engine.playing) engine.position = minOf(engine.duration, engine.position + s.random.nextLong(0L, 3_000L))
@@ -236,6 +239,7 @@ class ReentrancyFuzzD1R12AdversarialTest {
                         } else {
                             exec(s, randomOp(s, nested = false))
                         }
+                        if (s.secondReactionInStep) sequentialSteps++
                     }
                 }
             }
@@ -357,6 +361,21 @@ class ReentrancyFuzzD1R12AdversarialTest {
         assertTrue(missing.isEmpty(), "reactions that fired too rarely to count: $missing in $nestedFired")
         assertEquals(3, maxDepth, "the fuzz never reached depth 3")
         assertTrue(landedFailures >= count / 50, "too few expected failures landed to trust the failure oracle: $landedFailures")
+        // Sequential chains are part of the default run: at least count/20 top-level steps fired a second reaction after
+        // a first one that had changed the state.
+        println("fuzz stats: top-level steps $topLevelSteps, steps with a second reaction after a state change $sequentialSteps")
+        assertTrue(sequentialSteps >= count / 20, "too few sequential chains to trust the fuzz: $sequentialSteps of $topLevelSteps steps")
+    }
+
+    /**
+     * The seeds that found D1 r12-F1 and r12-F2 (the second call of a collector chain acting on the outer transition's
+     * stale target), with the default base 12012 and 6000 seeds: a fixed regression list that runs whatever the knobs say.
+     */
+    @Test
+    fun `the seeds that exposed the stale establishing target stay green`() {
+        for (seed in longArrayOf(12_094L, 12_104L, 12_142L, 12_377L, 12_449L, 12_547L, 13_179L, 15_239L, 15_891L, 15_963L)) {
+            run(seed)
+        }
     }
 
     private companion object {
