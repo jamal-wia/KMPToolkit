@@ -77,6 +77,12 @@ The real-media classes (tiers C, K and R) run the real engine against real JavaF
   and start at a speed other than 1 never freezes the playhead, six fresh engines each; at 2 the speed
   is measured once the resume has settled; D-16 moved that window). The freeze is a race, so a run of 30
   resumes each at 2 and 4 was also made when the fix landed (0 of 60; the old code froze 7 of 30).
+- **Speed of a short looping clip (tier F)** — `ShortLoopSpeedD2Boss1ModelTest` pins the limit stated in
+  `05-platform-notes.md`: a 1.2 s loop at a speed of 2 reaches 2 in every cycle after the first, and a 300 ms loop plays
+  on at normal speed with no fragile window violated, no freeze, and the speed held in exactly one holder.
+- **Interrupted first start** — `InterruptedStartD2Boss1Test`: an interrupted first `isJavaFxMediaAvailable()` is not
+  remembered, keeps the caller's interrupt status, and a retried first start still keeps implicit exit off for a toolkit the
+  engine started.
 - **Freeze after a resume (tier R)** — `JavaFxResumeSettlesAtSpeedR5FixerTest`: after a pause and a start at 2 and at
   4 (six fresh engines each, or `-Pkmptoolkit.test.freeze.trials` for a longer run) the playhead passes where it
   paused plus 1200 ms within 3 s, so a playhead that freezes after the speed is given fails it.

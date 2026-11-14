@@ -227,7 +227,11 @@ decoder writes straight into memory without a render-and-read-back step.
   about 300 ms and then catch up.
   Those 200 ms are measured on ticks of the reported time, and the first tick of the new cycle comes only after that
   hold, so the speed returns about 0.55 s after the wrap on an idle machine and later on a busy one (up to about 1.2 s
-  in the load measurements); meanwhile the clip plays at normal speed, and the speed is never lost.
+  in the load measurements); meanwhile the clip plays at normal speed, and the speed is never lost for a clip whose cycle
+  outlasts that wait. A looping clip shorter than about 0.6 s of media wraps again before the speed returns, so every cycle
+  after the first plays at normal speed, on every platform (the engine puts the rate back to normal at each wrap); between
+  about 0.6 and 1 s the speed returns late in each cycle. For such a clip, encode it at the speed you need or loop a longer
+  clip.
   A speed given to a playing clip within about 300 ms of a seek (`seekTo()`, `seekForward()`/`seekBackward()` or
   `replay()` while playing, a `stop()` followed by `play()`, playing a completed clip, or the wrap of a looping clip,
   which restarts with a native seek) is not written at once,
