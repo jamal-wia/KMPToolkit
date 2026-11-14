@@ -162,7 +162,10 @@ decoder writes straight into memory without a render-and-read-back step.
   show the old playhead before the new one arrives. A `pause()` followed by `play()` is not a seek: the
   clip resumes from exactly where it was paused, at any speed (see "Playback speed" below).
 - **Looping** (`RepeatMode.One`) uses JavaFX's own `cycleCount = INDEFINITE`, so JavaFX restarts
-  the source itself, and `Completed` is never reported while it is on.
+  the source itself, and `Completed` is never reported while it is on. `RepeatMode.One` switched on in the
+  instant a clip ends, after JavaFX has already decided to end it, does not restart it: the player reports
+  `Completed`, and the next `play()` starts over and loops (the vlcj engine restarts the clip in that case
+  instead).
 - **End of media.** JavaFX leaves its own status at `PLAYING` when the last cycle ends; the engine
   pauses it there, so a seek from `Completed` stays `Paused` — in the state and in JavaFX — until
   `play()`. A `stop()` or a `seekTo()` that lands in the instant between JavaFX reaching the end of the clip and
