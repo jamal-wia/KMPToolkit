@@ -8,7 +8,6 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.junit.Assume
 
 /**
  * D2 boss 1, B6 gate pin (ruling reviews/d2-boss1-b6-ruling-opus.md, rule R2, D-283 and D-285): on the real macOS decoder a looping
@@ -17,14 +16,15 @@ import org.junit.Assume
  * which left the playhead at 0 for the whole observation window in 6 of 60 trials; the settle path (a plain play, no seek of its
  * own) held in 0 of 60, and so did raw JavaFX and the engine at speed 1 (adversarial/D2/boss-1-b6-ab.md).
  *
- * OPT-IN TIER. Skipped unless `-Pkmptoolkit.test.endurance=true` (forwarded to the test JVM like every `kmptoolkit.test.*` knob), so
- * the default gate never plays it; it needs the exclusive real-media slot and `-Pjavafx.required=true`. Knobs, each a
- * `-Pkmptoolkit.test.endurance.<name>=<n>` property: `b6Trials` (60, about three minutes) and `b6MaxHeld` (1, the bound of the ruling:
- * the platform may still hold now and then on its own, the engine must not add to it).
+ * TIER R (real-media soak, `jvmRealMediaTest`): it needs the exclusive real-media slot and `-Pjavafx.required=true`. Knobs
+ * `-Pkmptoolkit.test.b6.b6Trials=<n>` (60, about three minutes) and `-Pkmptoolkit.test.b6.b6MaxHeld=<n>` (1, the bound of the ruling:
+ * the platform may still hold now and then on its own, the engine must not add to it). Its exact F twin is
+ * `model.ResumeAtWrapD2Boss1B6ModelTest`.
  *
  * One trial: seek to 2.3 s, start, wait until the published time has passed 2.6 s and then fallen below 1 s (the wrap), then
  * `pause()` and `start()` at once; the trial is HELD when the playhead does not advance by 400 ms from the lowest position seen since
- * the call within 5 s. Every wait is a polled condition with a real-time hang bound (`awaitTrue`); the verdict is a boolean the
+ * the call within 5 s. A held trial is recovered (a seek to the position it stands at, then 400 ms of advance awaited) so that it
+ * cannot carry into the next trial and the count stays honest on a regression. Every wait is a polled condition with a real-time hang bound (`awaitTrue`); the verdict is a boolean the
  * condition produced, never an elapsed time.
  */
 @OptIn(ToolkitInternalApi::class)
@@ -34,10 +34,6 @@ class JavaFxResumeAtWrapD2Boss1B6RealMediaTest {
 
     @BeforeTest
     fun setUp() {
-        Assume.assumeTrue(
-            "the endurance tier is opt-in: run with -Pkmptoolkit.test.endurance=true",
-            System.getProperty("kmptoolkit.test.endurance").toBoolean(),
-        )
         assumeJavaFxMedia()
     }
 
@@ -47,7 +43,7 @@ class JavaFxResumeAtWrapD2Boss1B6RealMediaTest {
     }
 
     private fun knob(name: String, default: Int): Int =
-        System.getProperty("kmptoolkit.test.endurance.$name")?.toIntOrNull() ?: default
+        System.getProperty("kmptoolkit.test.b6.$name")?.toIntOrNull() ?: default
 
     @Test
     fun `a looping clip at twice the speed paused at the wrap and started again moves on in all but at most one of sixty trials`() {
@@ -76,7 +72,22 @@ class JavaFxResumeAtWrapD2Boss1B6RealMediaTest {
             } catch (_: AssertionError) {
                 false
             }
-            if (!advanced) held += trial
+            if (!advanced) {
+                held += trial
+                // The recovery of adversarial/D2/boss-1-b6-ab.md: a seek to where the playhead stands moves a held decoder on, so
+                // the next trial starts from a playing clip. Whether it recovers is not asserted, only awaited within a bound.
+                engine.seekTo(engine.positionMs())
+                var recoveredFrom: Long = engine.positionMs()
+                try {
+                    awaitTrue(HOLD_WINDOW_MS, { "not recovered" }) {
+                        val position: Long = engine.positionMs()
+                        if (position < recoveredFrom) recoveredFrom = position
+                        position - recoveredFrom >= ADVANCE_MS
+                    }
+                } catch (_: AssertionError) {
+                    // A decoder that stays held is reported by the next trial's waits with their own messages.
+                }
+            }
             engine.pause()
         }
         println("B6-GATE-PIN held=${held.size} of $trials trials (allowed at most $maxHeld) held trials=$held")
