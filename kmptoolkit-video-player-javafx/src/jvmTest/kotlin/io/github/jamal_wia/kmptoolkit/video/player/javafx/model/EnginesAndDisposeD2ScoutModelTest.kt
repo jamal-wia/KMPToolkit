@@ -153,6 +153,47 @@ class EnginesAndDisposeD2ScoutModelTest {
     }
 
     @Test
+    fun aLoadCancelledByTheCallerWhileTheSourceIsStillLoadingDisposesTheHalfBuiltPlayerOnce() = fxModel {
+        val rig: Rig = rig(script = StatusScript().apply { readyLatencyMs = 5_000.0 })
+        // timing-hygiene-ignore: TH2 bound the real-time hang bound of a load whose IO hop is real
+        val deadline: Long = System.nanoTime() + BOUND_MS * NANOS_PER_MILLI
+        val cancelled: Boolean = runBlocking {
+            val loading = async { rig.engine.load(VideoSource.Asset(TestClip.ASSET)) }
+            while (rig.backend.players.isEmpty()) {
+                host.advanceBy(1)
+                yield()
+                // timing-hygiene-ignore: TH2 bound the real-time hang bound of a load whose IO hop is real
+                check(System.nanoTime() - deadline <= 0L) { "the player was never built ($host)" }
+                Thread.onSpinWait()
+            }
+            host.advanceBy(300)
+            loading.cancel()
+            while (!loading.isCompleted) {
+                host.advanceBy(1)
+                yield()
+                // timing-hygiene-ignore: TH2 bound the real-time hang bound of a load whose IO hop is real
+                check(System.nanoTime() - deadline <= 0L) { "the load did not end after the cancel ($host)" }
+                Thread.onSpinWait()
+            }
+            loading.isCancelled
+        }
+        advanceBy(100)
+        assertTrue(cancelled, "a cancelled load did not end as cancelled")
+        val half: ComposedPlayer = rig.backend.last
+        assertEquals(1, disposes(half), "the half-built player of a cancelled load was not disposed exactly once: ${half.player.log.tail(6)}")
+        assertEquals(0, half.player.log.calls(NativeCall.PLAY).size, "a cancelled half-built player was played")
+        assertNull(rig.engine.frames.value)
+        // The same engine loads the next source normally afterwards.
+        load(rig.engine, VideoSource.Asset(TestClip.ASSET))
+        rig.engine.start()
+        advanceBy(500)
+        assertEquals(2, rig.backend.players.size)
+        assertEquals(0, disposes(rig.backend.last))
+        rig.engine.release()
+        advanceBy(50)
+    }
+
+    @Test
     fun theNativePlayComesNoLaterThanTwoHundredFiftyMillisecondsAfterTheStartAndTheDisposalOfALaterReleaseFollowsIt() = fxModel {
         for ((name: String, prepareThenStart: (Rig) -> Unit) in listOf<Pair<String, (Rig) -> Unit>>(
             "plain start" to { rig: Rig -> rig.engine.start() },
