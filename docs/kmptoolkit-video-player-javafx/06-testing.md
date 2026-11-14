@@ -99,13 +99,16 @@ The real-media classes (tiers C, K and R) run the real engine against real JavaF
   knobs `-Pkmptoolkit.test.b6.b6Trials` and `-Pkmptoolkit.test.b6.b6MaxHeld`.
 - **Repeat mode switched at the end of a clip (tier F, tier K, tier C)** — `CycleDecisionD2Boss3FixModelTest`: JavaFX decides
   loop-or-end in one FX task and runs the engine's end handler in a later one, and the model delivers the same two steps
-  (`onCycleDecision`, then `onEndOfMedia`). `RepeatMode.One` switched on between them gives `Completed` once, with no wrap
+  (`onCycleDecision`, then `onEndOfMedia`). `RepeatMode.One` switched on between them makes the engine report the end once, with no wrap
   branch (no native rate of 1.0, no loop-restart state), and the next `start()` restarts from the start and loops at the following
-  end; switched off between a loop's decision and its end handler gives `Completed`; a normal loop, a normal end and a replay are
+  end; switched off between a loop's decision and its end handler makes the engine report the end; a normal loop, a normal end and a replay are
   unchanged; a decision event that never came falls back to the current setting, and an earlier end's snapshot never outlives its
   end handler. `JavaFxRepeatToggleAtEndD2Boss3Test` runs the race on the real decoder (a `currentCount` listener posts the
-  `setLooping` call into the gap): `Completed`, and the next play loops; the control (the mode set again to what it was) and the
-  switch off stay green. C13 of the conformance class pins the order the fix relies on: `currentCount` changes and `onCycleDecision`
+  `setLooping` call into the gap): the engine reports `Completed`, and the next play loops; through the shared player the same
+  race restarts the clip at once and the state never becomes `Completed`
+  (`through the shared player looping switched on in the gap restarts the clip at once and it loops without ever completing`:
+  the playhead falls below 1000 ms, rises past 1000 ms and wraps below 1000 ms again); the control (the mode set again to what it
+  was) and the switch off stay green. C13 of the conformance class pins the order the fix relies on: `currentCount` changes and `onCycleDecision`
   fires before `onEndOfMedia`, at a plain end and at every wrap.
 - **Freeze after a resume (tier R)** — `JavaFxResumeSettlesAtSpeedR5FixerTest`: after a pause and a start at 2 and at
   4 (six fresh engines each, or `-Pkmptoolkit.test.freeze.trials` for a longer run) the playhead passes where it

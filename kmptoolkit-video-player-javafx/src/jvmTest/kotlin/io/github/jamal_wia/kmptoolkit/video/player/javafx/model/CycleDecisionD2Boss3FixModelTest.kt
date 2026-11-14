@@ -18,8 +18,9 @@ import kotlin.test.assertTrue
  * handler as a later one, so a `setLooping(true)` that lands between the two must not turn a real end into a loop restart. The model
  * puts the end of a cycle in the same two steps as JavaFX: the decoder delivers `onCycleDecision` (JavaFX's `currentCount` change, inside
  * the deciding task) and only then the `onEndOfMedia` task. A tap on the player's listener runs a hook right behind the decision,
- * where the engine's own `setLooping(true)` takes the FX queue's inline path (nothing is queued yet), as it does in the real
- * reproduction `JavaFxRepeatToggleAtEndD2Boss3Test`.
+ * where the engine's own `setLooping(true)` takes the FX queue's inline path (nothing is queued yet); in the real reproduction
+ * `JavaFxRepeatToggleAtEndD2Boss3Test` it is a separate task queued between the decision and the end handler. Both reach the end
+ * handler with the decision's snapshot and the changed setting, which is what this test asserts on.
  *
  * Contract: core 03-guide "Looping" (`One` on a Completed player stays there until the next play), javafx 05 "Looping". Both decoder
  * variants of the model, speed 2 so that a wrap branch is visible as a native rate write of 1.0.

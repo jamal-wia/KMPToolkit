@@ -464,8 +464,9 @@ internal class TimeModel(
         }
         pin()
         anchorMs = durationMs
-        // JavaFX changes currentCount in the task that decides, after it read cycleCount and before it acts on it (the loop part runs
-        // the step at that instant), and posts the end of media as a later task: a task a listener of the decision queues runs between the two.
+        // JavaFX changes currentCount in the task that decides, just before it reads cycleCount (no task can run in between, and the
+        // engine's listener only takes a snapshot, so running the step right after the read is equivalent), and posts the end of media as
+        // a later task: a task a listener of the decision queues runs between the two.
         val wrapped: Boolean = loop?.endCycle { player.deliverCycleDecision() } ?: run {
             player.deliverCycleDecision()
             false
