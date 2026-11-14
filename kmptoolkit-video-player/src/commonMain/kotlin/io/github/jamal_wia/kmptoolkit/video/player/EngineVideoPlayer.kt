@@ -107,8 +107,15 @@ internal class EngineVideoPlayer(
      * @property job parents the engine work, so cancelling it cancels exactly this load.
      * @property finished completes when the call has fully unwound — see `EngineAudioPlayer` for why
      *   waiting on [job] alone would let a third prepare start while the first still runs.
+     * @property isPlaceholder true for the load [newPlaceholder] makes (an unload or a release took the slot), which
+     *   no call ever runs. It is told apart by this flag, not by [job] being cancelled: a real prepare can be
+     *   cancelled too.
      */
-    private class Load(val job: CompletableJob, val finished: CompletableJob = Job())
+    private class Load(
+        val job: CompletableJob,
+        val finished: CompletableJob = Job(),
+        val isPlaceholder: Boolean = false,
+    )
 
     /**
      * What the engine reported about its source while [prepare] was still publishing it: the first
@@ -252,9 +259,9 @@ internal class EngineVideoPlayer(
                         // Replaced from inside this reset by a prepare that waits for this one to unwind: the old
                         // source is already gone, so show the state of the load that replaced it rather than the
                         // state of a source the engine no longer holds. An unload or release that replaced it has
-                        // published Idle itself (its placeholder is cancelled).
+                        // published Idle itself (a placeholder).
                         val replacing: Load? = currentLoad.value
-                        if (!released && replacing != null && replacing.job.isActive) {
+                        if (!released && replacing != null && !replacing.isPlaceholder) {
                             publish(_stateFlow, VideoPlayerState.Preparing)
                         }
                         return@exclusive false
@@ -857,7 +864,7 @@ internal class EngineVideoPlayer(
         }
     }
 
-    private fun newPlaceholder(): Load = Load(Job().apply { cancel() })
+    private fun newPlaceholder(): Load = Load(Job().apply { cancel() }, isPlaceholder = true)
 
     private fun isCurrent(load: Load): Boolean = !released && currentLoad.value === load
 

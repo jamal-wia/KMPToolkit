@@ -53,9 +53,10 @@ resets the playhead, buffered position, buffering and picture size.
   `CancellationException` the engine throws on its own while the load is still wanted (a timeout inside the
   engine, say) is a failure like any other: `Error` carrying that exception, and `prepare` returns normally.
 - **A newer `prepare` replaces this one** — the older load is cancelled and fully unwound before the
-  newer one starts; the replaced call returns normally without writing any state — except a `prepare` whose
-  old source was already released when a newer `prepare` replaced it: the state then shows `Preparing` for the
-  newer one, so it never describes a source the engine no longer holds.
+  newer one starts; the replaced call returns normally without writing any state — except a `prepare` that a
+  newer `prepare` replaces while it is already resetting the source flows (for example, a collector of one of them
+  called the newer `prepare`): it has freed the old source by then, so the state shows `Preparing` for the newer
+  call rather than describe a source the engine no longer holds.
 - **Frees the previous source first, whatever state it left the player in** (including `Error`), so a source that failed during playback is released before the next load.
 - On success, pushes the current volume (or `0f` if muted), repeat mode and speed to the platform.
 - After `release()`: sets `Error(VideoPlayerReleasedException)` and loads nothing.
