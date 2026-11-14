@@ -13,6 +13,7 @@ import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlinx.cinterop.BooleanVar
 import kotlinx.cinterop.CPointer
+import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.UByteVar
 import kotlinx.cinterop.addressOf
@@ -53,6 +54,7 @@ import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
 import platform.Foundation.NSURLVolumeSupportsCaseSensitiveNamesKey
+import platform.Foundation.create
 import platform.Foundation.decomposedStringWithCanonicalMapping
 import platform.Foundation.stringByResolvingSymlinksInPath
 import platform.Foundation.timeIntervalSince1970
@@ -458,6 +460,7 @@ internal class IosDownloaderStorage(
         }
     }
 
+    @OptIn(BetaInteropApi::class) // NSString.create: the bridge that replaces the never-succeeding `String as NSString` cast.
     override fun getResourceSize(unit: DownloadUnit): Long {
         val path: String = try {
             getResourcePath(unit)
@@ -467,7 +470,7 @@ internal class IosDownloaderStorage(
         if (!fileExists(path)) return 0L
         // fileExists follows links, so a dangling link is 0 above. A link AT the unit's path is the resource (as for
         // isResourceAvailable): its size is the size of what it points to. Links inside a tree are not followed.
-        val target: String = (path as NSString).stringByResolvingSymlinksInPath
+        val target: String = NSString.create(string = path).stringByResolvingSymlinksInPath
         val fm: NSFileManager = NSFileManager.defaultManager
         val attributes: Map<Any?, *>? = fm.attributesOfItemAtPath(target, error = null)
 
@@ -812,7 +815,8 @@ internal class IosDownloaderStorage(
         return true
     }
 
-    private fun canonicalForm(name: String): String = (name as NSString).decomposedStringWithCanonicalMapping
+    @OptIn(BetaInteropApi::class) // NSString.create, as in getResourceSize.
+    private fun canonicalForm(name: String): String = NSString.create(string = name).decomposedStringWithCanonicalMapping
 
     /** True when [path] is a directory with something in it. */
     private fun isNonEmptyDirectory(path: String): Boolean =
