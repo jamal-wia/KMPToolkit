@@ -16,7 +16,8 @@ internal fun interface JavaFxRuntime {
  * Starts the real toolkit through [startToolkit]. Only a permanent failure is remembered: a missing
  * class or native library, a toolkit that has exited, a machine with no display. An
  * [FxThreadUnresponsiveException] describes a busy FX thread, which may pass, so the next call tries
- * again. A toolkit seen running is re-checked for an exit on every call, so a load after
+ * again; so does an interrupt of the calling thread, which is the caller's cancellation and not a
+ * property of this machine (the caller keeps its interrupt status). A toolkit seen running is re-checked for an exit on every call, so a load after
  * `Platform.exit()` fails at once.
  *
  * @param startToolkit a test seam.
@@ -79,6 +80,10 @@ internal class ToolkitJavaFxRuntime(
     // Like isFxThread, a probe that cannot be answered is not an exit.
     private fun toolkitExited(): Boolean = try {
         hasExited()
+    } catch (e: InterruptedException) {
+        // The probe waits on a latch. An interrupted probe proves nothing: not an exit, and the caller keeps its status.
+        Thread.currentThread().interrupt()
+        false
     } catch (e: Exception) {
         false
     } catch (e: LinkageError) {
@@ -110,6 +115,11 @@ internal class ToolkitJavaFxRuntime(
             startToolkit()
             started = true
         } catch (e: FxThreadUnresponsiveException) {
+            throw JavaFxVideoPlayerException.RuntimeUnavailable(e)
+        } catch (e: InterruptedException) {
+            // The caller was interrupted while the first start waited for the FX thread: its cancellation, not a property
+            // of this machine. Not remembered (the next call tries again), and the caller keeps its interrupt status.
+            Thread.currentThread().interrupt()
             throw JavaFxVideoPlayerException.RuntimeUnavailable(e)
         } catch (e: Exception) {
             failure = e

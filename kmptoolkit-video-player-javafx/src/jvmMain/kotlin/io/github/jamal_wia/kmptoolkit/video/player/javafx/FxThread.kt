@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.video.player.javafx
 
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javafx.application.Platform
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -133,11 +134,18 @@ internal object FxThread {
     }
 
     /**
+     * Whether this engine's own `Platform.startup` succeeded: sticky, because a first start whose wait ended early
+     * (interrupted, or timed out as "busy, try again") is retried, and the retry meets "Toolkit already initialized"
+     * for a toolkit this engine did start. An atomic, shared between threads (D-24).
+     */
+    private val engineStartedToolkit: AtomicBoolean = AtomicBoolean(false)
+
+    /**
      * Starts the toolkit, or confirms an already running one accepts work.
      *
-     * Implicit exit is switched off only when this call is the one that started the toolkit: with no
-     * window of its own the engine would otherwise never trigger it anyway, but an app that runs its
-     * own JavaFX windows keeps whatever exit policy it chose.
+     * Implicit exit is switched off only for a toolkit this engine started, by this call or by an earlier call whose
+     * wait ended early and is being retried: with no window of its own the engine would otherwise never trigger it
+     * anyway, but an app that runs its own JavaFX windows keeps whatever exit policy it chose.
      *
      * Called on the FX thread itself, an already running toolkit is confirmed by being there: waiting
      * for a block queued behind the caller would block the only thread that can run it. Throws
@@ -148,12 +156,12 @@ internal object FxThread {
         // A latch, not a CompletableDeferred: this is reached from the non-suspending isAvailable() and
         // must block its caller (never the FX thread, see the early return) (D-21).
         val started = CountDownLatch(1)
-        val startedHere: Boolean = try {
+        try {
             startup(Runnable {
                 noteToolkitThread()
                 started.countDown()
             })
-            true
+            engineStartedToolkit.set(true)
         } catch (e: IllegalStateException) {
             // "Toolkit already initialized" — the app, or an earlier player, started it.
             // After Platform.exit startup throws this too, and runLater would drop the block: wait for
@@ -169,14 +177,13 @@ internal object FxThread {
                 noteToolkitThread()
                 started.countDown()
             }
-            false
         }
         if (!started.await(START_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
             throw FxThreadUnresponsiveException(
                 "The JavaFX application thread did not respond within $START_TIMEOUT_SECONDS s",
             )
         }
-        if (startedHere) Platform.setImplicitExit(false)
+        if (engineStartedToolkit.get()) Platform.setImplicitExit(false)
     }
 
     /**
