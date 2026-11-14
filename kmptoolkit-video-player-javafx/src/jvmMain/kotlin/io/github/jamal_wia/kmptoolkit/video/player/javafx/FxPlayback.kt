@@ -118,8 +118,8 @@ internal class FxPlayback private constructor(
      * Null when nothing is pending. A speed that arrives meanwhile replaces it.
      *
      * One holder: at most one of [pendingNudge], [settleNudge] and [deferredRate] is set at any time. [setSpeed] replaces the one
-     * that is set, in that order, and every path that sets one clears the others, so the one that is set is the newest speed asked
-     * for.
+     * that is set, in that order, and every path that sets one either clears the others or runs only when they are null, so the
+     * one that is set is the newest speed asked for.
      */
     private var settleNudge: Double? = null
 
@@ -594,10 +594,9 @@ internal class FxPlayback private constructor(
      */
     private fun deferRate(afterWrap: Boolean) {
         // The newest held speed, in the order [setSpeed] fills the holders: pendingNudge first, then settleNudge, then
-        // deferredRate. A speed given while a seek-path play waits is in pendingNudge, and one given while a plain play waits
-        // is in settleNudge; either is newer than the value [deferredRate] may still hold (a plain start() keeps a deferred
-        // 1.0 next to the settleNudge it sets, and [setSpeed] then updates only the settleNudge). One holder is left: the
-        // others are cleared, or the speed they hold would be given again over it.
+        // deferredRate. With one holder (see [settleNudge]) at most one is set, so the order only decides which one that is; it
+        // is kept in [setSpeed]'s order so that a second holder, if one ever appeared, would not give an older speed over a
+        // newer one. The others are cleared, or the speed they hold would be given again over it.
         val rate: Double = pendingNudge ?: settleNudge ?: deferredRate ?: native.rate
         pendingNudge = null
         settleNudge = null

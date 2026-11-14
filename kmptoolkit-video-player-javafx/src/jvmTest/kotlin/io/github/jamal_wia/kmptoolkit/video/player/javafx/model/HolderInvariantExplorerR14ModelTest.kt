@@ -17,8 +17,9 @@ import kotlin.test.assertNull
  *
  * I2 (ruling 4): when no speed is held and the native play has been issued, the decoder runs at the property, once the last
  * native play, seek or rate write is 300 ms behind. A plain `play()` on macOS starts at normal speed whatever the property says;
- * that is the one path that breaks it on purpose, and it always leaves a held 1.0 that `applyDeferredRate` gives after the play,
- * as one away-and-back when the held speed equals the property (class A of fix4, which a plain write would have left at 1x).
+ * that is the one path that breaks it on purpose, and it always leaves a held 1.0 (deferred on the immediate plain branch, given
+ * by `applyDeferredRate` after the play, as one away-and-back when the held speed equals the property, class A of fix4, which a
+ * plain write would have left at 1x; settled on the delayed branch, given by `applyResumeRate`).
  *
  * I1: at most one of `pendingNudge`, `settleNudge` and `deferredRate` is set at any time. The three fields hold ONE asked
  * speed on three paths (the nudge after a seek-path play, the settle after movement, the deferral after a wrap or a seek
@@ -233,7 +234,11 @@ class HolderInvariantExplorerR14ModelTest {
             when (op.kind) {
                 Kind.START -> playing = true
                 Kind.PAUSE, Kind.END -> playing = false
-                Kind.SPEED, Kind.RESTART -> lastAsked = op.arg
+                Kind.SPEED -> lastAsked = op.arg
+                Kind.RESTART -> {
+                    lastAsked = op.arg
+                    playing = true
+                }
                 else -> Unit
             }
             checkHolders("after the operation")
