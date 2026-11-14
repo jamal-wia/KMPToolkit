@@ -134,9 +134,11 @@ internal object FxThread {
     }
 
     /**
-     * Whether this engine's own `Platform.startup` succeeded: sticky, because a first start whose wait ended early
-     * (interrupted, or timed out as "busy, try again") is retried, and the retry meets "Toolkit already initialized"
-     * for a toolkit this engine did start. An atomic, shared between threads (D-24).
+     * Whether this engine's own `Platform.startup` succeeded and the implicit exit it implies has not been switched off
+     * yet. Sticky across a first start whose wait ended early (interrupted, or timed out as "busy, try again"): the retry
+     * meets "Toolkit already initialized" for a toolkit this engine did start. Consumed (reset) once the switch is
+     * made, so a later call that finds the toolkit running leaves whatever policy the host chose since. An atomic,
+     * shared between threads (D-24).
      */
     private val engineStartedToolkit: AtomicBoolean = AtomicBoolean(false)
 
@@ -183,7 +185,7 @@ internal object FxThread {
                 "The JavaFX application thread did not respond within $START_TIMEOUT_SECONDS s",
             )
         }
-        if (engineStartedToolkit.get()) Platform.setImplicitExit(false)
+        if (engineStartedToolkit.compareAndSet(true, false)) Platform.setImplicitExit(false)
     }
 
     /**
