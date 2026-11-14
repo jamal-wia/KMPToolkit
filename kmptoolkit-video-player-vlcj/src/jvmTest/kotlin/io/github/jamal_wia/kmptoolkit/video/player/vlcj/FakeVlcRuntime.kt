@@ -7,6 +7,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * A libvlc stand-in for [VlcjVideoEngine]'s seam. It keeps VLC's threading shape — events arrive on
@@ -28,7 +29,10 @@ internal class FakeVlcRuntime : VlcRuntime {
 
     @Volatile var parsedInfo: VlcParsedInfo = VlcParsedInfo(durationMs = 2_000L, trackCount = 1, videoSize = null)
 
-    @Volatile var released: Int = 0
+    private val releaseCount: AtomicInteger = AtomicInteger()
+
+    /** How many times [release] ran; atomic because engines sharing this runtime release it from their own teardown threads. */
+    val released: Int get() = releaseCount.get()
 
     val player: FakeVlcPlayer get() = players.last()
 
@@ -39,7 +43,7 @@ internal class FakeVlcRuntime : VlcRuntime {
 
     override fun release() {
         record("runtime.release")
-        released++
+        releaseCount.incrementAndGet()
     }
 
     fun record(call: String) {
