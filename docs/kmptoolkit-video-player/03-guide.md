@@ -116,9 +116,10 @@ survives `unload()`, so a surface attached to it stays attached.
 
 A `prepare` that arrives while another is still loading replaces it. The older load is cancelled and
 fully unwound before the newer one starts — the platform never loads two sources on one decoder — and
-the replaced call returns normally without writing any state — except a `prepare` whose old source was already
-released when a newer `prepare` replaced it: the state then shows `Preparing` for the newer one, so it never
-describes a source the engine no longer holds. For example:
+the replaced call returns normally without writing any state — except a `prepare` that a newer `prepare`
+replaces while it is already resetting the source flows (for example, a collector of one of them called the newer
+`prepare`): it has freed the old source by then, so the state shows `Preparing` for the newer call rather than
+describe a source the engine no longer holds. For example:
 
 ```kotlin
 scope.launch { player.prepare(clip1) }   // returns quietly once replaced
