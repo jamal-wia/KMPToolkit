@@ -233,8 +233,10 @@ public fun createVideoPlayer(
 
 For a caller-supplied engine — a test fake, a desktop engine, your own backend. The player **takes
 ownership** of `engine`: it installs itself as the listener and releases the engine from its own
-`release()`. One engine per player. `coroutineContext` hosts the polling coroutine only; pass a
-`TestDispatcher` to make polling deterministic in tests.
+`release()`. One engine per player. An engine given to a second player is not shared: it reports
+only to the player that took it last, and the first player's `release()` disposes it under the
+second, which then stops responding. Create one engine for each player. `coroutineContext` hosts
+the polling coroutine only; pass a `TestDispatcher` to make polling deterministic in tests.
 
 ### Android (`androidMain`)
 

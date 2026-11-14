@@ -451,7 +451,8 @@ internal class EngineVideoPlayer(
     override fun setVolume(volume: Float) {
         if (volume.isNaN()) return
         gate.exclusive {
-            _volumeFlow.value = volume.coerceIn(MUTED_VOLUME, FULL_VOLUME)
+            // + 0f: a signed zero becomes 0f (IEEE 754), so -0f and 0f are one value to StateFlow's bitwise equals.
+            _volumeFlow.value = volume.coerceIn(MUTED_VOLUME, FULL_VOLUME) + 0f
             pushVolume()
         }
     }
