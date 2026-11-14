@@ -7,10 +7,12 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import platform.Foundation.NSRecursiveLock
 
-internal actual class Monitor {
+internal actual fun newMonitor(): Monitor = RecursiveLockMonitor()
+
+private class RecursiveLockMonitor : Monitor {
     private val lock: NSRecursiveLock = NSRecursiveLock()
 
-    actual fun <T> withLock(block: () -> T): T {
+    override fun <T> withLock(block: () -> T): T {
         lock.lock()
         try {
             return block()

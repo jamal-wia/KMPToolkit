@@ -61,7 +61,7 @@ private class Fault(
  * happens under one lock; hooks run outside it, on the caller's thread.
  */
 internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileSystemOps {
-    private val monitor: Monitor = Monitor()
+    private val monitor: Monitor = newMonitor()
     private val nodes: HashMap<Long, Node> = HashMap()
     private var nextId: Long = ROOT + 1
 
