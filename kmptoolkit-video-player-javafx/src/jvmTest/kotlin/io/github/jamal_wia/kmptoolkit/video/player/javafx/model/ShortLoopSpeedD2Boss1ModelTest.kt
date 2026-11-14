@@ -46,6 +46,7 @@ class ShortLoopSpeedD2Boss1ModelTest {
         val clipMs: Double,
         val unity: Boolean,
         val cyclesAt2x: MutableMap<Int, Boolean> = linkedMapOf(),
+        val firstAt2xPositionMs: MutableMap<Int, Double> = linkedMapOf(),
         val holdersAfterFirstWrap: MutableList<List<String>> = mutableListOf(),
         var samplesAt2xAfterFirstWrap: Int = 0,
         var frozenSamples: Int = 0,
@@ -57,7 +58,7 @@ class ShortLoopSpeedD2Boss1ModelTest {
     ) {
         override fun toString(): String =
             "clip=${clipMs}ms unity=$unity cycles=$lastCycle samplesAt2x=$samplesAt2xAfterFirstWrap frozen=$frozenSamples " +
-                "violations=$violations cyclesAt2x=$cyclesAt2x"
+                "violations=$violations cyclesAt2x=$cyclesAt2x firstAt2xPositionMs=$firstAt2xPositionMs"
     }
 
     private fun observe(clipMs: Double, decoderStartsAtUnity: Boolean): Observation {
@@ -84,6 +85,7 @@ class ShortLoopSpeedD2Boss1ModelTest {
                         val at2x: Boolean = composed.hazards.effectiveRate == 2.0
                         if (at2x) seen.samplesAt2xAfterFirstWrap++
                         seen.cyclesAt2x[cycle] = (seen.cyclesAt2x[cycle] ?: false) || at2x
+                        if (at2x && cycle !in seen.firstAt2xPositionMs) seen.firstAt2xPositionMs[cycle] = composed.time.nativePositionMs
                         seen.holdersAfterFirstWrap += setHolders(playback)
                     }
                     seen.lastCycle = cycle
@@ -146,6 +148,48 @@ class ShortLoopSpeedD2Boss1ModelTest {
         }
     }
 
+    /**
+     * A loop of 500 ms is below the 0.6 s limit: the first tick after a wrap comes after the publish hold of about 300 ms,
+     * past the first half of the cycle, so the speed is never given again, in no cycle after the first. Nothing is violated,
+     * nothing freezes, and the speed stays held in exactly one holder for the next start.
+     */
+    @Test
+    fun aLoopingClipOfFiveHundredMillisecondsNeverReachesItsSpeedAfterTheFirstCycleAndKeepsItInOneHolder() {
+        for (seen: Observation in both(500.0)) {
+            assertTrue(seen.lastCycle >= MIN_HALF_SECOND_CYCLES, "the short loop stopped wrapping: $seen")
+            assertEquals(0, seen.samplesAt2xAfterFirstWrap, "a cycle after the first reached 2x: $seen")
+            assertEquals(0, seen.frozenSamples, "the playhead froze: $seen")
+            assertEquals(0, seen.violations, "a fragile window was violated: $seen")
+            assertEquals(
+                emptyList(),
+                seen.holdersAfterFirstWrap.filter { it != SPEED_HELD },
+                "the speed was not held in exactly one holder at every sample after the first wrap: $seen",
+            )
+            assertEquals(SPEED_HELD, seen.holdersAfterPause, "the pause lost or doubled the held speed: $seen")
+            assertTrue(seen.cyclesAfterRestart >= 1, "the clip did not play on after the next start: $seen")
+            assertEquals(SPEED_HELD, seen.holdersAfterRestart, "the next start lost or doubled the held speed: $seen")
+        }
+    }
+
+    /**
+     * A loop of 800 ms is between 0.6 and 1 s: the speed is given again in every cycle after the first, but late in the
+     * cycle, in its second half (the playhead is past 400 ms of the 800 ms when the decoder first runs at 2x).
+     */
+    @Test
+    fun aLoopingClipOfEightHundredMillisecondsReachesItsSpeedLateInEveryCycleAfterTheFirst() {
+        for (seen: Observation in both(800.0)) {
+            val completed: Map<Int, Boolean> = seen.cyclesAt2x.filterKeys { it < seen.lastCycle }
+            assertTrue(completed.size >= MIN_CYCLES, "too few completed cycles to judge: $seen")
+            val without2x: List<Int> = completed.filterValues { !it }.keys.toList()
+            assertEquals(emptyList(), without2x, "cycles that never reached 2x: $seen")
+            val inFirstHalf: List<Int> =
+                completed.keys.filter { cycle: Int -> checkNotNull(seen.firstAt2xPositionMs[cycle]) <= seen.clipMs / 2.0 }
+            assertEquals(emptyList(), inFirstHalf, "cycles whose speed returned in the first half: $seen")
+            assertEquals(0, seen.frozenSamples, "the playhead froze: $seen")
+            assertEquals(0, seen.violations, "a fragile window was violated: $seen")
+        }
+    }
+
     private companion object {
         const val SAMPLE_MS: Long = 50L
         const val SAMPLES: Int = 160
@@ -153,6 +197,7 @@ class ShortLoopSpeedD2Boss1ModelTest {
         const val RESTART_OBSERVE_MS: Long = 1_000L
         const val MIN_CYCLES: Int = 4
         const val MIN_SHORT_CYCLES: Int = 20
+        const val MIN_HALF_SECOND_CYCLES: Int = 12
 
         /** The one holder a speed other than 1 waits in after a wrap. */
         val SPEED_HELD: List<String> = listOf("deferredRate=2.0")

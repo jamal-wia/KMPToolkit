@@ -131,6 +131,10 @@ class InterruptedStartD2Boss1Test {
     @Test
     fun aToolkitTheEngineStartedKeepsImplicitExitOffWhenTheFirstWaitWasInterruptedAndTheStartIsRetried() {
         assumeJavaFxMedia()
+        // The retry must meet "Toolkit already initialized", as a real retry does: start the real toolkit first (this
+        // consumes any flag an earlier start left), so the second startToolkit() below can only switch implicit exit off
+        // through the flag the seam start set.
+        FxThread.startToolkit()
         val realStartup: (Runnable) -> Unit = FxThread.startup
         val implicitExitBefore: Boolean = Platform.isImplicitExit()
         try {
