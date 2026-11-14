@@ -37,9 +37,9 @@ public fun createKeyValueStorage(config: StorageConfig = StorageConfig()): KeyVa
         // The suite name can never equal the bundle identifier — plainStoreId always appends a
         // suffix — so this never silently resolves to the standard defaults, which is what
         // NSUserDefaults(suiteName:) does when handed the bundle id and which would make clear()
-        // destructive. The fallback is for the impossible-in-practice case of the initializer
-        // failing anyway; it keeps the store working rather than crashing the app at startup.
-        defaults = NSUserDefaults(suiteName = suiteName) ?: NSUserDefaults.standardUserDefaults,
+        // destructive. The Kotlin/Native constructor is non-null (the Objective-C initializer
+        // returning nil surfaces as an exception, not as a null), so there is no fallback here.
+        defaults = NSUserDefaults(suiteName = suiteName),
         dispatcher = Dispatchers.IO,
     )
 }
