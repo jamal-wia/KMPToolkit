@@ -136,7 +136,8 @@ that loaded the current one.
 mid-load — a `LaunchedEffect` whose key changed — the half-loaded source is freed, the state returns
 to `Idle` (not `Error`: nothing failed), and the `CancellationException` propagates. The same holds for a `prepare`
 called from a coroutine that is already cancelled over a source that is loaded: the old source's polling stops and the
-state shows `Idle`.
+state shows `Idle`, also when a collector of a flow calls the player from inside the reset; a `prepare` such a collector
+calls owns the state from then on (`Preparing`, then its own result).
 
 ```kotlin
 LaunchedEffect(url) {

@@ -25,7 +25,8 @@ package io.github.jamal_wia.kmptoolkit.video.player
  * - **Transport and settings calls tolerate the wrong state** — swallow the platform's
  *   "illegal state" rather than throwing. Only [load] reports failure by throwing. If another method throws
  *   anyway, the player still settles: `prepare` ends in `Error` (or, when its caller was cancelled, in `Idle`, with the
- *   engine's exception attached to the `CancellationException` as suppressed), `release()` disposes the engine and
+ *   engine's exception attached as suppressed to the `CancellationException` the call received, which may be the
+ *   cancelled scope's shared cause), `release()` disposes the engine and
  *   resets to `Idle`, `unload()` resets to `Idle`; the last two then rethrow the engine's exception. Any other method
  *   that throws breaks this contract: the exception reaches the caller of the player method (for an engine call the
  *   player makes while applying a queued engine event, whichever call or thread drains that event) and that

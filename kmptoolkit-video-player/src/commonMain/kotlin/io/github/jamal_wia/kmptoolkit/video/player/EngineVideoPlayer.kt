@@ -57,10 +57,10 @@ import kotlinx.coroutines.withContext
  * call published; the picture size is published as soon as it is reported; in a failure every transport call is a
  * no-op under `Error`, so none of them cuts the failure's own writes. The exceptions are the calls whose result is
  * the point of the call: [unload], [release] and a [prepare] whose caller was cancelled reset the source flows and
- * end in `Idle` through one shared step (an [unload] leaves the state, and the flows it has not reset yet, to a
- * [prepare] a collector called from inside it), and a [prepare] that has not been replaced resets them and loads. A
- * composite call ([replay]: seek, then play) stops after its seek in that case, and re-reads the state between its
- * steps otherwise.
+ * end in `Idle` through one shared step (an [unload], or a cancelled [prepare], leaves the state, and the flows it has
+ * not reset yet, to a [prepare] a collector called from inside it), and a [prepare] that has not been replaced resets
+ * them and loads. A composite call ([replay]: seek, then play) stops after its seek in that case, and re-reads the
+ * state between its steps otherwise.
  *
  * ### Dropped sources
  *
@@ -518,7 +518,9 @@ internal class EngineVideoPlayer(
      * ([stillOwner] turns false): the reset stops, and if that prepare has not finished (it waits for this call to
      * unwind, or is loading) the state shows [VideoPlayerState.Preparing] for it, as the cut start step of [prepare]
      * does; a prepare that already finished inside the reset (its load did not suspend) has published its own result,
-     * which stands.
+     * which stands. The test is `finished`: a [prepare] completes it when its load is over and publishes its outcome
+     * at that point or right after, so a finished one has either published it already (a `Preparing` written now would
+     * overwrite it, and nothing would clear it) or publishes it next.
      *
      * @param stillOwner whether the call that settles still owns the source and the state; checked before each write.
      */
