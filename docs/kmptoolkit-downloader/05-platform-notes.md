@@ -89,6 +89,21 @@ The lock is per process: a
 units share or miss a record; it is written to `<base>/tmp/expect-staged/<unit.id>.sha256` and flushed to
 disk first, then moved into place by an atomic rename once the old temp files are gone.
 
+Everything under the base directory must lie on one volume. Staging trees, temp files, the trash and resources are
+moved with `rename`, which cannot cross a volume, and the storage does not look for a boundary: a directory on the way
+to a unit's `relativePath` that is a link to another volume (or a mount point) is one. A `ZipArchive` unit behind such a
+boundary cannot be replaced: its commit throws `IllegalStateException` when the old tree cannot be moved aside, and on
+Android even its first commit throws, because the extracted tree is moved into place by a rename alone (a
+`deleteResource` of a tree that cannot be moved aside deletes it in place and logs a warning). An `Opaque` or
+`SqliteDatabase` unit falls back to copying the temp file into place, so its first commit succeeds. A later commit of a
+`SqliteDatabase` unit must first move the old database into the trash, cannot, and throws `IllegalStateException` (the
+temp file is kept); `deleteResource` of it only logs a warning and leaves the database where it is, so a refresh
+(`deleteResource`, then a request) keeps serving the old version. The copy fallback is not atomic: on Android it writes
+the bytes straight into the file at the resource path, and on iOS it removes the old file and then copies, so a process
+killed during the copy can leave a partial file at the path. The availability check tests the path, not the length, so
+the engine reads that file as available and the complete temp file beside it is not committed. Keep every unit's
+resource on the volume of the base directory.
+
 Two engines over one base directory in the same process (two DI graphs, for example) never transfer
 the same unit at the same time: the second one waits for the first one's download and commit, then
 returns because the resource is available. This holds for the storages returned by
