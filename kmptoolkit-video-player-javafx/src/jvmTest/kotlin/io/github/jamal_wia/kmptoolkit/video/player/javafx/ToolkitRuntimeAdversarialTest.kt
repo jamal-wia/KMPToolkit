@@ -104,6 +104,13 @@ class ToolkitRuntimeAdversarialTest {
     fun `ten prepares after the toolkit exited each fail on the runtime error within the ready timeout and leave no thread behind`() = runBlocking<Unit> {
         assumeJavaFxMedia()
         FxThread.startToolkit()
+        // The coroutine pools start their workers lazily and keep them idle for about 60 s: warm both here, so that
+        // `before` already counts them and the check measures threads this engine leaves behind, not a cold pool's
+        // first workers (otherwise the count depended on which test class ran before this one).
+        // timing-hygiene-ignore: TH1 inject a short task that keeps a pool worker busy so the pool creates its workers; nothing waits on it
+        List(16) { async(Dispatchers.Default) { Thread.sleep(20L) } }.forEach { it.await() }
+        // timing-hygiene-ignore: TH1 inject a short task that keeps a pool worker busy so the pool creates its workers; nothing waits on it
+        List(16) { async(Dispatchers.IO) { Thread.sleep(20L) } }.forEach { it.await() }
         val dropped: MutableList<Runnable> = CopyOnWriteArrayList()
         val realRunLater: (Runnable) -> Unit = FxThread.runLater
         val before: Int = Thread.getAllStackTraces().keys.count { it.isAlive }

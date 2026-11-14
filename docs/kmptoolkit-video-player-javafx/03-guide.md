@@ -20,8 +20,9 @@ fun createDesktopVideoPlayer(): VideoPlayer? =
 The first call starts the JavaFX toolkit when nothing has yet (see
 [threading](05-platform-notes.md#threading-and-the-javafx-toolkit)) and the answer — including a
 permanent failure such as a missing runtime or no display — is remembered for the life of the
-process, so later calls are cheap. A JavaFX thread that was only too busy to answer within 10 s is
-not remembered: that call returns `false`, and the next one tries again. Called on the JavaFX
+process, so later calls are cheap. A JavaFX thread that was only too busy to answer within 10 s,
+or a call that was interrupted while it waited, is not remembered (an interrupted call keeps its interrupt status):
+that call returns `false`, and the next one tries again. Called on the JavaFX
 application thread itself, the check returns at once (that thread is proof the toolkit runs). `true` does not
 promise that every source decodes: formats are OS-dependent (see
 [`05-platform-notes.md`](05-platform-notes.md#formats)).
