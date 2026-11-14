@@ -252,4 +252,29 @@ class SettleIdleRealThreadsD1Boss2Test {
         assertEquals(null, rig.player.videoSizeFlow.value)
         assertEquals(emptyList(), rig.escaped)
     }
+
+    @Test
+    fun `a release from a collector inside unload's reset while another thread's prepare installs itself leaves the player Idle`() {
+        pausedAt3000WithSize()
+        val parent = HoldingParent(CountDownLatch(1), CountDownLatch(1))
+        val outcome: AtomicReference<Result<Unit>?> = AtomicReference(null)
+        val done = CountDownLatch(1)
+        startHeldPrepare(parent, parent, outcome, done, onThread = true)
+        var installed = false
+        val fired: InlineRigD1R11.Fired = rig.reactOnce(rig.player.playbackPositionFlow) {
+            // Inside unload's reset: the player is released, then B (past its released check) installs itself.
+            rig.player.release()
+            parent.go.countDown()
+            spinUntil("B's install") { currentLoad().let { it != null && !isPlaceholder(it) } }
+            installed = true
+        }
+        rig.player.unload()
+        assertTrue(done.await(10, TimeUnit.SECONDS), "prepare B did not finish within 10 s")
+        assertTrue(fired.value && installed, "the interleaving was not reached")
+        assertTrue(checkNotNull(outcome.get()).isSuccess, "B ended with ${outcome.get()}")
+        assertEquals(VideoPlayerState.Idle, rig.player.stateFlow.value, "a released player ends in Idle; log ${rig.engine.log}")
+        assertEquals(1, rig.engine.log.count { it == "dispose" }, "dispose once: ${rig.engine.log}")
+        assertEquals(emptyList(), rig.engine.callsAfterDispose())
+        assertEquals(emptyList(), rig.escaped)
+    }
 }
