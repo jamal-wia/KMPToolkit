@@ -129,7 +129,8 @@ decoder writes straight into memory without a render-and-read-back step.
   are seen through the thread (where it ends with the toolkit) or through a heartbeat block that the
   JavaFX thread has not run for 2 s. Silence counts only while an implicit exit is possible at all
   (implicit exit on; never when the engine started the toolkit, since it switches implicit exit
-  off), and never while the JavaFX thread is running the engine's own work, such as building a
+  off; when an interrupted first start is retried, only when the retry is made off the JavaFX thread), and never while the
+  JavaFX thread is running the engine's own work, such as building a
   player on a cold start. A thread kept busy for 2 s by the app's own work while implicit exit is on
   is still taken for an exited one until it answers: that load fails with `RuntimeUnavailable`,
   which is not remembered, and the next load works. The first call or load after such an exit therefore takes up to

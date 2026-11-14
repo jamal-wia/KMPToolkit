@@ -2,7 +2,6 @@ package io.github.jamal_wia.kmptoolkit.video.player.javafx
 
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import javafx.application.Platform
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -137,10 +136,11 @@ internal object FxThread {
      * Whether this engine's own `Platform.startup` succeeded and the implicit exit it implies has not been switched off
      * yet. Sticky across a first start whose wait ended early (interrupted, or timed out as "busy, try again"): the retry
      * meets "Toolkit already initialized" for a toolkit this engine did start. Consumed (reset) once the switch is
-     * made, so a later call that finds the toolkit running leaves whatever policy the host chose since. An atomic,
-     * shared between threads (D-24).
+     * made, so a later call that finds the toolkit running leaves whatever policy the host chose since. A state flow
+     * rather than an atomic, like the other fields of this object that threads share (D-21/D-24); the consume is a
+     * `compareAndSet(true, false)`.
      */
-    private val engineStartedToolkit: AtomicBoolean = AtomicBoolean(false)
+    private val engineStartedToolkit: MutableStateFlow<Boolean> = MutableStateFlow(false)
 
     /**
      * Starts the toolkit, or confirms an already running one accepts work.
@@ -163,7 +163,7 @@ internal object FxThread {
                 noteToolkitThread()
                 started.countDown()
             })
-            engineStartedToolkit.set(true)
+            engineStartedToolkit.value = true
         } catch (e: IllegalStateException) {
             // "Toolkit already initialized" — the app, or an earlier player, started it.
             // After Platform.exit startup throws this too, and runLater would drop the block: wait for

@@ -31,6 +31,11 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   state this build does not recognize is removed without being returned, so its upload is not cancelled.
 - `kmptoolkit-uploader` (Android): `UploadTransportConfig` has a new constructor parameter (`journalDirectoryName`,
   last). Source compatible; code compiled against 4.x that calls its constructor or `copy` must be recompiled.
+- `kmptoolkit-notification-testing` and `kmptoolkit-scheduler-testing`: `RecordingNotifier` and
+  `RecordingAlarmScheduler` now record a snapshot of each notification or alarm taken at call time, so a later change
+  to the caller's lists and maps does not alter a recorded call. A consumer test that compares `posted[i].notification`
+  (or the one passed to `resultFor`) with `assertSame` or `===` now fails and must compare by value. No signature
+  changes.
 
 ### Added
 
@@ -47,7 +52,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-uploader`: the outcome journal's directory name is configurable -
   `UploadTransportConfig.journalDirectoryName` (Android, handler transport) and
   `BackgroundUploadConfig.journalDirectoryName` (iOS); the default `kmptoolkit-uploader` is unchanged, so existing
-  journals are found. On Android the name travels in the work request's input data
+  journals are found, and is public as `UploadTransportConfig.DEFAULT_JOURNAL_DIRECTORY_NAME` and
+  `BackgroundUploadConfig.DEFAULT_JOURNAL_DIRECTORY_NAME`. On Android the name travels in the work request's input data
   (`UploadHandlerWorker.JOURNAL_DIRECTORY_NAME_KEY`); a job enqueued by 4.x has none and uses the default. The
   five-argument `BackgroundUploadConfig` constructor of 4.x stays (Swift and Kotlin callers that pass all five
   arguments keep working; other code compiled against 4.x must be recompiled).
@@ -85,6 +91,20 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   versions are read and swept as before.
 - `kmptoolkit-uploader` (Android): temporary journal files in `outcomes-partial` are named
   `.kmptoolkit-<digits>.tmp`; leftovers of either naming are swept after an hour, as before.
+- `kmptoolkit-uploader-sqldelight`: a text that SQLite or a driver would change (a NUL, a lone surrogate, a leading
+  U+FEFF or U+FFFE) is stored in a compact escaped form behind a marker and comes back exactly as it went in; every
+  other text is stored as before, so rows written by 4.x read unchanged. The stored form of a row is bounded as
+  well (2,048,000 bytes of UTF-8 for its text columns together, besides the 1 MiB of the texts as given): an insert
+  over it is refused with `UploaderStorageException`, so a row the queue accepts always fits Android's cursor window.
+  A build older than 5.0.0 does not decode an escaped row: it returns the escaped text, marker included, and does not
+  find the row by the text that was enqueued; it reads every other row as before, so a downgrade is safe once no row
+  with such a text is queued.
+- `kmptoolkit-uploader`: `UploadRequest.toString()` and `UploadField.Text.toString()` no longer print the value of a
+  header or of a text field (the header names, the field name and the length of its value are printed), so a bearer
+  token or personal data no longer reaches a log or a crash report through a request.
+- `kmptoolkit-uploader`: `UploadResponse.headers` is read-only in fact, not only by its type: a cast of the map, of its
+  `keys`, `values` or `entries`, of their iterators or of an entry to a mutable type fails, where 4.x handed out a
+  mutable map for two or more headers.
 - `kmptoolkit-downloader` now depends on `kmptoolkit-files` (its lock registries, the Android tree walk, the no-replace
   rename and the SQLite sidecar names). The on-disk format and directory layout do not change; a unit whose id has an unpaired surrogate now
   gets hashed file names (Android could not create files named by such an id before).
@@ -120,16 +140,12 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   like that.
 - `kmptoolkit-scheduler` (Android): the saturation message and docs name a process death between arming a
   replacement and retiring the old alarm as a second cause; behaviour unchanged.
-- `kmptoolkit-notification-testing` and `kmptoolkit-scheduler-testing`: `RecordingNotifier` and
-  `RecordingAlarmScheduler` now record a snapshot of each notification or alarm taken at call time, so a later change
-  to the caller's lists and maps does not alter a recorded call; a consumer test that compares `posted[i].notification`
-  (or the one passed to `resultFor`) with `assertSame` or `===` now fails and must compare by value.
 - `kmptoolkit-permission` and `kmptoolkit-activity` docs: an `ActivityAccess` must outlive the permission controller built
   over it, and a special-access request over a released access waits until its caller is cancelled.
 - `kmptoolkit-permission` docs: a request cancelled while its dialog is up makes the next request wait on Android only;
   on iOS the queue is freed at once.
-- `kmptoolkit-permission` (iOS): `openSettings` logs a warning when the settings URL cannot be built or opened, as
-  the other failures of the controller do.
+- `kmptoolkit-permission` (iOS): `openSettings` now also logs a warning when the settings URL cannot be built (a URL
+  that could not be opened was already logged).
 
 ### Fixed
 
@@ -196,9 +212,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-downloader` (Android): the resource-size walk no longer follows a symbolic link inside a resource
   directory: a link counted its target's size, and a link cycle recursed until the stack overflowed. Recursive deletes,
   which already removed a link as a link, now share the same walk.
-- `kmptoolkit-downloader`: `getResourceSize` follows a symbolic link at the unit's path and reports the size of what it
-  points to, as `isResourceAvailable` already did: iOS reported the size of the link itself, and Android reported `0`
-  for a link to a directory, which now totals the target tree.
+- `kmptoolkit-downloader` (iOS): `getResourceSize` follows a symbolic link at the unit's path and reports the size of
+  what it points to, as `isResourceAvailable` already did; it reported the size of the link itself.
 - `kmptoolkit-downloader` (iOS): `getTempFileSize` and `tempFileState` follow a symbolic link at the temp path, as on
   Android; a dangling link is no temp file.
 - `kmptoolkit-downloader`: a symbolic link in place of the storage's internal trash directory is removed instead of
@@ -315,11 +330,46 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   same speed again did not help).
 - `kmptoolkit-video-player-javafx`: an interrupted first `isJavaFxMediaAvailable()` no longer disables JavaFX for the
   rest of the process (nor does a first load whose worker thread is interrupted), the interrupted thread keeps its
-  interrupt status, and a toolkit the engine started keeps implicit exit off when that first start had to be retried.
+  interrupt status, and a toolkit the engine started keeps implicit exit off when that first start had to be retried
+  (when the retry is made off the JavaFX thread).
 - `kmptoolkit-video-player-javafx`: on macOS a looping clip at a speed other than 1 that was paused right as it
   wrapped no longer stands still at its start now and then when it is played again, however long the pause.
 - `kmptoolkit-video-player-javafx`: switching `RepeatMode.One` on at the very moment a clip ends no longer leaves the
   player `Playing` at the end without looping or completing; the clip starts over and loops.
+- `kmptoolkit-uploader`: `ExponentialBackoffRetryPolicy` follows the documented `min(maxDelayMillis, base * 2^(n-1))`
+  for every failure count: it no longer stops doubling at `2^20` times the base (a 1 ms base under a one-hour ceiling
+  stayed at about 17 minutes), and a count of `Int.MIN_VALUE` is read as `1`, as documented, instead of as a huge one.
+  An item that already holds `Int.MAX_VALUE` failures is still parked or dropped by its give-up policy instead of its
+  count wrapping negative.
+- `kmptoolkit-uploader` (Android): an answer without a final HTTP status (a non-HTTP reply, or an interim `1xx` handed
+  back as the answer) is a `TransportFailure` instead of `Completed` with that status, and an answer body that
+  declares a `Content-Length` (with no content encoding or chunked transfer) is read up to that length, so bytes a
+  confused server or proxy sends behind it are not part of the captured body.
+- `kmptoolkit-scheduler`: `schedule` (Android, iOS) and `cancelAll` (iOS) copy the alarm's payload or the ids when they
+  are called, not after they have waited for the scheduler's lock, so a caller that edits or reuses its map or
+  collection meanwhile no longer changes the alarm armed or the ids cancelled.
+- `kmptoolkit-notification`: `post` takes one copy of the caller's `actions`, `contentExtras` and `actionIcons` before
+  it suspends, and renders the frame, compares it with the progress baseline and writes the tap target from that copy,
+  so a caller that edits its own lists and maps while a post is in flight (or edits and restores them) can no longer
+  make the tray show something other than the baseline describes, or a later frame compare equal to itself.
+- `kmptoolkit-video-player-vlcj`: a seek in flight when the source's end is reported is no longer lost: the player
+  resumes from the seek's target when it plays again.
+- `kmptoolkit-video-player-vlcj`: between the wrap of a looping source and its restart the position reads the start,
+  not the end of the cycle that ended.
+- `kmptoolkit-video-player-vlcj`: a libvlc clock read that throws no longer stops the position updates; the last known
+  position stands and the next poll reads again.
+- `kmptoolkit-video-player-vlcj`: a volume or rate that libvlc refuses when output begins no longer leaves a pending
+  seek unapplied.
+- `kmptoolkit-video-player-vlcj`: a picture of more than `Int.MAX_VALUE` pixels is dropped instead of being given an
+  array of a wrapped size.
+- `kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx`: a classpath `Asset` whose name has a character
+  outside the Basic Multilingual Plane (an emoji) plays, from a directory and from a jar.
+- `kmptoolkit-video-player-vlcj`: the temporary copy of a jar asset keeps the asset's extension only when it is plain
+  (1 to 16 letters, digits, `_` or `-`); any other extension becomes `.tmp`.
+- `kmptoolkit-video-player-javafx`: a jar asset served by a class loader that does not percent-encode its URLs now
+  plays.
+- `kmptoolkit-video-player-javafx`: a `VideoSource.File` that cannot be read fails at once with
+  `FileNotFoundException` instead of with a `MediaException` after several seconds.
 
 ### Known issues
 

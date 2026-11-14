@@ -121,7 +121,7 @@ class ResumeAtWrapD2Boss1B6ModelTest {
      * is not frozen and moves on.
      */
     @Test
-    fun aStartWithinHalfASecondOfAWrapPlaysWithoutASeekAndGivesTheSpeedAfterTwoHundredMillisecondsOfMovement() {
+    fun aStartWhileThePlayerStandsWhereTheLoopRestartedPlaysWithoutASeekAndGivesTheSpeedAfterTwoHundredMillisecondsOfMovement() {
         for (unity: Boolean in listOf(true, false)) {
             for (gapMs: Long in listOf(0L, 5L, 50L, 200L, 450L)) {
                 val seen: Observation = observe(gapMs, unity)

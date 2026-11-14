@@ -78,7 +78,8 @@ when (val state = player.stateFlow.value) {
 - **`MediaException.type`** distinguishes, among others, `MEDIA_INACCESSIBLE` (connection refused),
   `MEDIA_UNAVAILABLE` (an HTTP 404 on macOS, after a few seconds), `MEDIA_UNSUPPORTED` (a format
   JavaFX does not decode) and `MEDIA_CORRUPTED`. A failure during playback (a network drop
-  mid-stream) arrives the same way, as `Error(MediaException)`.
+  mid-stream) is meant to arrive the same way, as `Error(MediaException)`; this is not measured on every platform, and
+  on macOS a dropped connection may leave the player stalled instead.
 - A `Remote` URL JavaFX rejects before it opens anything arrives as `IllegalArgumentException`
   (unparseable, no scheme) or `UnsupportedOperationException` (unknown protocol), in the `else`
   branch above.
