@@ -24,7 +24,8 @@ internal typealias JcaRandom = SecureRandom
 /**
  * THE JCA boundary of `kmptoolkit-storage` (decisions D-P12): every `Cipher`, `SecretKeyFactory`, `SecureRandom`,
  * `MessageDigest` and `Base64` use of the module's JVM code goes through this object, and nothing else imports `java.security`,
- * `javax.crypto` or `java.util.Base64` (`JcaBoundaryScanTest` fails the build of the tests when a file does). Three rules live
+ * `javax.crypto` or `java.util.Base64` (`JcaBytecodeScanTest`, on the compiled classes, and `JcaBoundaryScanTest`, on the sources, fail
+ * when a class of the desktop code does; the Android store's Keystore code is out of their scope). Three rules live
  * here and nowhere else, which is the point of the boundary:
  *
  * 1. **A provider failure is one typed failure.** Whatever a JCA engine throws while it works, short of an `Error` (a
@@ -33,7 +34,8 @@ internal typealias JcaRandom = SecureRandom
  *    from a broken engine, or a `Throwable` that is neither an `Exception` nor an `Error`) leaves as a [JcaFailure] with the
  *    original as the cause. The JCA specifies different exceptions for different engines and every audit round of 6.0.0 found one
  *    more shape; catching every `Throwable` of the provider call but an `Error` closes the class. Only the provider call itself is
- *    inside the catch: the callers' own argument checks stay outside and keep their types.
+ *    inside the catch: the callers' own argument checks stay outside and keep their types. An `InterruptedException` is typed like
+ *    the rest and the thread's interrupt status is restored.
  * 2. **"Wrong key or tampered" is decided in one place** ([aesGcmOpen]), and only a GCM tag that does not verify says it. Nothing a
  *    provider fails with in any other way can read as lost data (that verdict makes an app delete things).
  * 3. **An `Error` is never typed.** `OutOfMemoryError`, `StackOverflowError` and `InternalError` are `VirtualMachineError`s; after
@@ -62,6 +64,9 @@ internal object Jca {
             throw failure
         } catch (error: Throwable) {
             if (error is Error) throw error
+            // A provider that was interrupted (a PKCS#11 token call, a blocking entropy read) says so by throwing InterruptedException,
+            // which clears the thread's status: the status is put back, so a caller that polls it still sees the interrupt.
+            if (error is InterruptedException) Thread.currentThread().interrupt()
             throw JcaFailure("The $what provider failed", error)
         }
 
