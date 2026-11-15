@@ -74,7 +74,9 @@ public class DeviceIdProvider(
             // holds a blank value — a store hand-edited in a debug build, or a partial restore. All of
             // them mean "there is no usable id here", and overwriting is the only way out of the last two.
             val generated: String = Uuid.random().toString()
-            storage.put(key, generated)
+            // A failed write is ignored on purpose: the documented degradation is an id that is returned
+            // for this call and not persisted, and the next call tries again.
+            val _ = storage.put(key, generated)
             generated
         }
     }

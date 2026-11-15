@@ -21,6 +21,7 @@ package io.github.jamal_wia.kmptoolkit.storage
  * the `...Or` helpers do — turns "unreadable" into "signed out"; those helpers are deprecated on this
  * type for that reason. Use `get` and handle [StorageResult.Failure].
  */
+@MustUseReturnValues
 public interface EncryptedKeyValueStorage : KeyValueStorage {
 
     /**

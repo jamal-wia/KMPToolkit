@@ -36,6 +36,7 @@ package io.github.jamal_wia.kmptoolkit.storage
  * Nothing here is encrypted. For values that must not be readable from a device backup or a rooted
  * phone, use an [EncryptedKeyValueStorage] — [SecureKeyValueStorage] where an OS key store holds the key.
  */
+@MustUseReturnValues
 public interface KeyValueStorage {
 
     /**

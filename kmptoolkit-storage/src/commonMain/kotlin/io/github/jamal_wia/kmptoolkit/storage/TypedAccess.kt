@@ -1,3 +1,5 @@
+@file:MustUseReturnValues
+
 package io.github.jamal_wia.kmptoolkit.storage
 
 /*
