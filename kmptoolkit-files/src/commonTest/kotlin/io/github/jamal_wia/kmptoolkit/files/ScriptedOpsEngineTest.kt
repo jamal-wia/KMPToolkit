@@ -40,9 +40,9 @@ private class ScriptedOps(override val windowsPaths: Boolean = false, var now: L
             .map { it.substring(prefix.length) }
     }
 
-    override fun createDirectory(path: String) = throw AssertionError("unexpected createDirectory $path")
+    override fun createDirectory(path: String, ownerOnly: Boolean) = throw AssertionError("unexpected createDirectory $path")
 
-    override fun createNew(path: String, protection: FileProtection): WritableFile {
+    override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile {
         created += path
         throw FileOpException(FileError.AccessDenied(path))
     }

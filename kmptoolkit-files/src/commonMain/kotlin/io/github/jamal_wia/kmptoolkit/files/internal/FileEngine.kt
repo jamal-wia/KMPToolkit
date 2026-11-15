@@ -155,9 +155,9 @@ internal class FileEngine(
 
     // ---- directories ------------------------------------------------------------------------------
 
-    override fun createDirectories(path: String, durable: Boolean): FileResult<Unit> {
+    override fun createDirectories(path: String, durable: Boolean, ownerOnly: Boolean): FileResult<Unit> {
         val created: MutableList<String> = ArrayList()
-        val made: FileResult<Unit> = createDirectoriesTracking(path, created)
+        val made: FileResult<Unit> = createDirectoriesTracking(path, created, ownerOnly)
         if (made is FileResult.Failure || !durable || created.isEmpty()) return made
         val target: String = rules.withoutTrailingSeparators(path)
         return attempt(target) {
@@ -185,7 +185,11 @@ internal class FileEngine(
      * [createDirectories] that appends to [created], outermost first, each level this call itself created or lost
      * the creation race for (found to be a directory after [FileError.AlreadyExists]).
      */
-    private fun createDirectoriesTracking(path: String, created: MutableList<String>): FileResult<Unit> {
+    private fun createDirectoriesTracking(
+        path: String,
+        created: MutableList<String>,
+        ownerOnly: Boolean,
+    ): FileResult<Unit> {
         if (!isValid(path)) return invalid(path)
         val target: String = rules.withoutTrailingSeparators(path)
         return attempt(target) {
@@ -202,7 +206,7 @@ internal class FileEngine(
             }
             for (level: String in missing) {
                 try {
-                    ops.createDirectory(level)
+                    ops.createDirectory(level, ownerOnly)
                     created += level
                 } catch (e: FileOpException) {
                     if (e.error !is FileError.AlreadyExists) throw e
@@ -264,11 +268,16 @@ internal class FileEngine(
     // ---- writing ----------------------------------------------------------------------------------
 
     /** Creates a temp file `<dir>/<prefix><digits>.tmp` exclusively; retries a name clash up to [MAX_TEMP_ATTEMPTS] times. */
-    private fun createTemp(directory: String, prefix: String, protection: FileProtection): Pair<String, WritableFile> {
+    private fun createTemp(
+        directory: String,
+        prefix: String,
+        protection: FileProtection,
+        ownerOnly: Boolean,
+    ): Pair<String, WritableFile> {
         repeat(MAX_TEMP_ATTEMPTS) {
             val temp: String = rules.join(directory, newTempName(prefix))
             try {
-                return temp to ops.createNew(temp, protection)
+                return temp to ops.createNew(temp, protection, ownerOnly)
             } catch (e: FileOpException) {
                 if (e.error !is FileError.AlreadyExists) throw e
             }
@@ -288,10 +297,10 @@ internal class FileEngine(
             // The levels this call created below the target: SyncedWithDirectory must make each one durable.
             val createdLevels: MutableList<String> = ArrayList()
             if (options.createParentDirectories) {
-                val made: FileResult<Unit> = createDirectoriesTracking(parent, createdLevels)
+                val made: FileResult<Unit> = createDirectoriesTracking(parent, createdLevels, options.ownerOnly)
                 if (made is FileResult.Failure) return made
                 if (tempDirectoryOption != null) {
-                    val madeTemp: FileResult<Unit> = createDirectories(tempDirectoryOption)
+                    val madeTemp: FileResult<Unit> = createDirectories(tempDirectoryOption, ownerOnly = options.ownerOnly)
                     if (madeTemp is FileResult.Failure) return madeTemp
                 }
             }
@@ -301,7 +310,7 @@ internal class FileEngine(
                 return FileResult.Failure(FileError.AlreadyExists(target))
             }
             val prefix: String = options.tempPrefix ?: config.tempPrefix
-            val (temp: String, file: WritableFile) = labeled(tempDirectory) { createTemp(tempDirectory, prefix, options.protection) }
+            val (temp: String, file: WritableFile) = labeled(tempDirectory) { createTemp(tempDirectory, prefix, options.protection, options.ownerOnly) }
             var settled: Boolean = false
             try {
                 var closed: Boolean = false
@@ -415,7 +424,7 @@ internal class FileEngine(
         cancellation: CancellationCheck,
     ): FileResult<Unit> {
         val directory: String = rules.parentOf(to) ?: return invalid(to)
-        val (temp: String, out: WritableFile) = labeled(directory) { createTemp(directory, config.tempPrefix, FileProtection.Default) }
+        val (temp: String, out: WritableFile) = labeled(directory) { createTemp(directory, config.tempPrefix, FileProtection.Default, ownerOnly = false) }
         var settled: Boolean = false
         try {
             var outClosed: Boolean = false

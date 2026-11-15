@@ -41,8 +41,20 @@ public interface FileAccess {
      * is synced into its parent before Success is returned (iOS: one `F_FULLFSYNC`). Directories that existed before
      * are assumed durable. Without [durable] nothing is synced, so a power loss shortly after the call can lose the
      * new directories. A sync failure is [FileError.Io]; the directories then exist but may not be durable.
+     *
+     * With [ownerOnly], every directory this call creates is accessible to its owner only, from the moment it exists:
+     * POSIX mode 0700; Windows an explicit DACL that grants only the current user and SYSTEM (inheritable by the entries
+     * below it; no inherited entry at creation, but not protected against a later re-propagation from the parent). A
+     * directory that already existed, including one a concurrent caller created first, is never changed. Ignored,
+     * never an error, on a volume without permissions (FAT, exFAT: the request is passed and the volume disregards it),
+     * on Android and on iOS. See [WriteOptions.ownerOnly] for files.
+     *
+     * Adding [ownerOnly] removes the `(String, Boolean)` signature from the binary interface: a library compiled
+     * against 5.0.0 that calls this function must be recompiled, and implementations of this interface written against
+     * 5.0.0 must add the parameter.
+     * @since 6.0.0 for [ownerOnly]
      */
-    public fun createDirectories(path: String, durable: Boolean = false): FileResult<Unit>
+    public fun createDirectories(path: String, durable: Boolean = false, ownerOnly: Boolean = false): FileResult<Unit>
 
     /**
      * The whole content of the file at [path] (links followed), at most [maxBytes] bytes.

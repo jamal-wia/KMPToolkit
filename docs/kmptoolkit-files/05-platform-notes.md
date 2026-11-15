@@ -138,6 +138,61 @@ system's SELinux policy and `targetSdk`; this has not been verified on a device 
 [Owner checks](#owner-checks-device-only)). Until it is, do not build a flow that relies on
 `ExistingFile.Fail` succeeding on Android; handle `Unsupported`.
 
+## Owner-only files and directories
+
+`WriteOptions.ownerOnly` and `createDirectories(ownerOnly = true)` (since 6.0.0) restrict what the call
+creates, at the moment of creation, through the attribute argument of the creating call
+(`FileChannel.open` with `CREATE_NEW`, `Files.createDirectory`), never by a change afterwards. A change
+afterwards would leave a window in which the new name is readable, and would silently tighten a
+directory the app does not own.
+
+| Platform | Files | Directories this call creates | Existing directory |
+|---|---|---|---|
+| Linux and macOS (desktop JVM) | POSIX mode 0600 (`rw-------`) | 0700 (`rwx------`) | never changed |
+| Windows (desktop JVM) | explicit DACL of two allow entries, the current user and SYSTEM, with no inherited entry at creation (not protected against a later re-propagation, see below) | the same two entries, inheritable by files and directories created inside | never changed |
+| FAT, exFAT and other volumes that store no permissions | the attribute is passed and the volume disregards it: the write succeeds, the file has what the volume gives it (not verified on a real volume yet, see below) | the same | never changed |
+| Android (every API level) | ignored: the app sandbox already hides the files | ignored | never changed |
+| iOS | ignored: the app sandbox already hides the files | ignored | never changed |
+
+- The mode is set on the temporary file, so the renamed file keeps it and an external `chmod 644` of
+  the old file is undone by the next `ownerOnly` write. `ExistingFile.Fail` links the same temporary
+  file, so it has the same mode.
+- The POSIX modes are subject to the process umask only in the restricting direction: a more
+  restrictive umask can make a file stricter than 0600, never wider.
+- Windows: the DACL is passed to the creating call, so the file does not first exist with the parent's
+  inherited entries. It is explicit and has no inherited entry at creation, but it does not carry the
+  protected flag (the JDK cannot set it): a later re-propagation of the parent's inheritable entries
+  (Explorer "replace all child permissions", `icacls /inheritance`, `Set-Acl` on the parent) merges them
+  into the file or directory. Protect the directory itself, or set the protected flag from code with
+  native access, if that matters.
+- Windows principals: the user is the user of the process token, qualified as `DOMAIN\name` from the
+  JDK's `NTSystem` (module `jdk.security.auth`, reached by reflection so Android compiles); the
+  `user.name` system property is never read, because any code in the process can change it and a bare
+  name is looked up among the local accounts before the domain ones. SYSTEM is looked up as
+  `NT AUTHORITY\SYSTEM`, then as `SYSTEM`. If a name cannot be resolved, or the JDK has no `NTSystem`
+  (a runtime image without `jdk.security.auth`), the write fails with `FileError.Io`, closed, rather than
+  creating a file without the restriction.
+- A provider that refuses the permission attribute at creation (`FileError.Unsupported`) fails the call
+  and creates nothing: there is no retry without the attribute, because that could only create the entry
+  with wider access. The default file system of the JVM never does this; the posix view is reported
+  by Linux and macOS and the acl view by Windows, whichever volume the path is on.
+- FAT and exFAT: the provider still reports the posix (Linux, macOS) or acl (Windows) view, so the
+  attribute is passed to the creating call and the volume, which has nowhere to store it, disregards it.
+  This is expected, not yet observed: the plan's check on a loop-mounted FAT/exFAT image is run by hand
+  with `OwnerOnlyFatVolumeT10Test` (`-Pkmptoolkit.test.fatVolumeDirectory=<mounted directory>`).
+  On a macOS FAT or exFAT volume the OS itself puts a `._name` AppleDouble sidecar (it holds the
+  `com.apple.provenance` extended attribute) beside every new file and directory, whichever process creates it;
+  it follows the rename and is not a temporary file left by the library (the test ignores `._*` names).
+- `ownerOnly` protects reading, not replacement: if an existing parent directory is writable by other
+  users, they can rename over or delete the file; the levels that already exist are never tightened,
+  and a symbolic link among them is followed.
+- A cross-volume `move` or `copy` of an owner-only file creates its temporary file on the target volume
+  with the default access (`ownerOnly` is not part of `move`); a same-volume `move` is a rename and keeps it.
+- "Ignored" is deliberate: an unsupported volume must not make a write fail, and the data of a
+  desktop secret store is ciphertext, so owner-only there is defence in depth.
+- The permission of a file already written is not part of the contract: only the `ownerOnly` call
+  sets it, and a call without it leaves the platform default (umask, inherited ACL).
+
 ## `F_FULLFSYNC` and directory sync
 
 Only `Durability.SyncedWithDirectory` uses `F_FULLFSYNC` on iOS: `fcntl(fd, F_FULLFSYNC)` on the
