@@ -121,21 +121,30 @@ check: read the skip count of every run.
    ```
 
    Read the last line of the `---- smoke <variant> ----` block the task prints. `SMOKE-RESULT: PASS`: both round trips
-   passed through the real native binding. `SMOKE-RESULT: PASS-WITH-SKIP (...)`: the secure round trip was skipped (no key
-   store, a locked keychain, a session without one), which is **not** a pass of the secure path: run again in a logged-in
-   session, or pass `-Pkmptoolkit.secretstore.required=true` to make a skip a failure. A failed task means a missing keep
-   rule (the output names the binding class that could not be loaded), a missing native-access flag or a packaging error:
-   fix the rule in the library's `META-INF/proguard/*.pro`, never in the smoke build. The smoke feeds ProGuard exactly the
-   `META-INF/proguard/*.pro` files of the runtime jars, because ProGuard (unlike R8) does not read them itself; a desktop app that
-   shrinks with ProGuard must do the same. A secure run leaves one item labelled "KMPToolkit packaging smoke (safe to
-   delete)" in the login keychain, which the next run reuses. Options: `-Psmoke.probeOnly=true` (probe only, touches no key),
-   `-Psmoke.javaHome25=<dir>` and `-Psmoke.javaHome21=<dir>` (a full JDK with jmods and jpackage). Two negative controls
-   must fail: `-Psmoke.control.noLibraryRules=true` and `-Psmoke.control.noNativeAccessFlag=true`.
+   passed through the real native binding. `SMOKE-RESULT: PASS-WITH-SKIP (...)`: the secure round trip did not run, which is
+   **not** a pass of the secure path. It was skipped because the probe found no usable key store (no key store, a locked
+   keychain or collection while dialogs are off, a session without one), or not run because of `-Psmoke.probeOnly=true` or
+   because the probe found a key store whose item the smoke cannot remove afterwards (only the macOS keychain and Windows DPAPI
+   are supported, so a Linux Secret Service run ends here). Run again in a logged-in session on a supported system, or pass
+   `-Pkmptoolkit.secretstore.required=true` to make every one of those a failure (it contradicts `-Psmoke.probeOnly=true`,
+   which the run refuses). A probe that answers `Unavailable` with a cause (a native call that hung or errored) is a failure,
+   never a skip. A failed task means a missing keep rule (the output names the binding class that could not be loaded), a
+   missing native-access flag or a packaging error: fix the rule in the library's `META-INF/proguard/*.pro`, never in the
+   smoke build. The smoke feeds ProGuard exactly the `META-INF/proguard/*.pro` files of the runtime jars, because ProGuard
+   (unlike R8) does not read them itself; a desktop app that shrinks with ProGuard must do the same.
 
-   **The oldest FFM runtime.** The build's test launcher for the FFM binding is JDK 25 and its sources are checked against the
-   JDK 22 API on every build, but only a run proves JDK 22 itself: once per release run
-   `./gradlew :smoke-storage-desktop:smokeFfm -Psmoke.javaHome25=<a JDK 22 installation>` and
-   read the result line as above.
+   The smoke's own checks (`:smoke-storage-desktop:<variant>:test`: the verdict rules and the key-item removal) run before the
+   packaged app. A secure run leaves nothing behind: the app uses a store name that is new on every run, deletes its data and
+   removes the key item it created through the binding seam, and on macOS the task then asks `security` for an item labelled
+   "KMPToolkit packaging smoke (safe to delete)" and fails if one is left (the command to remove it is in the message).
+   Options: `-Psmoke.probeOnly=true` (probe only, touches no key), `-Psmoke.javaHome25=<dir>` (used by `smokeFfm`) and
+   `-Psmoke.javaHome21=<dir>` (used by `smokeJna`): a full JDK with jmods and jpackage whose `release` file says that
+   version; any other JDK is refused. Two negative controls must fail: `-Psmoke.control.noLibraryRules=true` (either variant)
+   and `-Psmoke.control.noNativeAccessFlag=true` (`smokeFfm` only; the JNA variant never passes the flag).
+
+   **The oldest FFM runtime.** The FFM sources are compiled against the JDK 22 API on every build; the packaging smoke
+   packages with JDK 25 only (`verifyPackagingJdk` refuses another JDK for `smokeFfm`), so a run on JDK 22 itself is not part
+   of this check.
 
    Signing and notarisation are not covered. With an Apple Developer ID, additionally build a signed and notarised
    app of a plain-store-only host and record the result in the release notes; a notarised app that adds
