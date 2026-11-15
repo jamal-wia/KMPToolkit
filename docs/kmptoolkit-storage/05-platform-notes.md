@@ -287,8 +287,13 @@ app sharing that code with desktop could not compile it for desktop without the 
     update can be lost. **Load the library once per JVM, in a shared parent class loader, wherever several processes
     write one store.** With one copy of the library none of this applies.
   - A lock file the process cannot create or open (a read-only directory, a lock path that is a directory, a lock path that is a
-    symbolic link whose target does not exist) fails the write with `OperationFailed` at once, not after the wait limit. Reads
-    are unaffected.
+    symbolic link whose target does not exist) fails the write with `OperationFailed` at once, not after the wait limit. So does
+    a lock path that is not a regular file (a named pipe, a device, a socket, or a link to one): the library never opens it,
+    because opening a named pipe blocks until another program opens its other end, and no time limit or cancellation can end
+    that. The same rule covers the properties file of the plain store: a path that is a named pipe fails every operation with
+    `OperationFailed` and the pipe is never replaced. A thread that is interrupted while it takes the lock (the JDK then
+    closes the file channel) fails that write with `OperationFailed` too; it is not taken for a file system without locks, so
+    the plain store never writes unlocked because of an interrupt. Reads are unaffected by a lock path.
   - **A file system that refuses file locks** (the lock file opens but `FileChannel.tryLock` itself throws an
     `IOException`: NFS without a reachable lock daemon, some FUSE mounts) does not stop the plain store: such a write is
     coordinated within this process only, as before 6.0.0, and is still atomic, so a second process can lose an update there.

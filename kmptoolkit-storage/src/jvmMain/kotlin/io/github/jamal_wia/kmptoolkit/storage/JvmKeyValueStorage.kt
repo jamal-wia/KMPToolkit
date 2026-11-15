@@ -13,6 +13,7 @@ import io.github.jamal_wia.kmptoolkit.files.WriteOptions
 import io.github.jamal_wia.kmptoolkit.files.createFileAccess
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.LockAcquisition
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.refuseUnlessRegularOrAbsent
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -185,6 +186,8 @@ internal class JvmKeyValueStorage(
         // Files.newInputStream, not FileInputStream: NIO opens with share-delete, so on Windows an open reader cannot make
         // another process's atomic rename fail.
         val input: java.io.InputStream = try {
+            // A named pipe would block this open forever (a lost I/O thread, a held in-process lock): the file must be a regular one.
+            refuseUnlessRegularOrAbsent(file.toPath(), "The storage file")
             Files.newInputStream(file.toPath())
         } catch (_: NoSuchFileException) {
             return properties

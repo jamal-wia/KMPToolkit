@@ -10,6 +10,7 @@ import io.github.jamal_wia.kmptoolkit.files.createFileAccess
 import io.github.jamal_wia.kmptoolkit.storage.jvmStorageLockKey
 import java.io.File
 import java.io.IOException
+import java.nio.channels.ClosedByInterruptException
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
@@ -137,8 +138,9 @@ internal sealed interface LockAcquisition {
  *   between its write and its rename, which the file layer reports as `NotFound`. That failure is re-checked: if the lock
  *   file exists now, locking goes on; otherwise creation is retried on the next poll until the budget ends, and only then
  *   answered [LockAcquisition.Failed] with the last cause. Every other failure (an I/O error, access denied, no space, a
- *   name too long, a path that is not a directory, a lock file that is a symbolic link with no target) is answered at once: it would repeat, and a write must not take the
- *   whole budget to say so.
+ *   name too long, a path that is not a directory, a lock file that is a symbolic link with no target, a lock file that is not a
+ *   regular file (a named pipe, whose open would block forever, a device, a directory), an interrupted thread) is answered at
+ *   once: it would repeat, and a write must not take the whole budget to say so.
  *
  * Blocking I/O: call it from the store's I/O dispatcher. The deadline and poll interval are constructor parameters so a
  * test can shorten them; production uses [LOCK_DEADLINE] and [POLL_INTERVAL]. [tryLock] is a test seam (the only way to
@@ -246,6 +248,8 @@ internal class CrossProcessLock(
             }
             val reused: ParkedChannel? = parkedFor(claimKey, lockFile)
             val channel: FileChannel = reused?.channel ?: try {
+                // A named pipe would block this open forever, past the budget and past cancellation: see the function.
+                refuseUnlessRegularOrAbsent(lockFile.toPath(), "The lock file")
                 FileChannel.open(lockFile.toPath(), StandardOpenOption.WRITE)
             } catch (error: NoSuchFileException) {
                 // A link whose target is missing: the name is taken (it cannot be created) and opening follows it (it cannot be
@@ -263,6 +267,12 @@ internal class CrossProcessLock(
                 // Another handle of this JVM (a second copy of the library) holds it: keep this channel open, see the KDoc.
                 if (reused == null) PARKED[claimKey] = ParkedChannel(channel, fileKeyOf(lockFile))
                 return Attempt.Busy
+            } catch (error: ClosedByInterruptException) {
+                // The thread was interrupted: that is this call's failure, not a file system without locks (the plain store
+                // would write unlocked on it). The JDK closed the channel already (closing again is a no-op); a parked one is
+                // therefore no longer parked.
+                if (reused != null) PARKED.remove(claimKey, reused) else channel.close()
+                return Attempt.Broke(error)
             } catch (error: IOException) {
                 if (reused == null) channel.close()
                 return Attempt.Unsupported(error)
