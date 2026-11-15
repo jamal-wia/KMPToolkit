@@ -8,7 +8,14 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
@@ -30,6 +37,7 @@ import org.robolectric.annotation.Config
  * to 29 survives here and is equivalent under the shadow. API 28 still runs, to pin that the answer there is the
  * toggle's.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [24, 26, 28, 29, 30, 35])
 class IsLocationEnabledApiMatrixTest {
@@ -91,5 +99,33 @@ class IsLocationEnabledApiMatrixTest {
             // Below API 28 the answer is the provider list (the platform method does not exist there).
             assertEquals(false, enabled(), "no provider flag on, API $level reads the provider list")
         }
+    }
+
+    @Test
+    fun `observeLocationEnabled emits at once and on every broadcast and only when the value changes`() = runTest(timeout = 60.seconds) {
+        shadowOf(manager).setProviderEnabled(LocationManager.GPS_PROVIDER, true)
+        shadowOf(manager).setLocationEnabled(true)
+        val seen: MutableList<Boolean> = mutableListOf()
+        val job: Job = backgroundScope.launch { provider.observeLocationEnabled().collect { value: Boolean -> seen += value } }
+        runCurrent()
+        assertEquals(listOf(true), seen, "API $level: emitted at once")
+
+        shadowOf(manager).setProviderEnabled(LocationManager.NETWORK_PROVIDER, true)
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        runCurrent()
+        assertEquals(listOf(true), seen, "API $level: a broadcast that changes nothing is not emitted (distinct)")
+
+        shadowOf(manager).setLocationEnabled(false)
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        runCurrent()
+        assertEquals(false, seen.last(), "API $level: the toggle off")
+
+        shadowOf(manager).setLocationEnabled(true)
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        runCurrent()
+        assertEquals(true, seen.last(), "API $level: the toggle back on")
+        val receivers: Int = shadowOf(application).registeredReceivers.size
+        job.cancelAndJoin()
+        assertEquals(receivers - 1, shadowOf(application).registeredReceivers.size, "API $level: the receiver is released on cancel")
     }
 }
