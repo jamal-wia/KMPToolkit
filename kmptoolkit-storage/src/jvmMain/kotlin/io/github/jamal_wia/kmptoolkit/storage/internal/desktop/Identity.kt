@@ -53,16 +53,33 @@ internal class StoreIdentity(
          * normalization forms, so the same file may be spelled NFC when created and NFD afterwards (HFS+), and NFC makes both
          * one identity without ever merging two files; on Linux and Windows the form is kept as the volume stores it.
          *
-         * @throws IOException when the stored name does not end in [SECURE_FILE_SUFFIX]. Without a link every store file ends in it,
-         *   but the real path of a file the user LINKED to can be any name, and stripping the suffix "when present" would give
-         *   `X` and `X.bin` one service: two store files, one key item, a create of one deleting the other's key.
+         * The stored name must end in [SECURE_FILE_SUFFIX], and the service is the name without it. The suffix is matched byte for
+         * byte, except in ASCII case when [configuredNameIsLink] answers `false` (it is asked only then): without a link at the
+         * store's own configured name, the resolved name IS the configured file as the volume spells it, and on a volume that folds
+         * case (APFS and HFS+ by default, NTFS, ext4 casefold) the configured `x.bin` and a stored `x.BIN` are one file, so refusing
+         * the stored spelling would lock the store's own file out for good. On a volume that tells `x.bin` and `x.BIN` apart the
+         * configured name without a link can only resolve to `x.bin`. With a link, the target can be any name and only the exact
+         * suffix is accepted, whatever the case folding of the volume. Only ASCII is folded: a look-alike (a dotless `i`, a
+         * fullwidth letter, a combining mark) is never the suffix.
+         *
+         * @throws IOException when the stored name does not end in the suffix by that rule. The real path of a file the user LINKED
+         *   to can be any name, and stripping the suffix "when present" would give `X` and `X.bin` one service: two store files,
+         *   one key item, a create of one deleting the other's key.
          */
-        fun of(real: RealStorePath, normalizeUnicode: Boolean): StoreIdentity {
-            if (!real.name.endsWith(SECURE_FILE_SUFFIX) || real.name.length == SECURE_FILE_SUFFIX.length) {
-                throw IOException("The store file resolves to a name without the $SECURE_FILE_SUFFIX suffix")
-            }
+        fun of(real: RealStorePath, normalizeUnicode: Boolean, configuredNameIsLink: () -> Boolean = { true }): StoreIdentity {
+            val name: String = real.name
+            val hasSuffix: Boolean = name.length > SECURE_FILE_SUFFIX.length &&
+                (name.endsWith(SECURE_FILE_SUFFIX) || (hasSuffixInAnyAsciiCase(name) && !configuredNameIsLink()))
+            if (!hasSuffix) throw IOException("The store file resolves to a name without the $SECURE_FILE_SUFFIX suffix")
             fun form(text: String): String = if (normalizeUnicode) Normalizer.normalize(text, Normalizer.Form.NFC) else text
-            return StoreIdentity(form(real.name.removeSuffix(SECURE_FILE_SUFFIX)), directoryHex(form(real.directory)))
+            return StoreIdentity(form(name.dropLast(SECURE_FILE_SUFFIX.length)), directoryHex(form(real.directory)))
+        }
+
+        /** Whether [name] ends in `.bin` with the three letters in any ASCII case (and nothing else folded). */
+        private fun hasSuffixInAnyAsciiCase(name: String): Boolean {
+            val tail: String = name.takeLast(SECURE_FILE_SUFFIX.length)
+            return tail.length == SECURE_FILE_SUFFIX.length && tail[0] == '.' &&
+                (tail[1] == 'b' || tail[1] == 'B') && (tail[2] == 'i' || tail[2] == 'I') && (tail[3] == 'n' || tail[3] == 'N')
         }
 
         /** The identity of the store [name] in [directory] on macOS rules, resolved on the real file system. For tests. */

@@ -208,6 +208,13 @@ internal class EncryptedFileGuard(
         fun isLinkWithoutTarget(): Boolean =
             Files.isSymbolicLink(file.toPath()) || Files.isSymbolicLink(this@EncryptedFileGuard.file.absoluteFile.toPath())
 
+        /**
+         * Whether the store's own configured name (not the resolved one) is a symbolic link: the one fact that decides if the stored
+         * spelling of the suffix may differ from the configured one only by case (see [StoreIdentity.of]). Metadata of the name itself,
+         * never an open.
+         */
+        fun configuredNameIsLink(): Boolean = Files.isSymbolicLink(this@EncryptedFileGuard.file.absoluteFile.toPath())
+
         /** Writes the whole file atomically, owner-only, synced. Returns `false` only for [ExistingFile.Fail] when a file is there. */
         fun write(bytes: ByteArray, existing: ExistingFile): Boolean {
             // A file over the limit would be read back as unparsable and quarantined by the next put: the engine refuses

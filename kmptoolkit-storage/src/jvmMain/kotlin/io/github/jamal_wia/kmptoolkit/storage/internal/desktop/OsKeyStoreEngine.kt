@@ -84,7 +84,7 @@ internal class OsKeyStoreEngine(
 
     /** The identity of the file of this round, from its real path. Never memoised: see the class KDoc. */
     private fun identityOf(store: EncryptedFileGuard.StoreFile): StoreIdentity =
-        StoreIdentity.of(store.real, normalizeUnicode = ready.os == DesktopOs.MACOS)
+        StoreIdentity.of(store.real, normalizeUnicode = ready.os == DesktopOs.MACOS, configuredNameIsLink = store::configuredNameIsLink)
 
     override val kinds: Set<StoreKind> get() = setOf(ready.backend.kind)
 
