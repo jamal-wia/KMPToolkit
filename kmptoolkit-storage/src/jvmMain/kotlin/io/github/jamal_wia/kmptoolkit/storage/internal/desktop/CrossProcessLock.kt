@@ -137,7 +137,7 @@ internal sealed interface LockAcquisition {
  *   between its write and its rename, which the file layer reports as `NotFound`. That failure is re-checked: if the lock
  *   file exists now, locking goes on; otherwise creation is retried on the next poll until the budget ends, and only then
  *   answered [LockAcquisition.Failed] with the last cause. Every other failure (an I/O error, access denied, no space, a
- *   name too long, a path that is not a directory) is answered at once: it would repeat, and a write must not take the
+ *   name too long, a path that is not a directory, a lock file that is a symbolic link with no target) is answered at once: it would repeat, and a write must not take the
  *   whole budget to say so.
  *
  * Blocking I/O: call it from the store's I/O dispatcher. The deadline and poll interval are constructor parameters so a
@@ -247,7 +247,13 @@ internal class CrossProcessLock(
             val reused: ParkedChannel? = parkedFor(claimKey, lockFile)
             val channel: FileChannel = reused?.channel ?: try {
                 FileChannel.open(lockFile.toPath(), StandardOpenOption.WRITE)
-            } catch (_: NoSuchFileException) {
+            } catch (error: NoSuchFileException) {
+                // A link whose target is missing: the name is taken (it cannot be created) and opening follows it (it cannot be
+                // opened), so every poll would meet the same thing. Answered at once; never opened with CREATE, which would
+                // create the target wherever the link points.
+                if (Files.isSymbolicLink(lockFile.toPath())) {
+                    return Attempt.Broke(IOException("The lock file is a symbolic link whose target does not exist", error))
+                }
                 // Deleted behind our back since ensureLockFile: it is created again on the next attempt.
                 return Attempt.Busy
             }

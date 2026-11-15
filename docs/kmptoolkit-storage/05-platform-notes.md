@@ -286,8 +286,9 @@ app sharing that code with desktop could not compile it for desktop without the 
     which drops a lock the other copy holds at that moment. In each case two processes can hold the lock at once and an
     update can be lost. **Load the library once per JVM, in a shared parent class loader, wherever several processes
     write one store.** With one copy of the library none of this applies.
-  - A lock file the process cannot create or open (a read-only directory, a lock path that is a directory) fails the write
-    with `OperationFailed`. Reads are unaffected.
+  - A lock file the process cannot create or open (a read-only directory, a lock path that is a directory, a lock path that is a
+    symbolic link whose target does not exist) fails the write with `OperationFailed` at once, not after the wait limit. Reads
+    are unaffected.
   - **A file system that refuses file locks** (the lock file opens but `FileChannel.tryLock` itself throws an
     `IOException`: NFS without a reachable lock daemon, some FUSE mounts) does not stop the plain store: such a write is
     coordinated within this process only, as before 6.0.0, and is still atomic, so a second process can lose an update there.
