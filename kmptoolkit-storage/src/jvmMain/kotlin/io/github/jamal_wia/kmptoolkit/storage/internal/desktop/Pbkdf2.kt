@@ -1,7 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
 
 import java.nio.CharBuffer
-import java.nio.charset.StandardCharsets
 import java.text.Normalizer
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
@@ -29,11 +28,15 @@ internal object Pbkdf2 {
     fun normalized(passphrase: CharArray): CharArray =
         Normalizer.normalize(CharBuffer.wrap(passphrase), Normalizer.Form.NFC).toCharArray()
 
-    /** The UTF-8 bytes of the NFC form of [passphrase], for tests of the frozen encoding. */
+    /**
+     * The UTF-8 bytes of the NFC form of [passphrase], for tests of the frozen encoding.
+     *
+     * @throws IllegalArgumentException when the passphrase holds an unpaired surrogate (no UTF-8 form).
+     */
     fun normalizedUtf8(passphrase: CharArray): ByteArray {
         val chars: CharArray = normalized(passphrase)
         try {
-            return StandardCharsets.UTF_8.encode(CharBuffer.wrap(chars)).let { buffer -> ByteArray(buffer.remaining()).also { buffer.get(it) } }
+            return CharBuffer.wrap(chars).toStrictUtf8()
         } finally {
             chars.fill(' ')
         }
@@ -56,7 +59,9 @@ internal object Pbkdf2 {
      * The 32-byte key-encryption key of a passphrase store: NFC, then PBKDF2 with [salt] and [iterations].
      * [passphrase] is not modified and not wiped (the caller owns it); the normalised copy made here is wiped.
      *
-     * @throws IllegalArgumentException for an empty passphrase, a salt that is not 16 bytes, or a count outside the range.
+     * @throws IllegalArgumentException for an empty passphrase, a passphrase with an unpaired surrogate (it has no UTF-8
+     *   form, and the JDK would silently turn it into `?`, so two different passphrases would derive one key), a salt that
+     *   is not 16 bytes, or a count outside the range.
      */
     fun deriveKek(passphrase: CharArray, salt: ByteArray, iterations: Int): ByteArray {
         require(passphrase.isNotEmpty()) { "an empty passphrase has no key" }
@@ -64,6 +69,8 @@ internal object Pbkdf2 {
         require(isAcceptableIterationCount(iterations.toLong())) { "iteration count out of range" }
         val normalized: CharArray = normalized(passphrase)
         try {
+            // Strict check before the JDK sees the characters: PBEKeySpec encodes with replacement.
+            CharBuffer.wrap(normalized).toStrictUtf8().fill(0)
             return derive(normalized, salt, iterations, KEY_BYTES)
         } finally {
             normalized.fill(' ')

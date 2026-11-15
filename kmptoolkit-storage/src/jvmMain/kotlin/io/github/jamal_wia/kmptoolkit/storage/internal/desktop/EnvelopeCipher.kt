@@ -29,13 +29,13 @@ internal class EnvelopeCipher(private val random: SecureRandom = SecureRandom())
     /** Seals [value] under [dataKey] for the entry [key] of a file of [kind]; the entry name is authenticated. */
     fun sealEntry(dataKey: ByteArray, kind: StoreKind, key: String, value: ByteArray): EncryptedEntry {
         val nonce: ByteArray = newNonce()
-        val sealed: ByteArray = gcmEncrypt(dataKey, nonce, SecureFileFormat.entryAad(kind, key.toByteArray(StandardCharsets.UTF_8)), value)
+        val sealed: ByteArray = gcmEncrypt(dataKey, nonce, SecureFileFormat.entryAad(kind, key.toStrictUtf8()), value)
         return EncryptedEntry(key, nonce, sealed)
     }
 
     /** The plaintext of [entry], or `null` when its tag does not verify under [dataKey] for this name and kind. */
     fun openEntry(dataKey: ByteArray, kind: StoreKind, entry: EncryptedEntry): ByteArray? =
-        gcmDecrypt(dataKey, entry.nonce, SecureFileFormat.entryAad(kind, entry.key.toByteArray(StandardCharsets.UTF_8)), entry.sealed)
+        gcmDecrypt(dataKey, entry.nonce, SecureFileFormat.entryAad(kind, entry.key.toStrictUtf8()), entry.sealed)
 
     /** The key-check of a file whose header prefix is [headerPrefix]: GCM over an empty plaintext, nonce then tag. */
     fun sealKeyCheck(dataKey: ByteArray, headerPrefix: ByteArray): ByteArray {

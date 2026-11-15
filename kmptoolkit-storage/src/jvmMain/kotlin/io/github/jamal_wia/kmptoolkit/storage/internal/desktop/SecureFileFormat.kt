@@ -231,7 +231,7 @@ internal object SecureFileFormat {
         out.write(keyCheck)
         out.write(ByteBuffer.allocate(4).putInt(entries.size).array())
         for (entry: EncryptedEntry in entries) {
-            val keyBytes: ByteArray = entry.key.toByteArray(StandardCharsets.UTF_8)
+            val keyBytes: ByteArray = entry.key.toStrictUtf8()
             require(keyBytes.size <= MAX_ENTRY_KEY_BYTES) { "entry name too long" }
             require(entry.nonce.size == NONCE_BYTES) { "nonce must be 12 bytes" }
             require(entry.sealed.size >= TAG_BYTES) { "sealed entry shorter than its tag" }
