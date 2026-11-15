@@ -127,8 +127,9 @@ versioned entry and reports it `Undecryptable`.
 The Keystore key can be lost: an app restored to a new device from a backup carries the ciphertext without the key,
 and the platform can invalidate a key permanently (`KeyPermanentlyInvalidatedException`). Reads of the affected values
 return `StorageError.Undecryptable`. The module recovers as far as it can, so a store is never bricked for the life of
-the install: a key the platform reports as permanently invalidated (`KeyPermanentlyInvalidatedException`, at the lookup
-or when the key is first used) is deleted and replaced by a new one under the alias lock (compare-and-delete: only the
+the install: a key the platform reports as permanently invalidated (at the lookup, the provider's
+`UnrecoverableKeyException("User changed or deleted their auth credentials")` with no cause; when the key is first used, a
+`KeyPermanentlyInvalidatedException`) is deleted and replaced by a new one under the alias lock (compare-and-delete: only the
 dead key itself, never a newer one another caller made). *New* writes succeed again, old values are
 `Undecryptable(key)`, and nothing can recover them.
 
@@ -143,9 +144,17 @@ still `Undecryptable`, as before. A failure the platform does not call transient
 
 The same rule protects the key itself: a transient fault never makes the module drop its cached key
 and look the alias up again, and a transient `UnrecoverableKeyException` during that lookup never
-deletes the alias. An alias is deleted only on proof: `UnrecoverableKeyException` alone is not proof (a keystore fault
-and a locked device look the same on API 24-32), so a failed lookup without a `KeyPermanentlyInvalidatedException` in
-its cause chain, a locked device and every unknown failure delete nothing and answer `Unavailable`. The
+deletes the alias. An alias is deleted only on proof, and an `UnrecoverableKeyException` alone is not proof (a keystore
+fault and a locked device look the same on API 24-32). The proof is the platform's own verdict in the form it has at a
+lookup: the provider (`AndroidKeyStoreSpi.engineGetKey`, API 30 and 34, read from the framework bytecode) turns the
+daemon's `KeyPermanentlyInvalidatedException` into an `UnrecoverableKeyException` with **no cause** and exactly the message
+`User changed or deleted their auth credentials`; that form, or a `KeyPermanentlyInvalidatedException` in the cause chain,
+deletes the alias. Every other lookup failure, notably `UnrecoverableKeyException("Failed to obtain information about key")`
+with the daemon's `KeyStoreException` as its cause, a locked device and every unknown failure, deletes nothing and answers
+`Unavailable`. Such a store stays `Unavailable` until the lookup succeeds (the cipher never gets a key handle to repair
+it), and a key that stays unreachable can be recovered only by clearing the app data: the deliberate price of never
+destroying values over a fault that passes. API 28 never reports the invalidation at the lookup, only when the key is
+first used, where the cipher's own handling replaces it. The
 lookup-time deletion runs only on the first key resolution in a process. A key the platform rejects later is forgotten and looked up again once, but
 that lookup never deletes: if it hits an unrecoverable entry — which on API 24-32 a keystore fault
 also looks like, since nothing there can name a transient failure — the call fails with

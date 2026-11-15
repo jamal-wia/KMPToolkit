@@ -334,6 +334,28 @@ internal fun isPermanentlyInvalidatedKey(error: Throwable): Boolean {
 }
 
 /**
+ * The message of the `UnrecoverableKeyException` the platform's own key store provider throws at a LOOKUP for a key the
+ * key store daemon reports as permanently invalidated. `AndroidKeyStoreSpi.engineGetKey` (API 30 `android.security
+ * .keystore`, API 34 `android.security.keystore2`; read from the framework bytecode, not observed on a device) catches
+ * the `KeyPermanentlyInvalidatedException` it got from the daemon and rethrows `UnrecoverableKeyException(e.getMessage())`
+ * WITHOUT the cause, so [isPermanentlyInvalidatedKey] can never see the original at a lookup. API 28 does not report it
+ * at the lookup at all (it shows at `Cipher.init`). Every other lookup failure on API 28, 30 and 34 is
+ * `UnrecoverableKeyException("Failed to obtain information about key", cause = KeyStoreException)`.
+ */
+internal const val PLATFORM_KEY_INVALIDATED_MESSAGE: String = "User changed or deleted their auth credentials"
+
+/**
+ * Whether [error], thrown by `KeyStore.getEntry`, is the platform's verdict that the key is permanently invalidated:
+ * either a `KeyPermanentlyInvalidatedException` in the cause chain ([isPermanentlyInvalidatedKey]), or the form the
+ * provider produces at a lookup, an `UnrecoverableKeyException` with NO cause whose message is exactly
+ * [PLATFORM_KEY_INVALIDATED_MESSAGE]. A failure that carries a cause (a `KeyStoreException` of the daemon: a transient
+ * fault looks the same on API 24-32), or has any other message, is not proof, so nothing is deleted for it.
+ */
+internal fun isPermanentlyInvalidatedAtLookup(error: Throwable): Boolean =
+    isPermanentlyInvalidatedKey(error) ||
+        (error is UnrecoverableKeyException && error.cause == null && error.message == PLATFORM_KEY_INVALIDATED_MESSAGE)
+
+/**
  * An AES-256 key held in the AndroidKeyStore under [alias], generated on first use.
  *
  * The key never enters the process as raw bytes: `SecretKey` here is a handle the platform resolves
@@ -416,7 +438,7 @@ internal class AndroidKeystoreKeySource(
 
     /**
      * Only the first resolution in the process may delete an alias, and only one the platform has proven permanently
-     * invalidated ([resolveExistingKey]). A later one is a re-lookup after [invalidate], and a keystore fault during it
+     * invalidated ([resolveExistingKey], [isPermanentlyInvalidatedAtLookup]). A later one is a re-lookup after [invalidate], and a keystore fault during it
      * also surfaces as an unrecoverable entry on API 24-32, where nothing tells it from a dead key: deleting then would
      * destroy every stored value over a hiccup. It fails with [StorageKeyUnavailableException] instead, and the next
      * process start recovers a key that was proven dead.
@@ -568,12 +590,17 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
  * `getEntry` answers `UnrecoverableKeyException` for a key that is gone, but also for faults that pass: a keystore
  * daemon that is restarting, a device that is locked while the key needs it unlocked, a provider that is busy. On the
  * older platforms nothing in the exception tells the two apart, and deleting the alias over a fault that passes
- * destroys every stored value. So the entry is deleted only when [isPermanentlyInvalidatedKey] holds for the exception
- * (`KeyPermanentlyInvalidatedException` in its cause chain, the plan's A-4 definition), only when [mayDelete] (the
- * first resolution in the process), and never for a locked device or a fault the platform calls transient. Every other
- * failure, including one that is none of these, is rethrown, nothing is deleted, and the caller reports
- * [StorageError.Unavailable]; a key that is dead for real is then replaced by the cipher's own invalidation handling at
- * its first use.
+ * destroys every stored value. So the entry is deleted only when [isPermanentlyInvalidatedAtLookup] holds for the
+ * exception, only when [mayDelete] (the first resolution in the process), and never for a locked device or a fault the
+ * platform calls transient. The proof is the platform's own verdict in the form it really has at a lookup: an
+ * `UnrecoverableKeyException` with no cause and exactly the message [PLATFORM_KEY_INVALIDATED_MESSAGE] (the provider
+ * strips the `KeyPermanentlyInvalidatedException` to its message), or a `KeyPermanentlyInvalidatedException` in the cause
+ * chain (the plan's A-4 definition). Every other failure, including a cause-carrying `UnrecoverableKeyException` (a
+ * `KeyStoreException` of the daemon, which a transient fault also produces on API 24-32) and one with another message,
+ * is rethrown, nothing is deleted, and the caller reports [StorageError.Unavailable]. The failure is NOT then handled by
+ * the cipher at its first use: no key handle exists to reach it, so the store stays `Unavailable` until the lookup
+ * succeeds or the user clears the app data. That is the deliberate price of never destroying values on an ambiguous
+ * fault.
  *
  * A function over the two key-store calls so that the policy can be tested on the JVM, where no AndroidKeyStore exists.
  *
@@ -585,7 +612,7 @@ internal fun resolveExistingKey(mayDelete: Boolean, lookup: () -> SecretKey?, de
     try {
         lookup()
     } catch (e: UnrecoverableKeyException) {
-        if (!mayDelete || isTransientKeystoreFailure(e) || isDeviceLockedFailure(e) || !isPermanentlyInvalidatedKey(e)) {
+        if (!mayDelete || isTransientKeystoreFailure(e) || isDeviceLockedFailure(e) || !isPermanentlyInvalidatedAtLookup(e)) {
             throw e
         }
         // The platform has said the key is dead for good: every value written under it is already unreadable. Drop the

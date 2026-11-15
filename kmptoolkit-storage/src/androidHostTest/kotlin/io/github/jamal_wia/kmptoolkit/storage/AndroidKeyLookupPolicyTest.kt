@@ -53,6 +53,49 @@ class AndroidKeyLookupPolicyTest {
     }
 
     @Test
+    fun `the platform's cause-less invalidation form at a lookup is a proof`() {
+        val (result: Result<SecretKey?>, deletions: Deletions) =
+            lookupFailing(UnrecoverableKeyException(PLATFORM_KEY_INVALIDATED_MESSAGE))
+
+        assertNull(result.getOrThrow(), "the caller generates a new key")
+        assertEquals(1, deletions.count)
+        assertEquals("User changed or deleted their auth credentials", PLATFORM_KEY_INVALIDATED_MESSAGE)
+    }
+
+    @Test
+    fun `the platform's cause-less form is a proof only exactly, only without a cause and only on the first resolution`() {
+        val notProof: Map<String, Exception> = mapOf(
+            "the same message with a cause" to
+                UnrecoverableKeyException(PLATFORM_KEY_INVALIDATED_MESSAGE).also { it.initCause(KeyStoreException("daemon")) },
+            "another message without a cause" to UnrecoverableKeyException("No secret key found by the given alias."),
+            "the message in another case" to UnrecoverableKeyException(PLATFORM_KEY_INVALIDATED_MESSAGE.lowercase()),
+            "the message with a suffix" to UnrecoverableKeyException("$PLATFORM_KEY_INVALIDATED_MESSAGE."),
+            "no message" to UnrecoverableKeyException(),
+            "the message on another exception type" to ProviderException(PLATFORM_KEY_INVALIDATED_MESSAGE),
+            "the platform's transient shape" to
+                UnrecoverableKeyException("Failed to obtain information about key").also { it.initCause(KeyStoreException("daemon")) },
+        )
+        for ((label: String, error: Exception) in notProof) {
+            val (result: Result<SecretKey?>, deletions: Deletions) = lookupFailing(error)
+            assertSame(error, result.exceptionOrNull(), "$label is rethrown unchanged")
+            assertEquals(0, deletions.count, "$label must not delete the key")
+        }
+
+        val (later: Result<SecretKey?>, laterDeletions: Deletions) =
+            lookupFailing(UnrecoverableKeyException(PLATFORM_KEY_INVALIDATED_MESSAGE), mayDelete = false)
+        assertTrue(later.exceptionOrNull() is UnrecoverableKeyException, "a later resolution rethrows")
+        assertEquals(0, laterDeletions.count, "a later resolution never deletes, even on the platform's own verdict")
+    }
+
+    @Test
+    fun `the lookup classifier accepts both proof forms and nothing else`() {
+        assertTrue(isPermanentlyInvalidatedAtLookup(UnrecoverableKeyException(PLATFORM_KEY_INVALIDATED_MESSAGE)))
+        assertTrue(isPermanentlyInvalidatedAtLookup(UnrecoverableKeyException("x").also { it.initCause(kpie()) }))
+        assertTrue(!isPermanentlyInvalidatedAtLookup(UnrecoverableKeyException("x")))
+        assertTrue(!isPermanentlyInvalidatedAtLookup(IllegalStateException(PLATFORM_KEY_INVALIDATED_MESSAGE)))
+    }
+
+    @Test
     fun `a proof nested deeper in the cause chain counts`() {
         val error = UnrecoverableKeyException("outer")
         error.initCause(ProviderException("middle", kpie()))
