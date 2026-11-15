@@ -529,8 +529,13 @@ internal class AndroidLocationProvider(
 
         private var lastRefusal: SecurityException? = null
 
-        /** The state last reported, so a provider callback and a broadcast that describe the same transition send one reading. */
-        private var disabledNow: Boolean = false
+        /**
+         * The state last reported, so a provider callback and a broadcast that describe the same transition send one
+         * reading. `null` means unknown: an evaluation did not finish (a platform read failed), so what the collector
+         * holds may no longer be the state recorded here (a live fix can arrive in between and contradict it). Unknown
+         * never equals a state, so the next evaluation always reports the true one, at worst as one duplicate reading.
+         */
+        private var disabledNow: Boolean? = false
 
         /** Set by [release]: nothing is registered after it. */
         private var closed: Boolean = false
@@ -615,14 +620,7 @@ internal class AndroidLocationProvider(
 
         /** Entry for every platform event that may change the service state; never blocks, never throws. */
         fun evaluate() {
-            gate.submit {
-                try {
-                    evaluateLocked()
-                } catch (failure: Exception) {
-                    // A submitted action must not throw: it would surface on an unrelated thread.
-                    logger.w(failure) { "Could not re-read the location service state" }
-                }
-            }
+            submitEvaluation(provider = null)
         }
 
         /**
@@ -634,11 +632,26 @@ internal class AndroidLocationProvider(
          * nothing registered.
          */
         private fun evaluateFor(provider: String) {
+            submitEvaluation(provider)
+        }
+
+        /**
+         * Queues one evaluation behind the gate; [provider] null runs it unconditionally, else only while this session
+         * holds that provider. A failure is logged and swallowed (a submitted action must not throw: it would surface
+         * on an unrelated thread), and whatever ended the evaluation early, an `Exception` or an `Error` (which still
+         * propagates), leaves the recorded state unknown ([disabledNow]): the next service event reports the true state
+         * even if a live fix was sent in between.
+         */
+        private fun submitEvaluation(provider: String?) {
             gate.submit {
+                var finished: Boolean = false
                 try {
-                    if (provider in selected) evaluateLocked()
+                    if (provider == null || provider in selected) evaluateLocked()
+                    finished = true
                 } catch (failure: Exception) {
                     logger.w(failure) { "Could not re-read the location service state" }
+                } finally {
+                    if (!finished) disabledNow = null
                 }
             }
         }
@@ -679,7 +692,7 @@ internal class AndroidLocationProvider(
                 // the stream has no registration to back.
                 val candidatesOff: Boolean = isDisabled(platform, candidates)
                 if (candidatesOff) {
-                    if (!disabledNow) {
+                    if (disabledNow != true) {
                         disabledNow = true
                         out.trySend(StreamReading.live(unavailable(LocationUnavailability.SERVICE_DISABLED)))
                     }
@@ -697,8 +710,8 @@ internal class AndroidLocationProvider(
             val disabled: Boolean = isDisabled(platform, deliverable)
             if (disabled == disabledNow) return
             // Build the reading, then record the state, then send: a reading that fails to build (a failing grant or
-            // cache read) leaves the old state recorded, so the next event runs this transition again instead of
-            // finding "already reported" for a reading that was never sent.
+            // cache read) never records a state whose reading was not sent, and the evaluation entry marks the state
+            // unknown, so the next event runs this transition again even after a live fix was sent in between.
             val reading: StreamReading = if (disabled) {
                 StreamReading.live(unavailable(LocationUnavailability.SERVICE_DISABLED))
             } else {
