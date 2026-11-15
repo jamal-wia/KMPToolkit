@@ -67,7 +67,11 @@ internal class FakeHeadingDevice(override val isHeadingAvailable: Boolean = true
 
     /** Thrown by `startHeading` of managers opened from now on when set. */
     @Volatile
-    var startHeadingFailure: Exception? = null
+    var startHeadingFailure: Throwable? = null
+
+    /** Thrown by `release` of managers opened from now on when set, after the manager was released. */
+    @Volatile
+    var releaseFailure: Throwable? = null
 
     /** Runs after a manager was recorded (1-based count), on the opening thread. */
     @Volatile
@@ -96,7 +100,7 @@ internal class FakeHeadingDevice(override val isHeadingAvailable: Boolean = true
     ): IosHeadingManager {
         openCalls.incrementAndFetch()
         openFailure?.let { failure: Exception -> throw failure }
-        val manager = FakeManager(events, orientation, headingFilterDegrees, authorizedAtOpen, startHeadingFailure)
+        val manager = FakeManager(events, orientation, headingFilterDegrees, authorizedAtOpen, startHeadingFailure, releaseFailure)
         while (true) {
             val before: List<FakeManager> = live.load()
             if (live.compareAndSet(before, before + manager)) break
@@ -114,7 +118,8 @@ internal class FakeHeadingDevice(override val isHeadingAvailable: Boolean = true
         val orientation: ScreenRotation,
         val headingFilterDegrees: Double,
         authorized: Boolean,
-        private val startHeadingFailure: Exception?,
+        private val startHeadingFailure: Throwable?,
+        private val releaseFailure: Throwable? = null,
     ) : IosHeadingManager {
 
         private val authorizedFlag = AtomicBoolean(authorized)
@@ -140,7 +145,7 @@ internal class FakeHeadingDevice(override val isHeadingAvailable: Boolean = true
         override val isAuthorized: Boolean get() = authorizedFlag.load()
 
         override fun startHeading() {
-            startHeadingFailure?.let { failure: Exception -> throw failure }
+            startHeadingFailure?.let { failure: Throwable -> throw failure }
             headingStarts.incrementAndFetch()
             headingFlag.store(true)
         }
@@ -164,8 +169,9 @@ internal class FakeHeadingDevice(override val isHeadingAvailable: Boolean = true
             delegateNil.store(true)
             while (true) {
                 val before: List<FakeManager> = live.load()
-                if (live.compareAndSet(before, before - this)) return
+                if (live.compareAndSet(before, before - this)) break
             }
+            releaseFailure?.let { failure: Throwable -> throw failure }
         }
     }
 }

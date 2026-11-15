@@ -182,9 +182,18 @@ internal class IosHeadingProvider(
                     val authorized: Boolean = opened.isAuthorized
                     setAuthorized(authorized)
                     if (authorized) startLocation(opened)
-                } catch (failure: Exception) {
-                    // Release first, report after: whatever the logger does, no manager stays running.
-                    releaseManager()
+                } catch (failure: Throwable) {
+                    // Release first, report after: whatever the logger does, no manager stays running, and an
+                    // Error (not absorbed, like the logger's) leaves only once the manager is released: with an
+                    // inline confine this call is the registration, and a thrown registration has no handle.
+                    try {
+                        releaseManager()
+                    } catch (releaseFailure: Throwable) {
+                        // The failing release ends this; the failure it interrupted rides along.
+                        if (releaseFailure !== failure) releaseFailure.addSuppressed(failure)
+                        throw releaseFailure
+                    }
+                    if (failure !is Exception) throw failure
                     guardLogger { logger.w(failure) { "Could not start heading updates" } }
                 }
             }
