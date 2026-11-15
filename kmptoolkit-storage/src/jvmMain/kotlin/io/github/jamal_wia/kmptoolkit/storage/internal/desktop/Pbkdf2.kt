@@ -21,19 +21,24 @@ internal object Pbkdf2 {
     const val KEY_BYTES: Int = 32
     private const val ALGORITHM: String = "PBKDF2WithHmacSHA256"
 
+    /** Every code point below this one is its own NFC form and cannot be affected by a neighbour (the first one that can is U+0300). */
+    private const val FIRST_CHAR_THAT_CAN_CHANGE_UNDER_NFC: Char = '\u0300'
+
     /** Whether a header's iteration count may be derived with. Check before calling [deriveKek]. */
     fun isAcceptableIterationCount(iterations: Long): Boolean = iterations in ITERATIONS_FLOOR..ITERATIONS_CEILING
 
     /**
      * [passphrase] as NFC, as characters. The returned array is owned by the caller, who wipes it.
      *
-     * Text that is already NFC (ASCII and most typed text) is only copied into the returned array. Text that is not
-     * is normalised through `java.text.Normalizer`, which returns an immutable `String`: that intermediate copy of the
-     * passphrase cannot be wiped and stays on the heap until it is collected (the JDK has no normalizer that writes into
-     * a caller-owned buffer). Only the caller's array and this method's result array are wiped.
+     * Text in which every character is below U+0300 (ASCII, Latin-1 and Latin Extended text, the usual typed passphrase)
+     * is already NFC: U+0300 is the first code point that can combine with a previous one or that has a different NFC
+     * form, so such text is only copied into the returned array and no `String` is made. Any other text goes through
+     * `java.text.Normalizer`, which works on immutable `String`s (it copies its input into one and returns another): those
+     * copies of the passphrase cannot be wiped and stay on the heap until they are collected (the JDK has no normalizer
+     * that works on a caller-owned buffer). Only the caller's array and this method's result array are wiped.
      */
     fun normalized(passphrase: CharArray): CharArray {
-        if (Normalizer.isNormalized(CharBuffer.wrap(passphrase), Normalizer.Form.NFC)) return passphrase.copyOf()
+        if (passphrase.all { char: Char -> char < FIRST_CHAR_THAT_CAN_CHANGE_UNDER_NFC }) return passphrase.copyOf()
         return Normalizer.normalize(CharBuffer.wrap(passphrase), Normalizer.Form.NFC).toCharArray()
     }
 
@@ -67,7 +72,7 @@ internal object Pbkdf2 {
     /**
      * The 32-byte key-encryption key of a passphrase store: NFC, then PBKDF2 with [salt] and [iterations].
      * [passphrase] is not modified and not wiped (the caller owns it); the normalised character array made here is wiped.
-     * A passphrase that is not NFC also passes through one immutable `String` of `Normalizer` that cannot be wiped (see [normalized]).
+     * Text with a character from U+0300 up also passes through immutable `String`s of `Normalizer` that cannot be wiped (see [normalized]).
      *
      * @throws IllegalArgumentException for an empty passphrase, a passphrase with an unpaired surrogate (it has no UTF-8
      *   form, and the JDK would silently turn it into `?`, so two different passphrases would derive one key), a salt that
