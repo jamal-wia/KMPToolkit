@@ -42,6 +42,27 @@ internal sealed interface BindingSelection {
     }
 }
 
+/** What asking the seam for one OS's calls gave: the calls, or the typed reason the binding cannot serve. */
+internal sealed interface Accessed<out T> {
+    class Ready<out T>(val calls: T) : Accessed<T>
+
+    class Unusable(val error: StorageError.Unsupported) : Accessed<Nothing>
+}
+
+/**
+ * Calls [access], one of the OS accessors of the seam (`macOs()`, `windows()`, `linux()`). They sit outside the native
+ * executor's backstop, so a `LinkageError` (a `NoSuchMethodError` of a version mix) or any exception they throw is
+ * `Unsupported(NATIVE_ACCESS_UNAVAILABLE)` here, never thrown out of a store call or the probe (plan 4.2 step 5; the
+ * selector treats a failing load the same way). A `VirtualMachineError` that is not a `LinkageError` propagates.
+ */
+internal fun <T> accessCalls(access: () -> T): Accessed<T> = try {
+    Accessed.Ready(access())
+} catch (error: Exception) {
+    Accessed.Unusable(StorageError.Unsupported(UnsupportedReason.NATIVE_ACCESS_UNAVAILABLE, error))
+} catch (error: LinkageError) {
+    Accessed.Unusable(StorageError.Unsupported(UnsupportedReason.NATIVE_ACCESS_UNAVAILABLE, error))
+}
+
 /** The only way a store reaches a binding; tests install a fixed one, production uses [BindingSelector.process]. */
 internal fun interface BindingSource {
     fun select(): BindingSelection

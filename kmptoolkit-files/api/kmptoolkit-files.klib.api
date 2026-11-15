@@ -384,6 +384,7 @@ final class <#A: kotlin/Any> io.github.jamal_wia.kmptoolkit.files/KeyedMutex { /
 
     final fun tryWithLock(#A, kotlin/Function0<kotlin/Unit>): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.files/KeyedMutex.tryWithLock|tryWithLock(1:0;kotlin.Function0<kotlin.Unit>){}[0]
     final suspend fun <#A1: kotlin/Any?> withLock(#A, kotlin.coroutines/SuspendFunction0<#A1>): #A1 // io.github.jamal_wia.kmptoolkit.files/KeyedMutex.withLock|withLock(1:0;kotlin.coroutines.SuspendFunction0<0:0>){0§<kotlin.Any?>}[0]
+    final suspend fun <#A1: kotlin/Any?> withLock(#A, kotlin.time/Duration, kotlin/Function0<#A1>, kotlin.coroutines/SuspendFunction0<#A1>): #A1 // io.github.jamal_wia.kmptoolkit.files/KeyedMutex.withLock|withLock(1:0;kotlin.time.Duration;kotlin.Function0<0:0>;kotlin.coroutines.SuspendFunction0<0:0>){0§<kotlin.Any?>}[0]
 }
 
 final class io.github.jamal_wia.kmptoolkit.files.spi/FileOpException : kotlin/Exception { // io.github.jamal_wia.kmptoolkit.files.spi/FileOpException|null[0]

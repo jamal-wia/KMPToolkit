@@ -3,6 +3,7 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.LockAcquisition
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -14,6 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -56,10 +58,23 @@ class JvmKeyValueStorageForkedProcessesTest {
 
     private fun awaitExit(process: Process, what: String) {
         assertTrue(process.waitFor(HANG_BOUND_SECONDS, TimeUnit.SECONDS), "$what did not exit within $HANG_BOUND_SECONDS s")
+        // The JDK closes a finished child's pipes on a reaper thread, after waitFor may have returned: close them here so a
+        // later descriptor-count assertion of another test never sees them go.
+        process.outputStream.close()
+        process.inputStream.close()
+        process.errorStream.close()
     }
 
-    private fun storage(dispatcher: kotlinx.coroutines.CoroutineDispatcher, deadline: kotlin.time.Duration = 3.seconds): JvmKeyValueStorage =
-        JvmKeyValueStorage(dataFile, dispatcher, crossProcessLock = CrossProcessLock(deadline = deadline))
+    private fun storage(
+        dispatcher: kotlinx.coroutines.CoroutineDispatcher,
+        deadline: kotlin.time.Duration = 3.seconds,
+        timeSource: kotlin.time.TimeSource.WithComparableMarks? = null,
+    ): JvmKeyValueStorage =
+        if (timeSource == null) {
+            JvmKeyValueStorage(dataFile, dispatcher, crossProcessLock = CrossProcessLock(deadline = deadline))
+        } else {
+            JvmKeyValueStorage(dataFile, dispatcher, crossProcessLock = CrossProcessLock(deadline = deadline), timeSource = timeSource)
+        }
 
     private fun awaitHeld(child: Process): java.io.BufferedReader {
         val reader = BufferedReader(InputStreamReader(child.inputStream))
@@ -70,7 +85,7 @@ class JvmKeyValueStorageForkedProcessesTest {
 
     @Test
     fun `a write waits for the lock another process holds, answers Unavailable at the deadline and changes nothing`() = runTest {
-        val storage: JvmKeyValueStorage = storage(StandardTestDispatcher(testScheduler), deadline = 10.seconds)
+        val storage: JvmKeyValueStorage = storage(StandardTestDispatcher(testScheduler), deadline = 10.seconds, timeSource = testScheduler.timeSource)
         assertEquals(StorageResult.Success(Unit), storage.put("a", "1"))
         val child: Process = spawn(LockHolderChild::class.java.name, CrossProcessLock.lockFileOf(dataFile).path, "p")
         awaitHeld(child)
@@ -91,9 +106,32 @@ class JvmKeyValueStorageForkedProcessesTest {
         assertEquals(StorageResult.Success(Unit), storage.put("b", "2"), "the write goes through once the other process let go")
     }
 
+    private fun probe(lockFile: File): String {
+        val child: Process = spawn(LockProbeChild::class.java.name, lockFile.path, "p")
+        val answer: List<String> = lines(child).get(HANG_BOUND_SECONDS, TimeUnit.SECONDS)
+        awaitExit(child, "the lock probe")
+        return answer.single()
+    }
+
+    @Test
+    fun `waiters of this JVM polling a held lock never drop it for another process`() = runTest {
+        // POSIX fcntl locks belong to the process: closing ANY channel of the lock file in this JVM would silently release
+        // the lock another thread holds. A waiter of this JVM must therefore never open the file while it is held.
+        val lockFile: File = CrossProcessLock.lockFileOf(dataFile)
+        val lock = CrossProcessLock(deadline = 10.seconds, pollInterval = 25.milliseconds)
+        val holder: LockAcquisition.Held = assertIs(lock.acquire(lockFile, temporaryPrefixOf(dataFile.name)))
+        assertEquals("BUSY", probe(lockFile), "control: another process sees the lock held")
+
+        assertEquals(LockAcquisition.TimedOut, lock.acquire(lockFile, temporaryPrefixOf(dataFile.name), budget = 2.seconds), "80 polls of this JVM")
+
+        assertEquals("BUSY", probe(lockFile), "the polls of this JVM must not have released the lock for other processes")
+        holder.close()
+        assertEquals("FREE", probe(lockFile), "control: the probe does see a free lock")
+    }
+
     @Test
     fun `the lock dies with its process, so a killed holder never wedges the store`() = runTest {
-        val storage: JvmKeyValueStorage = storage(StandardTestDispatcher(testScheduler))
+        val storage: JvmKeyValueStorage = storage(StandardTestDispatcher(testScheduler), timeSource = testScheduler.timeSource)
         val child: Process = spawn(LockHolderChild::class.java.name, CrossProcessLock.lockFileOf(dataFile).path, "p")
         awaitHeld(child)
         assertIs<StorageError.Unavailable>(assertIs<StorageResult.Failure>(storage.put("a", "1"), "control: held, so it times out").error)

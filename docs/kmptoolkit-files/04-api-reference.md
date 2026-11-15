@@ -192,6 +192,9 @@ public class KeyedMutex<K : Any> {
     public suspend fun <T> withLock(key: K, action: suspend () -> T): T
     public fun tryWithLock(key: K, action: () -> Unit): Boolean
     public val activeKeyCount: Int
+
+    @ToolkitInternalApi // cross-module support for kmptoolkit-storage, not part of the public contract
+    public suspend fun <T> withLock(key: K, timeout: Duration, onTimeout: () -> T, action: suspend () -> T): T
 }
 
 public object PathLocks {
@@ -210,6 +213,7 @@ same key deadlocks. Safe from any thread on every platform.
 | `withLock` | Runs `action` while no other `withLock` or `tryWithLock` of `key` runs. Callers of one key run one at a time; callers of different keys never wait for each other. The key is released when `action` returns, throws, or the caller is cancelled while waiting or running |
 | `tryWithLock` | Runs `action` only if no caller holds **or awaits** `key` right now, and returns whether it ran. Never suspends, never waits; other keys' callers never make it fail. A `withLock` of `key` that arrives while `action` runs waits for it. `action` should be short and must not suspend |
 | `activeKeyCount` | How many keys are held or awaited right now. `0` when idle: the leak check for tests |
+| `withLock(key, timeout, onTimeout, action)` | **Internal (`@ToolkitInternalApi`; it can change in any release, and an app should use `withLock` or `tryWithLock`).** Like `withLock`, but gives up waiting after `timeout` and returns `onTimeout()`; `action` then never runs. Only the wait is timed: once the key is held, `action` runs to completion, so a timeout never reports failure for an action that ran. A zero or negative `timeout` does not wait and does not try the key; `Duration.INFINITE` waits like `withLock`. A wait that times out, throws or is cancelled leaves nothing registered. It exists so `kmptoolkit-storage` can give one deadline to this wait and to its file lock |
 
 Taking and releasing a key costs time proportional to the number of keys held or awaited at that moment (the
 registry is copied on every change): `KeyedMutex` is built for up to hundreds of keys held at once, not tens of
