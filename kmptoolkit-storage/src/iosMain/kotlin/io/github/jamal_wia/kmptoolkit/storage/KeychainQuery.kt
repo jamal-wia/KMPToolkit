@@ -65,6 +65,22 @@ internal class KeychainQuery {
         putOwned(key, CFBridgingRetain(value))
     }
 
+    /**
+     * Adds an Objective-C object (the `LAContext` of `kSecUseAuthenticationContext`), retained by this
+     * query until [release] so the context outlives the `SecItem*` call it is passed to.
+     */
+    fun putObject(key: CFTypeRef?, value: Any) {
+        putOwned(key, CFBridgingRetain(value))
+    }
+
+    /**
+     * Adds a Core Foundation object this caller created (`SecAccessControlCreateWithFlags` returns +1),
+     * handing that +1 to this query: it is released with the query, so the caller must not release it.
+     */
+    fun putCreated(key: CFTypeRef?, value: CFTypeRef) {
+        putOwned(key, value)
+    }
+
     private fun putOwned(key: CFTypeRef?, value: CFTypeRef?) {
         val owned: CFTypeRef = value ?: return
         // The dictionary retains what it is given; this list holds the +1 from CFBridgingRetain so
