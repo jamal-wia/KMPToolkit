@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
 
 import io.github.jamal_wia.kmptoolkit.storage.secureStoreId
 import java.io.File
+import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.text.Normalizer
 
@@ -51,8 +52,15 @@ internal class StoreIdentity(
          * The identity of the store file [real]. [normalizeUnicode] is `true` on macOS only: APFS and HFS+ ignore Unicode
          * normalization forms, so the same file may be spelled NFC when created and NFD afterwards (HFS+), and NFC makes both
          * one identity without ever merging two files; on Linux and Windows the form is kept as the volume stores it.
+         *
+         * @throws IOException when the stored name does not end in [SECURE_FILE_SUFFIX]. Without a link every store file ends in it,
+         *   but the real path of a file the user LINKED to can be any name, and stripping the suffix "when present" would give
+         *   `X` and `X.bin` one service: two store files, one key item, a create of one deleting the other's key.
          */
         fun of(real: RealStorePath, normalizeUnicode: Boolean): StoreIdentity {
+            if (!real.name.endsWith(SECURE_FILE_SUFFIX) || real.name.length == SECURE_FILE_SUFFIX.length) {
+                throw IOException("The store file resolves to a name without the $SECURE_FILE_SUFFIX suffix")
+            }
             fun form(text: String): String = if (normalizeUnicode) Normalizer.normalize(text, Normalizer.Form.NFC) else text
             return StoreIdentity(form(real.name.removeSuffix(SECURE_FILE_SUFFIX)), directoryHex(form(real.directory)))
         }

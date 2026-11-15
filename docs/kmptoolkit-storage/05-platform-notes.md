@@ -395,7 +395,9 @@ name (the service is that name without `.bin`), with no case folding (case foldi
 joining two names is harmless). Two directories that a volume keeps apart (`App` and `app` on Linux, `t_ı` and `t_i` on APFS)
 are two stores with two keys, and two spellings of one name on a volume that folds case (macOS, Windows) are one file and
 one identity: the stored spelling is used for the item, the header, the key cache, every read and every write, so a
-`put` through the other spelling neither quarantines the file nor flips its name. On macOS the Unicode normalization form
+`put` through the other spelling neither quarantines the file nor flips its name. A store file that resolves (through a link you made) to a
+name that does not end in `.bin` has no identity: every operation that needs one answers `OperationFailed`, because the service is the
+name without its suffix and `X` and `X.bin` would otherwise share one key item (a create of one would delete the other's key). On macOS the Unicode normalization form
 (NFC or NFD) of the path and name is ignored (APFS and HFS+ ignore it too); elsewhere the stored form is kept. A file moved or
 copied into another directory is a store whose key is lost (below), never one that opens another store's key. The identity
 is derived again under the lock in every round and is never remembered: a file system that cannot be asked where the file
