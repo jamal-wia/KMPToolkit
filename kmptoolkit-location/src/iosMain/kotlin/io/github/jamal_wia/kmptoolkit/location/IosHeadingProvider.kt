@@ -177,10 +177,13 @@ internal class IosHeadingProvider(
 
         // All three only touched inside the confine.
         private var manager: IosHeadingManager? = null
-        private var locationRunning: Boolean = false
 
-        /** How many times [locationRunning] was written; a failing call gives its claim back only if this did not move. */
-        private var locationWrites: Int = 0
+        /**
+         * Whether location updates run on [manager]: `true`, `false`, or `null` (unknown) after a native call threw.
+         * Unknown is never guessed from the claim or from what a nested call wrote: the next report that needs
+         * location in either state issues the native call again, and starting or stopping twice is harmless.
+         */
+        private var locationRunning: Boolean? = false
 
         /** Queues the creation on the confine; a collection closed before it runs creates nothing. */
         fun open() {
@@ -203,7 +206,7 @@ internal class IosHeadingProvider(
                     // Publishing can run an inline collector to its end and release this manager.
                     if (!owns(opened)) return@confine
                     // A manager that reported an authorization inside startHeading may have started location already.
-                    if (authorized && !locationRunning) startLocation(opened)
+                    if (authorized && locationRunning != true) startLocation(opened)
                 } catch (failure: Throwable) {
                     // Release first, report after: whatever the logger does, no manager stays running, and an
                     // Error (not absorbed, like the logger's) leaves only once the manager is released: with an
@@ -258,8 +261,8 @@ internal class IosHeadingProvider(
                     // Publishing can run an inline collector to its end, and that releases this manager inside
                     // this very callback: nothing may be started or stopped on it afterwards.
                     if (!owns(current)) return@confine
-                    if (authorized && !locationRunning) startLocation(current)
-                    if (!authorized && locationRunning) stopLocation(current)
+                    if (authorized && locationRunning != true) startLocation(current)
+                    if (!authorized && locationRunning != false) stopLocation(current)
                 } catch (failure: Exception) {
                     guardLogger { logger.w(failure) { "Could not change the heading location updates" } }
                 }
@@ -296,46 +299,39 @@ internal class IosHeadingProvider(
         private fun owns(current: IosHeadingManager): Boolean = !closed.load() && manager === current
 
         /**
-         * Inside the confine only. The flag is claimed before the call and given back if the call throws: a manager
-         * that delivers an authorization change inside the call (a fake does, CoreLocation does not) is decided by a
-         * flag that already says what the call is doing, and a failed call is retried on the next report. The give-back
-         * happens only if nothing wrote the flag since the claim: a call nested inside this one (a delivery that
-         * started or stopped location itself) wrote what it knows about the manager, and that is not overwritten with
-         * what this call assumed.
+         * Inside the confine only. The flag is claimed before the call: a manager that delivers an authorization
+         * change inside the call (a fake does, CoreLocation does not) is decided by a flag that already says what the
+         * call is doing. A call that throws left the manager in a state nobody knows (it did not take effect, but a
+         * call nested inside it may have), so the flag becomes unknown whatever was written meanwhile, and the next
+         * report issues the native call again. No claim is compared with anything, so no nesting depth, throw position
+         * or release inside the call can leave the flag disagreeing with the device for good.
          */
         private fun startLocation(current: IosHeadingManager) {
-            val claim: Int = writeLocationRunning(true)
+            locationRunning = true
             try {
                 current.startLocation()
             } catch (failure: Throwable) {
-                if (locationWrites == claim) writeLocationRunning(false)
+                locationRunning = null
                 throw failure
             }
         }
 
-        /** The mirror of [startLocation]: claimed before the call, given back when it throws and nothing wrote since. */
+        /** The mirror of [startLocation]: claimed before the call, unknown when it throws. */
         private fun stopLocation(current: IosHeadingManager) {
-            val claim: Int = writeLocationRunning(false)
+            locationRunning = false
             try {
                 current.stopLocation()
             } catch (failure: Throwable) {
-                if (locationWrites == claim) writeLocationRunning(true)
+                locationRunning = null
                 throw failure
             }
-        }
-
-        /** The only writer of [locationRunning]; returns the write number, which is what a claim compares against. */
-        private fun writeLocationRunning(running: Boolean): Int {
-            locationRunning = running
-            locationWrites += 1
-            return locationWrites
         }
 
         /** Inside the confine only. The reference is dropped first so a failing release cannot be repeated. */
         private fun releaseManager() {
             val current: IosHeadingManager = manager ?: return
             manager = null
-            writeLocationRunning(false)
+            locationRunning = false
             try {
                 current.release()
             } catch (failure: Exception) {
