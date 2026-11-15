@@ -24,16 +24,17 @@ running after you stop caring. Use `observeLocation()` only when the feature is 
 | `accuracy` | `BALANCED` | `HIGH_ACCURACY` (GNSS-grade, works offline), `BALANCED` (about 100 m, may need data), `LOW_POWER` (city level). A request, not a guarantee: an approximate grant caps every level |
 | `maxAge` (one-shot) | 30 s | oldest cached fix accepted, judged on the platform's monotonic clock; `ZERO` forces a fresh fix, `Duration.INFINITE` accepts any cache |
 | `timeout` (one-shot) | 30 s | how long to wait for a fresh fix before `Unavailable(NO_FIX)`; `Duration.INFINITE` waits until cancelled; must be positive |
-| `minUpdateDistanceMeters` (stream) | `0.0` | smallest movement between two emitted fixes, measured from the last emitted fix |
+| `minUpdateDistanceMeters` (stream) | `0.0` | smallest movement from the last emitted fix; the first fix after an `Unavailable` reading passes at once, whatever its distance |
 | `minUpdateInterval` (stream) | `Duration.ZERO` | shortest time between two emitted fixes, on every platform |
 | `maxSeedAge` (stream) | 30 s | oldest cached fix the stream may emit first; with none that young the first value is `Unavailable(NO_FIX)` |
 | `platform` | `null` | options only one platform has, see [recipe 7](#7-platform-options-from-shared-code) |
 
-`minUpdateDistanceMeters` and `minUpdateInterval` form a trailing-edge throttle: a fix that is far enough
-but arrives inside the interval is not lost, it is delivered when the interval ends, and a newer such fix
-replaces it. A reading that carries a reason is **never** delayed or dropped by it. A cached first fix (the
-seed, and every reseed after the service returned) does not start the interval, so the first live fix that is
-far enough passes at once.
+`minUpdateDistanceMeters` and `minUpdateInterval` form a trailing-edge throttle, measured from the last
+emitted fix. A fix that is far enough but arrives inside the interval waits and is delivered when the interval
+ends; a newer such fix replaces it, and a newer fix that is too close discards it (the user came back). A
+reading that carries a reason is **never** delayed or dropped: it discards a waiting fix and resets the
+reference, so the first fix after it passes at once. A cached first fix (the seed, and every reseed after the
+service returned) does not start the interval, so the first live fix that is far enough passes at once.
 
 ### What a stream promises
 

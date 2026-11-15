@@ -197,8 +197,10 @@ nothing is held between collections.
   before the listener is registered, so a live fix always arrives after it.
 - **Lifecycle.** The stream completes after `PERMISSION_MISSING` and `UNSUPPORTED`, and stays open through
   `SERVICE_DISABLED` and `NO_FIX`.
-- **Throttle.** The seed, and every reseed after the service returned, start no `minUpdateInterval`: the first
-  live fix that is far enough passes at once. The stream is conflated end to end: a busy collector skips
+- **Throttle.** A fix held back by the interval is delivered when it ends; a newer fix replaces it, a fix that
+  is too close discards it, and a reading with a reason discards it and resets the reference, so the first fix
+  after a reason passes at once. The seed, and every reseed after the service returned, start no
+  `minUpdateInterval`: the first live fix that is far enough passes at once. The stream is conflated end to end: a busy collector skips
   intermediate readings and ends on the newest, so it can see two fixes closer than `minUpdateDistanceMeters`
   and can miss an intermediate `SERVICE_DISABLED` that a reseed already replaced; the terminal reading is
   never dropped. The throttle's clock is monotonic and pauses in deep sleep, so an interval can stretch

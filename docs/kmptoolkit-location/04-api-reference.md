@@ -169,10 +169,11 @@ public data class LocationUpdatesOptions(
   for a fresh fix before `Unavailable(NO_FIX)`; `Duration.INFINITE` waits until cancelled.
 - `LocationUpdatesOptions` throws `IllegalArgumentException` for a negative or non-finite
   `minUpdateDistanceMeters`, a negative or infinite `minUpdateInterval`, or a negative `maxSeedAge`.
-  `minUpdateDistanceMeters`: the smallest movement between two emitted fixes, measured from the last emitted
-  fix; `0.0` means every update. `minUpdateInterval`: the shortest time between two emitted fixes, honoured on
-  every platform (iOS throttled in common code). Both are a trailing-edge throttle that never delays or drops
-  an `Unavailable`. `maxSeedAge`: the oldest cached fix the stream may emit first, `ZERO` to
+  `minUpdateDistanceMeters`: the smallest movement from the last emitted fix; `0.0` means every update.
+  `minUpdateInterval`: the shortest time between two emitted fixes, honoured on every platform (iOS throttled
+  in common code). Both are a trailing-edge throttle that never delays or drops an `Unavailable`: a fix held
+  back by the interval is delivered when it ends unless a newer fix replaces it or a fix that is too close
+  discards it, and after an `Unavailable` the next fix passes at once. `maxSeedAge`: the oldest cached fix the stream may emit first, `ZERO` to
   `Duration.INFINITE`; with none that young the first value is `Unavailable(NO_FIX)`.
 - `PlatformCurrentLocationOptions` and `PlatformLocationUpdatesOptions` are the slot interfaces: only a type
   of the matching call can be passed (an iOS stream-only option cannot be handed to the one-shot call).
