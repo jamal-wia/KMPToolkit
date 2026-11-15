@@ -205,7 +205,8 @@ check: read the skip count of every run.
    - Biometric enrolment with the default key (`allowDeviceCredential = true`): enrol or delete a fingerprint, cold start,
      `ensureKey()`: no invalidation, old values readable. With a biometric-only key (`allowDeviceCredential = false`, API 30 or newer): on a device
      with no enrolled biometric `ensureKey()` must answer `Unavailable` and generate nothing, and succeed after an enrolment;
-     enrolling another fingerprint then takes the invalidation path of the first row.
+     enrolling another fingerprint then takes the invalidation path of the lock-screen removal row (the
+     `AndroidUserAuthentication` row above).
    - `getKey` through the real `AndroidKeyStore` provider answers the key for an alias that exists and `null`, without an
      exception, for one that does not (API 31 or newer); and an alias `<name>.kmptoolkit.securestorage.key` holding an EC key that
      is not a secret key must make the store answer `Unavailable` and leave the entry alone.
