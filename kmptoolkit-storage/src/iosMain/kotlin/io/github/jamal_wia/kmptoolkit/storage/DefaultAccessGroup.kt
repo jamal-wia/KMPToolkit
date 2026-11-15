@@ -33,8 +33,9 @@ import platform.Security.errSecSuccess
  * anything; there is no fallback to the wider delete. When the add succeeds but its answer names no group (or a blank
  * one), or when the group-addressed delete of the probe fails, the probe is deleted by its own unique account with
  * no group before the failure is returned (the cleanup's own status is ignored and the original failure is kept), so
- * no failing path of a successful add leaves an item behind. Blocking and not suspending: two or three Security calls in a
- * row on the caller's thread, holding no lock and keeping no state and with no retry loop (the unique account makes a lost
+ * a failing path of a successful add leaves an item behind only when that cleanup fails too; such a probe is local,
+ * holds no data, and is swept by the next `clear()` that resolves the same default group. Blocking and not suspending:
+ * two or three Security calls in a row on the caller's thread, holding no lock and keeping no state and with no retry loop (the unique account makes a lost
  * race impossible, so there is nothing to retry), so a coroutine cancelled meanwhile cannot strand the probe (the
  * block runs to its end; the cancellation is observed when the operation returns).
  *

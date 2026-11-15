@@ -223,7 +223,8 @@ If you ever edit that file: do not "simplify" it back to a dictionary literal.
   `clear()` fails and deletes nothing; when the probe was added but the answer named no (or a blank) group, or the
   delete of the probe by group failed, the probe is deleted by its own unique account, with no group, before the
   failure is returned (the cleanup's status is ignored, the original failure is kept), so a failed `clear()`
-  never leaves a probe behind. Items
+  leaves no probe behind, unless the cleanup delete fails as well; that one probe is swept by the next successful
+  `clear()`. Items
   written by another store, another framework, or the same app under a different service are not matched.
   (Changed in 6.0.0: earlier versions sent no group and no synchronizable attribute, so they could also
   remove a shared-group store's items and missed the store's own iCloud items.)
