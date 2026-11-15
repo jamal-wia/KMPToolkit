@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 /**
  * Group sto-desktop, round 9: a new direct JCA use in the storage module's desktop (jvm) code fails here (baseline zero).
  *
- * The rule (decisions D-P12): `Jca.kt` is the ONE file of `kmptoolkit-storage/src/jvmMain` (and `jvmFfm`) that names `java.security`,
+ * The rule (decisions D-P12): `Jca.kt` is the ONE file of the jvm source sets of `kmptoolkit-storage/src` (`jvmMain`, `jvmFfm` where it exists, any other `jvm*` set that is not a test set) that names `java.security`,
  * `javax.crypto`, `java.util.Base64` or one of their types, because that file holds the three rules every provider call needs
  * (any exception typed, "wrong key" decided in one place, an `Error` never caught). A new use elsewhere is the next audit round
  * waiting to happen. The scan reads the source files with comments blanked (a KDoc may talk about `SecureRandom`) and looks for
@@ -30,10 +30,13 @@ import kotlin.test.assertTrue
  * lexer is kept correct for the shapes the breakers found (raw strings closing at the last three quotes of a run, back-quoted names as
  * one token, whitespace around the dots of a qualified name, `::Alias`, a second alias and an import alias).
  *
- * Limits, stated: it scans `jvmMain` and, wherever a branch has that source set, `jvmFfm` of this module (the two source sets of the jvm
- * jar; `commonMain` cannot name a JDK type and the bytecode scan reads its classes; the Android store's Keystore code and the other
- * modules have their own rules), it is lexical (a use through reflection by a string that does not spell a package name, or through a type that is not
- * in the list, is not seen), and it needs the module's source directory: it is found from the test's working directory (the
+ * Limits, stated: it scans EVERY `.kt` and `.java` file under every directory of this module's `src/` whose name starts with `jvm` and does
+ * not end with `Test` (found by walking `src/`, not listed: `jvmMain`, `jvmFfm` wherever a branch has it, and a source set that does not
+ * exist yet; whatever the directory below is called, so `src/jvmMain/java` and a `.kt` file in it are read; a Java file is lexed as Java:
+ * block comments do not nest, a text block closes at its first three quotes, `${` is no template). `commonMain` cannot name a JDK type and
+ * the bytecode scan reads its classes; the Android store's Keystore code and the other modules have their own rules. It is lexical (a use
+ * through reflection by a string that does not spell a package name, or through a type that is not in the list, is not seen), and it needs
+ * the module's source directory: it is found from the test's working directory (the
  * module's directory under Gradle, the repository root under an IDE) and the test FAILS when it cannot be found, so a moved
  * working directory cannot turn the scan into a pass. Controls: the tree has files, the boundary file is flagged by the same scan
  * (so the scan really sees JCA code), and the scanner's own rules are exercised on small sources.
@@ -49,15 +52,23 @@ class JcaBoundaryScanTest {
     }
 
     /**
-     * The source roots of the desktop code that is compiled into the jvm jar: `jvmMain` (always) and `jvmFfm` (the source set of the
-     * `ffm` compilation, wherever a branch has one), the same two the bytecode scan reads the output of. `commonMain` cannot name a
+     * The source roots of the desktop code that is compiled into the jvm jar, FOUND BY WALKING `src/`, never by naming a source set:
+     * every directory directly under it whose name starts with `jvm` (any case) and does not end with `Test` (a test source set is not
+     * shipped): `jvmMain` and, where a branch has it, `jvmFfm`, and a source set that does not exist yet. Four rounds in a row a scan that
+     * listed the layouts it knew (the `kotlin` directory of two source sets) missed one that was shipped. `commonMain` cannot name a
      * JDK type and is covered by the bytecode scan.
      */
     private fun sourceRoots(moduleSrc: File): List<File> =
-        listOf("jvmMain", "jvmFfm").map { set: String -> File(File(moduleSrc, set), "kotlin") }.filter { root: File -> root.isDirectory }
+        moduleSrc.listFiles().orEmpty()
+            .filter { directory: File -> directory.isDirectory && directory.name.lowercase().startsWith("jvm") && !directory.name.lowercase().endsWith("test") }
+            .sortedBy { directory: File -> directory.name }
 
+    /** Every `.kt` and every `.java` file under [roots], whatever the directory below the source set is called (`kotlin`, `java`, anything). */
     private fun sources(roots: List<File> = sourceRoots(moduleSrc())): List<File> =
-        roots.flatMap { root: File -> root.walkTopDown().filter { file: File -> file.isFile && file.extension == "kt" }.toList() }
+        roots.flatMap { root: File -> root.walkTopDown().filter { file: File -> file.isFile && file.extension in SOURCE_EXTENSIONS }.toList() }
+
+    /** The JCA names that [file] uses: a Java file is lexed as Java, everything else as Kotlin. */
+    private fun scanFile(file: File): List<String> = if (file.extension == "java") scan(file.readText(), java = true) else scan(file.readText())
 
     private fun isBoundary(file: File): Boolean = file.name == "Jca.kt" && file.parentFile?.name == "desktop"
 
@@ -67,37 +78,75 @@ class JcaBoundaryScanTest {
         assertTrue(all.size > 20, "control: the scan sees the module's sources (${all.size} files)")
         val boundary: List<File> = all.filter(::isBoundary)
         assertEquals(1, boundary.size, "control: exactly one boundary file: $boundary")
-        assertTrue(scan(boundary.single().readText()).isNotEmpty(), "control: the same scan flags the boundary file, so it sees JCA code")
+        assertTrue(scanFile(boundary.single()).isNotEmpty(), "control: the same scan flags the boundary file, so it sees JCA code")
         val offenders: List<String> = all.filterNot(::isBoundary).flatMap { file: File ->
-            scan(file.readText()).map { hit: String -> "${file.name}: $hit" }
+            scanFile(file).map { hit: String -> "${file.name}: $hit" }
         }
         assertEquals(emptyList(), offenders, "a direct JCA use outside Jca.kt: route it through the boundary (D-P12)")
     }
 
     @Test
-    fun `the jvmFfm sources are scanned exactly when that source set exists and a use there is flagged`() {
+    fun `the source roots are found by walking src and a use in any language or source set of the jvm jar is flagged`() {
         val real: File = moduleSrc()
-        assertEquals(
-            if (File(File(real, "jvmFfm"), "kotlin").isDirectory) 2 else 1,
-            sourceRoots(real).size,
-            "the jvmFfm root is scanned exactly when it exists on this branch",
-        )
+        val realRoots: List<String> = sourceRoots(real).map { root: File -> root.name }
+        assertTrue(File(real, "jvmTest").isDirectory, "control: this test's own source set exists next to the others")
+        assertTrue("jvmMain" in realRoots, "jvmMain is a root: $realRoots")
+        assertTrue(realRoots.none { name: String -> name.endsWith("Test") }, "no test source set is a root: $realRoots")
+        assertEquals(realRoots.size, sourceRoots(real).size, "control: the roots are listed once")
         val root: File = Files.createTempDirectory("kmptoolkit-jca-roots").toFile()
         try {
-            val main: File = File(File(root, "jvmMain"), "kotlin").also { it.mkdirs() }
-            File(main, "A.kt").writeText("class A")
-            assertEquals(listOf(main), sourceRoots(root), "a branch without jvmFfm is not an error")
-            val ffm: File = File(File(root, "jvmFfm"), "kotlin").also { it.mkdirs() }
-            File(ffm, "B.kt").writeText("import javax.crypto.Cipher\nclass B")
-            assertEquals(listOf(main, ffm), sourceRoots(root), "jvmFfm is scanned once it exists")
+            fun write(text: String, vararg segments: String) {
+                val file: File = segments.fold(root) { directory: File, segment: String -> File(directory, segment) }
+                file.parentFile.mkdirs()
+                file.writeText(text)
+            }
+            val kotlin = "import javax.crypto.Cipher\nclass K"
+            val java = "import java.security.MessageDigest;\nclass J {}"
+            write("class A", "jvmMain", "kotlin", "A.kt")
+            assertEquals(listOf("jvmMain"), sourceRoots(root).map { it.name }, "a branch without jvmFfm is not an error")
+            assertEquals(emptyList(), sources(sourceRoots(root)).filter { file: File -> scanFile(file).isNotEmpty() }, "control: a clean tree has no hit")
+            write(java, "jvmMain", "java", "p", "JavaInMain.java")
+            write(kotlin, "jvmMain", "java", "p", "KotlinInJavaDir.kt")
+            write(kotlin, "jvmMain", "kotlin", "p", "KotlinInMain.kt")
+            write(kotlin, "jvmFfm", "kotlin", "p", "KotlinInFfm.kt")
+            write(java, "jvmFfm", "java", "p", "JavaInFfm.java")
+            write(kotlin, "jvmBrandNew", "any", "depth", "here", "KotlinInNewSet.kt")
+            write(java, "jvmBrandNew", "other", "JavaInNewSet.java")
+            // Not shipped in the jvm jar, or not a source file: never a hit.
+            write(kotlin, "jvmTest", "kotlin", "p", "InTest.kt")
+            write(java, "jvmFfmTest", "java", "p", "InFfmTest.java")
+            write(kotlin, "commonMain", "kotlin", "p", "InCommon.kt")
+            write(kotlin, "androidMain", "kotlin", "p", "InAndroid.kt")
+            write("import javax.crypto.Cipher", "jvmMain", "resources", "notes.txt")
+            assertEquals(listOf("jvmBrandNew", "jvmFfm", "jvmMain"), sourceRoots(root).map { it.name }, "every jvm source set that is not a test set is a root")
             assertEquals(
-                listOf("B.kt"),
-                sources(sourceRoots(root)).filter { file: File -> scan(file.readText()).isNotEmpty() }.map { file: File -> file.name },
-                "a JCA use in a jvmFfm source is found",
+                listOf(
+                    "JavaInFfm.java", "JavaInMain.java", "JavaInNewSet.java", "KotlinInFfm.kt", "KotlinInMain.kt", "KotlinInNewSet.kt", "KotlinInJavaDir.kt",
+                ).sorted(),
+                sources(sourceRoots(root)).filter { file: File -> scanFile(file).isNotEmpty() }.map { file: File -> file.name }.sorted(),
+                "a JCA use in a Java source, in a Kotlin source of a Java directory, in jvmFfm and in a source set no rule knows is found; tests and other targets are not read",
             )
         } finally {
             root.deleteRecursively()
         }
+    }
+
+    @Test
+    fun `a Java source is lexed as Java so a comment or a string of Java never hides a use`() {
+        val use = "MessageDigest md = java.security.MessageDigest.getInstance(\"SHA-256\");"
+        assertTrue(scan("/* a /* b */ $use", java = true).isNotEmpty(), "Java block comments do not nest: the first close ends the comment")
+        val note = "// MessageDigest is only mentioned in this comment\nint z = 0;"
+        assertEquals(emptyList(), scan("String s = \"\${\"; $note", java = true), "a dollar and a brace in a Java string are no template: the comment after the string is a comment")
+        assertTrue(scan("String s = \"\${\"; $note").isNotEmpty(), "control: the Kotlin lexer reads the same text as a template, whose nested string swallows the comment")
+        assertTrue(scan("String t = \"\"\"\n// not a comment\n\"\"\";\n$use", java = true).isNotEmpty(), "a use after a text block")
+        assertEquals(emptyList(), scan("String e = \"\"\"\n \\\"\"\" \n\"\"\"; $note", java = true), "an escaped quote run does not close a Java text block")
+        assertTrue(scan("String e = \"\"\"\n \\\"\"\" \n\"\"\"; $note").isNotEmpty(), "control: the Kotlin lexer closes the raw string at the escaped run and then reads the comment as text")
+        assertTrue(scan("char q = '\"'; $use", java = true).isNotEmpty(), "a quote character")
+        assertTrue(scan("import java.security.*;", java = true).isNotEmpty(), "a wildcard import")
+        assertTrue(scan("var d = java . security . MessageDigest.getInstance(\"x\");", java = true).isNotEmpty(), "spaces around the dots")
+        assertEquals(emptyList(), scan("// uses SecureRandom\n/* javax.crypto.Cipher */\n/** MessageDigest */\nint x = 1;", java = true), "comments are ignored")
+        // The same text read as Kotlin hides the use: the mode is what makes the Java scan sound.
+        assertEquals(emptyList(), scan("/* a /* b */ $use"), "control: Kotlin nests block comments, so this text is one comment to the Kotlin lexer")
     }
 
     @Test
@@ -180,6 +229,9 @@ class JcaBoundaryScanTest {
     }
 
     private companion object {
+        /** The source files of the jvm source sets that the scan reads. */
+        val SOURCE_EXTENSIONS: Set<String> = setOf("kt", "java")
+
         val PACKAGES: List<String> = listOf("java.security", "javax.crypto", "java.util.Base64", "kotlin.io.encoding")
         val TYPES: List<String> = listOf(
             "MessageDigest", "SecureRandom", "SecretKeyFactory", "KeyGenerator", "KeyPairGenerator", "KeyFactory", "KeyAgreement",
@@ -222,8 +274,11 @@ class JcaBoundaryScanTest {
         }
 
         /** The JCA names that the code of [source] (comments blanked, back-quotes deleted) uses, one entry per distinct name: `"<name> (line n)"`. */
-        fun scan(source: String): List<String> {
-            val code: String = blankComments(source)
+        fun scan(source: String): List<String> = scan(source, java = false)
+
+        /** The same for the text of a Java file ([java]: no nested block comments, no templates, no back-quoted names, text blocks close at the first three quotes). */
+        fun scan(source: String, java: Boolean): List<String> {
+            val code: String = Lexer(source, java).run()
             return (PATTERNS + aliasPatterns()).mapNotNull { (name: String, pattern: Regex) ->
                 pattern.find(code)?.let { match: MatchResult -> "$name (line ${code.substring(0, match.range.first).count { it == '\n' } + 1})" }
             }
@@ -235,9 +290,9 @@ class JcaBoundaryScanTest {
          * lexed as CODE (with its own nested strings, comments and braces), so a nested literal such as `"${"//"}"` cannot end the
          * outer string early and turn real code into a "comment".
          */
-        fun blankComments(source: String): String = Lexer(source).run()
+        fun blankComments(source: String): String = Lexer(source, java = false).run()
 
-        private class Lexer(private val source: String) {
+        private class Lexer(private val source: String, private val java: Boolean) {
             private val out = StringBuilder(source.length)
             private var i = 0
 
@@ -257,9 +312,9 @@ class JcaBoundaryScanTest {
                             while (i < source.length && source[i] != '\n') { out.append(' '); i++ }
                         }
                         c == '/' && next == '*' -> blockComment()
-                        source.startsWith("\"\"\"", i) -> rawString()
+                        source.startsWith("\"\"\"", i) -> if (java) textBlock() else rawString()
                         c == '"' -> string()
-                        c == '`' -> backQuoted()
+                        c == '`' && !java -> backQuoted()
                         c == '\'' -> charLiteral()
                         inTemplate && c == '{' -> { depth++; out.append(c); i++ }
                         inTemplate && c == '}' -> {
@@ -275,7 +330,7 @@ class JcaBoundaryScanTest {
             private fun blockComment() {
                 var depth = 0
                 while (i < source.length) {
-                    if (source.startsWith("/*", i)) { depth++; out.append("  "); i += 2 }
+                    if (source.startsWith("/*", i) && (!java || depth == 0)) { depth++; out.append("  "); i += 2 }
                     else if (source.startsWith("*/", i)) { depth--; out.append("  "); i += 2; if (depth == 0) return }
                     else { out.append(if (source[i] == '\n') '\n' else ' '); i++ }
                 }
@@ -311,6 +366,21 @@ class JcaBoundaryScanTest {
                 }
             }
 
+            /**
+             * A Java text block closes at the FIRST three quotes that no backslash escapes (the backslash takes the next character with
+             * it), and holds no template.
+             */
+            private fun textBlock() {
+                out.append("\"\"\""); i += 3
+                while (i < source.length) {
+                    when {
+                        source.startsWith("\"\"\"", i) -> { out.append("\"\"\""); i += 3; return }
+                        source[i] == '\\' && i + 1 < source.length -> { out.append(source[i]); out.append(source[i + 1]); i += 2 }
+                        else -> { out.append(source[i]); i++ }
+                    }
+                }
+            }
+
             /** A back-quoted name is one token (it may hold an apostrophe, a quote or two slashes): emitted without its back-quotes. */
             private fun backQuoted() {
                 i++
@@ -323,7 +393,7 @@ class JcaBoundaryScanTest {
                 while (i < source.length && source[i] != '"' && source[i] != '\n') {
                     when {
                         source[i] == '\\' && i + 1 < source.length -> { out.append(source[i]); out.append(source[i + 1]); i += 2 }
-                        source.startsWith("\${", i) -> template()
+                        !java && source.startsWith("\${", i) -> template()
                         else -> { out.append(source[i]); i++ }
                     }
                 }
