@@ -94,6 +94,7 @@ import platform.UserNotifications.UNAuthorizationStatusEphemeral
 import platform.UserNotifications.UNAuthorizationStatusProvisional
 import platform.darwin.NSObject
 import platform.darwin.dispatch_after
+import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
 import platform.darwin.dispatch_time
 import platform.darwin.DISPATCH_TIME_NOW
@@ -367,7 +368,9 @@ internal object LocationAuthorization {
      * as the delegate-based requests keep theirs in [pending]. The completion lets it go, and so does a
      * caller that is cancelled meanwhile, on the main queue like [BluetoothAuthorization.request]'s
      * abandon; the completion that may still arrive finds the continuation inactive and the manager
-     * already gone from the set. The set is only touched on the main queue.
+     * already gone from the set. The set is only touched on the main queue: CoreLocation does not document
+     * the queue its completion runs on, so the completion hops to the main queue for the removal exactly as
+     * the cancel path does, and only the resume (thread-safe) happens where the completion runs.
      */
     suspend fun requestTemporaryFullAccuracy(purposeKey: String) {
         withContext(Dispatchers.Main) {
@@ -375,7 +378,7 @@ internal object LocationAuthorization {
                 val manager = CLLocationManager()
                 pendingAccuracy += manager
                 manager.requestTemporaryFullAccuracyAuthorizationWithPurposeKey(purposeKey) { _: NSError? ->
-                    pendingAccuracy -= manager
+                    dispatch_async(dispatch_get_main_queue()) { pendingAccuracy -= manager }
                     if (continuation.isActive) continuation.resume(Unit)
                 }
                 continuation.invokeOnCancellation {
