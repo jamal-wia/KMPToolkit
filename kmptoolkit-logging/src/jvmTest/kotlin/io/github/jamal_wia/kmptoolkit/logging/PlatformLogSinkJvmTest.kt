@@ -4,16 +4,18 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.PrintStream
 import java.net.UnknownHostException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
+import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -172,22 +174,43 @@ class PlatformLogSinkJvmTest {
 
     // --- the process-wide lock ---------------------------------------------------------------------
 
-    /** A stream whose `println(String)` is deliberately not atomic: it writes one character at a time and yields between them. */
-    private class CharAtATimeStream(private val buffer: ByteArrayOutputStream) : PrintStream(buffer, true, "UTF-8") {
+    /**
+     * A stream whose `println(String)` is deliberately not atomic: it writes the text one byte at a time, so two
+     * writers inside it at once would interleave their events. It counts the writers inside at once; the sink's
+     * lock is what keeps that at one. Nothing waits or yields here: long texts and many writers make an overlap
+     * without the lock near certain, and with the lock the test passes deterministically.
+     */
+    private class ByteAtATimeStream(buffer: ByteArrayOutputStream) : PrintStream(buffer, true, "UTF-8") {
+        private val inside: AtomicInteger = AtomicInteger(0)
+        val maxInside: AtomicInteger = AtomicInteger(0)
+
         override fun println(x: String?) {
-            for (character: Char in (x ?: "null") + "\n") {
-                write(character.code)
-                Thread.yield()
+            val now: Int = inside.incrementAndGet()
+            maxInside.accumulateAndGet(now) { current: Int, candidate: Int -> maxOf(current, candidate) }
+            try {
+                for (character: Char in (x ?: "null") + "\n") write(character.code)
+            } finally {
+                inside.decrementAndGet()
             }
         }
     }
 
+    /** The lines the sink must write for one event, derived from the contract and not from the implementation. */
+    private fun expectedLines(level: LogLevel, writer: Int, id: String, frames: Int?): List<String> {
+        val header = "${level.name.first()}/w$writer: event $id"
+        if (frames == null) return listOf(header)
+        return listOf(header, "java.lang.IllegalStateException: boom $id") +
+            List(frames) { index -> "\tat fake.Frame.run$index(Frame.java:${index + 1})" }
+    }
+
     @Test
     fun `concurrent writers on separate sink instances never interleave the lines of an event`() {
+        val seed = 20_261_115
         val writers = 8
         val eventsPerWriter = 40
         val buffer = ByteArrayOutputStream()
-        val stream: PrintStream = CharAtATimeStream(buffer)
+        val stream = ByteAtATimeStream(buffer)
+        val expected: ConcurrentHashMap<String, List<String>> = ConcurrentHashMap()
         val start = CountDownLatch(1)
         val finished = CountDownLatch(writers)
         val failure: AtomicReference<Throwable?> = AtomicReference(null)
@@ -197,10 +220,15 @@ class PlatformLogSinkJvmTest {
                     try {
                         // One instance per writer: the lock is process-wide, not per instance.
                         val sink: LogSink = platformLogSink()
+                        val random = Random(seed * 1000 + writer)
                         start.await(HANG_BOUND_MILLIS, TimeUnit.MILLISECONDS)
                         repeat(eventsPerWriter) { index ->
                             val id = "$writer-$index"
-                            sink.log(LogLevel.ERROR, "w$writer", "event $id", framed(IllegalStateException("boom $id")))
+                            val level: LogLevel = LogLevel.entries[random.nextInt(LogLevel.entries.size)]
+                            val frames: Int? = if (random.nextBoolean()) random.nextInt(0, 40) else null
+                            expected[id] = expectedLines(level, writer, id, frames)
+                            val error: Throwable? = frames?.let { count -> framed(IllegalStateException("boom $id"), count) }
+                            sink.log(level, "w$writer", "event $id", error)
                         }
                     } catch (t: Throwable) {
                         failure.set(t)
@@ -210,25 +238,36 @@ class PlatformLogSinkJvmTest {
                 }
             }
             start.countDown()
-            assertTrue(finished.await(HANG_BOUND_MILLIS, TimeUnit.MILLISECONDS), "the writers did not finish within the hang bound")
+            assertTrue(
+                finished.await(HANG_BOUND_MILLIS, TimeUnit.MILLISECONDS),
+                "seed=$seed: the writers did not finish within the hang bound",
+            )
         }
         failure.get()?.let { throw it }
 
-        val lines: List<String> = output.lines().dropLast(1)
-        val linesPerEvent = 5
-        assertEquals(writers * eventsPerWriter * linesPerEvent, lines.size, "lines lost or split")
-        val seen: MutableSet<String> = HashSet()
-        lines.chunked(linesPerEvent).forEach { block ->
-            val header: Regex = Regex("E/w(\\d+): event (\\d+-\\d+)")
-            val match: MatchResult = assertNotNull(header.matchEntire(block[0]), "a block does not start with a header: $block")
-            val id: String = match.groupValues[2]
-            assertEquals("java.lang.IllegalStateException: boom $id", block[1], "the lines of event $id are interleaved: $block")
-            assertEquals("\tat fake.Frame.run0(Frame.java:1)", block[2], block.toString())
-            assertEquals("\tat fake.Frame.run1(Frame.java:2)", block[3], block.toString())
-            assertEquals("\tat fake.Frame.run2(Frame.java:3)", block[4], block.toString())
-            assertTrue(seen.add(id), "event $id was written twice")
+        assertEquals(1, stream.maxInside.get(), "seed=$seed: two writers were inside standard error at once")
+        val header = Regex("[VDIWE]/w(\\d+): event (\\d+-\\d+)")
+        val blocks: MutableList<MutableList<String>> = mutableListOf()
+        output.lines().dropLast(1).forEach { line ->
+            if (header.matches(line)) {
+                blocks += mutableListOf(line)
+            } else {
+                val open: MutableList<String> =
+                    blocks.lastOrNull() ?: throw AssertionError("seed=$seed: a line belongs to no event: $line")
+                open += line
+            }
         }
-        assertEquals(writers * eventsPerWriter, seen.size)
+        assertEquals(writers * eventsPerWriter, blocks.size, "seed=$seed: events lost or merged")
+        val lastIndex: MutableMap<Int, Int> = HashMap()
+        blocks.forEach { block ->
+            val match: MatchResult = header.matchEntire(block[0]) ?: throw AssertionError("seed=$seed: $block")
+            val writer: Int = match.groupValues[1].toInt()
+            val id: String = match.groupValues[2]
+            assertEquals(expected[id], block, "seed=$seed: the lines of event $id are interleaved or altered")
+            val index: Int = id.substringAfter('-').toInt()
+            assertTrue(index > (lastIndex[writer] ?: -1), "seed=$seed: writer $writer's events are out of order at $id")
+            lastIndex[writer] = index
+        }
     }
 
     // --- interrupts and containment, the Android tests' intent on the JVM actuals -------------------
