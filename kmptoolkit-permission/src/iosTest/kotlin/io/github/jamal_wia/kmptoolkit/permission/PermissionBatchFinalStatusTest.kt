@@ -85,6 +85,8 @@ class PermissionBatchFinalStatusTest {
     @Test
     fun `an entry changed behind the app while a later prompt was up is answered with its current status`() = runTest {
         val port: FakeIosAuthorizationPort = FakeIosAuthorizationPort().apply {
+            // The controller below is built with the purpose key, and construction checks that the bundle has it.
+            temporaryPurposeKeys = setOf(key)
             hooks["requestCameraAccess"] = { camera = AVAuthorizationStatusAuthorized }
             hooks["requestRecordPermission"] = {
                 recordState = AVAudioSessionRecordPermissionGranted
