@@ -113,17 +113,17 @@ class StorageErrorTest {
     /** Exhaustive over the operations, with no `else`: a new operation without a decision here does not compile. */
     private fun targetsWholeStore(operation: StorageOperation): Boolean = when (operation) {
         StorageOperation.GET, StorageOperation.PUT, StorageOperation.REMOVE -> false
-        StorageOperation.CLEAR, StorageOperation.ENSURE_KEY -> true
+        StorageOperation.CLEAR, StorageOperation.ENSURE_KEY, StorageOperation.CHANGE_KEY -> true
     }
 
     @Test
-    fun `the operations are the four store calls and ensureKey`() {
+    fun `the operations are the four store calls plus ensureKey and changeKey`() {
         assertEquals(
-            listOf("GET", "PUT", "REMOVE", "CLEAR", "ENSURE_KEY"),
+            listOf("GET", "PUT", "REMOVE", "CLEAR", "ENSURE_KEY", "CHANGE_KEY"),
             StorageOperation.entries.map { it.name },
         )
         assertEquals(
-            setOf(StorageOperation.CLEAR, StorageOperation.ENSURE_KEY),
+            setOf(StorageOperation.CLEAR, StorageOperation.ENSURE_KEY, StorageOperation.CHANGE_KEY),
             StorageOperation.entries.filter(::targetsWholeStore).toSet(),
         )
     }

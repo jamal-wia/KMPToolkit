@@ -6,14 +6,16 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import io.github.jamal_wia.kmptoolkit.storage.UnsupportedReason
 import io.github.jamal_wia.kmptoolkit.storage.errorOrNull
 import io.github.jamal_wia.kmptoolkit.storage.getOrNull
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 
 /**
@@ -167,20 +169,60 @@ class InMemoryKeyValueStorageBackingTest {
         assertEquals(locked, storage.failEveryOperationWith)
     }
 
-    @Test
-    fun `a caller that is already cancelled never leaves a half done operation`() = runTest {
-        val storage = InMemoryKeyValueStorage()
-        val outcomes: MutableList<StorageResult<Unit>> = mutableListOf()
-
-        val job = launch(Dispatchers.Unconfined) {
-            currentCoroutineContext().cancel()
-            // No operation suspends, so the call runs to completion in a cancelled coroutine.
-            outcomes += storage.put("k", "v")
+    /**
+     * Runs [call] in a coroutine that is already cancelled and returns what it threw (null when it
+     * returned). Unconfined, so the call starts at once, on the cancelled context.
+     */
+    private suspend fun callWhileCancelled(call: suspend () -> Any?): Throwable? {
+        var thrown: Throwable? = null
+        coroutineScope {
+            launch(Dispatchers.Unconfined) {
+                currentCoroutineContext().cancel()
+                try {
+                    call()
+                } catch (cancellation: CancellationException) {
+                    thrown = cancellation
+                }
+            }
         }
-        job.join()
+        return thrown
+    }
 
-        assertEquals(listOf<StorageResult<Unit>>(StorageResult.Success(Unit)), outcomes)
-        assertEquals(mapOf("k" to "v"), storage.contents)
-        assertEquals(listOf("k"), storage.writes)
+    @Test
+    fun `every operation of a cancelled caller throws CancellationException and changes nothing`() = runTest {
+        val armed: StorageError = StorageError.Unavailable()
+        val operations: Map<String, suspend (InMemoryKeyValueStorage) -> Any?> = mapOf(
+            "get" to { storage -> storage.get("k") },
+            "put" to { storage -> storage.put("k", "new") },
+            "remove" to { storage -> storage.remove("k") },
+            "clear" to { storage -> storage.clear() },
+            "ensureKey" to { storage -> storage.ensureKey() },
+        )
+        for ((name: String, operation: suspend (InMemoryKeyValueStorage) -> Any?) in operations) {
+            val storage = InMemoryKeyValueStorage()
+            storage.put("k", "old")
+            storage.failNextOperationWith = armed
+            storage.failEveryOperationWith = null
+
+            val thrown: Throwable? = callWhileCancelled { operation(storage) }
+
+            assertTrue(thrown is CancellationException, "$name: was $thrown")
+            assertEquals(mapOf("k" to "old"), storage.contents, "$name: contents")
+            assertEquals(listOf("k"), storage.writes, "$name: writes")
+            assertEquals(armed, storage.failNextOperationWith, "$name: the armed failure was consumed")
+            // Control: a live caller does consume it, so the assertion above can fail.
+            assertEquals(armed, storage.get("k").errorOrNull(), "$name: control")
+            assertNull(storage.failNextOperationWith, "$name: control")
+        }
+    }
+
+    @Test
+    fun `a cancelled put of an unpaired surrogate is cancelled and not rejected`() = runTest {
+        val storage = InMemoryKeyValueStorage()
+
+        val thrown: Throwable? = callWhileCancelled { storage.put("k", "a\uD800b") }
+
+        assertTrue(thrown is CancellationException, "was $thrown")
+        assertEquals(emptyMap(), storage.contents)
     }
 }

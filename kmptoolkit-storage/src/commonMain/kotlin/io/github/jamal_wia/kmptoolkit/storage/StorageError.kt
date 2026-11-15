@@ -29,8 +29,8 @@ package io.github.jamal_wia.kmptoolkit.storage
  * Match this interface exhaustively, with no `else` branch: a new case is added only in a major
  * version, listed under `Breaking` in the changelog, so that the compiler points at every `when` that
  * needs a decision. An `else` would silently send a future case into the retry or the delete branch.
- * The descriptive enums ([UnsupportedReason], [SecureStorageProtection]) may grow in a minor version
- * instead; a `when` over them takes an `else` that fails closed.
+ * The descriptive enums ([UnsupportedReason], [SecureStorageProtection], [StorageOperation]) may grow
+ * in a minor version instead; a `when` over them takes an `else` that fails closed.
  */
 public sealed interface StorageError {
 
@@ -115,8 +115,8 @@ public sealed interface StorageError {
      * A value the store can never accept is not this case but [InvalidValue], so a caller that
      * retries [OperationFailed] never retries one forever.
      *
-     * @param key the entry the operation targeted, or `null` for [StorageOperation.CLEAR] and
-     *   [StorageOperation.ENSURE_KEY], which target the whole store.
+     * @param key the entry the operation targeted, or `null` for [StorageOperation.CLEAR],
+     *   [StorageOperation.ENSURE_KEY] and [StorageOperation.CHANGE_KEY], which target the whole store.
      * @param platformCode the raw platform status code where the platform reports failure as a
      *   number rather than an exception — an iOS Security-framework `OSStatus` such as `-25300`.
      *   `null` when the platform threw instead, in which case [cause] carries the detail.
@@ -146,7 +146,14 @@ public sealed interface StorageError {
     ) : StorageError
 }
 
-/** The operation an error refers to. Mirrors the methods of [KeyValueStorage] and [EncryptedKeyValueStorage]. */
+/**
+ * The operation an error refers to: the methods of [KeyValueStorage] and [EncryptedKeyValueStorage]
+ * and the key-management calls of the stores that have them.
+ *
+ * A machine token, never display text. The set may grow in a minor version, so give a `when` over it
+ * an `else` that treats an unknown operation as a plain failure to log (never as a reason to retry or
+ * to delete anything).
+ */
 public enum class StorageOperation {
 
     /** [KeyValueStorage.get]. */
@@ -161,8 +168,15 @@ public enum class StorageOperation {
     /** [KeyValueStorage.clear]. */
     CLEAR,
 
-    /** [EncryptedKeyValueStorage.ensureKey]. */
+    /**
+     * [EncryptedKeyValueStorage.ensureKey], and the queries that ask the same question — is the key
+     * store usable (`probeDesktopKeyStore()`, `androidKeySecurityLevel()`): their I/O or key-info
+     * failure is reported with this operation and `key = null`.
+     */
     ENSURE_KEY,
+
+    /** `AppKeyEncryptedKeyValueStorage.changeKey`: re-encrypting the store under a new application key. */
+    CHANGE_KEY,
 }
 
 /**
