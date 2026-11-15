@@ -74,8 +74,9 @@ import kotlinx.coroutines.flow.Flow
  *   context, nothing else is retained.
  * @param options Android-only heading settings.
  * @param logger where a dropped sample, a refused sensor or a failed passive registration is reported. A
- *   logger that throws loses its own event and nothing else: it never reaches the platform's thread and
- *   never stops a registration from being released.
+ *   logger that throws an exception loses its own event and nothing else: the exception never reaches the
+ *   platform's thread and never stops a registration from being released. An `Error` is not absorbed
+ *   (a logger that throws one is a defect of the app), but even then every registration is released first.
  */
 public fun createHeadingProvider(
     context: Context,
@@ -360,13 +361,16 @@ internal class AndroidHeadingProvider(
 
         val registered: LocationListener? = if (positionRegistered) positionCandidate else null
         return AutoCloseable {
+            // Both removals run first and the logging comes after them: a logger is app code, and one that
+            // throws an Error (guardLogger lets an Error through) must not stand between two removals.
             // Both removals are idempotent in the framework; one failing must not strand the other.
-            if (registered != null && source != null) {
-                runCatching { source.unregister(registered) }.exceptionOrNull()?.let { failure: Throwable ->
-                    guardLogger { logger.w(failure) { "Could not remove the heading position listener" } }
-                }
+            val positionFailure: Throwable? =
+                if (registered != null && source != null) runCatching { source.unregister(registered) }.exceptionOrNull() else null
+            val sensorFailure: Throwable? = runCatching { hub.unregister(sensorListener) }.exceptionOrNull()
+            positionFailure?.let { failure: Throwable ->
+                guardLogger { logger.w(failure) { "Could not remove the heading position listener" } }
             }
-            runCatching { hub.unregister(sensorListener) }.exceptionOrNull()?.let { failure: Throwable ->
+            sensorFailure?.let { failure: Throwable ->
                 guardLogger { logger.w(failure) { "Could not remove the heading sensor listener" } }
             }
         }
