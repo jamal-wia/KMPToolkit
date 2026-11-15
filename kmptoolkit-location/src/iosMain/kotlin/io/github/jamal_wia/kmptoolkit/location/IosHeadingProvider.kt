@@ -2,8 +2,8 @@
 
 package io.github.jamal_wia.kmptoolkit.location
 
+import io.github.jamal_wia.kmptoolkit.logging.LogLevel
 import io.github.jamal_wia.kmptoolkit.logging.Logger
-import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlinx.coroutines.flow.Flow
@@ -86,6 +86,12 @@ internal data class IosHeadingState(
     val magneticDegrees: Double? = null,
     val trueDegrees: Double? = null,
     val accuracyDegrees: Double? = null,
+    /**
+     * Location is authorized, as the collection last read it inside the confine. True north is reported only
+     * while this holds, whatever `trueHeading` CoreLocation still computes from a location cached before a
+     * revocation.
+     */
+    val authorized: Boolean = false,
     /** The last heading reported a negative accuracy: CoreLocation says the heading is not valid. */
     val accuracyInvalid: Boolean = false,
     /** CoreLocation asked to display its calibration overlay and no valid heading has arrived since. */
@@ -139,7 +145,7 @@ internal class IosHeadingProvider(
         val magnetic: Double = state.magneticDegrees ?: return null
         return Heading(
             magneticDegrees = magnetic,
-            trueDegrees = state.trueDegrees,
+            trueDegrees = if (state.authorized) state.trueDegrees else null,
             accuracyDegrees = state.accuracyDegrees,
             needsCalibration = state.accuracyInvalid || state.calibrationRequested,
         )
@@ -167,16 +173,19 @@ internal class IosHeadingProvider(
                     device.openManager(this, screenRotation, minChangeDegrees)
                 } catch (failure: Exception) {
                     // Nothing to release: the manager was never handed back. The stream stays silent.
-                    logger.w(failure) { "Could not open a heading manager" }
+                    logger.logSafely(LogLevel.WARN, failure) { "Could not open a heading manager" }
                     return@confine
                 }
                 manager = opened
                 try {
                     opened.startHeading()
-                    if (opened.isAuthorized) startLocation(opened)
+                    val authorized: Boolean = opened.isAuthorized
+                    setAuthorized(authorized)
+                    if (authorized) startLocation(opened)
                 } catch (failure: Exception) {
-                    logger.w(failure) { "Could not start heading updates" }
+                    // Release first, report after: whatever the logger does, no manager stays running.
                     releaseManager()
+                    logger.logSafely(LogLevel.WARN, failure) { "Could not start heading updates" }
                 }
             }
         }
@@ -212,10 +221,11 @@ internal class IosHeadingProvider(
                 if (closed.load()) return@confine
                 try {
                     val authorized: Boolean = current.isAuthorized
+                    setAuthorized(authorized)
                     if (authorized && !locationRunning) startLocation(current)
                     if (!authorized && locationRunning) stopLocation(current)
                 } catch (failure: Exception) {
-                    logger.w(failure) { "Could not change the heading location updates" }
+                    logger.logSafely(LogLevel.WARN, failure) { "Could not change the heading location updates" }
                 }
             }
         }
@@ -225,6 +235,20 @@ internal class IosHeadingProvider(
                 inputs.update { state: IosHeadingState -> if (state.calibrationRequested) state else state.copy(calibrationRequested = true) }
             }
             return showsSystemCalibration
+        }
+
+        /**
+         * Publishes what the confine just read. Losing authorization also forgets the true north of the last
+         * heading, so regaining it never shows a stale one before CoreLocation delivers a fresh heading.
+         */
+        private fun setAuthorized(authorized: Boolean) {
+            inputs.update { state: IosHeadingState ->
+                when {
+                    state.authorized == authorized -> state
+                    authorized -> state.copy(authorized = true)
+                    else -> state.copy(authorized = false, trueDegrees = null)
+                }
+            }
         }
 
         private fun startLocation(current: IosHeadingManager) {
@@ -245,7 +269,7 @@ internal class IosHeadingProvider(
             try {
                 current.release()
             } catch (failure: Exception) {
-                logger.w(failure) { "Could not release a heading manager" }
+                logger.logSafely(LogLevel.WARN, failure) { "Could not release a heading manager" }
             }
         }
     }

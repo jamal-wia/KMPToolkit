@@ -1,8 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.location
 
+import io.github.jamal_wia.kmptoolkit.logging.LogLevel
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
-import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.CoreLocation.CLDeviceOrientation
 import platform.CoreLocation.CLDeviceOrientationLandscapeLeft
@@ -38,7 +38,9 @@ import platform.darwin.dispatch_get_main_queue
  * `kCLLocationAccuracyThreeKilometers` (a declination changes by about one degree over hundreds of kilometres,
  * so no better accuracy is worth the power), starts them when authorization arrives in the middle of a
  * collection and stops them on revocation. It never starts them without authorization. Without authorization
- * [Heading.trueDegrees] is `null`. iOS has no declination API, so `declinationAt` of
+ * [Heading.trueDegrees] is `null`, also when CoreLocation still hands over a `trueHeading` it computed from a
+ * location cached before a revocation: the provider reads the authorization on the main queue each time it
+ * changes and reports true north only while it holds. iOS has no declination API, so `declinationAt` of
  * [HeadingProvider.observeHeading] cannot be used here and is ignored. The app must declare the location usage
  * description and request authorization itself (see `kmptoolkit-permission`); this library requests nothing.
  *
@@ -61,7 +63,8 @@ import platform.darwin.dispatch_get_main_queue
  * @param showsSystemCalibration whether iOS may show its own calibration overlay
  *   (`locationManagerShouldDisplayHeadingCalibration`); a request for it is reported through
  *   [Heading.needsCalibration] either way.
- * @param logger where a failing manager is reported.
+ * @param logger where a failing manager is reported. A logger that throws loses its own event and nothing
+ *   else: it never reaches CoreLocation's callback and never keeps a manager from being released.
  */
 public fun createHeadingProvider(
     showsSystemCalibration: Boolean = false,
@@ -184,6 +187,7 @@ internal class HeadingDelegate(
     override fun locationManager(manager: CLLocationManager, didFailWithError: NSError) {
         // A transient failure (kCLErrorHeadingFailure, kCLErrorLocationUnknown) ends nothing: the heading
         // stream has no error channel and CoreLocation keeps trying. Only reported.
-        logger.w { "Heading manager reported: ${didFailWithError.localizedDescription}" }
+        // A logger that throws must not escape into CoreLocation's callback.
+        logger.logSafely(LogLevel.WARN) { "Heading manager reported: ${didFailWithError.localizedDescription}" }
     }
 }

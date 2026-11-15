@@ -102,6 +102,7 @@ class HeadingIosTest {
 
     @Test
     fun `true north is null while CoreLocation says it is invalid and the heading is normalized`() = runTest {
+        device.authorizedAtOpen = true
         val received: MutableList<Heading> = mutableListOf()
         val collection: Job = collect(provider().observeHeading(minChangeDegrees = 0.0), received)
 
@@ -196,6 +197,7 @@ class HeadingIosTest {
 
     @Test
     fun `true north appears in the heading once it is valid without the device moving`() = runTest {
+        device.authorizedAtOpen = true
         val received: MutableList<Heading> = mutableListOf()
         val collection: Job = collect(provider().observeHeading(minChangeDegrees = 45.0), received)
         heading(100.0, trueHeading = -1.0)
