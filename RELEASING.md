@@ -70,6 +70,133 @@ The build machine needs:
    `unzip -p sample/build/outputs/apk/debug/sample-debug.apk 'classes*.dex' | grep -a -c sample/MainActivity`
    must print a number above zero.
 
+## Storage checks (a release that touches `kmptoolkit-storage`, `kmptoolkit-storage-jna` or `kmptoolkit-files`)
+
+The secure stores call the operating system, and no unit test can see what a real keychain, a real Keystore or a real
+Secret Service answers. These checks are manual, each is run on the release branch, and the result (what ran, on which
+OS and JDK or Xcode version, and what was observed) goes into the release notes. A skipped check is not a passed
+check: read the skip count of every run.
+
+1. **Fast gates that always run.** `./gradlew :kmptoolkit-storage:checkKotlinAbi :kmptoolkit-storage-testing:checkKotlinAbi
+   :kmptoolkit-storage-jna:checkKotlinAbi :kmptoolkit-files:checkKotlinAbi`, then the docs-sample checks of
+   `docs/kmptoolkit-storage/06-testing.md` ("Docs samples"): `:docs-samples:compileKotlinJvm`, and the classes
+   `DocsSamplesDesktopRunTest`, `DocsSamplesDriftTest` (`:kmptoolkit-storage:jvmTest`), `DocsSamplesTestingTest`
+   (`:kmptoolkit-storage-testing:jvmTest`) and `AndroidDocsSamplesRound11Test` (`:kmptoolkit-storage:testAndroidHostTest`).
+2. **Real key stores of the desktop FFM binding, one run per operating system the release supports.** The suites do
+   nothing unless asked, and with `required=true` a skip is a failure, so a broken key store cannot pass as green. Preparation
+   per OS (an unlocked login keychain on macOS, the logged-on user's interactive session on Windows, a session bus and an
+   unlocked default collection on Linux) is in `docs/kmptoolkit-storage/06-testing.md` ("Real-store suites"):
+
+   ```bash
+   ./gradlew :kmptoolkit-storage:jvmTestFfm --tests '*FfmMacKeychainRealStoreTest' -Pkmptoolkit.secretstore=macos -Pkmptoolkit.secretstore.required=true
+   ./gradlew :kmptoolkit-storage:jvmTestFfm --tests '*FfmDpapiRealStoreTest' -Pkmptoolkit.secretstore=windows -Pkmptoolkit.secretstore.required=true
+   ./gradlew :kmptoolkit-storage:jvmTestFfm --tests '*FfmSecretServiceRealStoreTest' -Pkmptoolkit.secretstore=linux -Pkmptoolkit.secretstore.required=true
+   ```
+
+   On a Linux machine whose libsecret is older than 0.19, also run `--tests '*FfmSecretServiceOldLibsecretRealStoreTest'`
+   with `-Pkmptoolkit.secretstore=linux -Pkmptoolkit.secretstore.required=true -Pkmptoolkit.secretstore.oldLibsecret=true`:
+   every call must answer the missing-symbol status, which the store reports as `Unsupported(NO_KEY_STORE)`.
+3. **The same on JDK 21 through the JNA bridge.** `./gradlew :kmptoolkit-storage-jna:jvmTest --tests '*RealKeychainSuiteTest'`
+   (macOS), `'*RealDpapiSuiteTest'` (Windows) or `'*RealSecretServiceSuiteTest'` (Linux), each with the matching
+   `-Pkmptoolkit.secretstore=` and `-Pkmptoolkit.secretstore.required=true`. On Linux run the three environments with
+   `-Pkmptoolkit.secretstore.scenario=unlocked`, `nobus` and `noservice`.
+4. **Windows lock file and DACL.** The one test class that needs a Windows host and a real NTFS or ReFS volume:
+
+   ```bash
+   ./gradlew :kmptoolkit-storage:jvmTest --tests '*CrossProcessLockWindowsAclRound5Test' --tests '*CrossProcessLockRound5Test' --tests '*CrossProcessLockTest' --tests '*CrossProcessLockBreakerR3Test'
+   ```
+
+   Expected: `CrossProcessLockWindowsAclRound5Test` runs 2 tests and skips 0 (a skip means the default file system had no
+   `acl` view or had a `posix` one, that is, the host was not Windows) and both pass; `CrossProcessLockRound5Test` runs 5
+   of its 6 tests (the POSIX one is skipped on Windows). If the first Windows test fails, read the DACL line of the
+   log: the expected entries are the token user (`DOMAIN\name`) and SYSTEM, both allow, nothing else. Also run the
+   Windows classes of `kmptoolkit-files` (`./gradlew :kmptoolkit-files:jvmTest --tests '*OwnerOnlyWindows*'`) and read their skip reasons.
+5. **Packaging smoke, once per binding, on a Mac, from the release branch.** `smoke-storage-desktop` is a non-published
+   host app (not in the BOM) that packages a Compose Desktop release distribution with ProGuard (obfuscation on) and runs
+   one plain and one secure storage round trip from the packaged app:
+
+   ```bash
+   ./gradlew :smoke-storage-desktop:smokeFfm    # JDK 25 packaging, the FFM binding, --enable-native-access=ALL-UNNAMED
+   ./gradlew :smoke-storage-desktop:smokeJna    # JDK 21 packaging plus kmptoolkit-storage-jna
+   ```
+
+   Read the last line of the `---- smoke <variant> ----` block the task prints. `SMOKE-RESULT: PASS`: both round trips
+   passed through the real native binding. `SMOKE-RESULT: PASS-WITH-SKIP (...)`: the secure round trip was skipped (no key
+   store, a locked keychain, a session without one), which is **not** a pass of the secure path: run again in a logged-in
+   session, or pass `-Pkmptoolkit.secretstore.required=true` to make a skip a failure. A failed task means a missing keep
+   rule (the output names the binding class that could not be loaded), a missing native-access flag or a packaging error:
+   fix the rule in the library's `META-INF/proguard/*.pro`, never in the smoke build. The smoke feeds ProGuard exactly the
+   `META-INF/proguard/*.pro` files of the runtime jars, because ProGuard (unlike R8) does not read them itself; a desktop app that
+   shrinks with ProGuard must do the same. A secure run leaves one item labelled "KMPToolkit packaging smoke (safe to
+   delete)" in the login keychain, which the next run reuses. Options: `-Psmoke.probeOnly=true` (probe only, touches no key),
+   `-Psmoke.javaHome25=<dir>` and `-Psmoke.javaHome21=<dir>` (a full JDK with jmods and jpackage). Two negative controls
+   must fail: `-Psmoke.control.noLibraryRules=true` and `-Psmoke.control.noNativeAccessFlag=true`.
+
+   **The oldest FFM runtime.** The build's test launcher for the FFM binding is JDK 25 and its sources are checked against the
+   JDK 22 API on every build, but only a run proves JDK 22 itself: once per release run
+   `./gradlew :smoke-storage-desktop:smokeFfm -Psmoke.javaHome25=<a JDK 22 installation>` and
+   read the result line as above.
+
+   Signing and notarisation are not covered. With an Apple Developer ID, additionally build a signed and notarised
+   app of a plain-store-only host and record the result in the release notes; a notarised app that adds
+   `kmptoolkit-storage-jna` must sign the nested `libjnidispatch` as well, which has not been verified.
+6. **macOS key-store behaviour that only a real keychain can show.** The three open items listed at the end of the
+   desktop section of `docs/kmptoolkit-storage/05-platform-notes.md` ("Open verification items"): whether
+   `kSecUseAuthenticationUIFail` applies to `SecItemAdd` and `SecItemDelete` on the file keychain, whether a locked keychain
+   and an item of another code identity both answer -25308 (never -25300), and whether deleting the previous unsigned build's
+   item prompts. Observe them with `allowUserInteraction = false` and then `true` on a locked and an unlocked login
+   keychain, and write the result into that section.
+7. **iOS Keychain harness (before releasing a change to the iOS secure store).** Enrol Face ID in the simulator first
+   (Features > Face ID > Enrolled), so that `ensure-key-user-presence` is counted as a pass. Build and run
+   `storage-ios-harness/ios-host` on an iPhone simulator
+   (`xcodebuild -project storage-ios-harness/ios-host/StorageHarness.xcodeproj -scheme StorageHarness -sdk iphonesimulator build`,
+   then install and run the app, or run the `StorageHarness` scheme in Xcode), and launch it once with the launch argument
+   `--run-automatic`:
+
+   ```bash
+   xcrun simctl launch --console booted io.github.jamal-wia.kmptoolkit.storageharness --run-automatic
+   ```
+
+   Keep the log. Every case line must end `PASS`, and the last line must read `notPassed=0` and `skipped=0`
+   (`HARNESS DONE cases=<n> passed=<p> skipped=<s> notPassed=<k>`). A `SKIPPED` line names the missing precondition, and
+   `FAIL (timed out)` means a case hung for 120 s and counts as not passed. The automatic cases are `duplicate-retry`,
+   `put-remove-race`, `clear-across-group`, `null-group-clear`, `synchronizable-clear`, `accessibility-on-update`,
+   `missing-entitlement`, `ensure-key-changes-nothing` and `ensure-key-user-presence`; a `FAIL` of the last shows the real status
+   of `ensureKey` on a user-presence store. Then run the manual rows. For `up-user-presence`, `up-biometry-any` and
+   `up-biometry-current-set`, run once with Matching Face, once with Non-matching Face and once cancelling the sheet: the `get`
+   must show the sheet every time, a cancel must read `AccessDenied(-128)`, a failed authentication `AccessDenied(-25293)`, and
+   `ensureKey` and `clear` must never show a sheet. For `bcs-store` / `bcs-read`, switch Enrolled off and on between the two steps
+   and copy the observed status into `docs/kmptoolkit-storage/05-platform-notes.md`; the same for `passcode-store` /
+   `passcode-read`. If `null-group-clear` reports that the wide delete does not reach the shared group, the default-group probe
+   of `clear()` rests on a wrong assumption on that iOS version: record it and raise it before releasing. The host app's own
+   `README` documents the verdicts and the cases table.
+8. **Android emulator checklist (the paths no host test can force).** Use an emulator or device per API level named in
+   each row, with `AndroidSecureStorageOptions` as stated, and record the exact exception class, message and cause chain
+   where a row says so; a difference from the expectation means a recognition constant in the library is wrong on that API
+   level.
+   - Lock-screen removal, with a store opened with `AndroidUserAuthentication(...)` (API 30 and API 34 or newer): `ensureKey()`
+     and one `put`, remove the lock screen (Settings, Security: None), force-stop, cold start, call `ensureKey()`. Expected
+     `Success`, the old value `Undecryptable`, a new `put` and `get` work. Record what `KeyStore.getKey` throws at that
+     lookup: expected `UnrecoverableKeyException("User changed or deleted their auth credentials")` with no cause, or `null` on
+     API 31 or newer if the keystore already deleted the key.
+   - The same without the force-stop: in the same process the store must answer `Unavailable`; after the next cold start it recovers
+     as above. Record the exception at first use (`Cipher.init`): expected `KeyPermanentlyInvalidatedException`.
+   - Locked device with `unlockedDeviceRequired = true`, on API 28 to 30, on API 31 or 32, and on API 33 or newer: store a value, lock the
+     device, then in the live process (key cached) and after a cold start while locked call `get`, `put` and `ensureKey()`.
+     Expected `Unavailable` each time, one key lookup, the old value readable after unlock. Record the class, message and cause
+     chain of the `Cipher.init` failure (API 31 or newer: `InvalidKeyException("Keystore operation failed")` around a
+     `KeyStoreException` with code -72; API 28 to 30: `UserNotAuthenticatedException`); on API 33 or newer also
+     `requiresUserAuthentication()` of the cause.
+   - Biometric enrolment with the default key (`allowDeviceCredential = true`): enrol or delete a fingerprint, cold start,
+     `ensureKey()`: no invalidation, old values readable. With a biometric-only key (`allowDeviceCredential = false`, API 30 or newer): on a device
+     with no enrolled biometric `ensureKey()` must answer `Unavailable` and generate nothing, and succeed after an enrolment;
+     enrolling another fingerprint then takes the invalidation path of the first row.
+   - `getKey` through the real `AndroidKeyStore` provider answers the key for an alias that exists and `null`, without an
+     exception, for one that does not (API 31 or newer); and an alias `<name>.kmptoolkit.securestorage.key` holding an EC key that
+     is not a secret key must make the store answer `Unavailable` and leave the entry alone.
+   - An API 24 to 30 device on which the keystore daemon can be killed at the lookup: record whether a new key is
+     generated (a documented residual, not forceable on an emulator).
+
 ## Manual publish (fallback)
 
 If the CI workflow is unavailable, publish locally from a machine with the one-time setup above:
