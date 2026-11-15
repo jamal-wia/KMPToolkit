@@ -279,16 +279,14 @@ private class OneShotRequest(
 }
 
 /**
- * `DENIAL_HOLD`: updates stay stopped after [MAX_RESTARTS_AFTER_DENIAL] restarts in a row that were each
- * answered with `kCLErrorDenied` while authorization stayed granted; only an authorization change leaves it.
+ * `DENIAL_HOLD`: a running stream got `kCLErrorDenied` while the authorization status still says "granted
+ * and on". Updates stay stopped behind one live `NO_FIX` ("all on, no fix", plan 4.2) and the stream stays
+ * open. Only new evidence leaves the hold: an authorization callback (`locationManagerDidChangeAuthorization`)
+ * or the app becoming active (the status does not change when updates were started while the app could not
+ * run them). Nothing else restarts the updates, so a platform that keeps answering a start with a denial can
+ * never drive a restart loop, whatever else it delivers in between.
  */
 private enum class StreamState { IDLE, READY, SERVICE_DISABLED, TERMINAL, DENIAL_HOLD }
-
-/**
- * How many times in a row a denial may be answered by a restart while the authorization status says
- * "granted and on". Beyond it the platform alone would drive an endless stop/re-read/start loop.
- */
-private const val MAX_RESTARTS_AFTER_DENIAL: Int = 3
 
 /**
  * One `observeLocation` collection after the first authorization check. Confined to the main queue:
@@ -316,15 +314,19 @@ private class StreamSession(
     )
     private var manager: IosLocationManager? = null
     private var unregisterActive: (() -> Unit)? = null
+
+    /** The did-become-active listener that exists only while holding after a denial (null otherwise). */
+    private var unregisterHold: (() -> Unit)? = null
     private var released: Boolean = false
     private var state: StreamState = StreamState.IDLE
     private var paused: Boolean = false
 
     /**
-     * Denials of a running stream since the last proof that CoreLocation serves it again (an authorization
-     * change, a live fix, a `kCLErrorLocationUnknown`). Bounds the restarts after a denial.
+     * A running stream was stopped by a `kCLErrorDenied` and the re-read has not decided yet: a re-read of
+     * "granted and on" then holds instead of restarting. Cleared by an authorization callback (new evidence),
+     * by the hold itself and by the re-read ending in SERVICE_DISABLED or TERMINAL.
      */
-    private var denialStreak: Int = 0
+    private var denialPending: Boolean = false
 
     /** Whether a fix fresh enough for the seed rule has arrived since updates were (re)started. */
     private var freshSeen: Boolean = false
@@ -356,6 +358,7 @@ private class StreamSession(
         released = true
         unregisterActive?.invoke()
         unregisterActive = null
+        leaveHold()
         val current: IosLocationManager? = manager
         manager = null
         lastDelivery = null
@@ -371,11 +374,8 @@ private class StreamSession(
         when (reason) {
             null -> {
                 if (state == StreamState.READY || state == StreamState.DENIAL_HOLD) return
-                if (denialStreak > MAX_RESTARTS_AFTER_DENIAL) {
-                    // Every restart was answered by a denial although authorization is granted: stop here, say
-                    // once that there is no position, and wait for the next authorization callback.
-                    state = StreamState.DENIAL_HOLD
-                    out(StreamReading.live(LocationReading.Unavailable(LocationUnavailability.NO_FIX)))
+                if (denialPending) {
+                    hold()
                     return
                 }
                 state = StreamState.READY
@@ -384,18 +384,48 @@ private class StreamSession(
                 beginUpdates(current)
             }
             LocationUnavailability.SERVICE_DISABLED -> {
+                denialPending = false
+                leaveHold()
                 if (state == StreamState.SERVICE_DISABLED) return
                 state = StreamState.SERVICE_DISABLED
                 current.stopUpdatingLocation()
                 out(StreamReading.live(LocationReading.Unavailable(LocationUnavailability.SERVICE_DISABLED)))
             }
             LocationUnavailability.PERMISSION_MISSING -> {
+                denialPending = false
+                leaveHold()
                 state = StreamState.TERMINAL
                 current.stopUpdatingLocation()
                 out(StreamReading.live(LocationReading.Unavailable(LocationUnavailability.PERMISSION_MISSING)))
             }
             else -> Unit
         }
+    }
+
+    /**
+     * The updates are already stopped (the denial did that): register the did-become-active listener, which
+     * exists only for as long as the hold lasts, and say once that there is no position. The listener is
+     * stored before anything else can run, so a release or a cancellation always finds it.
+     */
+    private fun hold() {
+        denialPending = false
+        unregisterHold = env.addBecameActiveListener { becameActiveInHold() }
+        state = StreamState.DENIAL_HOLD
+        out(StreamReading.live(LocationReading.Unavailable(LocationUnavailability.NO_FIX)))
+    }
+
+    /** Ends the hold, if any: removes its listener and goes back to IDLE (a re-read decides what comes next). */
+    private fun leaveHold() {
+        unregisterHold?.invoke()
+        unregisterHold = null
+        if (state == StreamState.DENIAL_HOLD) state = StreamState.IDLE
+    }
+
+    /** The app became active while holding: updates may be servable again although no status changed. */
+    private fun becameActiveInHold() {
+        if (released || state != StreamState.DENIAL_HOLD) return
+        leaveHold()
+        onChange()
     }
 
     private fun beginUpdates(current: IosLocationManager) {
@@ -430,7 +460,6 @@ private class StreamSession(
                 freshSeen = true
             }
             lastDelivery = delivery
-            denialStreak = 0
             out(StreamReading.live(LocationReading.Available(fix)))
         }
     }
@@ -438,16 +467,19 @@ private class StreamSession(
     override fun onFailure(kind: IosFailureKind, description: String) {
         if (released) return
         when (kind) {
-            IosFailureKind.LOCATION_UNKNOWN -> denialStreak = 0
+            // Transient (D14): ignored. It is no evidence that a denied stream is served again.
+            IosFailureKind.LOCATION_UNKNOWN -> Unit
             IosFailureKind.DENIED -> {
                 // Apple: on a denial, stop the service. Only a running stream (READY) goes back to IDLE so the
                 // re-read decides what to emit; SERVICE_DISABLED and TERMINAL already said it and stay as they
                 // are, so the same state is never emitted twice (iOS reports a switch-off through the
-                // authorization callback AND through this error, in either order).
+                // authorization callback AND through this error, in either order). If the re-read says
+                // "granted and on" the stream holds (DENIAL_HOLD) instead of restarting: Apple describes no
+                // denial that a restart cures.
                 if (state == StreamState.READY) {
                     manager?.stopUpdatingLocation()
                     state = StreamState.IDLE
-                    denialStreak++
+                    denialPending = true
                 }
                 onChange()
             }
@@ -457,9 +489,9 @@ private class StreamSession(
 
     override fun onAuthorizationChanged() {
         if (released) return
-        // A new authorization state is new evidence: the restart bound starts again and a hold is left.
-        denialStreak = 0
-        if (state == StreamState.DENIAL_HOLD) state = StreamState.IDLE
+        // A new authorization state is new evidence: a pending denial no longer decides and a hold is left.
+        denialPending = false
+        leaveHold()
         // The accuracy grade may have changed: the mapped desiredAccuracy is applied again.
         manager?.apply(config)
         onChange()
