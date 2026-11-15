@@ -114,6 +114,19 @@ tasks.withType<Test>().matching { it.name == "jvmTest" }.configureEach {
     jvmArgumentProviders.add(ShippedJvmJarProperty(jarFile.map { it.asFile.path }))
 }
 
+// DocsSamplesDriftTest reads the storage docs and the `sample:begin` blocks of five source roots as plain files at test time. A
+// File read is not a task input, so without these declarations a doc-only edit (or a comment-only edit of a block, which leaves the
+// compiled classes unchanged) left jvmTest UP-TO-DATE or FROM-CACHE and the drift check never ran. Content only, relative paths:
+// the result must not depend on where the checkout lives.
+tasks.named<Test>("jvmTest") {
+    val repo: Directory = rootProject.layout.projectDirectory
+    inputs.dir(repo.dir("docs/kmptoolkit-storage")).withPropertyName("storageDocs").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(repo.dir("docs-samples/src/jvmMain/kotlin")).withPropertyName("consumerSampleBlocks").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(layout.projectDirectory.dir("src/androidHostTest")).withPropertyName("androidSampleBlocks").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(layout.projectDirectory.dir("src/iosTest")).withPropertyName("iosSampleBlocks").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(repo.dir("kmptoolkit-storage-testing/src/jvmTest")).withPropertyName("fixtureSampleBlocks").withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
 /** `-Dkmptoolkit.test.jvmJar=<path of the built jvm jar>`, computed when the test JVM starts; the path is machine-specific, so it is no task input. */
 private class ShippedJvmJarProperty(@get:Internal val jar: Provider<String>) : CommandLineArgumentProvider {
     override fun asArguments(): Iterable<String> = listOf("-Dkmptoolkit.test.jvmJar=${jar.get()}")

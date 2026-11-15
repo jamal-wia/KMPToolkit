@@ -100,6 +100,20 @@ class DocsSamplesDriftTest {
     }
 
     @Test
+    fun `no fence opens with a kotlin-like info string other than exactly kotlin`() {
+        val odd: MutableList<String> = mutableListOf()
+        for (file: File in docs.listFiles { f: File -> f.name.endsWith(".md") }.orEmpty().sortedBy { it.name }) {
+            file.readLines().forEachIndexed { index: Int, line: String ->
+                val info: String = line.trim().removePrefix("```")
+                val isFence: Boolean = line.trim().startsWith("```") && info.isNotEmpty()
+                val kotlinLike: Boolean = info.lowercase().let { it.startsWith("kotlin") || it == "kt" || it.startsWith("kt ") || it.startsWith("kts") }
+                if (isFence && kotlinLike && info != "kotlin") odd.add("${file.name}:${index + 1}")
+            }
+        }
+        assertEquals(emptyList(), odd, "a fence spelled kt, kts, Kotlin or kotlin with extra text is skipped by the sample check: spell it exactly ```kotlin")
+    }
+
+    @Test
     fun `every documented sample equals its source block and every source block is documented`() {
         val documented: Map<String, List<Fence>> = fences()
             .filter { it.marker.startsWith("<!-- sample: ") }
