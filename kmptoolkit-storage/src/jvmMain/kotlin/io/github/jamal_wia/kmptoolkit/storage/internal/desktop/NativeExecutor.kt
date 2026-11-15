@@ -46,8 +46,13 @@ internal sealed interface NativeOutcome<out T> {
  * - **No lock is held across a call.** The executor owns no lock a binding call can wait on; callers never hold a
  *   store lock while they await a call that can prompt the user.
  * - **The thread outlives what a call does to it.** The interrupt status a call leaves behind is cleared after every
- *   call and an interrupt that is not [close] never ends the loop. A thread that cannot be made (a thread limit) answers
- *   that one call [NativeOutcome.Threw] without queueing it, and the next call tries again.
+ *   call and an interrupt that is not [close] never ends the loop. The thread is made before the call is queued: a
+ *   thread that cannot be made (a thread limit) answers that one call [NativeOutcome.Threw], the call is never queued
+ *   (so no later caller's thread can run it), and the next call tries again. A native thread that has died is replaced
+ *   by the next call too.
+ * - **A call never throws for the caller's own interrupt.** The queue is unbounded and the call is added with `offer`,
+ *   which cannot be interrupted, so a caller whose thread is already interrupted still gets an outcome and keeps its
+ *   interrupt status.
  * - **Release is terminal.** [close] withdraws every queued call (each answers [NativeOutcome.Threw]), interrupts the
  *   thread and refuses new calls. A call that the thread had already taken from the queue when [close] ran may still run
  *   and answer its real result. A new executor is the way to start again.
@@ -133,17 +138,20 @@ internal class NativeExecutor(
     suspend fun <T> call(limit: Duration?, discard: (T) -> Unit = {}, block: () -> T): NativeOutcome<T> {
         require(limit == null || limit > Duration.ZERO) { "limit must be positive" }
         if (closed.get()) return NativeOutcome.Threw(IllegalStateException("The native executor is closed"))
-        val task: Task<T> = Task(block, discard)
-        queue.put(task)
+        // The thread first, the queue second: a call that could not get a thread is never queued, so no other caller that
+        // makes the thread a moment later can run it after its own caller was told it failed.
         try {
             ensureStarted()
         } catch (error: Throwable) {
-            // The thread could not be made (a container's thread limit, an OutOfMemoryError): this call never runs, not
-            // now and not when a later call makes the thread, and the next call tries again.
-            task.abandon()
-            queue.remove(task)
+            // The thread could not be made (a container's thread limit, an OutOfMemoryError): this call never runs, and
+            // the next call tries again.
             return NativeOutcome.Threw(error)
         }
+        val task: Task<T> = Task(block, discard)
+        // `offer`, not `put`: on an unbounded queue it never blocks, and unlike `put` it does not take the queue lock
+        // interruptibly, so a caller whose thread is already interrupted neither gets an InterruptedException out of an
+        // API that answers outcomes nor loses its interrupt status.
+        queue.offer(task)
         if (closed.get()) refuseQueued()
         try {
             val outcome: NativeOutcome<T>? =
@@ -181,9 +189,9 @@ internal class NativeExecutor(
 
     /** Makes the native thread if there is none. A failed attempt leaves nothing behind, so the next call tries again. */
     private fun ensureStarted() {
-        if (thread != null) return
+        if (thread?.isAlive == true) return
         synchronized(startLock) {
-            if (thread != null) return
+            if (thread?.isAlive == true) return
             val created: Thread = threadFactory.newThread(::runLoop)
             created.start()
             thread = created
