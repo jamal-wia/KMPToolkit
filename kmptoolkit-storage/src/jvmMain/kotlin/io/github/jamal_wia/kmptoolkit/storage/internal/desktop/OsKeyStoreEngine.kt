@@ -30,7 +30,11 @@ internal class OsCarry(val snapshot: Snapshot, private val key: ByteArray?, val 
  *   the locks, so an item is replaced only by the process that holds them. With `allowUserInteraction = true` a macOS
  *   dialog during creation can therefore hold the locks; other callers then answer `Unavailable` after 10 s (documented).
  * - **The key cache is the process-wide [OsKeyCache]**, borrowed only under the store's locks, never trusted without its
- *   key-check.
+ *   key-check. A cached key whose check fails with a provider failure on a file WITH entries is either a provider failure or a key
+ *   that another process replaced (under a PKCS#11 provider both look the same): the item is asked for its key (off the lock) only
+ *   when the provider still works with the cached key, and the cache is replaced only by a fetched key that opens this file; a
+ *   failing provider makes no native call, and an equal key, a missing item or a fetched key that does not open the file keeps the
+ *   failure and the cache.
  * - **The identity is derived per locked round from the real path of the store file** ([RealStorePath], no case folding,
  *   never memoised, never a fallback path), and a key fetched off the lock is used only if it was fetched for the
  *   identity of the round that uses it. A file system that cannot be asked fails that one call (`OperationFailed`).
@@ -102,14 +106,32 @@ internal class OsKeyStoreEngine(
         val file: ParsedStoreFile = parsed.file
         // A header that names another identity is a lost key; no OS call is made for it and no cached key is used.
         if (!backend.identityMatches(file.header, identity)) return Resolution.Lost
+        val fetched: OsCarry? = (carry as? OsCarry)?.takeIf { it.snapshot.matches(parsed) && it.snapshot.identity?.cacheKey == identity.cacheKey }
         val cached: ByteArray? = cache.get(identity)
         if (cached != null) {
-            if (verifies(cached, file)) return Resolution.Have(cached)
-            cache.invalidate(identity, cached)
+            try {
+                if (verifies(cached, file)) return Resolution.Have(cached)
+                cache.invalidate(identity, cached)
+            } catch (failure: JcaFailure) {
+                // A file WITH entries and a provider failure: a transient token error, or a cached key that another process replaced
+                // (under a PKCS#11 provider a genuinely wrong key shows in the same way). Only a provider that still works with the
+                // cached key can have meant "wrong key", so only then is the item asked what its key is now (off the lock); a provider
+                // that fails for everything makes no native call at all, and the cache stays as it is.
+                if (fetched == null) {
+                    if (!providerWorksWith(cached, file)) throw failure
+                    return Resolution.Need(Request.Existing(Snapshot.of(parsed, identity)))
+                }
+                // The item's key is proved BEFORE the cache is touched: the cached key's only verdict so far is "the provider failed",
+                // which does not say it is wrong, so it is replaced only by a key that opens this very file. A key that equals the cached
+                // one, an item that holds none, or a fetched key that does not open the file leaves the failure and the cache as they are.
+                val current: ByteArray? = fetched.fetchedKey
+                if (current == null || current.contentEquals(cached) || !verifies(current, file)) throw failure
+                cache.put(identity, current)
+                return Resolution.Have(checkNotNull(cache.get(identity)) { "the key cache lost an entry under the store lock" })
+            }
         }
-        val fetched: OsCarry? = carry as? OsCarry
         // A key is used only for the header AND the identity it was fetched for.
-        if (fetched != null && fetched.snapshot.matches(parsed) && fetched.snapshot.identity?.cacheKey == identity.cacheKey) {
+        if (fetched != null) {
             val key: ByteArray = fetched.fetchedKey ?: return notFound(fetched.unconfirmed, file)
             if (!verifies(key, file)) return Resolution.Lost
             cache.put(identity, key)
@@ -125,13 +147,25 @@ internal class OsKeyStoreEngine(
      * the same failure reads as "this key does not open it", exactly like a not-found item (see [notFound]): that is what makes
      * `clear()` followed by `put` or `ensureKey()` a way out of a lost key under such a provider too, because `clear()` keeps the
      * header and the key-check and every later round would otherwise fail on them again for good. A transient token error on an
-     * empty store then costs only a harmless key replacement.
+     * empty store then costs a key replacement, and another process that holds the replaced key recovers by the stale-key rule of
+     * [resolve] (it asks the item only when [providerWorksWith] says the failure is not the provider's).
      */
     private fun verifies(key: ByteArray, file: ParsedStoreFile): Boolean =
         try {
             cipher.verifyKeyCheck(key, file.headerPrefix, file.keyCheck)
         } catch (failure: JcaFailure) {
             if (file.entries.isEmpty()) false else throw failure
+        }
+
+    /**
+     * Whether the provider seals and opens with [key] at all, for fresh data of its own: no file, no native call, no store state.
+     * `false` for any provider failure (including a random source that cannot draw a nonce): the caller then keeps the failure it has.
+     */
+    private fun providerWorksWith(key: ByteArray, file: ParsedStoreFile): Boolean =
+        try {
+            cipher.verifyKeyCheck(key, file.headerPrefix, cipher.sealKeyCheck(key, file.headerPrefix))
+        } catch (_: JcaFailure) {
+            false
         }
 
     /** No item at the own identity: lost when it is definitive, or when the file has no entry to lose; otherwise [unconfirmed]. */

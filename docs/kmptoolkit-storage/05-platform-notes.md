@@ -418,7 +418,15 @@ directory to find the stored spelling, but a volume that hides it from the JDK w
 
 **The data key is cached** in process memory per identity, shared by every instance over the same file. A cached key is never
 trusted alone: every operation reads the file header under the lock and verifies its key-check with the cached key; a mismatch
-drops (and wipes) the entry and fetches the key again.
+drops (and wipes) the entry and fetches the key again. Under a provider that attaches a cause to its real tag failures (below) a mismatch on
+a file WITH entries cannot be told from a provider failure, and a key that another process replaced (for example by `clear()` then `put`)
+looks the same; the library therefore asks the OS item for its key only when the provider still seals and opens with the cached key (a pure
+round trip, no native call), compares it, and replaces the cache only by a key that opens this very file. A provider that fails for
+everything makes no fetch and keeps the cache; the failure is the answer. The costs: a transient token error on a warm store with entries costs
+one fetch and the call succeeds; a file whose key-check no key opens (tampered) answers `OperationFailed` and costs one fetch per call, and with
+`allowUserInteraction = true` that fetch can show a macOS access prompt; an item that is gone, or a macOS non-interactive not-found, while a key is
+cached keeps the failure (the cached key may be the only copy of the real key). Nothing is ever written, quarantined or created for it, and a
+file that keeps changing under the rounds can end in `Unavailable`.
 
 **"The key is lost"** means exactly one of: a definitive not-found at the store's own identity (macOS -25300 from an interactive
 call; Linux: no matching item in any collection, locked or not), a key-check that fails with the fetched key, a header whose
@@ -524,7 +532,9 @@ too. An environment problem is never allowed to delete data, so a store with ent
 way out of a truly lost OS key of an **OS-key store** is `clear()` followed by `put` or `ensureKey()`: `clear()` empties the file without
 any key (it keeps the header and the key-check), and a file with no entries has nothing to lose, so a key-check that the provider fails on
 reads as "key lost" for it (the same rule as a not-found item) and the next `put` or `ensureKey()` replaces the empty file and the OS item.
-A transient token error on an empty store therefore costs only a harmless key replacement. An **app-key store** has no such way: its
+A transient token error on an empty store therefore costs a key replacement; another process of the app that still holds the old key
+notices (its cached key no longer opens the file), fetches the new key and goes on, as described under "The data key is cached", so the
+replacement costs it one fetch and no lock-out. An **app-key store** has no such way: its
 `clear()` needs the key the app supplies, so under such a provider it answers `OperationFailed` too; for a key that is really lost there,
 see "A forgotten passphrase" (delete the store's files).
 
