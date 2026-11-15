@@ -40,7 +40,8 @@ import platform.darwin.dispatch_get_main_queue
  * collection and stops them on revocation. It never starts them without authorization. Without authorization
  * [Heading.trueDegrees] is `null`, also when CoreLocation still hands over a `trueHeading` it computed from a
  * location cached before a revocation: the provider reads the authorization on the main queue each time it
- * changes and reports true north only while it holds. iOS has no declination API, so `declinationAt` of
+ * changes and keeps a `trueHeading` only while it holds, so one that arrives while unauthorized is dropped
+ * and never shown when authorization comes back. iOS has no declination API, so `declinationAt` of
  * [HeadingProvider.observeHeading] cannot be used here and is ignored. The app must declare the location usage
  * description and request authorization itself (see `kmptoolkit-permission`); this library requests nothing.
  *
@@ -63,8 +64,10 @@ import platform.darwin.dispatch_get_main_queue
  * @param showsSystemCalibration whether iOS may show its own calibration overlay
  *   (`locationManagerShouldDisplayHeadingCalibration`); a request for it is reported through
  *   [Heading.needsCalibration] either way.
- * @param logger where a failing manager is reported. A logger that throws loses its own event and nothing
- *   else: it never reaches CoreLocation's callback and never keeps a manager from being released.
+ * @param logger where a failing manager is reported. A logger that throws an exception loses its own event
+ *   and nothing else: the exception never reaches CoreLocation's callback and never keeps a manager from
+ *   being released. An `Error` is not absorbed (a logger that throws one is a defect of the app), but the
+ *   manager is released before anything is logged.
  */
 public fun createHeadingProvider(
     showsSystemCalibration: Boolean = false,

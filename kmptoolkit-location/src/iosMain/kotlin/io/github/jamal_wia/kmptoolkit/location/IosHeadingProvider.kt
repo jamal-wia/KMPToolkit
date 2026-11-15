@@ -205,7 +205,9 @@ internal class IosHeadingProvider(
             inputs.update { state: IosHeadingState ->
                 state.copy(
                     magneticDegrees = magnetic,
-                    trueDegrees = trueDegrees,
+                    // Kept only while authorized: a trueHeading computed from a location cached before a
+                    // revocation must not wait in the state for the next grant to publish it.
+                    trueDegrees = if (state.authorized) trueDegrees else null,
                     accuracyDegrees = if (accuracyValid) headingAccuracy else null,
                     accuracyInvalid = !accuracyValid,
                     // A valid heading means the compass is calibrated again.
