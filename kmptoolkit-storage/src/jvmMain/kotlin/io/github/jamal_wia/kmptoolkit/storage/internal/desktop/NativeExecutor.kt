@@ -39,7 +39,7 @@ internal sealed interface NativeOutcome<out T> {
  *   operating-system call keeps it busy, and later calls queue behind it and time out ([NativeOutcome.TimedOut]) rather
  *   than start more threads.
  * - **A limit is a limit for the caller, not for the call.** A call that has not started when its limit passes (or
- *   its caller is cancelled) is withdrawn and never runs, so a timed-out write is never applied later. A call that
+ *   its caller is cancelled) is withdrawn from the queue and never runs, so a timed-out write is never applied later. A call that
  *   is running cannot be stopped: its result is delivered to nobody and handed to `discard` (to wipe a key).
  * - **Interactive calls** pass `limit = null`: a prompt may be on screen, so there is no limit, but the caller stays
  *   cancellable.
@@ -55,9 +55,27 @@ internal class NativeExecutor(
     private val threadFactory: ThreadFactory = daemonThreadFactory("kmptoolkit-storage-native"),
 ) : AutoCloseable {
 
+    /** What [Task.abandon] found when a caller stopped waiting. */
+    private enum class Abandoned {
+        /** The task had not started: it will never run and must leave the queue. */
+        WITHDRAWN,
+
+        /** The task is running: its late result goes to `discard` on the native thread. */
+        RUNNING,
+
+        /** The task finished first: [Task.result] is readable at once. */
+        DELIVERED,
+
+        /** [close] refused the task. */
+        REFUSED,
+    }
+
     private class Task<T>(val block: () -> T, val discard: (T) -> Unit) {
         val state: AtomicInteger = AtomicInteger(QUEUED)
         val done: CompletableDeferred<NativeOutcome<T>> = CompletableDeferred()
+
+        /** Written before the state becomes FINISHED, so a reader that sees FINISHED can read it without waiting. */
+        @Volatile var result: NativeOutcome<T>? = null
 
         fun execute() {
             if (!state.compareAndSet(QUEUED, RUNNING)) return
@@ -66,6 +84,12 @@ internal class NativeExecutor(
             } catch (error: Throwable) {
                 classify(error)
             }
+            settle(outcome)
+        }
+
+        /** Delivers [outcome] to the caller, or to `discard` when the caller already left. */
+        private fun settle(outcome: NativeOutcome<T>) {
+            result = outcome
             if (state.compareAndSet(RUNNING, FINISHED)) {
                 done.complete(outcome)
             } else if (outcome is NativeOutcome.Completed<T>) {
@@ -74,15 +98,19 @@ internal class NativeExecutor(
             }
         }
 
-        /** Withdraws a queued task. Returns `true` when its result was already delivered, so the caller can use it. */
-        fun abandon(): Boolean {
-            if (state.compareAndSet(QUEUED, ABANDONED)) return false
-            if (state.compareAndSet(RUNNING, ABANDONED_RUNNING)) return false
-            return state.get() == FINISHED
+        /** The native thread met an error outside [execute]'s own handling: never leave a caller waiting for it. */
+        fun settleAfterEscape(error: Throwable) {
+            if (state.get() == RUNNING) settle(NativeOutcome.Threw(error))
+        }
+
+        fun abandon(): Abandoned {
+            if (state.compareAndSet(QUEUED, ABANDONED)) return Abandoned.WITHDRAWN
+            if (state.compareAndSet(RUNNING, ABANDONED_RUNNING)) return Abandoned.RUNNING
+            return if (state.get() == FINISHED) Abandoned.DELIVERED else Abandoned.REFUSED
         }
 
         fun refuse(reason: Throwable) {
-            if (state.compareAndSet(QUEUED, ABANDONED)) done.complete(NativeOutcome.Threw(reason))
+            if (state.compareAndSet(QUEUED, REFUSED)) done.complete(NativeOutcome.Threw(reason))
         }
     }
 
@@ -107,11 +135,22 @@ internal class NativeExecutor(
                 if (limit == null) task.done.await() else withTimeoutOrNull(limit) { task.done.await() }
             if (outcome != null) return outcome
             // The limit passed. A result that landed in the same instant is still a result.
-            return if (task.abandon()) task.done.await() else NativeOutcome.TimedOut
+            return when (task.abandon()) {
+                Abandoned.DELIVERED -> checkNotNull(task.result)
+                Abandoned.REFUSED -> NativeOutcome.Threw(IllegalStateException("The native executor is closed"))
+                Abandoned.WITHDRAWN -> {
+                    queue.remove(task)
+                    NativeOutcome.TimedOut
+                }
+                Abandoned.RUNNING -> NativeOutcome.TimedOut
+            }
         } catch (cancelled: CancellationException) {
-            if (task.abandon()) {
-                val late: NativeOutcome<T> = task.done.await()
-                if (late is NativeOutcome.Completed<T>) NativeExecutor.discardQuietly(discard, late.value)
+            when (task.abandon()) {
+                // Never awaited here: this coroutine is cancelled, so an await would throw at once and skip the wipe.
+                // FINISHED is set only after `result` is written, so reading it needs no waiting.
+                Abandoned.DELIVERED -> (task.result as? NativeOutcome.Completed<T>)?.let { NativeExecutor.discardQuietly(discard, it.value) }
+                Abandoned.WITHDRAWN -> queue.remove(task)
+                Abandoned.RUNNING, Abandoned.REFUSED -> Unit
             }
             throw cancelled
         }
@@ -141,6 +180,10 @@ internal class NativeExecutor(
                 running.set(true)
                 try {
                     task.execute()
+                } catch (error: Throwable) {
+                    // The loop must outlive anything a task throws (an Error from a wipe handler, an allocation failure
+                    // while building the outcome): with the thread gone no thread is ever made again.
+                    task.settleAfterEscape(error)
                 } finally {
                     running.set(false)
                 }
@@ -172,6 +215,7 @@ internal class NativeExecutor(
         private const val ABANDONED: Int = 2
         private const val ABANDONED_RUNNING: Int = 3
         private const val FINISHED: Int = 4
+        private const val REFUSED: Int = 5
 
         /** The limit of a call that cannot show a dialog (plan 4.11). */
         val NON_INTERACTIVE_LIMIT: Duration = 10.seconds
@@ -187,8 +231,9 @@ internal class NativeExecutor(
         fun <T> discardQuietly(discard: (T) -> Unit, value: T) {
             try {
                 discard(value)
-            } catch (_: Exception) {
-                // Nothing to report to: the value was abandoned, and a failed wipe handler must not kill the thread.
+            } catch (_: Throwable) {
+                // Nothing to report to: the value was abandoned, and a failed wipe handler (even one that throws an
+                // Error) must neither kill the native thread nor replace a caller's CancellationException.
             }
         }
 
