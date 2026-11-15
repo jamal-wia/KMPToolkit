@@ -90,11 +90,49 @@ class IosLocationProviderBreakerR1Test {
             return HookedManager(this, inner)
         }
 
+        /** Every did-become-active registration, in order, with its removals (breaker round 4 ledger). */
+        val ledger: MutableList<Registration> = mutableListOf()
+
+        /** Registrations still live when their manager was detached. */
+        val outlivedManager: MutableList<Registration> = mutableListOf()
+
         override fun addBecameActiveListener(onActive: () -> Unit): () -> Unit {
             hook("addBecameActiveListener")
             if (!onMain) offMainManagerCalls += "addBecameActiveListener"
-            return fake.addBecameActiveListener(onActive)
+            // The collection that registers owns the newest live manager. The auto-pause opt-in registers
+            // between apply and the first start; a hold registers after a start was denied.
+            val owner: FakeIosLocationManager? = fake.liveManagers.lastOrNull()
+            val kind: String = when {
+                owner == null -> "orphan"
+                owner.startCount == 0 -> "opt-in"
+                else -> "hold"
+            }
+            val registration = Registration(ledger.size, owner, fake.managers.indexOf(owner), kind, calls)
+            ledger += registration
+            val remove: () -> Unit = fake.addBecameActiveListener(onActive)
+            return {
+                // A removal is a seam call too: a cancellation can land inside it.
+                hook("removeBecameActiveListener")
+                if (!onMain) offMainManagerCalls += "removeBecameActiveListener"
+                registration.removals++
+                if (registration.removals == 1) registration.removedAtCall = calls
+                remove()
+            }
         }
+    }
+
+    /**
+     * One did-become-active registration: [owner] is the manager of the collection that made it, [kind]
+     * is `opt-in` (the auto-pause restart listener) or `hold` (the listener of a stream held after a
+     * denial), [removals] counts every call of its removal function (exactly one is correct).
+     */
+    private class Registration(val id: Int, val owner: FakeIosLocationManager?, val ownerIndex: Int, val kind: String, val atCall: Int) {
+        var removals: Int = 0
+        var removedAtCall: Int = -1
+        val live: Boolean get() = removals == 0
+
+        override fun toString(): String =
+            "#$id $kind m$ownerIndex at=$atCall removals=$removals removedAt=$removedAtCall"
     }
 
     private class HookedManager(private val env: HookedEnvironment, private val inner: FakeIosLocationManager) : IosLocationManager {
@@ -142,6 +180,8 @@ class IosLocationProviderBreakerR1Test {
         override fun detach() {
             touch("manager.detach")
             env.onDetach?.invoke()
+            // The release removes the collection's listeners before it drops the manager.
+            env.ledger.filter { it.owner === inner && it.live }.forEach { env.outlivedManager += it }
             inner.detach()
         }
     }
@@ -801,13 +841,23 @@ class IosLocationProviderBreakerR1Test {
      * emitted, more than one live manager per collection. 40 seeds x 250 steps; events are delivered on
      * the main dispatcher as CoreLocation does; a cancellation is armed to fire inside the n-th next
      * seam call, so it lands in the middle of start, a re-read, a release or a delegate event.
+     * Breaker round 4: listeners are checked per registration through the [HookedEnvironment] ledger
+     * (each removed exactly once, after its registration and before its manager is detached; one restart
+     * listener exactly per opted-in collection; a live hold listener means stopped updates behind a last
+     * NO_FIX), and the removal is a hooked seam call too. The round-1 total "removals == opted-in
+     * collections" was stale: it predates the hold listener of loc-ios round 5 (seed 101: 19 opt-in + 6
+     * hold registrations, 25 removals, each exactly once). Mutation by reading: a hold listener not removed
+     * on some exit, or removed twice, turns a seed red.
      */
     @Test
     fun `a seeded storm with cancellation inside seam calls keeps every invariant`() = runTest {
-        for (seed: Int in 101..140) storm(seed)
+        var holds = 0
+        for (seed: Int in 101..140) holds += storm(seed)
+        assertTrue(holds > 0, "control: no seed of 101..140 entered a hold, so the hold listener was never attacked")
     }
 
-    private fun TestScope.storm(seed: Int) {
+    /** Runs one seed; returns the number of hold registrations it made. */
+    private fun TestScope.storm(seed: Int): Int {
         val random = Random(seed)
         val f: Fixture = fixture()
         val fake: FakeIosLocationEnvironment = f.fake
@@ -896,6 +946,23 @@ class IosLocationProviderBreakerR1Test {
                 .forEach { _ -> problems += "step $step: an invalid fix was emitted" }
             val terminalAt: Int = readings.indexOfFirst { it.endsStream }
             if (terminalAt >= 0 && terminalAt != readings.lastIndex) problems += "step $step: a reading after PERMISSION_MISSING"
+            // Listener ledger (breaker round 4): per manager at most one live listener of each kind; a live
+            // hold listener means the updates are stopped and the collection's last reading is NO_FIX.
+            for (registration: Registration in f.env.ledger) {
+                if (registration.kind == "orphan") problems += "step $step: a listener registered without a live manager: $registration"
+                if (registration.removals > 1) problems += "step $step: a listener removed twice: $registration"
+            }
+            for (live: FakeIosLocationManager in fake.liveManagers) {
+                val mine: List<Registration> = f.env.ledger.filter { it.owner === live && it.live }
+                if (mine.count { it.kind == "hold" } > 1) problems += "step $step: two live hold listeners: $mine"
+                if (mine.count { it.kind == "opt-in" } > 1) problems += "step $step: two live restart listeners: $mine"
+                if (mine.any { it.kind == "hold" }) {
+                    if (live.updating) problems += "step $step: a hold listener is live while the updates run: $mine"
+                    val last: LocationReading? = readings.lastOrNull()
+                    val heldBehindNoFix: Boolean = last is LocationReading.Unavailable && last.reason == LocationUnavailability.NO_FIX
+                    if (live === fake.managers.lastOrNull() && !heldBehindNoFix) problems += "step $step: a hold listener is live but the last reading is $last"
+                }
+            }
         }
         job?.cancel()
         runCurrent()
@@ -905,7 +972,24 @@ class IosLocationProviderBreakerR1Test {
         assertTrue(fake.liveManagers.isEmpty(), "seed=$seed: a manager survived")
         assertTrue(fake.managers.all { it.detachCount == 1 }, "seed=$seed: every manager released exactly once")
         assertTrue(fake.activeListeners.isEmpty(), "seed=$seed: a did-become-active listener leaked")
-        assertEquals(fake.unregistered, fake.managers.count { it.applied.firstOrNull()?.pausesLocationUpdatesAutomatically == true },
-            "seed=$seed: one listener removal per opted-in collection")
+        // Breaker round 4: the round-1 oracle "removals == opted-in collections" predates the hold design
+        // (loc-ios round 5), whose hold listener is a second legitimate registration. The ledger states the
+        // real invariant per registration instead of comparing totals.
+        val ledger: List<Registration> = f.env.ledger
+        val optedIn: Int = fake.managers.count { it.applied.firstOrNull()?.pausesLocationUpdatesAutomatically == true }
+        val holds: Int = ledger.count { it.kind == "hold" }
+        assertEquals(ledger.size, fake.registered, "seed=$seed: control: the ledger saw every registration")
+        assertTrue(ledger.all { it.removals == 1 }, "seed=$seed: every registration removed exactly once: ${ledger.filter { it.removals != 1 }}")
+        assertTrue(f.env.outlivedManager.isEmpty(), "seed=$seed: a listener outlived its manager's release: ${f.env.outlivedManager}")
+        assertTrue(ledger.none { it.kind == "orphan" }, "seed=$seed: a listener registered with no live manager: $ledger")
+        assertEquals(ledger.size, fake.unregistered, "seed=$seed: one counted removal per registration")
+        for ((index: Int, manager: FakeIosLocationManager) in fake.managers.withIndex()) {
+            val opted: Boolean = manager.applied.firstOrNull()?.pausesLocationUpdatesAutomatically == true
+            val restartListeners: Int = ledger.count { it.owner === manager && it.kind == "opt-in" }
+            assertEquals(if (opted) 1 else 0, restartListeners, "seed=$seed: manager m$index: restart listeners (one exactly when opted in)")
+        }
+        assertTrue(ledger.all { it.removedAtCall > it.atCall }, "seed=$seed: a removal ran before its registration: $ledger")
+        assertEquals(optedIn + holds, fake.unregistered, "seed=$seed: removals = opted-in collections + holds")
+        return holds
     }
 }
