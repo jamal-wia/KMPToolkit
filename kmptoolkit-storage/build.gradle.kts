@@ -9,6 +9,8 @@ plugins {
     // Robolectric for androidHostTest: both Android stores need a real Context, a real
     // SharedPreferences file, and — for the encrypted one — a real AndroidKeyStore provider.
     id("kmptoolkit.androidtest")
+    // The `ffm` compilation of the jvm target: the desktop key-store binding that calls the OS through java.lang.foreign.
+    id("kmptoolkit.ffm")
 }
 
 kmptoolkitPublish {
@@ -16,10 +18,13 @@ kmptoolkitPublish {
     pomDescription.set(
         "Key-value storage for Kotlin Multiplatform: one KeyValueStorage interface over " +
             "SharedPreferences, NSUserDefaults and, on desktop, a properties file, typed Int/Long/Boolean " +
-            "accessors, a SecureKeyValueStorage backed by the Android " +
-            "Keystore and the iOS Keychain, and a DeviceIdProvider for a stable per-install id. " +
-            "Every store name, keystore alias and Keychain service is derived from your own " +
-            "application id, so two apps — or two features of one app — never share a store. " +
+            "accessors, a SecureKeyValueStorage backed by the Android Keystore and the iOS Keychain, " +
+            "desktop secure storage whose key is held by the macOS Keychain, Windows DPAPI or the Linux " +
+            "Secret Service (called through the JDK's Foreign Function and Memory API on JDK 22+, no " +
+            "third-party dependency), an app-key encrypted store for desktop, and a DeviceIdProvider " +
+            "for a stable per-install id. Every store is named by the StorageConfig the app passes, " +
+            "which is also what the keystore alias, Keychain service or OS key item derives from, so " +
+            "two features of one app never share a store. " +
             "Pick this module if shared code needs a handful of small values to survive a " +
             "process restart, with failures arriving as typed StorageError values rather than " +
             "platform exceptions."
@@ -73,6 +78,16 @@ kotlin {
         // The seam is public + @ToolkitInternalApi so another artifact can implement it; this module uses it freely.
         jvmMain { languageSettings { optIn("io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi") } }
         jvmTest { languageSettings { optIn("io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi") } }
+        // The tests that call java.lang.foreign themselves (src/jvmFfmTest, run by jvmTestFfm on a JDK 25 launcher).
+        getByName("jvmFfmTest").dependencies {
+            // This is not a KGP test compilation, so kotlin-test is not mapped to its JUnit variant on its own.
+            implementation(kotlin("test-junit"))
+            implementation(libs.junit)
+            implementation(libs.kotlinx.coroutines.core)
+            implementation(project(":kmptoolkit-core"))
+            implementation(project(":kmptoolkit-files"))
+            implementation(project(":test-support"))
+        }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
             // Not published; host path rules and the unwritable-directory helper for the file tests.
