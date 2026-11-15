@@ -91,6 +91,14 @@ internal class KeyHardwareUnavailableException(cause: Throwable) : Exception(cau
  */
 internal class UserAuthenticationRequiredException(cause: Throwable) : Exception(cause)
 
+/**
+ * A key that needs the device unlocked ([AndroidSecureStorageOptions.unlockedDeviceRequired]) was used while it is locked,
+ * recognised on API 31 and 32 by the shape of the platform's refusal ([isKeystore2LockedShape]). The original refusal is
+ * the [cause]. An `InvalidKeyException`, so that it travels where the platform's own refusal would, and recognised by
+ * [isDeviceLockedFailure]: a state that passes, never a reason to drop the key.
+ */
+internal class DeviceLockedKeyException(cause: InvalidKeyException) : InvalidKeyException(cause.message, cause)
+
 /** Where [KeystoreValueCipher] gets its symmetric key from. */
 internal interface SecretKeySource {
 
@@ -99,6 +107,14 @@ internal interface SecretKeySource {
      * then [UserAuthenticationRequiredException], not a locked device. The default is `false`.
      */
     val userAuthenticationRequired: Boolean get() = false
+
+    /**
+     * Whether the keys this source hands out need the device unlocked ([AndroidSecureStorageOptions.unlockedDeviceRequired]).
+     * On API 31 and 32 the platform reports a refusal for a locked device in a shape with no public marker
+     * ([isKeystore2LockedShape]), which is only known to mean "locked" for a key that needs the device unlocked. The
+     * default is `false`.
+     */
+    val unlockedDeviceRequired: Boolean get() = false
 
     /** @throws StorageKeyUnavailableException the key cannot be obtained. */
     suspend fun key(): SecretKey
@@ -278,7 +294,11 @@ internal class KeystoreValueCipher(
         while (true) {
             try {
                 return Cipher.getInstance(TRANSFORMATION).also { init(key, it) }
-            } catch (e: InvalidKeyException) {
+            } catch (raw: InvalidKeyException) {
+                // API 31 and 32 refuse a locked device with a plain InvalidKeyException; for a key that needs the device
+                // unlocked that shape is marked so that everything below (and the storage) sees a locked device.
+                val e: InvalidKeyException =
+                    if (keySource.unlockedDeviceRequired && isKeystore2LockedShape(raw)) DeviceLockedKeyException(raw) else raw
                 // A locked device (a key that needs it unlocked) and an unauthenticated user are states that pass: never a
                 // reason to drop the key (unauthenticatedAsDenied tells them apart for the caller).
                 if (isTransient(e) || isDeviceLockedFailure(e)) throw e
@@ -456,6 +476,8 @@ internal class AndroidKeystoreKeySource(
     override suspend fun securityLevel(): AndroidKeySecurityLevel = keyStore.securityLevel(key())
 
     override val userAuthenticationRequired: Boolean = options.userAuthentication != null
+
+    override val unlockedDeviceRequired: Boolean = options.unlockedDeviceRequired
 
     /** This alias's lock, shared by every instance over it — see the class KDoc. */
     private val aliasLock: Mutex get() = aliasLocks.computeIfAbsent(cacheKey) { Mutex() }

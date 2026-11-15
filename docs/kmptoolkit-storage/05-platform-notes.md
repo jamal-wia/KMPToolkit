@@ -51,7 +51,7 @@ The code this module was ported from used **Tink** (`com.google.crypto.tink:tink
 `AndroidKeysetManager`: a keyset stored in its own preferences file, wrapped by an Android Keystore
 master key, encrypting values with AES-256-GCM. This module instead calls the Android Keystore
 directly — `KeyGenParameterSpec` for an AES-256 key, `Cipher("AES/GCM/NoPadding")` for the values,
-`Base64(iv ‖ ciphertext‖tag)` on disk.
+`Base64(version ‖ iv ‖ ciphertext ‖ tag)` on disk.
 
 The three candidates and what decided it:
 
@@ -90,9 +90,10 @@ What this trade costs, honestly:
 
 Two further choices inside that implementation:
 
-- **`setUserAuthenticationRequired` is deliberately left off.** An auth-bound key would make every
-  read fail outside a recent unlock, which breaks a cold start and a background sync. Biometric
-  gating is a different feature with a different key, bound to your own auth flow.
+- **`setUserAuthenticationRequired` is off by default.** An auth-bound key would make every read fail
+  outside a recent unlock, which breaks a cold start and a background sync. Opt in with
+  `AndroidUserAuthentication` (see "User authentication" below, with the cost described there); the
+  library never shows the prompt, your own `BiometricPrompt` flow opens the window.
 - **Hardware backing is neither required nor checked.** On a device with a TEE or StrongBox the
   platform uses it; on one without, the same API gives a software-isolated key. Refusing to store a
   token on the weaker device would only push you into storing it somewhere worse.
@@ -146,9 +147,9 @@ The same rule protects the key itself: a transient fault never makes the module 
 and look the alias up again, and a transient `UnrecoverableKeyException` during that lookup never
 deletes the alias. An alias is deleted only on proof, and an `UnrecoverableKeyException` alone is not proof (a keystore
 fault and a locked device look the same on API 24-32). The proof is the platform's own verdict in the form it has at a
-lookup (`KeyStore.getKey`, the provider's `engineGetKey`; API 30 and 34, read from the framework bytecode) turns the
-daemon's `KeyPermanentlyInvalidatedException` into an `UnrecoverableKeyException` with **no cause** and exactly the message
-`User changed or deleted their auth credentials`; that form, or a `KeyPermanentlyInvalidatedException` in the cause chain,
+lookup: the provider's lookup (`KeyStore.getKey`, `engineGetKey`; API 30, 31, 34 and 36.1, read from the framework
+bytecode) turns the daemon's `KeyPermanentlyInvalidatedException` into an `UnrecoverableKeyException` with **no cause** and
+exactly the message `User changed or deleted their auth credentials`; that form, or a `KeyPermanentlyInvalidatedException` in the cause chain,
 deletes the alias. Every other lookup failure, notably `UnrecoverableKeyException("Failed to obtain information about key")`
 with the daemon's `KeyStoreException` as its cause, a locked device and every unknown failure, deletes nothing and answers
 `Unavailable`. Such a store stays `Unavailable` until the lookup succeeds (the cipher never gets a key handle to repair
@@ -219,8 +220,20 @@ values you want to keep, or clear the app's data.
   no `Unsupported`: that happens when an app switches from `DEFAULT`, or when another store with the same
   `StorageConfig.name` was opened with other options earlier in the process. Check `androidKeySecurityLevel()`).
 - `unlockedDeviceRequired` (`setUnlockedDeviceRequired`, API 28 and newer, ignored below): the key works only while the
-  device is unlocked. While it is locked, calls that need the key answer `Unavailable`; the key is kept, and the same call
-  succeeds after the user unlocks. Do not enable it for a store that a background sync must read while the device is locked.
+  device is unlocked. While it is locked, calls that need the key answer `Unavailable`; the key is kept, is never
+  looked up again, and the same call succeeds after the user unlocks. Do not enable it for a store that a background sync
+  must read while the device is locked. The platform reports a locked device in a different form per level, and the
+  library recognises each one: API 28-30 as `UserNotAuthenticatedException`; API 31 and later (keystore 2, KeyMint
+  `DEVICE_LOCKED`, -72) as a plain `InvalidKeyException("Keystore operation failed")` around an
+  `android.security.KeyStoreException`, with no `UserNotAuthenticatedException` in the chain. From API 33 the library asks
+  the platform (`KeyStoreException.requiresUserAuthentication()`). On **API 31 and 32** nothing public reads the code, and
+  the library does not read the hidden method (a non-SDK interface a consumer's StrictMode or store review would flag),
+  so it recognises the exact shape (an `InvalidKeyException` that is not one of the platform's named subclasses, that
+  message, a `KeyStoreException` as its cause) and only for a store opened with `unlockedDeviceRequired`. The price there:
+  another refusal of the same shape for such a store (a rate limit, a system error) also answers `Unavailable` and keeps
+  the key, which is a "retry later" answer, never a lost-value one. A store without `unlockedDeviceRequired` takes
+  nothing for a locked device on 31 and 32. The API 31+ form comes from the platform source and the framework bytecode
+  and is not observed on a device.
 
 ### User authentication
 
@@ -254,8 +267,8 @@ keeps the properties it has.
   `Unavailable` until a biometric is enrolled, as it does without a lock screen. The store handles it as it handles any permanently invalidated
   key (see above): the dead key is deleted, a new one is generated with the same options, writes succeed again and the old
   values are `Undecryptable(key)`. Generating the new key needs a lock screen (`Unavailable` until there is one).
-- **With `unlockedDeviceRequired` as well**, the platform reports a locked device and an unauthenticated user in the same
-  way, so such a store answers `AccessDenied` for either. Without `userAuthentication` that refusal is a locked device and
+- **With `unlockedDeviceRequired` as well**, the library cannot tell a locked device from an unauthenticated user (on every
+  level both are recognised as one state, see "Key options"), so such a store answers `AccessDenied` for either. Without `userAuthentication` that refusal is a locked device and
   answers `Unavailable`.
 
 Not observed on a device: the validity window, the invalidation by a lock-screen removal or an enrolment change, the
@@ -275,7 +288,7 @@ initialisation, and writes no entry. It answers what the other calls answer, wit
 |---|---|
 | `REQUIRE_STRONGBOX` on a device without a StrongBox | `Unsupported(HARDWARE_UNAVAILABLE)` |
 | `PREFER_STRONGBOX` without a StrongBox | key generated with the default backing; `androidKeySecurityLevel()` reports it |
-| `unlockedDeviceRequired` while the device is locked | `Unavailable` |
+| `unlockedDeviceRequired` while the device is locked (every level, see "Key options") | `Unavailable` |
 | `userAuthentication` outside the validity window (`UserNotAuthenticatedException`) | `AccessDenied(cause)`; the key is kept |
 | `userAuthentication` on a device without a secure lock screen, or while the dead key cannot be replaced | `Unavailable` |
 | `userAuthentication` with `allowDeviceCredential = false` below API 30 | `Unsupported(HARDWARE_UNAVAILABLE)` |
@@ -285,7 +298,7 @@ initialisation, and writes no entry. It answers what the other calls answer, wit
 | any other failure of `ensureKey()` | `OperationFailed(ENSURE_KEY)` with no key |
 
 Not observed on a device: a real StrongBox, the `Unsupported` answer on an emulator without one, and a locked
-emulator. The StrongBox fallback and every mapping above are covered on the host through seams.
+emulator (the exception chain of a locked device on API 31 and later is read from the platform source and bytecode). The StrongBox fallback and every mapping above are covered on the host through seams.
 
 ### Writes use `commit()`, not `apply()`
 
