@@ -320,13 +320,16 @@ sealed interface io.github.jamal_wia.kmptoolkit.permission/PermissionStatus { //
 }
 
 final class io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions { // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions|null[0]
-    constructor <init>(kotlin.collections/Set<io.github.jamal_wia.kmptoolkit.permission/IosNotificationOption> = ...) // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.<init>|<init>(kotlin.collections.Set<io.github.jamal_wia.kmptoolkit.permission.IosNotificationOption>){}[0]
+    constructor <init>(kotlin.collections/Set<io.github.jamal_wia.kmptoolkit.permission/IosNotificationOption> = ..., kotlin/String? = ...) // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.<init>|<init>(kotlin.collections.Set<io.github.jamal_wia.kmptoolkit.permission.IosNotificationOption>;kotlin.String?){}[0]
 
     final val notificationOptions // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.notificationOptions|{}notificationOptions[0]
         final fun <get-notificationOptions>(): kotlin.collections/Set<io.github.jamal_wia.kmptoolkit.permission/IosNotificationOption> // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.notificationOptions.<get-notificationOptions>|<get-notificationOptions>(){}[0]
+    final val temporaryFullAccuracyPurposeKey // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.temporaryFullAccuracyPurposeKey|{}temporaryFullAccuracyPurposeKey[0]
+        final fun <get-temporaryFullAccuracyPurposeKey>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.temporaryFullAccuracyPurposeKey.<get-temporaryFullAccuracyPurposeKey>|<get-temporaryFullAccuracyPurposeKey>(){}[0]
 
     final fun component1(): kotlin.collections/Set<io.github.jamal_wia.kmptoolkit.permission/IosNotificationOption> // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.component1|component1(){}[0]
-    final fun copy(kotlin.collections/Set<io.github.jamal_wia.kmptoolkit.permission/IosNotificationOption> = ...): io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.copy|copy(kotlin.collections.Set<io.github.jamal_wia.kmptoolkit.permission.IosNotificationOption>){}[0]
+    final fun component2(): kotlin/String? // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.component2|component2(){}[0]
+    final fun copy(kotlin.collections/Set<io.github.jamal_wia.kmptoolkit.permission/IosNotificationOption> = ..., kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.copy|copy(kotlin.collections.Set<io.github.jamal_wia.kmptoolkit.permission.IosNotificationOption>;kotlin.String?){}[0]
     final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.hashCode|hashCode(){}[0]
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions.toString|toString(){}[0]
@@ -358,3 +361,4 @@ final val io.github.jamal_wia.kmptoolkit.permission/isUsable // io.github.jamal_
 
 final fun io.github.jamal_wia.kmptoolkit.permission/createPermissionController(io.github.jamal_wia.kmptoolkit.permission/IosPermissionOptions = ..., io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.permission/PermissionController // io.github.jamal_wia.kmptoolkit.permission/createPermissionController|createPermissionController(io.github.jamal_wia.kmptoolkit.permission.IosPermissionOptions;io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]
 final suspend fun io.github.jamal_wia.kmptoolkit.permission/presentLimitedPhotoLibraryPicker(platform.UIKit/UIViewController): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/presentLimitedPhotoLibraryPicker|presentLimitedPhotoLibraryPicker(platform.UIKit.UIViewController){}[0]
+final suspend fun io.github.jamal_wia.kmptoolkit.permission/requestTemporaryFullAccuracy(kotlin/String): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus // io.github.jamal_wia.kmptoolkit.permission/requestTemporaryFullAccuracy|requestTemporaryFullAccuracy(kotlin.String){}[0]

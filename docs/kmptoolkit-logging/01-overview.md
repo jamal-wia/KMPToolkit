@@ -33,12 +33,19 @@ not happen in a release build configured at `INFO`.
 The module has **no dependencies at all** beyond the Kotlin standard library. Adding it to a
 consumer's graph adds nothing to their app but a handful of classes.
 
+## Targets
+
+Android, iOS and the desktop JVM. The `jvm` target is real, not a stub: `Logger` is a parameter of
+the suite's shared modules, so shared code that also builds for desktop needs the same seam there,
+and `platformLogSink()` writes to standard error. The reasoning is in
+[`../01-architecture.md`](../01-architecture.md#desktop-targets).
+
 ## What this is **not**
 
 - **Not a logging backend.** It does not format timestamps, rotate files, buffer to disk, batch to
   a server, or talk to a crash reporter. It hands a materialized event to whatever sinks you
   installed and stops there. The only sink it ships is `platformLogSink()` — logcat on Android,
-  standard output on iOS.
+  standard output on iOS, standard error on the desktop JVM.
 - **Not a wrapper around Kermit/Timber/`os_log`, and not a dependency on them.** No adapter for any
   third-party logger ships here; writing one is a single lambda
   (see [`03-guide.md`](03-guide.md#bridging-to-an-existing-logging-framework)).

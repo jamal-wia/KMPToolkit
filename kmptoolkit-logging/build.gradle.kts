@@ -25,7 +25,12 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
 
+    // The jvm half is real, not a stub: `Logger` is a `commonMain` parameter of the suite's shared
+    // modules, so code shared with desktop needs the seam there too. Its sink writes to standard error.
+    jvm()
+
     // No commonMain dependencies at all: the whole point of this module is that adding it to a
     // consumer's graph pulls in nothing but the Kotlin stdlib. The platform default sinks use
-    // android.util.Log and Kotlin/Native's println, both already on the platform classpath.
+    // android.util.Log, Kotlin/Native's println and the JDK's System.err, all already on the
+    // platform classpath.
 }

@@ -57,10 +57,10 @@ Being a `fun interface`, a sink is usually a lambda:
 public expect fun platformLogSink(): LogSink
 ```
 
-The platform's own console sink — `android.util.Log` on Android, `println` on iOS. The returned sink
-is stateless, so **identity is unspecified**: a call may return a fresh instance or a shared one,
-and it differs by target (Kotlin/Native collapses the non-capturing lambda into a singleton, the JVM
-does not). Never compare the result by identity or use it as a map key. See
+The platform's own console sink — `android.util.Log` on Android, `println` (standard output) on iOS,
+`System.err` on the desktop JVM. The returned sink is stateless, so **identity is unspecified**: a
+call may return a fresh instance or a shared one, and it differs by target (Kotlin/Native collapses
+the non-capturing lambda into a singleton, the JVM does not). Never compare the result by identity or use it as a map key. See
 [`05-platform-notes.md`](05-platform-notes.md) for the per-platform output format and its limits.
 
 ## `interface Logger`
@@ -164,7 +164,7 @@ Guaranteed behavior of the returned factory's loggers:
 | `level >= minLevel` and `sinks` non-empty | `isLoggable` is `true`; the message is built once and passed to every sink in order |
 | `level < minLevel` | Nothing is delivered; the message lambda is never evaluated |
 | `sinks` is empty | Logging is off: `isLoggable` is `false` at every level, no lambda is evaluated. This is the supported off switch |
-| A sink throws | The throwable is swallowed (an `AssertionError`, a `NotImplementedError` or, on Android, a `LinkageError` included), the remaining sinks still receive the event, and the caller returns normally. A `CancellationException` is the exception: it is rethrown, but only after every sink has been offered the event; any other `Error` (`StackOverflowError`, `OutOfMemoryError`) is rethrown at once. The logger never clears the caller's interrupt status: a thread interrupted when it logs is still interrupted afterwards, however a sink handled or wrapped the interrupt; a sink's bare `InterruptedException` raised by an interrupt that arrived during the write has the flag set again once every sink has had the event, or as the logger rethrows an Error a later sink raised (JVM and Android). A wrapped one cannot be told apart from another thread's interrupt and is contained like any exception |
+| A sink throws | The throwable is swallowed (an `AssertionError`, a `NotImplementedError` or, on the JVM (Android and desktop), a `LinkageError` included), the remaining sinks still receive the event, and the caller returns normally. A `CancellationException` is the exception: it is rethrown, but only after every sink has been offered the event; any other `Error` (`StackOverflowError`, `OutOfMemoryError`) is rethrown at once. The logger never clears the caller's interrupt status: a thread interrupted when it logs is still interrupted afterwards, however a sink handled or wrapped the interrupt; a sink's bare `InterruptedException` raised by an interrupt that arrived during the write has the flag set again once every sink has had the event, or as the logger rethrows an Error a later sink raised (Android and desktop JVM). A wrapped one cannot be told apart from another thread's interrupt and is contained like any exception |
 | The message lambda throws | The exception propagates to the caller and no sink is called — a caller-side defect must stay visible |
 | `sinks` mutated after the call | No effect; the list is copied at construction |
 
@@ -178,5 +178,5 @@ race a reconfiguration. Reconfiguring means building another factory, or gating 
 |---|---|
 | `LoggerFactory` / `Logger` from `createLoggerFactory` | Immutable; safe to share across threads |
 | `NoopLogger` | Stateless |
-| `platformLogSink()` | Stateless and safe from several threads: on Android each event is one `android.util.Log` call; on iOS each event (line and stack trace) is written to standard output in one step under a lock shared by every instance, so concurrent events never interleave |
+| `platformLogSink()` | Stateless and safe from several threads: on Android each event is one `android.util.Log` call; on iOS each event (line and stack trace) is written to standard output, and on the desktop JVM to standard error, in one step under a lock shared by every instance, so concurrent events never interleave |
 | Your own `LogSink` | **Your** responsibility |

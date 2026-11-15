@@ -77,6 +77,7 @@ import platform.Photos.PHAuthorizationStatusRestricted
 import platform.Photos.PHPhotoLibrary
 import platform.Foundation.NSNotification
 import platform.Foundation.NSProcessInfo
+import platform.Foundation.NSString
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
 import platform.MediaPlayer.MPMediaLibrary
@@ -93,6 +94,7 @@ import platform.UserNotifications.UNAuthorizationStatusEphemeral
 import platform.UserNotifications.UNAuthorizationStatusProvisional
 import platform.darwin.NSObject
 import platform.darwin.dispatch_after
+import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
 import platform.darwin.dispatch_time
 import platform.darwin.DISPATCH_TIME_NOW
@@ -265,6 +267,28 @@ internal fun isIosAtLeast(major: Long, minor: Long = 0): Boolean =
 /** Whether the app's `Info.plist` has [key] — the purpose string a request for it requires. */
 internal fun hasInfoPlistKey(key: String): Boolean = NSBundle.mainBundle.objectForInfoDictionaryKey(key) != null
 
+/** The keys of the app's `NSLocationTemporaryUsageDescriptionDictionary`; empty when the entry is absent or not a dictionary. */
+internal fun temporaryUsagePurposeKeysInInfoPlist(): Set<String> =
+    temporaryUsagePurposeKeys(NSBundle.mainBundle.objectForInfoDictionaryKey("NSLocationTemporaryUsageDescriptionDictionary"))
+
+/**
+ * The string keys of [infoValue], the raw `Info.plist` value of `NSLocationTemporaryUsageDescriptionDictionary`.
+ * A dictionary (an `NSDictionary` as the bundle returns it, which Kotlin/Native reads as a `Map`) yields its string keys;
+ * keys of any other type are ignored; any other value, or `null`, yields an empty set. Split from the bundle read
+ * so the parse of real Foundation objects is testable without an app bundle that carries the entry.
+ */
+internal fun temporaryUsagePurposeKeys(infoValue: Any?): Set<String> {
+    // Kotlin/Native maps NSDictionary to Map, so one branch reads both the bundle's dictionary and a Kotlin map.
+    val keys: Collection<*> = (infoValue as? Map<*, *>)?.keys ?: return emptySet()
+    return keys.mapNotNull { key: Any? ->
+        when (key) {
+            is String -> key
+            is NSString -> key.toString()
+            else -> null
+        }
+    }.toSet()
+}
+
 // --- Location -----------------------------------------------------------------------------------
 
 /**
@@ -277,6 +301,9 @@ internal fun hasInfoPlistKey(key: String): Boolean = NSBundle.mainBundle.objectF
 internal object LocationAuthorization {
 
     private val pending: MutableSet<AuthorizationDelegate> = mutableSetOf()
+
+    /** Managers with a temporary full accuracy request in flight; see [requestTemporaryFullAccuracy]. Main queue only. */
+    private val pendingAccuracy: MutableSet<CLLocationManager> = mutableSetOf()
 
     /**
      * Whether this process has asked for the "always" upgrade from "when in use". iOS offers it at most
@@ -329,6 +356,38 @@ internal object LocationAuthorization {
             },
             fallback = ::current,
         ).also { if (before == kCLAuthorizationStatusAuthorizedWhenInUse) upgradeAsked.value = true }
+    }
+
+    /**
+     * Asks for temporary full accuracy (iOS 14+) under [purposeKey] and suspends until iOS has answered:
+     * the user's choice, or an error when no prompt could be shown. The error is not an outcome here (a
+     * declined prompt is one too), so it is dropped and the caller re-reads the accuracy.
+     *
+     * The manager is created on the main queue, like every other request here (CoreLocation delivers on the
+     * run loop of the creating thread), and kept strongly in [pendingAccuracy] until the request finishes,
+     * as the delegate-based requests keep theirs in [pending]. The completion lets it go, and so does a
+     * caller that is cancelled meanwhile, on the main queue like [BluetoothAuthorization.request]'s
+     * abandon; the completion that may still arrive finds the continuation inactive and the manager
+     * already gone from the set. The set is only touched on the main queue: CoreLocation does not document
+     * the queue its completion runs on, so the completion hops to the main queue for the removal exactly as
+     * the cancel path does, and only the resume (thread-safe) happens where the completion runs.
+     */
+    suspend fun requestTemporaryFullAccuracy(purposeKey: String) {
+        withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { continuation ->
+                val manager = CLLocationManager()
+                pendingAccuracy += manager
+                manager.requestTemporaryFullAccuracyAuthorizationWithPurposeKey(purposeKey) { _: NSError? ->
+                    dispatch_async(dispatch_get_main_queue()) { pendingAccuracy -= manager }
+                    if (continuation.isActive) continuation.resume(Unit)
+                }
+                continuation.invokeOnCancellation {
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0), dispatch_get_main_queue()) {
+                        pendingAccuracy -= manager
+                    }
+                }
+            }
+        }
     }
 
     /**
