@@ -23,12 +23,16 @@ internal fun Location.toLocationFix(coarseOnly: Boolean): LocationFix? {
         isFromMockProvider
     }
     val api26: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+    // A negative (or non-finite) vertical accuracy marks the altitudes as unusable: all three fields are
+    // nulled together (LocationFix.verticalAccuracyMeters), the same rule as on iOS.
+    val verticalAccuracyInvalid: Boolean =
+        api26 && hasVerticalAccuracy() && !(verticalAccuracyMeters.isFinite() && verticalAccuracyMeters >= 0f)
     return LocationFix(
         coordinates = where,
         timestampEpochMillis = time,
         horizontalAccuracyMeters = if (hasAccuracy()) accuracy.nonNegative() else null,
-        ellipsoidalAltitudeMeters = if (hasAltitude()) altitude.finiteOrNull() else null,
-        mslAltitudeMeters = if (Build.VERSION.SDK_INT >= MSL_ALTITUDE_API && hasMslAltitude()) {
+        ellipsoidalAltitudeMeters = if (hasAltitude() && !verticalAccuracyInvalid) altitude.finiteOrNull() else null,
+        mslAltitudeMeters = if (Build.VERSION.SDK_INT >= MSL_ALTITUDE_API && hasMslAltitude() && !verticalAccuracyInvalid) {
             mslAltitudeMeters.finiteOrNull()
         } else {
             null
