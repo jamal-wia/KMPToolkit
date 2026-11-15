@@ -41,20 +41,20 @@ internal interface OsKeyBackend {
     /** The kind of file this OS writes ([StoreKind.OS_ITEM] on macOS and Linux, [StoreKind.DPAPI] on Windows). */
     val kind: StoreKind
 
-    /** Whether [header] names this store's identity. A foreign header is "key lost" before any OS call (plan 4.4 rules). */
-    fun identityMatches(header: HeaderBody): Boolean
+    /** Whether [header] names [identity]. A foreign header is "key lost" before any OS call (plan 4.4 rules). */
+    fun identityMatches(header: HeaderBody, identity: StoreIdentity): Boolean
 
-    /** The key of [header], a definitive [Verdict.NotFound], or the typed failure. Off the lock. */
-    suspend fun fetch(header: HeaderBody, operation: StorageOperation, key: String?): Verdict<ByteArray>
+    /** The key of [header] for [identity], a [Verdict.NotFound], or the typed failure. Off the lock. */
+    suspend fun fetch(header: HeaderBody, identity: StoreIdentity, operation: StorageOperation, key: String?): Verdict<ByteArray>
 
     /** Before anything is touched by a create: a refusal that must not quarantine or write (locked collection without UI, no session). */
     suspend fun preflight(operation: StorageOperation, key: String?): StorageError?
 
-    /** A new data key and its header (DPAPI protects the key here). */
-    suspend fun newKey(operation: StorageOperation, key: String?, newDataKey: () -> ByteArray): Verdict<NewKey>
+    /** A new data key and its header for [identity] (DPAPI protects the key here). */
+    suspend fun newKey(identity: StoreIdentity, operation: StorageOperation, key: String?, newDataKey: () -> ByteArray): Verdict<NewKey>
 
-    /** Puts [dataKey] into the OS item at the own identity: delete (not-found is fine), then add. Windows has no item. */
-    suspend fun install(dataKey: ByteArray, operation: StorageOperation, key: String?): StorageError?
+    /** Puts [dataKey] into the OS item at [identity]: delete (not-found is fine), then add. Windows has no item. */
+    suspend fun install(identity: StoreIdentity, dataKey: ByteArray, operation: StorageOperation, key: String?): StorageError?
 }
 
 private fun <T> failed(outcome: NativeOutcome<*>, operation: StorageOperation, key: String?): Verdict<T> =
@@ -67,17 +67,17 @@ private fun wipeKey(raw: RawResult<ByteArray?>) {
 /** macOS: the login keychain, one generic password per store identity (plan 4.5). */
 internal class MacBackend(
     private val calls: MacKeychainCalls,
-    private val identity: StoreIdentity,
-    private val label: String,
+    /** The item label the app chose; `null` = the identity's service. */
+    private val label: String?,
     private val caller: NativeCaller,
 ) : OsKeyBackend {
     override val kind: StoreKind = StoreKind.OS_ITEM
 
-    override fun identityMatches(header: HeaderBody): Boolean =
+    override fun identityMatches(header: HeaderBody, identity: StoreIdentity): Boolean =
         header is HeaderBody.OsItem && header.osTag == SecureFileFormat.OS_TAG_MACOS &&
             header.fingerprint.contentEquals(identity.headerFingerprint)
 
-    override suspend fun fetch(header: HeaderBody, operation: StorageOperation, key: String?): Verdict<ByteArray> {
+    override suspend fun fetch(header: HeaderBody, identity: StoreIdentity, operation: StorageOperation, key: String?): Verdict<ByteArray> {
         val outcome: NativeOutcome<RawResult<ByteArray?>> = caller.call(discard = ::wipeKey) {
             calls.copyGenericPassword(identity.service, identity.macAccount, caller.allowUi)
         }
@@ -97,10 +97,11 @@ internal class MacBackend(
 
     override suspend fun preflight(operation: StorageOperation, key: String?): StorageError? = null
 
-    override suspend fun newKey(operation: StorageOperation, key: String?, newDataKey: () -> ByteArray): Verdict<NewKey> =
+    override suspend fun newKey(identity: StoreIdentity, operation: StorageOperation, key: String?, newDataKey: () -> ByteArray): Verdict<NewKey> =
         Verdict.Ok(NewKey(HeaderBody.OsItem(identity.headerFingerprint, SecureFileFormat.OS_TAG_MACOS), newDataKey()))
 
-    override suspend fun install(dataKey: ByteArray, operation: StorageOperation, key: String?): StorageError? {
+    override suspend fun install(identity: StoreIdentity, dataKey: ByteArray, operation: StorageOperation, key: String?): StorageError? {
+        val itemLabel: String = label ?: identity.service
         val deleted: NativeOutcome<Int> = caller.call { calls.deleteGenericPassword(identity.service, identity.macAccount, caller.allowUi) }
         val deleteStatus: Int = (deleted as? NativeOutcome.Completed)?.value ?: return ErrorMapping.nativeOutcome(deleted, operation, key)
         (ErrorMapping.macDelete(deleteStatus, operation, key) as? Verdict.Failed)?.let { return it.error }
@@ -109,7 +110,7 @@ internal class MacBackend(
         val secret: ByteArray = dataKey.copyOf()
         val added: NativeOutcome<Int> = caller.call {
             try {
-                calls.addGenericPassword(identity.service, identity.macAccount, label, secret, caller.allowUi)
+                calls.addGenericPassword(identity.service, identity.macAccount, itemLabel, secret, caller.allowUi)
             } finally {
                 secret.fill(0)
             }
@@ -122,15 +123,14 @@ internal class MacBackend(
 /** Windows: DPAPI wraps the data key and the blob lives in the file header (plan 4.6). There is no OS item. */
 internal class WindowsBackend(
     private val calls: DpapiCalls,
-    private val identity: StoreIdentity,
     private val caller: NativeCaller,
 ) : OsKeyBackend {
     override val kind: StoreKind = StoreKind.DPAPI
 
     // The entropy binds a blob to the store name, not to the directory: a file moved to another name fails to unprotect.
-    override fun identityMatches(header: HeaderBody): Boolean = header is HeaderBody.Dpapi
+    override fun identityMatches(header: HeaderBody, identity: StoreIdentity): Boolean = header is HeaderBody.Dpapi
 
-    override suspend fun fetch(header: HeaderBody, operation: StorageOperation, key: String?): Verdict<ByteArray> {
+    override suspend fun fetch(header: HeaderBody, identity: StoreIdentity, operation: StorageOperation, key: String?): Verdict<ByteArray> {
         val blob: ByteArray = (header as HeaderBody.Dpapi).blob
         val outcome: NativeOutcome<RawResult<ByteArray>> = caller.callLimited(discard = ::wipeSuccess) {
             calls.unprotect(blob, identity.windowsEntropy)
@@ -142,7 +142,7 @@ internal class WindowsBackend(
                     raw.value.fill(0)
                     Verdict.NotFound
                 }
-            is RawResult.Failure -> when (val trip: ErrorMapping.RoundTrip = roundTrip(operation, key)) {
+            is RawResult.Failure -> when (val trip: ErrorMapping.RoundTrip = roundTrip(identity, operation, key)) {
                 // DPAPI works for this user and still cannot unwrap this blob: the key is lost.
                 ErrorMapping.RoundTrip.Worked -> Verdict.NotFound
                 is ErrorMapping.RoundTrip.Failed -> Verdict.Failed(ErrorMapping.windowsUnprotectFailure(raw.status.code, trip))
@@ -151,7 +151,7 @@ internal class WindowsBackend(
     }
 
     /** The 1-byte throwaway protect and unprotect of 4.6 (S11): tells a broken DPAPI from a blob that is not ours. */
-    suspend fun roundTrip(operation: StorageOperation, key: String?): ErrorMapping.RoundTrip {
+    suspend fun roundTrip(identity: StoreIdentity, operation: StorageOperation, key: String?): ErrorMapping.RoundTrip {
         val probe: ByteArray = byteArrayOf(ROUND_TRIP_BYTE)
         val protectedOutcome: NativeOutcome<RawResult<ByteArray>> = caller.callLimited { calls.protect(probe, identity.windowsEntropy) }
         val protectedRaw: RawResult<ByteArray> = (protectedOutcome as? NativeOutcome.Completed)?.value
@@ -175,7 +175,7 @@ internal class WindowsBackend(
 
     override suspend fun preflight(operation: StorageOperation, key: String?): StorageError? = null
 
-    override suspend fun newKey(operation: StorageOperation, key: String?, newDataKey: () -> ByteArray): Verdict<NewKey> {
+    override suspend fun newKey(identity: StoreIdentity, operation: StorageOperation, key: String?, newDataKey: () -> ByteArray): Verdict<NewKey> {
         val dataKey: ByteArray = newDataKey()
         val plain: ByteArray = dataKey.copyOf() // owned by the native call (see MacBackend.install)
         val outcome: NativeOutcome<RawResult<ByteArray>> = caller.callLimited {
@@ -205,7 +205,7 @@ internal class WindowsBackend(
         }
     }
 
-    override suspend fun install(dataKey: ByteArray, operation: StorageOperation, key: String?): StorageError? = null
+    override suspend fun install(identity: StoreIdentity, dataKey: ByteArray, operation: StorageOperation, key: String?): StorageError? = null
 
     private fun wipeSuccess(raw: RawResult<ByteArray>) {
         if (raw is RawResult.Success) raw.value.fill(0)
@@ -221,21 +221,21 @@ internal class WindowsBackend(
 /** Linux: libsecret, an item with two attributes holding the base64 data key (plan 4.7). */
 internal class LinuxBackend(
     private val calls: SecretServiceCalls,
-    private val identity: StoreIdentity,
-    private val label: String,
+    /** The item label the app chose; `null` = the identity's service. */
+    private val label: String?,
     private val caller: NativeCaller,
     private val environment: SecureStoreEnvironment,
 ) : OsKeyBackend {
     override val kind: StoreKind = StoreKind.OS_ITEM
 
-    override fun identityMatches(header: HeaderBody): Boolean =
+    override fun identityMatches(header: HeaderBody, identity: StoreIdentity): Boolean =
         header is HeaderBody.OsItem && header.osTag == SecureFileFormat.OS_TAG_LINUX &&
             header.fingerprint.contentEquals(identity.headerFingerprint)
 
     private fun noSession(): StorageError? =
         if (environment.hasSessionBus()) null else StorageError.Unsupported(UnsupportedReason.NO_USER_SESSION)
 
-    override suspend fun fetch(header: HeaderBody, operation: StorageOperation, key: String?): Verdict<ByteArray> {
+    override suspend fun fetch(header: HeaderBody, identity: StoreIdentity, operation: StorageOperation, key: String?): Verdict<ByteArray> {
         noSession()?.let { return Verdict.Failed(it) }
         val outcome: NativeOutcome<RawResult<SecretLookup>> = caller.call(discard = ::wipeLookup) {
             calls.lookup(identity.linuxAttributes, caller.allowUi)
@@ -279,17 +279,18 @@ internal class LinuxBackend(
         }
     }
 
-    override suspend fun newKey(operation: StorageOperation, key: String?, newDataKey: () -> ByteArray): Verdict<NewKey> =
+    override suspend fun newKey(identity: StoreIdentity, operation: StorageOperation, key: String?, newDataKey: () -> ByteArray): Verdict<NewKey> =
         Verdict.Ok(NewKey(HeaderBody.OsItem(identity.headerFingerprint, SecureFileFormat.OS_TAG_LINUX), newDataKey()))
 
-    override suspend fun install(dataKey: ByteArray, operation: StorageOperation, key: String?): StorageError? {
+    override suspend fun install(identity: StoreIdentity, dataKey: ByteArray, operation: StorageOperation, key: String?): StorageError? {
+        val itemLabel: String = label ?: identity.service
         val cleared: NativeOutcome<SecretStatus> = caller.call { calls.clear(identity.linuxAttributes) }
         val clearStatus: SecretStatus = (cleared as? NativeOutcome.Completed)?.value ?: return ErrorMapping.nativeOutcome(cleared, operation, key)
         if (!clearStatus.isSuccess) return ErrorMapping.linuxStatus(clearStatus, operation, key)
         val secret: ByteArray = Base64.getEncoder().encode(dataKey) // owned by the native call (see MacBackend.install)
         val stored: NativeOutcome<SecretStatus> = caller.call {
             try {
-                calls.store(label, identity.linuxAttributes, secret)
+                calls.store(itemLabel, identity.linuxAttributes, secret)
             } finally {
                 secret.fill(0)
             }

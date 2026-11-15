@@ -45,17 +45,21 @@ internal class SecureTestRig(
         executor: NativeExecutor = this.executor,
         lock: CrossProcessLock = CrossProcessLock(),
         files: FileAccess = createFileAccess(),
+        resolver: StorePathResolver = StorePathResolver.real,
+        maxStoreBytes: Long = EncryptedFileGuard.MAX_STORE_BYTES,
     ): JvmSecureKeyValueStorage {
         val virtual: TimeSource.WithComparableMarks? = timeSource
         return if (virtual == null) {
             JvmSecureKeyValueStorage(
                 name = name, directory = dir, options = options, dispatcher = dispatcher, source = source, executor = executor,
                 cache = cache, environment = environment, crossProcessLock = lock, clock = clock, files = files,
+                pathResolver = resolver, maxStoreBytes = maxStoreBytes,
             )
         } else {
             JvmSecureKeyValueStorage(
                 name = name, directory = dir, options = options, dispatcher = dispatcher, source = source, executor = executor,
                 cache = cache, environment = environment, crossProcessLock = lock, timeSource = virtual, clock = clock, files = files,
+                pathResolver = resolver, maxStoreBytes = maxStoreBytes,
             )
         }
     }

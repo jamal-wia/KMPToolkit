@@ -18,12 +18,19 @@ internal sealed class Op(val operation: StorageOperation, val key: String?) {
 }
 
 /** The bytes of a header and key-check, as seen by a round: what a fetched key was fetched for. */
-internal class Snapshot(val header: HeaderBody, val headerPrefix: ByteArray, val keyCheck: ByteArray) {
+internal class Snapshot(
+    val header: HeaderBody,
+    val headerPrefix: ByteArray,
+    val keyCheck: ByteArray,
+    /** The store identity the round derived (OS-key stores): a key fetched for another identity is never used. `null` for app-key stores. */
+    val identity: StoreIdentity? = null,
+) {
     fun matches(parsed: FileState.Parsed): Boolean =
         parsed.file.headerPrefix.contentEquals(headerPrefix) && parsed.file.keyCheck.contentEquals(keyCheck)
 
     internal companion object {
-        fun of(parsed: FileState.Parsed): Snapshot = Snapshot(parsed.file.header, parsed.file.headerPrefix, parsed.file.keyCheck)
+        fun of(parsed: FileState.Parsed, identity: StoreIdentity? = null): Snapshot =
+            Snapshot(parsed.file.header, parsed.file.headerPrefix, parsed.file.keyCheck, identity)
     }
 }
 
@@ -112,14 +119,18 @@ internal abstract class EncryptedStoreEngine(
     /** A typed reason no operation can run at all (no binding), checked before any lock; `null` when the store can run. */
     protected abstract fun unavailableReason(): StorageError?
 
-    /** Under the lock: what is known about the key for [parsed], given what off-lock work brought ([carry]). Never suspends. */
-    protected abstract fun resolve(parsed: FileState.Parsed, carry: Carry?): Resolution
+    /**
+     * Under the lock: what is known about the key for [parsed] (the file at [store]), given what off-lock work brought
+     * ([carry]). Never suspends; may throw an `IOException` (the real path of the file could not be resolved), which the
+     * guard answers as `OperationFailed` for that call.
+     */
+    protected abstract fun resolve(store: EncryptedFileGuard.StoreFile, parsed: FileState.Parsed, carry: Carry?): Resolution
 
     /** Off the lock: fetches or derives what [request] asks for. */
     protected abstract suspend fun prepare(request: Request, op: Op, scope: OpScope): Prepared
 
-    /** Under the lock: builds the creation of a new key, or says what it needs first. */
-    protected abstract suspend fun createPlan(op: Op, carry: Carry?): CreatePlan
+    /** Under the lock: builds the creation of a new key for the file at [store], or says what it needs first. */
+    protected abstract suspend fun createPlan(store: EncryptedFileGuard.StoreFile, op: Op, carry: Carry?): CreatePlan
 
     protected open fun newScope(): OpScope = OpScope.None
 
@@ -141,6 +152,8 @@ internal abstract class EncryptedStoreEngine(
                     StorageError.InvalidValue(op.key, IllegalArgumentException("The key is longer than 65535 UTF-8 bytes")),
                 )
             }
+            // Cheap bound before any lock: a text has at least one UTF-8 byte per char, so this value cannot fit a store file.
+            if (op.value.length.toLong() >= guard.maxStoreBytes) return@withContext StorageResult.Failure(tooLarge(op.key))
         }
         unavailableReason()?.let { return@withContext StorageResult.Failure(it) }
         // A store whose directory does not exist holds nothing: reading, removing or clearing it creates no directory and no lock file.
@@ -151,7 +164,7 @@ internal abstract class EncryptedStoreEngine(
         var carry: Carry? = null
         try {
             repeat(MAX_ROUNDS) {
-                when (val locked: StorageResult<Step> = guard.locked(op.operation, op.key) { round(op, carry) }) {
+                when (val locked: StorageResult<Step> = guard.locked(op.operation, op.key) { store: EncryptedFileGuard.StoreFile -> round(store, op, carry) }) {
                     is StorageResult.Failure -> return@withContext locked
                     is StorageResult.Success -> when (val step: Step = locked.value) {
                         is Step.Done -> return@withContext step.result
@@ -174,10 +187,10 @@ internal abstract class EncryptedStoreEngine(
         }
     }
 
-    private suspend fun round(op: Op, carry: Carry?): Step = when (val state: FileState = guard.classify(kinds)) {
-        FileState.Absent -> absent(op, carry)
-        is FileState.Unparsable -> unparsable(op, state, carry)
-        is FileState.Parsed -> parsed(op, state, carry)
+    private suspend fun round(store: EncryptedFileGuard.StoreFile, op: Op, carry: Carry?): Step = when (val state: FileState = store.classify(kinds)) {
+        FileState.Absent -> absent(store, op, carry)
+        is FileState.Unparsable -> unparsable(store, op, state, carry)
+        is FileState.Parsed -> parsed(store, op, state, carry)
     }
 
     private fun done(result: StorageResult<String?>): Step = Step.Done(result)
@@ -186,38 +199,38 @@ internal abstract class EncryptedStoreEngine(
 
     private fun fail(error: StorageError): Step = Step.Done(StorageResult.Failure(error))
 
-    private suspend fun absent(op: Op, carry: Carry?): Step = when (op) {
+    private suspend fun absent(store: EncryptedFileGuard.StoreFile, op: Op, carry: Carry?): Step = when (op) {
         is Op.Get, is Op.Remove -> ok()
         Op.Clear -> {
-            guard.sweepTemps()
+            store.sweepTemps()
             ok()
         }
-        is Op.Put, Op.Ensure -> create(op, CreateMode.Fresh, carry)
+        is Op.Put, Op.Ensure -> create(store, op, CreateMode.Fresh, carry)
     }
 
-    private suspend fun unparsable(op: Op, state: FileState.Unparsable, carry: Carry?): Step = when (op) {
+    private suspend fun unparsable(store: EncryptedFileGuard.StoreFile, op: Op, state: FileState.Unparsable, carry: Carry?): Step = when (op) {
         Op.Clear -> {
             // The documented way out: the unusable (or newer) file is moved aside, never deleted; nothing is created.
-            guard.quarantine()
-            guard.sweepTemps()
+            store.quarantine()
+            store.sweepTemps()
             ok()
         }
         // A file of a newer library is never replaced by a put: only clear() may touch it.
-        is Op.Put -> if (state.newerVersion) fail(undecryptable(null)) else create(op, CreateMode.AfterQuarantine, carry)
+        is Op.Put -> if (state.newerVersion) fail(undecryptable(null)) else create(store, op, CreateMode.AfterQuarantine, carry)
         is Op.Get, is Op.Remove, Op.Ensure -> fail(undecryptable(null))
     }
 
-    private suspend fun parsed(op: Op, state: FileState.Parsed, carry: Carry?): Step {
-        if (op is Op.Clear && !clearNeedsKey) return clearFile(state)
-        return when (val resolution: Resolution = resolve(state, carry)) {
+    private suspend fun parsed(store: EncryptedFileGuard.StoreFile, op: Op, state: FileState.Parsed, carry: Carry?): Step {
+        if (op is Op.Clear && !clearNeedsKey) return clearFile(store, state)
+        return when (val resolution: Resolution = resolve(store, state, carry)) {
             is Resolution.Need -> Step.Need(resolution.request)
             is Resolution.Fail -> fail(resolution.error)
-            is Resolution.Have -> if (op is Op.Clear) clearFile(state) else withKey(op, state, resolution.dataKey)
-            Resolution.Lost -> lost(op, state, carry)
+            is Resolution.Have -> if (op is Op.Clear) clearFile(store, state) else withKey(store, op, state, resolution.dataKey)
+            Resolution.Lost -> lost(store, op, state, carry)
         }
     }
 
-    private fun withKey(op: Op, state: FileState.Parsed, dataKey: ByteArray): Step {
+    private fun withKey(store: EncryptedFileGuard.StoreFile, op: Op, state: FileState.Parsed, dataKey: ByteArray): Step {
         val file: ParsedStoreFile = state.file
         return when (op) {
             is Op.Get -> {
@@ -231,69 +244,73 @@ internal abstract class EncryptedStoreEngine(
             }
             is Op.Put -> {
                 val sealed: EncryptedEntry = sealValue(dataKey, file.kind, op.key!!, op.value)
-                writeEntries(file, file.entries.filter { it.key != op.key } + sealed)
+                val entries: List<EncryptedEntry> = file.entries.filter { it.key != op.key } + sealed
+                // Refused before anything is written: a file over the read limit would be unparsable, and the next put would quarantine it.
+                if (SecureFileFormat.encodedSize(file.header, entries) > guard.maxStoreBytes) return fail(tooLarge(op.key))
+                writeEntries(store, file, entries)
                 ok()
             }
             is Op.Remove -> {
                 if (file.entries.none { it.key == op.key }) return ok()
-                writeEntries(file, file.entries.filter { it.key != op.key })
+                writeEntries(store, file, file.entries.filter { it.key != op.key })
                 ok()
             }
             Op.Ensure -> ok()
-            Op.Clear -> clearFile(state)
+            Op.Clear -> clearFile(store, state)
         }
     }
 
     /** Key lost (OS-key stores only), the rows of plan 4.4. */
-    private suspend fun lost(op: Op, state: FileState.Parsed, carry: Carry?): Step {
+    private suspend fun lost(store: EncryptedFileGuard.StoreFile, op: Op, state: FileState.Parsed, carry: Carry?): Step {
         val file: ParsedStoreFile = state.file
         return when (op) {
             is Op.Get -> if (file.entries.any { it.key == op.key }) fail(undecryptable(null)) else ok()
             is Op.Remove -> {
                 // Drops the entry without any key: the header, the key-check and the other entries are copied byte for byte.
                 if (file.entries.none { it.key == op.key }) return ok()
-                writeEntries(file, file.entries.filter { it.key != op.key })
+                writeEntries(store, file, file.entries.filter { it.key != op.key })
                 ok()
             }
             is Op.Put ->
-                if (file.entries.isEmpty()) create(op, CreateMode.ReplaceEmpty(state.bytes), carry)
-                else create(op, CreateMode.AfterQuarantine, carry)
+                if (file.entries.isEmpty()) create(store, op, CreateMode.ReplaceEmpty(state.bytes), carry)
+                else create(store, op, CreateMode.AfterQuarantine, carry)
             Op.Ensure ->
-                if (file.entries.isEmpty()) create(op, CreateMode.ReplaceEmpty(state.bytes), carry)
+                if (file.entries.isEmpty()) create(store, op, CreateMode.ReplaceEmpty(state.bytes), carry)
                 else fail(undecryptable(null))
-            Op.Clear -> clearFile(state)
+            Op.Clear -> clearFile(store, state)
         }
     }
 
     /** An empty sealed file with the header and key-check kept; temporary leftovers are swept. No key is needed or used. */
-    private fun clearFile(state: FileState.Parsed): Step {
+    private fun clearFile(store: EncryptedFileGuard.StoreFile, state: FileState.Parsed): Step {
         val file: ParsedStoreFile = state.file
-        if (file.entries.isNotEmpty()) writeEntries(file, emptyList())
-        guard.sweepTemps()
+        if (file.entries.isNotEmpty()) writeEntries(store, file, emptyList())
+        store.sweepTemps()
         return ok()
     }
 
-    private fun writeEntries(file: ParsedStoreFile, entries: List<EncryptedEntry>) {
-        guard.write(SecureFileFormat.encode(file.header, file.keyCheck, entries), ExistingFile.Replace)
+    private fun writeEntries(store: EncryptedFileGuard.StoreFile, file: ParsedStoreFile, entries: List<EncryptedEntry>) {
+        store.write(SecureFileFormat.encode(file.header, file.keyCheck, entries), ExistingFile.Replace)
     }
 
-    private suspend fun create(op: Op, mode: CreateMode, carry: Carry?): Step {
-        val plan: CreatePlan.Ready = when (val built: CreatePlan = createPlan(op, carry)) {
+    private suspend fun create(store: EncryptedFileGuard.StoreFile, op: Op, mode: CreateMode, carry: Carry?): Step {
+        val plan: CreatePlan.Ready = when (val built: CreatePlan = createPlan(store, op, carry)) {
             is CreatePlan.Need -> return Step.Need(built.request)
             is CreatePlan.Failed -> return fail(built.error)
             is CreatePlan.Ready -> built
         }
         try {
+            // Sealed and measured BEFORE anything is created: a value that cannot fit a store file creates no key and no file.
+            val sealed: EncryptedEntry? = if (op is Op.Put) sealValue(plan.dataKey, plan.header.kind, op.key!!, op.value) else null
+            if (sealed != null && SecureFileFormat.encodedSize(plan.header, listOf(sealed)) > guard.maxStoreBytes) return fail(tooLarge(op.key))
             val emptyFile: ByteArray = SecureFileFormat.encode(plan.header, plan.keyCheck, emptyList())
-            return when (val result: CreateResult = guard.createFile(mode, emptyFile, plan.install)) {
+            return when (val result: CreateResult = store.createFile(mode, emptyFile, plan.install)) {
                 CreateResult.Raced -> Step.Again
-                is CreateResult.Failed -> fail(result.error)
+                // A failed rollback is not the original failure: the store is not as it was (see createFile), so say so.
+                is CreateResult.Failed -> fail(result.rollbackFailure?.let { StorageError.OperationFailed(op.operation, op.key, cause = it) } ?: result.error)
                 CreateResult.Created -> {
                     plan.commit()
-                    if (op is Op.Put) {
-                        val sealed: EncryptedEntry = sealValue(plan.dataKey, plan.header.kind, op.key!!, op.value)
-                        guard.write(SecureFileFormat.encode(plan.header, plan.keyCheck, listOf(sealed)), ExistingFile.Replace)
-                    }
+                    if (sealed != null) store.write(SecureFileFormat.encode(plan.header, plan.keyCheck, listOf(sealed)), ExistingFile.Replace)
                     ok()
                 }
             }
@@ -312,6 +329,10 @@ internal abstract class EncryptedStoreEngine(
     }
 
     private fun undecryptable(key: String?): StorageError = StorageError.Undecryptable(key)
+
+    /** A put whose encoded file would pass the read limit (plan 4.11): nothing was written. */
+    private fun tooLarge(key: String?): StorageError =
+        StorageError.InvalidValue(key.orEmpty(), IllegalArgumentException("The store would exceed ${guard.maxStoreBytes} bytes"))
 
     internal companion object {
         /** Trips to the outside (fetch, derive) one operation may make while the file keeps changing under it. */

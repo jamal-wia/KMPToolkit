@@ -7,6 +7,7 @@ import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.EncryptedFileGuard
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.EnvelopeCipher
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.Op
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.StorePathResolver
 import java.io.File
 import java.time.Instant
 import kotlin.time.TimeSource
@@ -31,6 +32,8 @@ internal class JvmAppKeyEncryptedKeyValueStorage(
     clock: () -> Instant = Instant::now,
     files: FileAccess = createFileAccess(),
     cipher: EnvelopeCipher = EnvelopeCipher(),
+    pathResolver: StorePathResolver = StorePathResolver.real,
+    maxStoreBytes: Long = EncryptedFileGuard.MAX_STORE_BYTES,
 ) : AppKeyEncryptedKeyValueStorage {
 
     private val engine: AppKeyStoreEngine = AppKeyStoreEngine(
@@ -40,6 +43,8 @@ internal class JvmAppKeyEncryptedKeyValueStorage(
             crossProcessLock = crossProcessLock,
             timeSource = timeSource,
             clock = clock,
+            resolver = pathResolver,
+            maxStoreBytes = maxStoreBytes,
         ),
         dispatcher = dispatcher,
         cipher = cipher,

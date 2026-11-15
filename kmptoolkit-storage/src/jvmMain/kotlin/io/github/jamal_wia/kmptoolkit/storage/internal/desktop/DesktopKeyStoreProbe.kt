@@ -31,13 +31,23 @@ internal class DesktopKeyStoreProbe(
         selection as BindingSelection.Selected
         val caller = NativeCaller(executor, allowUi = false)
         val verdict: Verdict<DesktopKeyStore> = when (selection.os) {
-            DesktopOs.MACOS -> probeMac(selection.binding.macOs(), caller, options)
-            DesktopOs.WINDOWS -> probeWindows(selection.binding.windows(), caller)
-            DesktopOs.LINUX -> probeLinux(selection.binding.linux(), caller, options)
+            DesktopOs.MACOS -> when (val accessed: Accessed<MacKeychainCalls> = accessCalls { selection.binding.macOs() }) {
+                is Accessed.Ready -> probeMac(accessed.calls, caller, options)
+                is Accessed.Unusable -> Verdict.Failed(accessed.error)
+            }
+            DesktopOs.WINDOWS -> when (val accessed: Accessed<DpapiCalls> = accessCalls { selection.binding.windows() }) {
+                is Accessed.Ready -> probeWindows(accessed.calls, caller)
+                is Accessed.Unusable -> Verdict.Failed(accessed.error)
+            }
+            DesktopOs.LINUX -> when (val accessed: Accessed<SecretServiceCalls> = accessCalls { selection.binding.linux() }) {
+                is Accessed.Ready -> probeLinux(accessed.calls, caller, options)
+                is Accessed.Unusable -> Verdict.Failed(accessed.error)
+            }
         }
         when (verdict) {
             is Verdict.Ok -> StorageResult.Success(verdict.value)
             is Verdict.Failed -> StorageResult.Failure(verdict.error)
+            is Verdict.NotFoundUnconfirmed -> StorageResult.Failure(verdict.error)
             Verdict.NotFound -> StorageResult.Failure(StorageError.OperationFailed(StorageOperation.ENSURE_KEY))
         }
     }
@@ -51,7 +61,7 @@ internal class DesktopKeyStoreProbe(
 
     private suspend fun probeWindows(calls: DpapiCalls, caller: NativeCaller): Verdict<DesktopKeyStore> {
         val identity = StoreIdentity("kmptoolkit-probe", "0".repeat(32))
-        return ErrorMapping.windowsProbe(WindowsBackend(calls, identity, caller).roundTrip(StorageOperation.ENSURE_KEY, null))
+        return ErrorMapping.windowsProbe(WindowsBackend(calls, caller).roundTrip(identity, StorageOperation.ENSURE_KEY, null))
     }
 
     private suspend fun probeLinux(calls: SecretServiceCalls, caller: NativeCaller, options: DesktopSecureStorageOptions): Verdict<DesktopKeyStore> {

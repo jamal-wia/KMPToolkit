@@ -25,9 +25,10 @@ class ErrorMappingTest {
     // ---- 4.5 macOS ----------------------------------------------------------------------------------------------
 
     @Test
-    fun `macOS copy - an interactive not-found is definitive, a non-interactive one is Unavailable until the Mac verification has run`() {
+    fun `macOS copy - an interactive not-found is definitive, a non-interactive one is unconfirmed (Unavailable for a file with entries) until the Mac verification has run`() {
         assertEquals(Verdict.NotFound, ErrorMapping.macCopy(-25300, interactive = true, op, key))
-        assertIs<StorageError.Unavailable>(failed(ErrorMapping.macCopy(-25300, interactive = false, op, key)))
+        val unconfirmed: Verdict.NotFoundUnconfirmed = assertIs(ErrorMapping.macCopy(-25300, interactive = false, op, key))
+        assertIs<StorageError.Unavailable>(unconfirmed.error)
         assertFalse(ErrorMapping.MAC_NON_INTERACTIVE_NOT_FOUND_IS_DEFINITIVE, "the conservative rule is the shipped one")
         // The other possible outcome of the verification: UIFail never reports -25300 for a locked or foreign item.
         assertEquals(

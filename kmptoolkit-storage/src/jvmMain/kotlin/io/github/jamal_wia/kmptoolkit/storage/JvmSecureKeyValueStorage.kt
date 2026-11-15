@@ -12,6 +12,8 @@ import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.Op
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.OsKeyCache
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.OsKeyStoreEngine
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.SecureStoreEnvironment
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.StoreIdentity
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.StorePathResolver
 import java.io.File
 import java.time.Instant
 import kotlin.time.TimeSource
@@ -43,20 +45,22 @@ internal class JvmSecureKeyValueStorage(
     clock: () -> Instant = Instant::now,
     files: FileAccess = createFileAccess(),
     cipher: EnvelopeCipher = EnvelopeCipher(),
+    pathResolver: StorePathResolver = StorePathResolver.real,
+    maxStoreBytes: Long = EncryptedFileGuard.MAX_STORE_BYTES,
 ) : SecureKeyValueStorage {
 
     private val engine: OsKeyStoreEngine = OsKeyStoreEngine(
         guard = EncryptedFileGuard(
-            file = File(directory, "${secureStoreId(name)}.bin"),
+            file = File(directory, secureStoreId(name) + StoreIdentity.SECURE_FILE_SUFFIX),
             files = files,
             crossProcessLock = crossProcessLock,
             timeSource = timeSource,
             clock = clock,
+            resolver = pathResolver,
+            maxStoreBytes = maxStoreBytes,
         ),
         dispatcher = dispatcher,
         cipher = cipher,
-        name = name,
-        directory = directory,
         options = options,
         source = source,
         executor = executor,

@@ -21,6 +21,16 @@ internal sealed interface Verdict<out T> {
     /** Definitive not-found at the store's identity (plan 4.4). Never produced for a locked, denied or hung store. */
     data object NotFound : Verdict<Nothing>
 
+    /**
+     * The own identity's item was not found, but not definitively: a macOS -25300 from a call that cannot show a dialog
+     * while the Mac verification of plan 4.5 is pending (the conservative rule). It is never "key lost" for a file with
+     * entries (the answer is [error]); a file with ZERO entries has nothing to lose, so the engine treats it as lost
+     * there (plan 4.4 crash state, erratum M2 of breaker round 1 of phase B).
+     */
+    class NotFoundUnconfirmed(val error: StorageError) : Verdict<Nothing> {
+        override fun toString(): String = "NotFoundUnconfirmed($error)"
+    }
+
     /** The call failed; [error] is what the store's operation answers. */
     class Failed(val error: StorageError) : Verdict<Nothing> {
         override fun toString(): String = "Failed($error)"
@@ -72,8 +82,9 @@ internal object ErrorMapping {
     /**
      * macOS `SecItemCopyMatching` of the data key. [interactive] says whether the call could show a dialog
      * (`allowUi = true`); [nonInteractiveNotFoundIsDefinitive] is [MAC_NON_INTERACTIVE_NOT_FOUND_IS_DEFINITIVE] (a
-     * parameter so both outcomes of the open verification are testable). A not-found is [Verdict.NotFound]; every other
-     * status is the failure the table names.
+     * parameter so both outcomes of the open verification are testable). A not-found is [Verdict.NotFound], or
+     * [Verdict.NotFoundUnconfirmed] for a non-interactive one under the conservative rule; every other status is the
+     * failure the table names.
      */
     fun macCopy(
         status: Int,
@@ -86,7 +97,7 @@ internal object ErrorMapping {
             return if (interactive || nonInteractiveNotFoundIsDefinitive) {
                 Verdict.NotFound
             } else {
-                Verdict.Failed(StorageError.Unavailable())
+                Verdict.NotFoundUnconfirmed(StorageError.Unavailable())
             }
         }
         return Verdict.Failed(macStatus(status, operation, key))

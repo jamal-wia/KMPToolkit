@@ -48,10 +48,11 @@ class IdentityAndKeyCacheTest {
     }
 
     @Test
-    fun `a directory spelled with a dot segment or a case variant is the same identity (folded like the lock key)`() {
+    fun `a directory spelled with a dot segment or another spelling of an existing directory is the identity of the stored spelling (never folded)`() {
         val a: StoreIdentity = StoreIdentity.of("n", dir("Case"))
         assertEquals(a.directoryHex, StoreIdentity.of("n", File(File(File(root, "Case"), ".."), "Case")).directoryHex)
-        assertEquals(a.directoryHex, StoreIdentity.of("n", File(root, "CASE")).directoryHex, "one identity for case variants, as jvmStorageLockKey folds")
+        org.junit.Assume.assumeTrue("the volume is case-sensitive: CASE is another (absent) directory", File(root, "CASE").exists())
+        assertEquals(a.directoryHex, StoreIdentity.of("n", File(root, "CASE")).directoryHex, "another spelling of an existing directory resolves to the stored one")
     }
 
     @Test

@@ -157,7 +157,7 @@ internal class AppKeyStoreEngine(
         else -> null
     }
 
-    override fun resolve(parsed: FileState.Parsed, carry: Carry?): Resolution {
+    override fun resolve(store: EncryptedFileGuard.StoreFile, parsed: FileState.Parsed, carry: Carry?): Resolution {
         val file: ParsedStoreFile = parsed.file
         if (file.kind != kindOf(key)) {
             // A passphrase store opened with a raw key, or the other way round: the supplied key cannot open it, and
@@ -242,7 +242,7 @@ internal class AppKeyStoreEngine(
         return Triple(header, keyCheck, dataKey)
     }
 
-    override suspend fun createPlan(op: Op, carry: Carry?): CreatePlan {
+    override suspend fun createPlan(store: EncryptedFileGuard.StoreFile, op: Op, carry: Carry?): CreatePlan {
         // A KEK derived for another key object (changeKey of this instance meanwhile) must never wrap a file of this one.
         val bound: AppEncryptionKey = key
         val fresh: KekCarry = (carry as? KekCarry)?.takeIf { it.snapshot == null && it.forKey === bound } ?: return CreatePlan.Need(Request.Fresh)
@@ -272,12 +272,14 @@ internal class AppKeyStoreEngine(
      */
     suspend fun changeKey(newKey: AppEncryptionKey): StorageResult<Unit> = withContext(dispatcher) {
         val currentScope = SecretScope()
-        val newScope = SecretScope()
+        // Re-keying with the key object this instance already uses (a new salt under the same passphrase) is one operation
+        // with one provider: both derivations share the scope, so the provider is asked once (plan 4.8).
+        val newScope: SecretScope = if (newKey === key) currentScope else SecretScope()
         var currentCarry: Carry? = null
         var newCarry: Carry? = null
         try {
             repeat(MAX_ROUNDS) {
-                when (val locked: StorageResult<ChangeStep> = guard.locked(StorageOperation.CHANGE_KEY, null) { changeRound(newKey, currentCarry, newCarry) }) {
+                when (val locked: StorageResult<ChangeStep> = guard.locked(StorageOperation.CHANGE_KEY, null) { store: EncryptedFileGuard.StoreFile -> changeRound(store, newKey, currentCarry, newCarry) }) {
                     is StorageResult.Failure -> return@withContext locked
                     is StorageResult.Success -> when (val step: ChangeStep = locked.value) {
                         is ChangeStep.Done -> return@withContext step.result
@@ -310,8 +312,8 @@ internal class AppKeyStoreEngine(
         }
     }
 
-    private fun changeRound(newKey: AppEncryptionKey, currentCarry: Carry?, newCarry: Carry?): ChangeStep {
-        val state: FileState = guard.classify(kinds)
+    private fun changeRound(store: EncryptedFileGuard.StoreFile, newKey: AppEncryptionKey, currentCarry: Carry?, newCarry: Carry?): ChangeStep {
+        val state: FileState = store.classify(kinds)
         if (state is FileState.Absent) {
             bind(newKey)
             return ChangeStep.Done(StorageResult.Success(Unit))
@@ -319,7 +321,7 @@ internal class AppKeyStoreEngine(
         if (state is FileState.Unparsable) return ChangeStep.Done(StorageResult.Failure(StorageError.Undecryptable(null)))
         state as FileState.Parsed
         val file: ParsedStoreFile = state.file
-        val oldKey: ByteArray = when (val resolution: Resolution = resolve(state, currentCarry)) {
+        val oldKey: ByteArray = when (val resolution: Resolution = resolve(store, state, currentCarry)) {
             is Resolution.Need -> return ChangeStep.NeedCurrent(resolution.request)
             is Resolution.Fail -> return ChangeStep.Done(StorageResult.Failure(resolution.error))
             Resolution.Lost -> error("an app-key store has no lost key")
@@ -337,7 +339,15 @@ internal class AppKeyStoreEngine(
                     plain.fill(0)
                 }
             }
-            guard.write(SecureFileFormat.encode(header, keyCheck, entries), ExistingFile.Replace)
+            // The new header can be longer than the old one: a file that would pass the read limit is refused before it is written.
+            if (SecureFileFormat.encodedSize(header, entries) > guard.maxStoreBytes) {
+                return ChangeStep.Done(
+                    StorageResult.Failure(
+                        StorageError.OperationFailed(StorageOperation.CHANGE_KEY, key = null, cause = IllegalStateException("The re-keyed store would exceed ${guard.maxStoreBytes} bytes")),
+                    ),
+                )
+            }
+            store.write(SecureFileFormat.encode(header, keyCheck, entries), ExistingFile.Replace)
             adopt(SecureFileFormat.headerPrefix(header), newDataKey)
             key = newKey
             return ChangeStep.Done(StorageResult.Success(Unit))

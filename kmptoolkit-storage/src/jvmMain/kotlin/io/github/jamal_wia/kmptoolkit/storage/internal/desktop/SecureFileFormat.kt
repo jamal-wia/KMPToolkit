@@ -244,6 +244,18 @@ internal object SecureFileFormat {
         return out.toByteArray()
     }
 
+    /**
+     * The length [encode] would produce for [header] and [entries], computed without building the file (a store near its
+     * size limit must be measured before it is written). Entry names must be encodable (the caller checked them).
+     */
+    fun encodedSize(header: HeaderBody, entries: List<EncryptedEntry>): Long {
+        var size: Long = FIXED_PREFIX_BYTES.toLong() + header.encode().size + KEY_CHECK_BYTES + 4
+        for (entry: EncryptedEntry in entries) {
+            size += 2 + entry.key.toStrictUtf8().size + NONCE_BYTES + 4 + entry.sealed.size
+        }
+        return size
+    }
+
     /** Parses [bytes]; never throws for any input. */
     fun parse(bytes: ByteArray): ParseResult {
         val buffer: ByteBuffer = ByteBuffer.wrap(bytes)

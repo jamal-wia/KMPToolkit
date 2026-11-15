@@ -50,4 +50,11 @@ internal object Quarantine {
             files.move(quarantined.absolutePath, file.absolutePath, MoveOptions(existing = ExistingFile.Fail, acrossVolumes = false))
         if (result is FileResult.Failure) throw IOException("Could not restore ${file.name} from quarantine: ${result.error}")
     }
+
+    /** Renames [quarantined] back over [file], the empty file a failed create made (one atomic rename, so no delete can fail first). */
+    fun restoreOver(files: FileAccess, quarantined: File, file: File) {
+        val result: FileResult<Unit> =
+            files.move(quarantined.absolutePath, file.absolutePath, MoveOptions(existing = ExistingFile.Replace, acrossVolumes = false))
+        if (result is FileResult.Failure) throw IOException("Could not restore ${file.name} from quarantine: ${result.error}")
+    }
 }
