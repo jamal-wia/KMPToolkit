@@ -148,7 +148,8 @@ directory the app does not own.
 
 | Platform | Files | Directories this call creates | Existing directory |
 |---|---|---|---|
-| Linux and macOS (desktop JVM) | POSIX mode 0600 (`rw-------`) | 0700 (`rwx------`) | never changed |
+| Linux (desktop JVM) | POSIX mode 0600 (`rw-------`) | 0700 (`rwx------`) | never changed |
+| macOS (desktop JVM) | POSIX mode 0600 (an inheritable ACL entry of the parent is still inherited, see below) | 0700 (the same limit) | never changed |
 | Windows (desktop JVM) | explicit DACL of two allow entries, the current user and SYSTEM, with no inherited entry at creation (not protected against a later re-propagation, see below) | the same two entries, inheritable by files and directories created inside | never changed |
 | FAT, exFAT and other volumes that store no permissions | the attribute is passed and the volume disregards it: the write succeeds, the file has what the volume gives it (not verified on a real volume yet, see below) | the same | never changed |
 | Android (every API level) | ignored: the app sandbox already hides the files | ignored | never changed |
@@ -157,6 +158,12 @@ directory the app does not own.
 - The mode is set on the temporary file, so the renamed file keeps it and an external `chmod 644` of
   the old file is undone by the next `ownerOnly` write. `ExistingFile.Fail` links the same temporary
   file, so it has the same mode.
+- macOS: the mode is set at creation, but macOS keeps extended ACLs independent of the mode, and an entry that a parent directory marks inheritable
+  (`chmod +a "everyone allow read,write,list,add_file,file_inherit,directory_inherit" <dir>`, which any owner can set without root) is added to every new file
+  and directory whatever mode `open(2)` or `mkdir(2)` is given. The JDK has no way to remove it, and this module has no native code. `ownerOnly` therefore
+  guarantees mode 0600/0700 on macOS, not that nobody else is granted access. Check with `ls -le`, clear with `chmod -N`. A secret that must not leak through an
+  inherited ACL goes into a directory the app created with `ownerOnly` under a parent without inheritable ACL entries, or is encrypted: the desktop encrypted stores of
+  `kmptoolkit-storage` write only ciphertext and keep their key elsewhere, so owner-only there is defence in depth.
 - The POSIX modes are subject to the process umask only in the restricting direction: a more
   restrictive umask can make a file stricter than 0600, never wider.
 - Windows: the DACL is passed to the creating call, so the file does not first exist with the parent's
