@@ -2,8 +2,8 @@
 
 Package `io.github.jamal_wia.kmptoolkit.location` (the fakes are in `...location.testing`, see
 [`06-testing.md`](06-testing.md)). Every declaration is `public` unless stated; `explicitApi()` is strict.
-"Since" is the release the declaration appeared in: everything marked 6.0.0 is new or changed in that
-release ([`07-migrating-to-6.md`](07-migrating-to-6.md)).
+Everything in this reference is the 6.0.0 API; what changed from 5.x is in
+[`07-migrating-to-6.md`](07-migrating-to-6.md).
 
 - [Conventions](#conventions)
 - [commonMain](#commonmain) — geo math, readings, options, providers, heading
@@ -25,9 +25,9 @@ release ([`07-migrating-to-6.md`](07-migrating-to-6.md)).
   module. It is **not** part of the public contract and can change in any release.
 - **Thread safety.** Provider methods are safe to call from any thread; collection and cancellation follow
   coroutine rules. The geo functions are pure.
-- **Durations are `kotlin.time.Duration`.** Because it is an inline class, a public member that takes one
-  has a mangled JVM name (`getMaxAge-UwyO8pc`): Java callers use the mangled name, Kotlin callers do not
-  see it.
+- **Durations are `kotlin.time.Duration`.** Because it is an inline class, a public member that takes or
+  returns one has a mangled JVM name (`getMaxAge-UwyO8pc`) and the constructors that take one are synthetic:
+  these members are for Kotlin callers; Java code can use only the no-argument constructors.
 
 ## commonMain
 
@@ -399,7 +399,7 @@ rules apply to the one-shot call and the stream alike (for the same device state
 | `PERMISSION_MISSING` | neither `ACCESS_FINE_LOCATION` nor `ACCESS_COARSE_LOCATION` is held; also a `SecurityException` from a provider once the source is on (every candidate refused, or the source you named refused). While the service is off, `SERVICE_DISABLED` wins | authorization `notDetermined`, `restricted`, or `denied` with the services on. Answered at once, never after the timeout | never | **completes** after it (also when the grant is revoked while it runs: iOS reports it on `locationManagerDidChangeAuthorization`; on Android a revoke kills the process) | grant location: request `CommonPermission.Location` (`kmptoolkit-permission`) or, once denied for good, open the app's settings. `restricted` (parental controls, device management) cannot be changed in the app |
 | `SERVICE_DISABLED` | the device-wide location switch is off (`isLocationEnabled()` on API 28+, else no gps or network provider on); or a source you named (`FUSED`, `GPS`, `NETWORK`) exists but is off; `AUTO` reads it only when none of its candidates is on. Answered at once, never after a timeout. Also while every candidate refuses the app and the service is off | `locationServicesEnabled() == false` (`denied` with the services off is `SERVICE_DISABLED`, not `PERMISSION_MISSING`) | never | **stays open** and reseeds when the service returns (device-wide or the named source) | turn Location on: `openLocationSettings()`, or `promptToEnableService()` where a prompt exists (iOS `withSystemServicesPrompt()`; Android with a Play Services decorator) |
 | `NO_FIX` | everything is on, but there is no fix within the timeout (one-shot) or yet (stream); also an unexpected platform failure inside `getCurrentLocation`, logged | everything is on, no fix; `kCLErrorLocationUnknown`; the stream paused (opt-in auto-pause) or holding after `kCLErrorDenied` under a granted status | never | **stays open** | nothing to change: wait, move to open sky, or lower the accuracy |
-| `UNSUPPORTED` | no `LocationManager`, or the `AndroidLocationSource` you asked for is absent on the device (only an absent provider; `FUSED` below API 31 or on a device without it) | never, for the default policy | always | **completes** after it | nothing: offer a flow without location |
+| `UNSUPPORTED` | no `LocationManager`, or the `AndroidLocationSource` you asked for is absent on the device (only an absent provider; `FUSED` below API 31 or on a device without it) | never | always | **completes** after it | nothing: offer a flow without location |
 
 ## See also
 

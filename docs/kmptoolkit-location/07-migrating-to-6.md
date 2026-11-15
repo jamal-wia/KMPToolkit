@@ -12,7 +12,7 @@ options are per call, coordinates validate themselves, and the fake is thread sa
 | `getCurrentLocation(): GeoCoordinates?` | `getCurrentLocation(options): LocationReading` (a fix with accuracy, or a typed reason) |
 | `observeLocation(): Flow<GeoCoordinates?>` | `observeLocation(options): Flow<LocationReading>` |
 | `LocationProviderConfig` and the `config` parameter of every factory | removed; per-call `CurrentLocationOptions` / `LocationUpdatesOptions` |
-| `LocationProvider` had three members | gains `observeLocationEnabled()`: custom implementations must implement it |
+| `LocationProvider` had four abstract members and `promptToEnableService` with a default body | gains the abstract `observeLocationEnabled()`, and `getCurrentLocation` / `observeLocation` take options: custom implementations must implement the new signatures |
 | `GeoCoordinates(any, any)` | the constructor **throws** `IllegalArgumentException` for a non-finite or out-of-range value; use `GeoCoordinates.orNull` for data you do not control |
 | iOS stream kept running after errors | on every platform the stream completes after `PERMISSION_MISSING` or `UNSUPPORTED` |
 | iOS turned `kCLErrorLocationUnknown` into a value and waited the full timeout without authorization | the transient error is ignored; a missing authorization answers `PERMISSION_MISSING` at once |

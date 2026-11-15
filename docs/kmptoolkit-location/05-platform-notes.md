@@ -72,6 +72,11 @@ precise upgrade, and iOS asks for temporary full accuracy when
 `NSLocationTemporaryUsageDescriptionDictionary`); iOS platform code can also call
 `requestTemporaryFullAccuracy(purposeKey)`. A running stream flips `isApproximate` by itself.
 
+On iOS, with `temporaryFullAccuracyPurposeKey` set, a batch `request(listOf(LocationBackground, Location))`
+whose authorization prompt ends under an approximate grant shows the temporary full-accuracy prompt right
+after it: `Location`, listed second, is `Limited` by then, and a `request(Location)` from `Limited` with the
+key set shows that prompt.
+
 ## Accuracy mapping
 
 | `LocationAccuracy` | Android | iOS |
