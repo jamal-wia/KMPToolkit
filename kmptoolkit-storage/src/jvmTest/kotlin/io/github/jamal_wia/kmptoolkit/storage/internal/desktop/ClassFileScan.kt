@@ -361,12 +361,17 @@ internal object ClassFileScan {
 
     /**
      * Whether a file or an archive entry called [name] is a class file for every reader of this scan: its name ends in `.class` in ANY
-     * case. A class loader that reads a directory on a case-insensitive file system (macOS and Windows by default) loads
-     * `x/Hidden.CLASS` as `x.Hidden`, and Gradle packs such a file from the resources verbatim, so a case-sensitive test would skip a
-     * class that runs. A file that is named like a class and is not one fails the parse loudly (`MalformedClass`) instead of being
-     * skipped. The same rule is used for the nested archives above, which are matched in lower case too.
+     * case, Unicode case folding included. A class loader that reads a directory on a case-insensitive file system (macOS and Windows by
+     * default) loads `x/Hidden.CLASS` as `x.Hidden`, and Gradle packs such a file from the resources verbatim, so a case-sensitive test
+     * would skip a class that runs. Such a file system folds more than ASCII: APFS treats `Hidden.claſs` (U+017F, the long s) as
+     * `Hidden.class`, and `lowercase()` alone leaves the long s as it is. Each of the last six characters is therefore folded the way a
+     * file system does, one character to one character (upper case, then lower case), which turns the long s into `s`; `ß`, whose
+     * upper case is two characters, is deliberately not folded (no file system folds it to `ss`, and `x.claß` is no class). A file that
+     * is named like a class and is not one fails the parse loudly (`MalformedClass`) instead of being skipped. The nested archives
+     * above are matched in lower case.
      */
-    fun isClassFileName(name: String): Boolean = name.lowercase().endsWith(CLASS_SUFFIX)
+    fun isClassFileName(name: String): Boolean =
+        name.length >= CLASS_SUFFIX.length && name.takeLast(CLASS_SUFFIX.length).map { c: Char -> Character.toLowerCase(Character.toUpperCase(c)) }.joinToString("") == CLASS_SUFFIX
 
     private const val CLASS_SUFFIX: String = ".class"
 
