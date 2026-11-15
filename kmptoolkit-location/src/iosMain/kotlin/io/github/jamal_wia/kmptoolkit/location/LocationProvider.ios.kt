@@ -77,6 +77,12 @@ internal class IosLocationProvider(
         updates(options)
             .throttledByMarks(options, env.timeSource)
             .completingAfterTerminalReading()
+            // The contract is a conflated stream: the throttle's inbox holds up to 64 readings, so without
+            // this a busy collector would be handed every stale one in order. After the completion on
+            // purpose: the terminal reading is the last element the flow ever emits, so conflation keeps it
+            // and closing the channel still delivers it (a terminal reading is never skipped), and the
+            // release of the platform registration no longer waits for a busy collector.
+            .conflate()
 
     // Off the main thread: locationServicesEnabled() logs a runtime warning when called there.
     override suspend fun isLocationEnabled(): Boolean = servicesEnabled()
