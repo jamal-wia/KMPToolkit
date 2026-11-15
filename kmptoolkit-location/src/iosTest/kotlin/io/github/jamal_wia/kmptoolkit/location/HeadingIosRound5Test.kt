@@ -293,7 +293,7 @@ class HeadingIosRound5Test {
     }
 
     @Test
-    fun `a collector that ends on a calibration request leaves no call on its released manager and the answer is the flag`() = runTest {
+    fun `a collector that ends on a calibration request leaves no call on its released manager and CoreLocation is told no overlay`() = runTest {
         for (how: End in End.entries) {
             for (flag: Boolean in listOf(false, true)) {
                 val main = MainQueue()
@@ -308,7 +308,9 @@ class HeadingIosRound5Test {
 
                 assertEquals(listOf(false, true), received.map { it.needsCalibration }, "control: the request reached the collector inside the callback ($how, flag=$flag)")
                 assertTrue(collection.isCompleted, "control: the collector ended inside the callback ($how, flag=$flag)")
-                assertEquals(flag, answer, "CoreLocation is answered with the configured flag ($how, flag=$flag)")
+                // The pin of round 5 (the answer is the flag) was a defect, ruled so in breaker round 5 (m2): CoreLocation
+                // keeps an overlay up until its manager dismisses it, and a released manager is dismissed by nobody.
+                assertEquals(false, answer, "CoreLocation is not allowed to show its overlay for a collection that ended inside the callback ($how, flag=$flag)")
                 assertNothingAfterRelease(manager, "calibration, $how, flag=$flag")
                 collection.cancelAndJoin()
             }

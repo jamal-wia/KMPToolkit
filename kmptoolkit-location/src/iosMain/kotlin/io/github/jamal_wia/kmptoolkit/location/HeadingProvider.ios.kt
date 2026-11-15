@@ -62,8 +62,10 @@ import platform.darwin.dispatch_get_main_queue
  * `isAvailable` is `CLLocationManager.headingAvailable()`; when it is `false` the stream stays open and silent.
  *
  * @param showsSystemCalibration whether iOS may show its own calibration overlay
- *   (`locationManagerShouldDisplayHeadingCalibration`); a request for it is reported through
- *   [Heading.needsCalibration] either way.
+ *   (`locationManagerShouldDisplayHeadingCalibration`) while a collection runs; a request for it is reported
+ *   through [Heading.needsCalibration] either way. Once a collection is over iOS is never allowed to show it for
+ *   that collection (also when the collector ended on the very reading that reported the request), and an overlay
+ *   that was up is dismissed when the collection's manager is released.
  * @param logger where a failing manager is reported. A logger that throws an exception loses its own event
  *   and nothing else: the exception never reaches CoreLocation's callback and never keeps a manager from
  *   being released. An `Error` is not absorbed (a logger that throws one is a defect of the app), but the
@@ -114,12 +116,16 @@ internal class CoreLocationHeadingDevice(private val logger: Logger) : IosHeadin
 /**
  * The manager and its delegate, held strongly until [release]: `CLLocationManager.delegate` is weak, so this
  * reference is what keeps the delegate alive while the collection runs, and [release] sets the delegate to `nil`
- * before both are dropped.
+ * before both are dropped. A calibration overlay that this manager's delegate agreed to show stays up until
+ * calibration completes or `dismissHeadingCalibrationDisplay` is called on the manager that asked for it, so
+ * [release] dismisses it (only when it was agreed to: a release of a manager that never showed one calls nothing).
+ * [dismissCalibrationDisplay] is the seam that records that call in tests.
  */
 @OptIn(ExperimentalForeignApi::class)
 internal class CoreLocationHeadingManager(
     manager: CLLocationManager,
     delegate: HeadingDelegate,
+    private val dismissCalibrationDisplay: (CLLocationManager) -> Unit = { it.dismissHeadingCalibrationDisplay() },
 ) : IosHeadingManager {
 
     private var held: CLLocationManager? = manager
@@ -150,6 +156,7 @@ internal class CoreLocationHeadingManager(
 
     override fun release() {
         val manager: CLLocationManager = held ?: return
+        if (strongDelegate?.calibrationDisplayAgreed == true) dismissCalibrationDisplay(manager)
         manager.stopUpdatingHeading()
         manager.stopUpdatingLocation()
         manager.delegate = null
@@ -180,8 +187,18 @@ internal class HeadingDelegate(
         events.onAuthorizationChanged()
     }
 
-    override fun locationManagerShouldDisplayHeadingCalibration(manager: CLLocationManager): Boolean =
-        events.onCalibrationRequested()
+    /**
+     * Whether this delegate ever answered `true` to the overlay question: an overlay may be up, and the manager
+     * dismisses it when it is released. Written and read on the main queue only, like every delegate callback.
+     */
+    internal var calibrationDisplayAgreed: Boolean = false
+        private set
+
+    override fun locationManagerShouldDisplayHeadingCalibration(manager: CLLocationManager): Boolean {
+        val show: Boolean = events.onCalibrationRequested()
+        if (show) calibrationDisplayAgreed = true
+        return show
+    }
 
     override fun locationManager(manager: CLLocationManager, didUpdateLocations: List<*>) {
         // Only here so that the location updates have a receiver: their point is that trueHeading becomes valid.

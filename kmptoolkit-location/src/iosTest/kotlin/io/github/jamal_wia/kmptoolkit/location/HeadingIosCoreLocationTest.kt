@@ -5,8 +5,10 @@ package io.github.jamal_wia.kmptoolkit.location
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.CoreLocation.CLDeviceOrientationLandscapeLeft
 import platform.CoreLocation.CLDeviceOrientationLandscapeRight
@@ -121,6 +123,45 @@ class HeadingIosCoreLocationTest {
             delegate.locationManagerDidChangeAuthorization(CLLocationManager())
             assertEquals(1, events.authorizationChanges, "an authorization change is forwarded without a value")
         }
+    }
+
+    @Test
+    fun `releasing a manager whose delegate agreed to the overlay dismisses it once and one that never agreed dismisses nothing`() {
+        for (overlay: Boolean in listOf(true, false)) {
+            val dismissed: MutableList<CLLocationManager> = mutableListOf()
+            val delegate = HeadingDelegate(RecordingEvents(overlayAnswer = overlay), logger = NoopLogger)
+            val coreLocation = CLLocationManager()
+            val opened = CoreLocationHeadingManager(coreLocation, delegate) { manager: CLLocationManager -> dismissed += manager }
+            assertFalse(delegate.calibrationDisplayAgreed, "control: nothing was asked yet (overlay=$overlay)")
+
+            delegate.locationManagerShouldDisplayHeadingCalibration(coreLocation)
+            assertEquals(overlay, delegate.calibrationDisplayAgreed, "the delegate remembers that it agreed (overlay=$overlay)")
+            assertEquals(0, dismissed.size, "control: nothing is dismissed while the collection runs (overlay=$overlay)")
+
+            opened.release()
+
+            if (overlay) {
+                assertEquals(1, dismissed.size, "the overlay that was agreed to is dismissed on release")
+                assertTrue(dismissed.single() === coreLocation, "it is dismissed on the manager that asked for it")
+            } else {
+                assertEquals(0, dismissed.size, "a manager that never agreed to the overlay dismisses nothing")
+            }
+            opened.release()
+            assertEquals(if (overlay) 1 else 0, dismissed.size, "a second release dismisses nothing again (overlay=$overlay)")
+        }
+    }
+
+    @Test
+    fun `the default dismissal of a released manager is the CoreLocation one and does not need an overlay to be up`() {
+        val delegate = HeadingDelegate(RecordingEvents(overlayAnswer = true), logger = NoopLogger)
+        val coreLocation = CLLocationManager()
+        val opened = CoreLocationHeadingManager(coreLocation, delegate)
+        delegate.locationManagerShouldDisplayHeadingCalibration(coreLocation)
+
+        opened.release()
+
+        assertNull(coreLocation.delegate, "control: the release ran to its end after the dismissal")
+        assertNull(opened.coreLocationManager)
     }
 
     @Test

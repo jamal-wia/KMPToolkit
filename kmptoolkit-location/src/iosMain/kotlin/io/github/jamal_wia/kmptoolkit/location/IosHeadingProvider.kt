@@ -35,7 +35,10 @@ internal interface IosHeadingEvents {
      */
     fun onAuthorizationChanged()
 
-    /** CoreLocation asks whether to show its calibration overlay; the answer is what it is told. */
+    /**
+     * CoreLocation asks whether to show its calibration overlay; the answer is what it is told. It is `false` once
+     * the collection is over, also when it ended inside this very call.
+     */
     fun onCalibrationRequested(): Boolean
 }
 
@@ -264,7 +267,9 @@ internal class IosHeadingProvider(
             if (!closed.load()) {
                 inputs.update { state: IosHeadingState -> if (state.calibrationRequested) state else state.copy(calibrationRequested = true) }
             }
-            return showsSystemCalibration
+            // Read after the update: a collector that ended inside it has closed this session, and the overlay of a
+            // collection that is over could not be dismissed by anyone (nothing holds the manager any more).
+            return showsSystemCalibration && !closed.load()
         }
 
         /**

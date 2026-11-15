@@ -11,7 +11,11 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -309,6 +313,118 @@ class HeadingIosRound6Test {
         }
         assertEquals(40, storms)
         assertTrue(nestedDeliveries >= 200, "control: many authorization changes were delivered inside a call ($nestedDeliveries)")
+    }
+
+    // endregion
+
+    // region m2: the overlay of a collection that is over
+
+    private enum class End { CANCEL, TAKE, FIRST }
+
+    /** Collects [flow] and ends on the [n]-th heading, the way [how] says. */
+    private fun TestScope.collectUntil(flow: Flow<Heading>, n: Int, how: End, received: MutableList<Heading>): Job =
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            when (how) {
+                End.CANCEL -> flow.collect { value: Heading ->
+                    received += value
+                    if (received.size == n) cancel()
+                }
+                End.TAKE -> flow.take(n).collect { value: Heading -> received += value }
+                End.FIRST -> flow.first { value: Heading ->
+                    received += value
+                    received.size == n
+                }
+            }
+        }
+
+    @Test
+    fun `the overlay is allowed while the collection lives and refused when the collector ended inside the question`() = runTest {
+        for (how: End in End.entries) {
+            val local = FakeHeadingDevice()
+            val received: MutableList<Heading> = mutableListOf()
+            val provider: HeadingProvider = IosHeadingProvider(local, true, logger, inlineConfine)
+            val collection: Job = collectUntil(provider.observeHeading(minChangeDegrees = 90.0), n = 3, how, received)
+            val manager: FakeHeadingDevice.FakeManager = local.allManagers.single()
+            manager.events.onHeading(100.0, -1.0, 5.0)
+            assertEquals(1, received.size, "control: the first heading is served ($how)")
+
+            val live: Boolean = manager.events.onCalibrationRequested()
+
+            assertEquals(2, received.size, "control: the request was served ($how)")
+            assertTrue(live, "the overlay is allowed while the collection runs ($how)")
+            assertFalse(collection.isCompleted, "control: the collection is still open ($how)")
+            // The next heading ends the collection from inside the callback that publishes it.
+            manager.events.onHeading(250.0, -1.0, 5.0)
+            assertTrue(collection.isCompleted, "control: the collector ended inside the heading callback ($how)")
+            assertEquals(1, manager.releases.load(), "control: released ($how)")
+
+            assertFalse(manager.events.onCalibrationRequested(), "a stale question after the end is refused ($how)")
+            assertEquals(emptyList(), local.problemList)
+            collection.cancelAndJoin()
+        }
+    }
+
+    @Test
+    fun `a collector that ends on the calibration flip is refused the overlay for every ending and both configurations`() = runTest {
+        for (how: End in End.entries) {
+            for (flag: Boolean in listOf(false, true)) {
+                val local = FakeHeadingDevice()
+                val received: MutableList<Heading> = mutableListOf()
+                val provider: HeadingProvider = IosHeadingProvider(local, flag, logger, inlineConfine)
+                val collection: Job = collectUntil(provider.observeHeading(minChangeDegrees = 90.0), n = 2, how, received)
+                val manager: FakeHeadingDevice.FakeManager = local.allManagers.single()
+                manager.events.onHeading(100.0, -1.0, 5.0)
+
+                val answer: Boolean = manager.events.onCalibrationRequested()
+
+                assertEquals(listOf(false, true), received.map { it.needsCalibration }, "control: the flip reached the collector inside the callback ($how, flag=$flag)")
+                assertTrue(collection.isCompleted, "control: the collector ended inside the callback ($how, flag=$flag)")
+                assertEquals(1, manager.releases.load(), "control: released inside the callback ($how, flag=$flag)")
+                assertFalse(answer, "no overlay for a collection that ended on its own request ($how, flag=$flag)")
+                collection.cancelAndJoin()
+            }
+        }
+    }
+
+    @Test
+    fun `a question that arrives between the close and the queued release is refused`() = runTest {
+        val local = FakeHeadingDevice()
+        val queue = DeferredConfine()
+        val provider: HeadingProvider = IosHeadingProvider(local, true, logger, queue.confine)
+        val collection: Job = collectUntil(provider.observeHeading(minChangeDegrees = 0.0), n = 99, End.CANCEL, mutableListOf())
+        queue.drain()
+        val manager: FakeHeadingDevice.FakeManager = local.allManagers.single()
+        assertTrue(manager.events.onCalibrationRequested(), "control: the overlay is allowed while the collection lives")
+
+        collection.cancelAndJoin()
+
+        assertEquals(1, queue.pending, "control: the release waits in the queue")
+        assertEquals(0, manager.releases.load(), "control: the manager is not released yet")
+        assertFalse(manager.events.onCalibrationRequested(), "a question in the window before the release is refused")
+        queue.drain()
+        assertEquals(1, manager.releases.load())
+        assertFalse(manager.events.onCalibrationRequested(), "and after it")
+        assertEquals(emptyList(), local.problemList)
+    }
+
+    @Test
+    fun `a collection started after another one ended on its overlay request is allowed its own overlay`() = runTest {
+        val local = FakeHeadingDevice()
+        val provider: HeadingProvider = IosHeadingProvider(local, true, logger, inlineConfine)
+        val first: Job = collectUntil(provider.observeHeading(minChangeDegrees = 0.0), n = 2, End.CANCEL, mutableListOf())
+        val ended: FakeHeadingDevice.FakeManager = local.allManagers.single()
+        ended.events.onHeading(100.0, -1.0, 5.0)
+        ended.events.onCalibrationRequested()
+        assertTrue(first.isCompleted, "control: the first collection ended on its request")
+
+        val second: Job = collectUntil(provider.observeHeading(minChangeDegrees = 0.0), n = 99, End.CANCEL, mutableListOf())
+
+        val fresh: FakeHeadingDevice.FakeManager = local.allManagers.last()
+        assertTrue(fresh !== ended, "control: a fresh manager serves the second collection")
+        assertTrue(fresh.events.onCalibrationRequested(), "the second collection is allowed its overlay")
+        assertFalse(ended.events.onCalibrationRequested(), "the first one still is not")
+        second.cancelAndJoin()
+        assertEquals(1, fresh.releases.load())
     }
 
     // endregion
