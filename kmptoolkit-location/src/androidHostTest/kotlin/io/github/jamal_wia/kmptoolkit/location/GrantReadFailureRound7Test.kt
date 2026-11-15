@@ -278,4 +278,142 @@ class GrantReadFailureRound7Test {
         assertEquals(0, fake.registeredCount)
         assertEquals(0, fake.subscriberCount)
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // m2: a grant read inside a platform listener callback never escapes
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * Defect class: an exception thrown into a platform callback. A fix is delivered while the grant read fails with a
+     * generic failure, with a SecurityException, or only in the coarse read (fine not held, so the second read of the
+     * coarse-only check). The callback returns normally, the fix is dropped (control: nothing is sent for it), the
+     * stream stays registered, and the next fix after the heal is delivered. Turns red when the grant is read outside
+     * the guarded gate action.
+     */
+    @Test
+    fun `a fix delivered while the grant read fails is dropped and never thrown into the callback`() = runTest(timeout = 60.seconds) {
+        val failures: List<Pair<String, Throwable>> = listOf(
+            "illegal state" to IllegalStateException("round7: package manager died"),
+            "security" to SecurityException("round7: package manager refused"),
+        )
+        for ((label: String, failure: Throwable) in failures) for (coarseOnly: Boolean in listOf(false, true)) {
+            val name = "$label coarseOnly=$coarseOnly"
+            val fake = FakeLocationBackend(providers = setOf(network)).apply {
+                fine = !coarseOnly
+                coarse = true
+            }
+            val backend = FlakyGrantBackend(fake).apply {
+                this.failure = failure
+                coarseOnlyFails = coarseOnly
+            }
+            val seen: MutableList<LocationReading> = mutableListOf()
+            val job: Job = backgroundScope.launch { providerOver(backend).observeLocation(explicitNetwork).collect { seen += it } }
+            runCurrent()
+            assertEquals(listOf(network), providersOf(fake), "$name, control: registered")
+            val sizeBefore: Int = seen.size
+            backend.arm()
+            val escaped: Throwable? = runCatching { fake.deliver(network, fake.locationAt(network, latitude = 10.0)) }.exceptionOrNull()
+            runCurrent()
+            backend.heal()
+            assertNull(escaped, "$name: a failing grant read escaped into the platform's listener callback")
+            assertTrue(backend.thrown.get() > 0, "$name, control: the delivery read the grant and it failed")
+            assertEquals(sizeBefore, seen.size, "$name: the dropped fix sent nothing: $seen")
+            assertEquals(listOf(network), providersOf(fake), "$name: the registration stays")
+            fake.deliver(network, fake.locationAt(network, latitude = 11.0))
+            runCurrent()
+            assertEquals(11.0, latitudeOf(seen.last()), "$name: the next fix is delivered: $seen")
+            assertEquals(coarseOnly, (seen.last() as LocationReading.Available).fix.isApproximate == true, "$name: the fix reports the grant")
+            job.cancelAndJoin()
+            assertEquals(0, fake.registeredCount, name)
+            assertEquals(0, fake.subscriberCount, name)
+        }
+    }
+
+    /**
+     * "Catch Exception only": an Error is not a grant failure to swallow, it passes out of the callback (as it does
+     * everywhere else in the session). The gate is not wedged by it: the next fix is delivered.
+     */
+    @Test
+    fun `an Error from the grant read is not swallowed and does not wedge the stream`() = runTest(timeout = 60.seconds) {
+        val fake = FakeLocationBackend(providers = setOf(gps))
+        val backend = FlakyGrantBackend(fake).apply { failure = StackOverflowError("round7") }
+        val seen: MutableList<LocationReading> = mutableListOf()
+        val job: Job = backgroundScope.launch { providerOver(backend).observeLocation(explicitGps).collect { seen += it } }
+        runCurrent()
+        backend.arm()
+        val escaped: Throwable? = runCatching { fake.deliver(gps, fake.locationAt(gps, latitude = 10.0)) }.exceptionOrNull()
+        backend.heal()
+        assertTrue(escaped is StackOverflowError, "an Error passes: $escaped")
+        fake.deliver(gps, fake.locationAt(gps, latitude = 11.0))
+        runCurrent()
+        assertEquals(11.0, latitudeOf(seen.last()), "the gate still delivers: $seen")
+        job.cancelAndJoin()
+        assertEquals(0, fake.registeredCount)
+        assertEquals(0, fake.subscriberCount)
+    }
+
+    /**
+     * The one-shot's listener (API 24-29 path: no framework one-shot, one registration per source). A fix delivered
+     * while the grant read fails is dropped and does not throw into the callback; the source keeps waiting, the next
+     * fix after the heal answers the call, and the listener is removed.
+     */
+    @Test
+    fun `a one-shot fix delivered while the grant read fails is dropped and the next fix answers`() = runTest(timeout = 60.seconds) {
+        val fake = FakeLocationBackend(providers = setOf(gps))
+        val backend = FlakyGrantBackend(fake)
+        val call: Deferred<LocationReading> = async {
+            providerOver(backend).getCurrentLocation(
+                CurrentLocationOptions(
+                    maxAge = Duration.ZERO,
+                    timeout = 30.seconds,
+                    platform = AndroidCurrentLocationOptions(source = AndroidLocationSource.GPS),
+                ),
+            )
+        }
+        runCurrent()
+        assertEquals(listOf(gps), providersOf(fake), "control: the call is pending on gps")
+        backend.arm()
+        val escaped: Throwable? = runCatching { fake.deliver(gps, fake.locationAt(gps, latitude = 10.0)) }.exceptionOrNull()
+        runCurrent()
+        backend.heal()
+        assertNull(escaped, "a failing grant read escaped into the platform's listener callback")
+        assertTrue(backend.thrown.get() > 0, "control: the delivery read the grant and it failed")
+        assertFalse(call.isCompleted, "the dropped fix did not answer the call")
+        assertEquals(listOf(gps), providersOf(fake), "the source keeps waiting")
+        fake.deliver(gps, fake.locationAt(gps, latitude = 11.0))
+        assertEquals(11.0, latitudeOf(call.await()))
+        assertEquals(0, fake.registeredCount, "the answered call removed its listener")
+    }
+
+    /** A grant read that keeps failing: every delivery is dropped, the call ends by its timeout with NO_FIX and leaves no listener. */
+    @Test
+    fun `a one-shot whose grant read keeps failing ends by its timeout and leaves no listener`() = runTest(timeout = 60.seconds) {
+        val fake = FakeLocationBackend(providers = setOf(gps))
+        val backend = FlakyGrantBackend(fake)
+        val gate = CompletableDeferred<Unit>()
+        val call: Deferred<LocationReading> = async {
+            gate.await()
+            providerOver(backend).getCurrentLocation(
+                CurrentLocationOptions(
+                    maxAge = Duration.ZERO,
+                    timeout = 5.seconds,
+                    platform = AndroidCurrentLocationOptions(source = AndroidLocationSource.GPS),
+                ),
+            )
+        }
+        gate.complete(Unit)
+        runCurrent()
+        assertEquals(listOf(gps), providersOf(fake), "control: pending")
+        backend.arm()
+        repeat(3) { index: Int ->
+            val escaped: Throwable? = runCatching { fake.deliver(gps, fake.locationAt(gps, latitude = 10.0 + index)) }.exceptionOrNull()
+            assertNull(escaped, "delivery $index escaped")
+        }
+        assertEquals(3, backend.thrown.get(), "control: each delivery read the grant")
+        advanceTimeBy(5.seconds)
+        runCurrent()
+        assertEquals(noFix, call.await())
+        assertEquals(0, fake.registeredCount, "the timeout removed the listener")
+        backend.heal()
+    }
 }

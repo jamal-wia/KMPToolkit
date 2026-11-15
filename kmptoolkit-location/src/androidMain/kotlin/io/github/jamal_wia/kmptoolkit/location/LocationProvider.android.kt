@@ -347,7 +347,15 @@ internal class AndroidLocationProvider(
             // AbstractMethodError on the main thread.
             val listener = object : LocationListener {
                 override fun onLocationChanged(location: Location) {
-                    val fix: LocationFix = acceptDelivery(platform, location, options.maxAge, startedAtNanos) ?: return
+                    // acceptDelivery reads the boot clock and the grant (platform calls): a failure must not escape into the
+                    // platform's listener callback (the main looper's uncaught exception). The delivery is dropped and logged;
+                    // the source keeps waiting for the next fix, bounded by the caller's timeout like any silent source.
+                    val fix: LocationFix = try {
+                        acceptDelivery(platform, location, options.maxAge, startedAtNanos)
+                    } catch (failure: Exception) {
+                        logger.w(failure) { "Could not judge a delivered location fix in getCurrentLocation; the fix is dropped" }
+                        null
+                    } ?: return
                     removeQuietly(platform, this)
                     if (continuation.isActive) continuation.resume(fix)
                 }
@@ -762,9 +770,18 @@ internal class AndroidLocationProvider(
         // abstract (defaults only from API 30) and the platform calls them, so a missing one is an
         // AbstractMethodError on the main thread.
         override fun onLocationChanged(location: Location) {
-            val fix: LocationFix = location.toLocationFix(coarseOnly = isCoarseOnly(platform)) ?: return
-            // Through the gate, so a fix is never sent ahead of a reseed that was read before it arrived.
-            gate.submit { out.trySend(StreamReading.live(LocationReading.Available(fix))) }
+            // Through the gate, so a fix is never sent ahead of a reseed that was read before it arrived. The fix is
+            // built INSIDE the submitted action (it reads the grant, a platform call): a failing read must not escape
+            // into the platform's listener callback, which is the main looper's uncaught exception. The fix is dropped
+            // and logged; the next one is built afresh.
+            gate.submit {
+                try {
+                    val fix: LocationFix = location.toLocationFix(coarseOnly = isCoarseOnly(platform)) ?: return@submit
+                    out.trySend(StreamReading.live(LocationReading.Available(fix)))
+                } catch (failure: Exception) {
+                    logger.w(failure) { "Could not read the location grant for a delivered fix; the fix is dropped" }
+                }
+            }
         }
 
         override fun onProviderEnabled(provider: String) = evaluateFor(provider)
