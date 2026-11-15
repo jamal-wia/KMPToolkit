@@ -199,10 +199,14 @@ internal class EncryptedFileGuard(
         }
 
         /**
-         * Whether the store path is a symbolic link. Asked after [classify] answered [FileState.Absent], which reads through links:
-         * a link then has no target. Metadata of the name itself, never an open (so it cannot block on a pipe).
+         * Whether the store path is a symbolic link, asked after [classify] answered [FileState.Absent] (which reads through links:
+         * a link then has no target). It asks BOTH names: the resolved one ([file]) and the store's own configured one, because the
+         * round resolves the real path first, and a link whose target was deleted AFTER that resolution has already been replaced
+         * by its target in the resolved name, which is then no link at all. Creating at either name would create the file at the far
+         * end of the link, or replace the link. Metadata of the names themselves, never an open (so it cannot block on a pipe).
          */
-        fun isLinkWithoutTarget(): Boolean = Files.isSymbolicLink(file.toPath())
+        fun isLinkWithoutTarget(): Boolean =
+            Files.isSymbolicLink(file.toPath()) || Files.isSymbolicLink(this@EncryptedFileGuard.file.absoluteFile.toPath())
 
         /** Writes the whole file atomically, owner-only, synced. Returns `false` only for [ExistingFile.Fail] when a file is there. */
         fun write(bytes: ByteArray, existing: ExistingFile): Boolean {

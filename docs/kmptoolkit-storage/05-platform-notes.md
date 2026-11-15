@@ -484,7 +484,9 @@ ones it was fetched for (at most four such rounds, then `Unavailable`).
 and `remove` and `clear()` change nothing and keep the link. Nothing can be created at the name of a link, so `put` and `ensureKey` answer
 `OperationFailed` (cause: an `IOException`) at once, before any key is made, any OS call is made or the app's key provider is asked,
 and neither the link nor its missing target is touched. This is a permanent fault of the path, not a retry-later one: re-point or remove
-the link and the same instance works. (The plain store has no create step, so its first write simply replaces the link by the store
+the link and the same instance works. The check asks the store's own configured name as well as the resolved one, so a link whose
+target is deleted in the instant between the path resolution and the read is refused the same way and never makes the store create the
+target at the far end of the link. (The plain store has no create step, so its first write simply replaces the link by the store
 file; it never creates the target.)
 
 **A JDK without AES-GCM or PBKDF2.** A JDK whose provider set cannot do `AES/GCM/NoPadding` or `PBKDF2WithHmacSHA256` (a FIPS-configured
