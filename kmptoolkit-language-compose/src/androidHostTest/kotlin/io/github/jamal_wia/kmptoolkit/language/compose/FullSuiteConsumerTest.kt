@@ -25,9 +25,9 @@ import io.github.jamal_wia.kmptoolkit.language.AppLanguageCatalog
 import io.github.jamal_wia.kmptoolkit.language.AppLanguageHolder
 import io.github.jamal_wia.kmptoolkit.language.createAppLanguageCatalog
 import io.github.jamal_wia.kmptoolkit.language.createAppLanguageHolder
-import io.github.jamal_wia.kmptoolkit.location.GeoCoordinates
 import io.github.jamal_wia.kmptoolkit.location.LocationProvider
-import io.github.jamal_wia.kmptoolkit.location.LocationProviderConfig
+import io.github.jamal_wia.kmptoolkit.location.LocationReading
+import io.github.jamal_wia.kmptoolkit.location.LocationUnavailability
 import io.github.jamal_wia.kmptoolkit.location.createLocationProvider
 import io.github.jamal_wia.kmptoolkit.location.createLocationProviderWithLauncher
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
@@ -65,7 +65,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -99,11 +98,7 @@ class FullSuiteConsumerTest {
         val holder: AppLanguageHolder = createAppLanguageHolder(en, onLanguageChanged = { changed -> log.i { "language is now ${changed.code}" } })
         val keysConsumed: MutableList<Int> = CopyOnWriteArrayList()
         val controller: SystemBarsController = createSystemBarsController(application, SystemBarsConfig.ForLightBackground)
-        val location: LocationProvider = createLocationProvider(
-            application,
-            LocationProviderConfig(singleFixTimeoutMillis = 100),
-            factory.logger("Location"),
-        )
+        val location: LocationProvider = createLocationProvider(application, factory.logger("Location"))
 
         init {
             DialogWindowHardwareKeyPolicy.install(factory.logger("Keys")) { event ->
@@ -272,7 +267,6 @@ class FullSuiteConsumerTest {
         val provider: LocationProvider = createLocationProviderWithLauncher(
             application,
             SystemScreenLauncher { throw failure },
-            LocationProviderConfig(),
             app.factory.logger("Location"),
         )
 
@@ -296,9 +290,9 @@ class FullSuiteConsumerTest {
         shadowOf(manager).setProviderEnabled(LocationManager.GPS_PROVIDER, true)
         shadowOf(manager).setProviderEnabled(LocationManager.NETWORK_PROVIDER, true)
 
-        val seed: GeoCoordinates? = runBlocking { withTimeout(20_000) { app.location.observeLocation().first() } }
+        val seed: LocationReading = runBlocking { withTimeout(20_000) { app.location.observeLocation().first() } }
 
-        assertNull(seed, "no fix yet: the documented null seed")
+        assertEquals(LocationReading.Unavailable(LocationUnavailability.NO_FIX), seed, "no fix yet: the documented NO_FIX seed")
         assertEquals(0, shadowOf(manager).getRequestLocationUpdateListeners().size, "first() cancelled the collection and the listeners went")
         assertTrue(app.overlay.records.value.none { it.level >= LogLevel.WARN }, "a granted permission logs no warning")
     }

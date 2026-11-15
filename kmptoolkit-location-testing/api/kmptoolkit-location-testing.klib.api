@@ -6,24 +6,59 @@
 // - Show declarations: true
 
 // Library unique name: <io.github.jamal-wia:kmptoolkit-location-testing>
-final class io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider : io.github.jamal_wia.kmptoolkit.location/LocationProvider { // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider|null[0]
-    constructor <init>(io.github.jamal_wia.kmptoolkit.location/GeoCoordinates? = ..., kotlin/Boolean = ...) // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.<init>|<init>(io.github.jamal_wia.kmptoolkit.location.GeoCoordinates?;kotlin.Boolean){}[0]
+final class io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider : io.github.jamal_wia.kmptoolkit.location/HeadingProvider { // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider|null[0]
+    constructor <init>(kotlin/Boolean = ...) // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.<init>|<init>(kotlin.Boolean){}[0]
 
+    final val activeDeclinationAt // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.activeDeclinationAt|{}activeDeclinationAt[0]
+        final fun <get-activeDeclinationAt>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.location/GeoCoordinates?> // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.activeDeclinationAt.<get-activeDeclinationAt>|<get-activeDeclinationAt>(){}[0]
+    final val activeFilters // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.activeFilters|{}activeFilters[0]
+        final fun <get-activeFilters>(): kotlin.collections/List<kotlin/Double> // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.activeFilters.<get-activeFilters>|<get-activeFilters>(){}[0]
+    final val activeObservers // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.activeObservers|{}activeObservers[0]
+        final fun <get-activeObservers>(): kotlinx.coroutines.flow/StateFlow<kotlin/Int> // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.activeObservers.<get-activeObservers>|<get-activeObservers>(){}[0]
+    final val activeScreenRotations // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.activeScreenRotations|{}activeScreenRotations[0]
+        final fun <get-activeScreenRotations>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.location/ScreenRotation> // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.activeScreenRotations.<get-activeScreenRotations>|<get-activeScreenRotations>(){}[0]
+    final val isAvailable // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.isAvailable|{}isAvailable[0]
+        final fun <get-isAvailable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.isAvailable.<get-isAvailable>|<get-isAvailable>(){}[0]
+
+    final fun emit(io.github.jamal_wia.kmptoolkit.location/Heading) // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.emit|emit(io.github.jamal_wia.kmptoolkit.location.Heading){}[0]
+    final fun observeHeading(kotlin/Double, io.github.jamal_wia.kmptoolkit.location/GeoCoordinates?, io.github.jamal_wia.kmptoolkit.location/ScreenRotation): kotlinx.coroutines.flow/Flow<io.github.jamal_wia.kmptoolkit.location/Heading> // io.github.jamal_wia.kmptoolkit.location.testing/FakeHeadingProvider.observeHeading|observeHeading(kotlin.Double;io.github.jamal_wia.kmptoolkit.location.GeoCoordinates?;io.github.jamal_wia.kmptoolkit.location.ScreenRotation){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider : io.github.jamal_wia.kmptoolkit.location/LocationProvider { // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider|null[0]
+    constructor <init>(kotlin/Boolean = ..., io.github.jamal_wia.kmptoolkit.location/LocationReading = ...) // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.<init>|<init>(kotlin.Boolean;io.github.jamal_wia.kmptoolkit.location.LocationReading){}[0]
+
+    final val activeObservers // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.activeObservers|{}activeObservers[0]
+        final fun <get-activeObservers>(): kotlinx.coroutines.flow/StateFlow<kotlin/Int> // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.activeObservers.<get-activeObservers>|<get-activeObservers>(){}[0]
+    final val activeUpdatesOptions // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.activeUpdatesOptions|{}activeUpdatesOptions[0]
+        final fun <get-activeUpdatesOptions>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions> // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.activeUpdatesOptions.<get-activeUpdatesOptions>|<get-activeUpdatesOptions>(){}[0]
+    final val currentLocationCalls // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.currentLocationCalls|{}currentLocationCalls[0]
+        final fun <get-currentLocationCalls>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions> // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.currentLocationCalls.<get-currentLocationCalls>|<get-currentLocationCalls>(){}[0]
+    final val openSettingsCount // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.openSettingsCount|{}openSettingsCount[0]
+        final fun <get-openSettingsCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.openSettingsCount.<get-openSettingsCount>|<get-openSettingsCount>(){}[0]
+    final val pendingCurrentLocationCalls // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.pendingCurrentLocationCalls|{}pendingCurrentLocationCalls[0]
+        final fun <get-pendingCurrentLocationCalls>(): kotlinx.coroutines.flow/StateFlow<kotlin/Int> // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.pendingCurrentLocationCalls.<get-pendingCurrentLocationCalls>|<get-pendingCurrentLocationCalls>(){}[0]
+    final val promptCount // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.promptCount|{}promptCount[0]
+        final fun <get-promptCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.promptCount.<get-promptCount>|<get-promptCount>(){}[0]
+
+    final var currentLocationAnswer // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.currentLocationAnswer|{}currentLocationAnswer[0]
+        final fun <get-currentLocationAnswer>(): io.github.jamal_wia.kmptoolkit.location/LocationReading // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.currentLocationAnswer.<get-currentLocationAnswer>|<get-currentLocationAnswer>(){}[0]
+        final fun <set-currentLocationAnswer>(io.github.jamal_wia.kmptoolkit.location/LocationReading) // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.currentLocationAnswer.<set-currentLocationAnswer>|<set-currentLocationAnswer>(io.github.jamal_wia.kmptoolkit.location.LocationReading){}[0]
     final var locationEnabled // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.locationEnabled|{}locationEnabled[0]
         final fun <get-locationEnabled>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.locationEnabled.<get-locationEnabled>|<get-locationEnabled>(){}[0]
         final fun <set-locationEnabled>(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.locationEnabled.<set-locationEnabled>|<set-locationEnabled>(kotlin.Boolean){}[0]
-    final var openSettingsCount // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.openSettingsCount|{}openSettingsCount[0]
-        final fun <get-openSettingsCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.openSettingsCount.<get-openSettingsCount>|<get-openSettingsCount>(){}[0]
-    final var promptCount // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.promptCount|{}promptCount[0]
-        final fun <get-promptCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.promptCount.<get-promptCount>|<get-promptCount>(){}[0]
     final var servicePromptAnswer // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.servicePromptAnswer|{}servicePromptAnswer[0]
         final fun <get-servicePromptAnswer>(): io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt? // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.servicePromptAnswer.<get-servicePromptAnswer>|<get-servicePromptAnswer>(){}[0]
         final fun <set-servicePromptAnswer>(io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt?) // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.servicePromptAnswer.<set-servicePromptAnswer>|<set-servicePromptAnswer>(io.github.jamal_wia.kmptoolkit.location.LocationServicePrompt?){}[0]
 
-    final fun emit(io.github.jamal_wia.kmptoolkit.location/GeoCoordinates?) // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.emit|emit(io.github.jamal_wia.kmptoolkit.location.GeoCoordinates?){}[0]
-    final fun observeLocation(): kotlinx.coroutines.flow/Flow<io.github.jamal_wia.kmptoolkit.location/GeoCoordinates?> // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.observeLocation|observeLocation(){}[0]
+    final fun emit(io.github.jamal_wia.kmptoolkit.location/LocationReading) // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.emit|emit(io.github.jamal_wia.kmptoolkit.location.LocationReading){}[0]
+    final fun holdCurrentLocation() // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.holdCurrentLocation|holdCurrentLocation(){}[0]
+    final fun observeLocation(io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions): kotlinx.coroutines.flow/Flow<io.github.jamal_wia.kmptoolkit.location/LocationReading> // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.observeLocation|observeLocation(io.github.jamal_wia.kmptoolkit.location.LocationUpdatesOptions){}[0]
+    final fun observeLocationEnabled(): kotlinx.coroutines.flow/Flow<kotlin/Boolean> // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.observeLocationEnabled|observeLocationEnabled(){}[0]
     final fun openLocationSettings() // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.openLocationSettings|openLocationSettings(){}[0]
-    final suspend fun getCurrentLocation(): io.github.jamal_wia.kmptoolkit.location/GeoCoordinates? // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.getCurrentLocation|getCurrentLocation(){}[0]
+    final fun releaseCurrentLocation(io.github.jamal_wia.kmptoolkit.location/LocationReading) // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.releaseCurrentLocation|releaseCurrentLocation(io.github.jamal_wia.kmptoolkit.location.LocationReading){}[0]
+    final suspend fun getCurrentLocation(io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions): io.github.jamal_wia.kmptoolkit.location/LocationReading // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.getCurrentLocation|getCurrentLocation(io.github.jamal_wia.kmptoolkit.location.CurrentLocationOptions){}[0]
     final suspend fun isLocationEnabled(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.isLocationEnabled|isLocationEnabled(){}[0]
     final suspend fun promptToEnableService(): io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.promptToEnableService|promptToEnableService(){}[0]
 }
+
+final fun io.github.jamal_wia.kmptoolkit.location.testing/fakeFix(kotlin/Double, kotlin/Double, kotlin/Long = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Boolean? = ..., kotlin/Boolean? = ..., io.github.jamal_wia.kmptoolkit.location/PlatformFixDetails? = ...): io.github.jamal_wia.kmptoolkit.location/LocationFix // io.github.jamal_wia.kmptoolkit.location.testing/fakeFix|fakeFix(kotlin.Double;kotlin.Double;kotlin.Long;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Boolean?;kotlin.Boolean?;io.github.jamal_wia.kmptoolkit.location.PlatformFixDetails?){}[0]

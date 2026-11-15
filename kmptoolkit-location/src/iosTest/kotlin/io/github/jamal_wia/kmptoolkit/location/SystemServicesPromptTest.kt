@@ -4,6 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 
 /**
@@ -15,9 +17,10 @@ class SystemServicesPromptTest {
 
     private class ScriptedProvider(var enabled: Boolean) : LocationProvider {
         var settingsOpened = 0
-        override suspend fun getCurrentLocation(): GeoCoordinates? = HERE
-        override fun observeLocation(): Flow<GeoCoordinates?> = emptyFlow()
+        override suspend fun getCurrentLocation(options: CurrentLocationOptions): LocationReading = HERE
+        override fun observeLocation(options: LocationUpdatesOptions): Flow<LocationReading> = emptyFlow()
         override suspend fun isLocationEnabled(): Boolean = enabled
+        override fun observeLocationEnabled(): Flow<Boolean> = flowOf(enabled)
         override fun openLocationSettings() {
             settingsOpened++
         }
@@ -51,6 +54,7 @@ class SystemServicesPromptTest {
         assertEquals(false, provider.isLocationEnabled())
         provider.openLocationSettings()
         assertEquals(1, wrapped.settingsOpened)
+        assertEquals(listOf(false), provider.observeLocationEnabled().toList())
     }
 
     @Test
@@ -64,6 +68,6 @@ class SystemServicesPromptTest {
     }
 
     private companion object {
-        val HERE = GeoCoordinates(latitude = 21.4225, longitude = 39.8262)
+        val HERE: LocationReading = LocationReading.Available(LocationFix(GeoCoordinates(latitude = 21.4225, longitude = 39.8262), timestampEpochMillis = 0L))
     }
 }

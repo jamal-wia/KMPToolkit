@@ -6,10 +6,12 @@ plugins {
 kmptoolkitPublish {
     pomName.set("KMPToolkit Location Testing")
     pomDescription.set(
-        "Test fixtures for kmptoolkit-location: FakeLocationProvider, a LocationProvider driven " +
-            "by hand instead of a GPS chip. Pick this module as a testImplementation dependency " +
-            "alongside kmptoolkit-location when you want to assert how your code behaves with no " +
-            "fix yet, with the location service off, or on a location change — without a device."
+        "Test fixtures for kmptoolkit-location: FakeLocationProvider, a LocationProvider driven by " +
+            "hand instead of a GPS chip (any outcome, a held one-shot call, observer counts, replay, " +
+            "thread safe), FakeHeadingProvider for the compass, and fakeFix to build fixes. Pick " +
+            "this module as a testImplementation dependency alongside kmptoolkit-location when you " +
+            "want to assert how your code behaves with no fix yet, with permission lost, with the " +
+            "location service off, or on a location change, without a device."
     )
 }
 
@@ -20,6 +22,11 @@ kotlin {
 
     iosArm64()
     iosSimulatorArm64()
+
+    // A desktop target, like kmptoolkit-location itself: the fakes belong in the tests of a module
+    // that shares location-dependent code with desktop. See docs/01-architecture.md
+    // § "Desktop targets".
+    jvm()
 
     sourceSets {
         commonMain.dependencies {
