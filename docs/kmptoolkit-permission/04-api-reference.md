@@ -448,9 +448,10 @@ from `Limited` (the user chose approximate location) asks iOS for temporary full
 key, as Android offers the precise upgrade, and returns the new status. When it is `null` (the
 default) such a request returns `Limited` at once, as in 4.x. A blank key throws
 `IllegalArgumentException`; a key absent from `Info.plist` makes `createPermissionController` throw
-`IllegalStateException` naming it. The parameter is the last one, so existing calls compile
+`IllegalStateException` naming it. The parameter is the last one, so existing Kotlin calls compile
 unchanged, but the constructor and `copy` signatures changed: code compiled against 5.0.0 must be
-recompiled.
+recompiled, and Swift code that calls the initializer must pass the new argument (Kotlin default
+arguments are not exported to Swift).
 
 ### `requestTemporaryFullAccuracy` (iOS only)
 
@@ -468,11 +469,16 @@ Asks iOS for full location accuracy until the app's session ends, under `purpose
 | `Limited`, the user accepts | `Granted` (while full accuracy lasts) |
 | `Limited`, the user declines | `Limited` |
 
-The status read is the system's own; `NSLocationWhenInUseUsageDescription` is not looked at, because
-nothing can be granted without it and the status then stays `NotDetermined`. Suspends while the
+The status read is the system's own: unlike `PermissionController.check`, which reports `Unavailable`
+when `NSLocationWhenInUseUsageDescription` is missing, this function does not look at it and reads
+`NotDetermined`, because nothing can be granted without it. Suspends while the
 prompt is on screen; a caller that is cancelled meanwhile stops waiting and the library lets go of
 the request (whether iOS keeps the prompt on screen is up to the system). Not part of `PermissionController`, because only iOS has the asymmetry; shared code sets
-`IosPermissionOptions.temporaryFullAccuracyPurposeKey` and keeps calling `request`.
+`IosPermissionOptions.temporaryFullAccuracyPurposeKey` and keeps calling `request`. It is **not
+serialized** with a `PermissionController`'s requests (those never overlap each other): two concurrent
+calls, or one racing `controller.request(CommonPermission.Location)`, each ask iOS, and how iOS treats
+overlapping requests is not observed. When the app has a controller, prefer
+`temporaryFullAccuracyPurposeKey` and `request`.
 
 ### `presentLimitedPhotoLibraryPicker` (iOS only)
 

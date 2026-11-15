@@ -18,9 +18,13 @@ import platform.CoreLocation.CLAuthorizationStatus
  * [CommonPermission.Location]; with [IosPermissionOptions.temporaryFullAccuracyPurposeKey] set,
  * [PermissionController.request] of [CommonPermission.Location] does the same from shared code.
  *
- * Like every status read of this controller on iOS the status here comes from the system alone; whether
- * `NSLocationWhenInUseUsageDescription` is present is not looked at, because nothing can be granted
- * without it and the status then stays [PermissionStatus.NotDetermined].
+ * Unlike [PermissionController.check], this reads the system status only: a missing
+ * `NSLocationWhenInUseUsageDescription` gives [PermissionStatus.NotDetermined] here (nothing can be granted
+ * without it), not [PermissionStatus.Unavailable].
+ *
+ * Not serialized with a [PermissionController]'s requests, which never overlap each other: two concurrent
+ * calls, or one racing `request(CommonPermission.Location)`, each ask iOS. When the app has a controller,
+ * prefer [IosPermissionOptions.temporaryFullAccuracyPurposeKey] and `request`.
  *
  * @param purposeKey a key of `NSLocationTemporaryUsageDescriptionDictionary`.
  * @throws IllegalStateException when [purposeKey] is not a key of the app's `Info.plist` dictionary.

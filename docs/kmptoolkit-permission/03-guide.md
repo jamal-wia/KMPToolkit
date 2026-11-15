@@ -154,7 +154,7 @@ your call, and how to widen it depends on the entry:
 
 | Entry | Limited means | To widen it |
 |---|---|---|
-| `Location`, `LocationBackground` | approximate location only (Android 12+, iOS 14+) | Android: `request` again — the dialog offers the upgrade to precise. iOS: set `IosPermissionOptions.temporaryFullAccuracyPurposeKey` and `request` again, or call `requestTemporaryFullAccuracy(purposeKey)` — see [Temporary full accuracy (iOS)](#temporary-full-accuracy-ios); without either the user changes it in settings |
+| `Location`, `LocationBackground` | approximate location only (Android 12+, iOS 14+) | Android: `request` again — the dialog offers the upgrade to precise. iOS: set `IosPermissionOptions.temporaryFullAccuracyPurposeKey` and `request(CommonPermission.Location)` again (the full accuracy it grants lifts `LocationBackground` out of `Limited` too; `request(CommonPermission.LocationBackground)` itself still returns `Limited` at once), or call `requestTemporaryFullAccuracy(purposeKey)` — see [Temporary full accuracy (iOS)](#temporary-full-accuracy-ios); without either the user changes it in settings |
 | `PhotoLibrary` | the user picked some photos (Android 14+ with `READ_MEDIA_VISUAL_USER_SELECTED` declared, iOS 14+) | Android: `request` again — the dialog lets the user change the selection. iOS: `presentLimitedPhotoLibraryPicker(viewController)` |
 | `Contacts` | the user picked some contacts (iOS 18+) | the user changes it in settings, or your app uses the system contact picker |
 | `Calendar` | write-only access granted instead of full (iOS 17+) | `request` again — iOS asks for the upgrade to full access |
@@ -200,6 +200,8 @@ What to know:
   before.
 - Without `temporaryFullAccuracyPurposeKey`, `request(CommonPermission.Location)` from `Limited`
   returns `Limited` at once, as in 4.x.
+- `requestTemporaryFullAccuracy` is not serialized with a controller's requests, which never overlap
+  each other. When the app has a controller, prefer `temporaryFullAccuracyPurposeKey` and `request`.
 - A key that is not in `NSLocationTemporaryUsageDescriptionDictionary` is a programming error and is
   reported loudly: `createPermissionController` throws `IllegalStateException` naming the key when it
   is configured, and `requestTemporaryFullAccuracy` throws it in every status, before the status is
