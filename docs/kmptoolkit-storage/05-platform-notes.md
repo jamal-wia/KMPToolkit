@@ -114,7 +114,12 @@ The pass writes each entry with compare-and-set: an entry that was written or re
 token refresh, is never overwritten with the old value or brought back. A pass that cannot finish (the Keystore is
 unavailable, a fault that may pass) changes nothing it did not rewrite and is retried by the next call. **After the
 pass an entry without the version byte is `Undecryptable(key)`**: the old fallback that accepted unbound entries for
-ever is closed. `clear()` keeps the record; a fresh store is recorded by its first write.
+ever is closed. `clear()` keeps the record; a fresh store is recorded by its first write. An entry too short to hold
+its IV and tag (a truncated or hand-edited value) is skipped as malformed: it stays `Undecryptable(key)` and never
+keeps the pass from finishing. Length is checked before any decryption, because the AndroidKeyStore answers a too-short
+input with an exception other than a bad tag. The pass runs under a per-file migration lock taken with `tryLock` (an
+operation that finds a pass running does not wait for it), not under the alias lock: the alias lock only orders key
+resolution, the pass is a per-file read-modify-write.
 
 **Downgrading** the library after upgrading to this format loses the secure values: an older version cannot read a
 versioned entry and reports it `Undecryptable`.

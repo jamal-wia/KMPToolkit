@@ -116,7 +116,10 @@ internal interface SecretKeySource {
  *
  * The output is `Base64(version ‖ iv ‖ ciphertext ‖ tag)`, with the version byte and the key name authenticated as
  * associated data. Entries of the older format (`Base64(iv ‖ ciphertext ‖ tag)`) are read only through
- * [decryptLegacyFor]. The IV is the one the platform generated for that
+ * [decryptLegacyFor]. An entry too short to hold its header and a tag is classified by length before any decryption
+ * (not a version-1 envelope for the ordinary reader, malformed for the legacy one), because the AndroidKeyStore
+ * answers a GCM input shorter than the tag with `IllegalBlockSizeException`, which is neither of the two answers the
+ * callers act on. The IV is the one the platform generated for that
  * particular encryption: with an AndroidKeyStore key, `setRandomizedEncryptionRequired` is left at
  * its default `true`, so the system refuses to let a caller supply one and GCM's catastrophic
  * nonce-reuse failure is not reachable from here.
@@ -183,6 +186,13 @@ internal class KeystoreValueCipher(
         // Not an IllegalArgumentException: an unversioned entry (or another version) is an entry this reader cannot
         // open, the same answer as a failed tag.
         if (bytes[0] != FORMAT_VERSION) throw BadPaddingException("unsupported envelope version")
+        // Classified by length, before any crypto: the AndroidKeyStore answers a decryption whose input is shorter than
+        // the tag with IllegalBlockSizeException, not a bad-tag error, so a too-short body would be neither "not this
+        // format" (the legacy reader) nor "malformed" (skipped by the migration). A legacy empty value is exactly 28
+        // bytes, and one in 256 of them starts with the version byte.
+        if (bytes.size < HEADER_LENGTH_BYTES + TAG_LENGTH_BITS / 8) {
+            throw BadPaddingException("too short to be a version-1 envelope")
+        }
         val spec = GCMParameterSpec(TAG_LENGTH_BITS, bytes, VERSION_LENGTH_BYTES, IV_LENGTH_BYTES)
         val cipher: Cipher = initialised(first) { candidate: SecretKey, fresh: Cipher ->
             fresh.init(Cipher.DECRYPT_MODE, candidate, spec)
@@ -196,7 +206,11 @@ internal class KeystoreValueCipher(
     private suspend fun decryptUnversioned(encoded: String, aad: ByteArray?): String {
         val first: SecretKey = keySource.key()
         val bytes: ByteArray = Base64.decode(encoded, Base64.NO_WRAP)
-        require(bytes.size > IV_LENGTH_BYTES) { "ciphertext is too short to contain an IV" }
+        // By length, before any crypto, for the reason given in decryptVersioned: the platform may not report it as a tag
+        // failure. Malformed, so the migration pass skips it.
+        require(bytes.size >= IV_LENGTH_BYTES + TAG_LENGTH_BITS / 8) {
+            "ciphertext is too short to contain an IV and a tag"
+        }
         val spec = GCMParameterSpec(TAG_LENGTH_BITS, bytes, 0, IV_LENGTH_BYTES)
         val cipher: Cipher = initialised(first) { candidate: SecretKey, fresh: Cipher ->
             fresh.init(Cipher.DECRYPT_MODE, candidate, spec)
