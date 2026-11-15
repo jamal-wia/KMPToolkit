@@ -255,10 +255,12 @@ and process restarts; reset by `clear()`, by clearing app data, and by a reinsta
 
 `current()` always returns an id and never fails. If the store cannot be written, the id is valid
 for that call but a later call produces a different one: a degraded signal rather than an error to
-handle. If the entry cannot be read right now (`StorageError.Unavailable`, for example a keystore that
-is not answering), the id is fresh for that call and the stored one is left untouched; only an absent,
-blank, `Undecryptable` or otherwise permanently unreadable entry is overwritten. Nothing is memoized
-in memory, so a `clear()` takes effect on the very next call.
+handle. If the entry cannot be read right now because the store answers `StorageError.Unavailable` (for
+example a keystore that is not answering), the id is fresh for that call and the stored one is left
+untouched. Any other failed read (`AccessDenied`, such as a dismissed iOS user-presence prompt,
+`OperationFailed`, `Unsupported`, `Undecryptable`, `InvalidValue`) is treated like an absent or blank
+entry: a new id is generated and written over the stored one if the write succeeds. Nothing is
+memoized in memory, so a `clear()` takes effect on the very next call.
 
 Concurrent first calls agree: the read-generate-write runs under one lock shared by every provider in
 the process, so callers racing on a fresh store (through one provider or several over the same
@@ -487,7 +489,7 @@ passphrase has no reset in the API: delete the store's files and start over. `ch
 `changeKey(newKey)` verifies the current key first (`AccessDenied` otherwise), then re-encrypts every value under a fresh data key wrapped by `newKey` (a new salt and key-check) and replaces
 the file atomically: a crash leaves the old file or the new one, both complete. A `newKey` that is unusable (an empty or unpaired-surrogate passphrase, a raw key that is not 32 bytes) is `AccessDenied` and changes nothing;
 a value that cannot be decrypted with the current key is `Undecryptable(key)` and changes nothing. Copies of the file taken before the change stay readable with the old key. Another instance over the
-same file that still holds the old key answers `AccessDenied` on its next operation; this instance is bound to `newKey`. Failures carry `StorageOperation.CHANGE_KEY` and `key = null`.
+same file that still holds the old key answers `AccessDenied` on its next operation; this instance is bound to `newKey`, and its `protection` follows the new key's type (`PASSPHRASE` or `APP_PROVIDED_KEY`). Failures carry `StorageOperation.CHANGE_KEY` and `key = null`.
 
 ### `AppEncryptionKey`
 
