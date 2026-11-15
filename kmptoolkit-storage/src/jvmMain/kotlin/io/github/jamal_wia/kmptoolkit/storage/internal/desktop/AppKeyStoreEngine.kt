@@ -196,9 +196,10 @@ internal class AppKeyStoreEngine(
         return Resolution.Need(Request.Existing(Snapshot.of(parsed)))
     }
 
-    override suspend fun prepare(request: Request, op: Op, scope: OpScope): Prepared = derive(request, scope as SecretScope, key)
+    override suspend fun prepare(request: Request, op: Op, scope: OpScope): Prepared =
+        derive(request, scope as SecretScope, key, op.operation, op.key)
 
-    private suspend fun derive(request: Request, scope: SecretScope, forKey: AppEncryptionKey): Prepared {
+    private suspend fun derive(request: Request, scope: SecretScope, forKey: AppEncryptionKey, operation: StorageOperation, entryKey: String?): Prepared {
         val (secret: Secret?, refusal: StorageError?) = scope.obtain(forKey)
         if (secret == null) return Prepared.Failed(checkNotNull(refusal))
         return try {
@@ -225,6 +226,10 @@ internal class AppKeyStoreEngine(
             }
         } catch (error: IllegalArgumentException) {
             Prepared.Failed(StorageError.AccessDenied(cause = error))
+        } catch (error: IllegalStateException) {
+            // The JDK has no PBKDF2 (or its key derivation failed): an environment problem. The passphrase is not wrong, so
+            // never AccessDenied, and nothing was read or written yet.
+            Prepared.Failed(StorageError.OperationFailed(operation, key = entryKey, cause = error))
         }
     }
 
@@ -288,7 +293,7 @@ internal class AppKeyStoreEngine(
                         is ChangeStep.NeedCurrent -> {
                             currentCarry?.wipe()
                             currentCarry = null
-                            when (val prepared: Prepared = derive(step.request, currentScope, key)) {
+                            when (val prepared: Prepared = derive(step.request, currentScope, key, StorageOperation.CHANGE_KEY, null)) {
                                 is Prepared.Ready -> currentCarry = prepared.carry
                                 is Prepared.Failed -> return@withContext StorageResult.Failure(prepared.error)
                             }
@@ -296,7 +301,7 @@ internal class AppKeyStoreEngine(
                         ChangeStep.NeedNew -> {
                             newCarry?.wipe()
                             newCarry = null
-                            when (val prepared: Prepared = derive(Request.Fresh, newScope, newKey)) {
+                            when (val prepared: Prepared = derive(Request.Fresh, newScope, newKey, StorageOperation.CHANGE_KEY, null)) {
                                 is Prepared.Ready -> newCarry = prepared.carry
                                 // The current key verified; the NEW key is what cannot work.
                                 is Prepared.Failed -> return@withContext StorageResult.Failure(prepared.error)

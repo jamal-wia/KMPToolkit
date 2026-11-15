@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
 
 import java.nio.CharBuffer
+import java.security.GeneralSecurityException
 import java.text.Normalizer
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
@@ -61,6 +62,8 @@ internal object Pbkdf2 {
      * Raw PBKDF2-HMAC-SHA256 of [password] (no normalisation, no range check: the known-answer tests use RFC 7914 counts).
      * Blocking and not cancellable; a caller runs it off the caller's thread.
      *
+     * @throws IllegalStateException when the JDK has no PBKDF2 provider (the cause is the `GeneralSecurityException`).
+     *
      * Not everything this call holds can be wiped. The JDK's key object (`PBKDF2KeyImpl`) clones [password] into a field of
      * its own and keeps the derived key in another, and clears both only when the object is garbage collected (a cleaner); no
      * public API clears them sooner, and `PBEKeySpec.clearPassword` wipes only the spec's copy. This holds for every
@@ -72,6 +75,9 @@ internal object Pbkdf2 {
         val spec = PBEKeySpec(password, salt, iterations, lengthBytes * 8)
         try {
             return SecretKeyFactory.getInstance(ALGORITHM).generateSecret(spec).encoded
+        } catch (error: GeneralSecurityException) {
+            // A provider set without PBKDF2 (restricted or FIPS): an environment problem, not a wrong passphrase.
+            throw IllegalStateException("The PBKDF2 provider failed", error)
         } finally {
             spec.clearPassword()
         }

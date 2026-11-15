@@ -468,6 +468,11 @@ next `put`). The size is worked out by counting, before the value or the entry n
 key runs with no lock held, and the next round re-reads the file and uses the key only if the header and key-check are the
 ones it was fetched for (at most four such rounds, then `Unavailable`).
 
+**A JDK without AES-GCM or PBKDF2.** A JDK whose provider set cannot do `AES/GCM/NoPadding` or `PBKDF2WithHmacSHA256` (a FIPS-configured
+or restricted set) never makes a store call throw: a `put`, `get`, `remove`, `clear()`, `ensureKey()` or `changeKey` that needs the missing
+algorithm answers `OperationFailed` (with the provider failure as its cause) and writes, creates and moves nothing; a store with data is never
+read as "key lost", and a passphrase is never called wrong (`AccessDenied`) for it. The same instance works once the algorithm is available.
+
 **A call on an interrupted thread is not served.** A store call made on a thread whose interrupt status is already set never throws and keeps that status, but it does not do its work: the JDK refuses file I/O on an interrupted thread, so every operation of an encrypted store, a `get` included, answers `OperationFailed` with a `ClosedByInterruptException` as its cause. Nothing is written, no temporary file or lock is left behind, and the call can be repeated once the status is cleared.
 
 **Open verification items (macOS, not yet run on a real keychain).** Whether `kSecUseAuthenticationUIFail` applies to

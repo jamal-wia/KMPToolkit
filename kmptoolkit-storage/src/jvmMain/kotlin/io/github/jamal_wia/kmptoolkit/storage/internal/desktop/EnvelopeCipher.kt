@@ -13,8 +13,9 @@ import javax.crypto.spec.SecretKeySpec
  *
  * Frozen by format v1: every encryption uses a fresh 96-bit nonce from [random] (a `SecureRandom`), never a counter or a
  * derived value, and data keys come from it too. A tag that does not verify is the only failure that answers
- * "wrong key or tampered" (`null` / `false`); any other security-provider failure is thrown, so an environment problem is
- * never mistaken for lost data (that verdict makes an app delete things).
+ * "wrong key or tampered" (`null` / `false`); any other security-provider failure, on encryption and on decryption alike, is
+ * thrown as an `IllegalStateException`, so an environment problem is never mistaken for lost data (that verdict makes an app
+ * delete things) and the stores answer it as `OperationFailed`.
  *
  * Stateless apart from [random]; safe from any thread. Key arguments are borrowed, never kept and never wiped here.
  * The class and [sealEntry] are open only so that a test can count how many values were sealed (the proof that a refused
@@ -80,10 +81,16 @@ internal open class EnvelopeCipher(private val random: SecureRandom = SecureRand
         fun gcmEncrypt(key: ByteArray, nonce: ByteArray, aad: ByteArray, plaintext: ByteArray): ByteArray {
             require(key.size == SecureFileFormat.DATA_KEY_BYTES) { "AES-256 needs a 32-byte key" }
             require(nonce.size == SecureFileFormat.NONCE_BYTES) { "the nonce is 96 bits" }
-            val cipher: Cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(TAG_BITS, nonce))
-            cipher.updateAAD(aad)
-            return cipher.doFinal(plaintext)
+            // Like gcmDecrypt: a provider that cannot do AES-GCM (a restricted or FIPS provider set) is an environment problem,
+            // thrown as IllegalStateException so that the store maps it to OperationFailed instead of letting it escape a put.
+            try {
+                val cipher: Cipher = Cipher.getInstance(TRANSFORMATION)
+                cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(TAG_BITS, nonce))
+                cipher.updateAAD(aad)
+                return cipher.doFinal(plaintext)
+            } catch (error: GeneralSecurityException) {
+                throw IllegalStateException("The AES-GCM provider failed", error)
+            }
         }
 
         /** The plaintext, or `null` only when the tag does not verify; any other provider failure is thrown. */
