@@ -63,7 +63,7 @@ class HeadingIosRound4Test {
     @Test
     fun `an Error from startHeading and then from the release ends with the release Error and carries the first as suppressed`() = runTest {
         val startError = AssertionError("startUpdatingHeading failed with an Error")
-        val releaseError = LinkageError("the release failed with an Error")
+        val releaseError = NotImplementedError("the release failed with an Error")
         device.startHeadingFailure = startError
         device.releaseFailure = releaseError
         val ended: MutableList<Throwable> = mutableListOf()
@@ -78,7 +78,7 @@ class HeadingIosRound4Test {
 
     @Test
     fun `a release that throws the start failure's own instance is not suppressed into itself`() = runTest {
-        val shared = LinkageError("thrown by the start and again by the release")
+        val shared = NotImplementedError("thrown by the start and again by the release")
         device.startHeadingFailure = shared
         device.releaseFailure = shared
         val ended: MutableList<Throwable> = mutableListOf()
@@ -111,7 +111,7 @@ class HeadingIosRound4Test {
 
     @Test
     fun `an Error from the release of a running manager ends the cancelled collection with the cancellation attached`() = runTest {
-        val releaseError = LinkageError("the release failed with an Error")
+        val releaseError = NotImplementedError("the release failed with an Error")
         device.releaseFailure = releaseError
         val ended: MutableList<Throwable> = mutableListOf()
         val collection: Job = collectUntilEnd(provider().observeHeading(), ended)
