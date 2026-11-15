@@ -3,7 +3,7 @@
 Package `io.github.jamal_wia.kmptoolkit.location` (the fakes are in `...location.testing`, see
 [`06-testing.md`](06-testing.md)). Every declaration is `public` unless stated; `explicitApi()` is strict.
 "Since" is the release the declaration appeared in: everything marked 6.0.0 is new or changed in that
-release ([`07-migration.md`](07-migration.md)).
+release ([`07-migrating-to-6.md`](07-migrating-to-6.md)).
 
 - [Conventions](#conventions)
 - [commonMain](#commonmain) — geo math, readings, options, providers, heading
@@ -404,4 +404,4 @@ rules apply to the one-shot call and the stream alike (for the same device state
 ## See also
 
 - [`05-platform-notes.md`](05-platform-notes.md) for the behaviour behind every row.
-- [`07-migration.md`](07-migration.md) for the 4.x / 5.x differences.
+- [`07-migrating-to-6.md`](07-migrating-to-6.md) for the 4.x / 5.x differences.

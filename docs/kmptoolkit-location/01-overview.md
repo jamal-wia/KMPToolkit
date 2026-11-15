@@ -108,4 +108,4 @@ is: [`03-guide.md`](03-guide.md#2-radius-check-with-accuracy) shows the check.
   permissions, the Android source rules, the iOS rules, heading and the datum notes.
 - [`06-testing.md`](06-testing.md) — `FakeLocationProvider`, `FakeHeadingProvider` and `fakeFix`, in
   `kmptoolkit-location-testing`.
-- [`07-migration.md`](07-migration.md) — moving from 4.x / 5.x: every breaking change and what to do.
+- [`07-migrating-to-6.md`](07-migrating-to-6.md) — moving from 4.x / 5.x: every breaking change and what to do.

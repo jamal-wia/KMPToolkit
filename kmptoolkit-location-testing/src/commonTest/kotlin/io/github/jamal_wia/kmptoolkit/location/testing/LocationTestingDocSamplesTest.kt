@@ -32,7 +32,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
 
 /*
- * The Kotlin samples of docs/kmptoolkit-location/06-testing.md and 07-migration.md (step 6), typed in exactly as
+ * The Kotlin samples of docs/kmptoolkit-location/06-testing.md and 07-migrating-to-6.md (step 6), typed in exactly as
  * the docs print them (each block between "docs-sample:" and "end docs-sample" is the text of one fenced block)
  * and run against the real fakes, so a sample that stops compiling against the public API, or behaves differently
  * from the sentence beside it, fails here.

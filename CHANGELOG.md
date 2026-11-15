@@ -13,7 +13,7 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Breaking
 
-- `kmptoolkit-location`: the API is replaced as a whole; see [`docs/kmptoolkit-location/07-migration.md`](docs/kmptoolkit-location/07-migration.md).
+- `kmptoolkit-location`: the API is replaced as a whole; see [`docs/kmptoolkit-location/07-migrating-to-6.md`](docs/kmptoolkit-location/07-migrating-to-6.md).
   - `LocationProvider.getCurrentLocation()` and `observeLocation()` return `LocationReading` (a `LocationFix` with its accuracy and the platform's facts, or a typed `LocationUnavailability` reason: `PERMISSION_MISSING`, `SERVICE_DISABLED`, `NO_FIX`, `UNSUPPORTED`) instead of `GeoCoordinates?`, and take per-call `CurrentLocationOptions` / `LocationUpdatesOptions`. A `null` of 4.x could mean any of the four reasons.
   - `LocationProviderConfig` is removed. `createLocationProvider(context, config, logger)` and `createLocationProviderWithLauncher(context, launcher, config, logger)` lose the `config` parameter on Android; `createLocationProvider(config, logger)` becomes `createLocationProvider(logger)` on iOS. The old `singleFixTimeoutMillis` is the `timeout` of the call.
   - `LocationProvider` gains `observeLocationEnabled()`; custom implementations (decorators) must implement it.

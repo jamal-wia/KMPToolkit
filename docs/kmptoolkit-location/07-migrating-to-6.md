@@ -2,8 +2,8 @@
 
 `kmptoolkit-location` was redesigned as a whole in 6.0.0: readings carry their accuracy or a typed reason, the
 options are per call, coordinates validate themselves, and the fake is thread safe. This page is the path from
-5.0.0 and earlier (the API of the 4.x line is the same). The file name is version-neutral on purpose; the
-changes are listed under `Breaking` in `CHANGELOG.md`.
+5.0.0 and earlier (the API of the 4.x line is the same); the changes are listed under `Breaking` in
+`CHANGELOG.md`.
 
 ## What changed, at a glance
 

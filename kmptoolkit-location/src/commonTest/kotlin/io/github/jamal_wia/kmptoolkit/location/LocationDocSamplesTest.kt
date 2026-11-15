@@ -23,7 +23,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
 /*
- * The Kotlin samples of docs/kmptoolkit-location (02-getting-started, 03-guide, 07-migration), typed in
+ * The Kotlin samples of docs/kmptoolkit-location (02-getting-started, 03-guide, 07-migrating-to-6), typed in
  * exactly as the docs print them (each block between "docs-sample:" and "end docs-sample" is the text of one
  * fenced block) and run against the real geo math and a scripted provider, so a sample that stops compiling
  * against the public API, or behaves differently from the sentence beside it, fails here. The platform
