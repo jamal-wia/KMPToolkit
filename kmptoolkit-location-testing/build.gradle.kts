@@ -21,6 +21,11 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
 
+    // A desktop target, like kmptoolkit-location itself: the fakes belong in the tests of a module
+    // that shares location-dependent code with desktop. See docs/01-architecture.md
+    // § "Desktop targets".
+    jvm()
+
     sourceSets {
         commonMain.dependencies {
             // api, not implementation: FakeLocationProvider implements the kmptoolkit-location
