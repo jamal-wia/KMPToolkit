@@ -2,6 +2,9 @@ package io.github.jamal_wia.kmptoolkit.buildlogic
 
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.toolchain.JavaLanguageVersion
@@ -12,6 +15,7 @@ import org.gradle.kotlin.dsl.getByType
 import org.gradle.kotlin.dsl.named
 import org.gradle.kotlin.dsl.register
 import org.gradle.kotlin.dsl.withType
+import org.gradle.process.CommandLineArgumentProvider
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinJvmCompilation
@@ -42,9 +46,11 @@ internal const val FFM_TEST_TASK: String = "jvmTestFfm"
  * declares a `jvm()` target; the sources live in `src/jvmFfm/kotlin`, their tests in `src/jvmFfmTest/kotlin`.
  *
  * What it wires, and why (plan 3.9, decision D-6 of the storage plan):
- * - **`ffm` compilation.** A second Kotlin compilation of the `jvm` target, associated with `main` (it sees the
- *   module's `internal` declarations), compiled with a JDK [FFM_TOOLCHAIN_JDK] toolchain at the desktop bytecode
- *   level 21. `java.lang.foreign` is final only from JDK 22, so these classes must load on a JDK 22+ runtime and
+ * - **`ffm` compilation.** A second Kotlin compilation of the `jvm` target, compiled with a JDK [FFM_TOOLCHAIN_JDK]
+ *   toolchain at the desktop bytecode level 21. It is deliberately NOT associated with `main` (plan 3.9 says it is): an
+ *   associated custom compilation compiles against the target's `jvmJar`, and that jar carries the `ffm` classes, which
+ *   would be a task cycle. Main's classes and compile classpath are added to it by hand, so it sees only the module's public
+ *   API (the seam is public and `@ToolkitInternalApi`), never its `internal` declarations. `java.lang.foreign` is final only from JDK 22, so these classes must load on a JDK 22+ runtime and
  *   nowhere else; the module loads them by class name behind a `Runtime.version().feature() >= 22` gate. Its output
  *   is packed into the module's `jvm` jar, so the one artifact carries both halves and plain-store users load none of it.
  * - **Check-only API compilation.** The same sources compiled again with `-Xjdk-release=22` on the same toolchain
@@ -60,9 +66,12 @@ internal const val FFM_TEST_TASK: String = "jvmTestFfm"
  *
  * Test properties handed to the test JVMs: `kmptoolkit.test.javaHome21` and `kmptoolkit.test.javaHome25` (the
  * installation directories of the two toolchains, for tests that fork a child JVM) and `kmptoolkit.test.targetJar`
- * (the jvm jar, a dependency of the `jvmTest` task). The real-store suites are opt-in through `-Pkmptoolkit.secretstore=macos|windows|linux`
- * (forwarded as the system property `kmptoolkit.secretstore`), and `-Pkmptoolkit.secretstore.required=true` turns a
- * skip into a failure.
+ * (the jvm jar, a dependency of the `jvmTest` task). Those three are command-line argument providers over lazy providers, so a
+ * build that never runs a test task (an iOS-only or Android-only build that merely configures this module) resolves no JDK
+ * toolchain and downloads none. The real-store suites are opt-in through `-Pkmptoolkit.secretstore=macos|windows|linux`
+ * (forwarded as the system property `kmptoolkit.secretstore`), `-Pkmptoolkit.secretstore.required=true` turns a skip into a
+ * failure, and `-Pkmptoolkit.secretstore.oldLibsecret=true` marks the run on a libsecret older than 0.19, where the Linux
+ * binding is expected to answer SYMBOL_MISSING.
  */
 class FfmConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) {
@@ -133,25 +142,28 @@ class FfmConventionPlugin : Plugin<Project> {
         }
         tasks.matching { it.name == "check" }.configureEach { dependsOn(ffmCheck.compileTaskProvider) }
 
-        val javaHome21: String = launcher21.get().metadata.installationPath.asFile.absolutePath
-        val javaHome25: String = launcher25.get().metadata.installationPath.asFile.absolutePath
         val secretStore: String = providers.gradleProperty("kmptoolkit.secretstore").getOrElse("")
         val secretStoreRequired: String = providers.gradleProperty("kmptoolkit.secretstore.required").getOrElse("false")
+        val secretStoreOldLibsecret: String = providers.gradleProperty("kmptoolkit.secretstore.oldLibsecret").getOrElse("false")
+        // Lazy: a toolchain is resolved (and possibly provisioned) only when a test JVM is actually started.
+        val javaHome21: Provider<String> = launcher21.map { it.metadata.installationPath.asFile.absolutePath }
+        val javaHome25: Provider<String> = launcher25.map { it.metadata.installationPath.asFile.absolutePath }
 
         tasks.withType<Test>().configureEach {
-            systemProperty("kmptoolkit.test.javaHome21", javaHome21)
-            systemProperty("kmptoolkit.test.javaHome25", javaHome25)
             systemProperty("kmptoolkit.secretstore", secretStore)
             systemProperty("kmptoolkit.secretstore.required", secretStoreRequired)
+            systemProperty("kmptoolkit.secretstore.oldLibsecret", secretStoreOldLibsecret)
+            // Only the jvm target's test tasks start a child JVM; an Android host test never resolves a JDK toolchain for this.
+            if (name.startsWith(jvm.name)) jvmArgumentProviders.add(FfmToolchainProperties(javaHome21, javaHome25, null))
         }
 
         // The JDK 21 test run sees the ffm classes (a child JVM of a JDK 25 test, and the structure test, load them from here).
-        val targetJar: org.gradle.api.tasks.TaskProvider<Jar> = tasks.named<Jar>("${jvm.name}Jar")
+        val targetJar: TaskProvider<Jar> = tasks.named<Jar>("${jvm.name}Jar")
         tasks.matching { it.name == "${jvm.name}Test" }.withType<Test>().configureEach {
             classpath += ffm.output.allOutputs
             // The packaged jvm jar, for the structure test (what is in the artifact, and what references what).
             dependsOn(targetJar)
-            systemProperty("kmptoolkit.test.targetJar", targetJar.get().archiveFile.get().asFile.path)
+            jvmArgumentProviders.add(FfmToolchainProperties(null, null, targetJar.flatMap { it.archiveFile }.map { it.asFile.path }))
         }
 
         tasks.register<Test>(FFM_TEST_TASK) {
@@ -164,4 +176,21 @@ class FfmConventionPlugin : Plugin<Project> {
             doNotTrackState("Real-store suites: the verdict depends on the machine, never reuse an earlier result")
         }
     }
+}
+
+/**
+ * The system properties that depend on a resolved toolchain or a built jar, as JVM arguments computed when the test JVM starts
+ * (a plain `systemProperty` would read the providers while the project is configured). The paths are machine-specific, so they
+ * are not task inputs: a different JDK install path alone must not rerun a test task.
+ */
+private class FfmToolchainProperties(
+    @get:Internal val javaHome21: Provider<String>?,
+    @get:Internal val javaHome25: Provider<String>?,
+    @get:Internal val targetJar: Provider<String>?,
+) : CommandLineArgumentProvider {
+    override fun asArguments(): Iterable<String> = listOfNotNull(
+        javaHome21?.let { "-Dkmptoolkit.test.javaHome21=${it.get()}" },
+        javaHome25?.let { "-Dkmptoolkit.test.javaHome25=${it.get()}" },
+        targetJar?.let { "-Dkmptoolkit.test.targetJar=${it.get()}" },
+    )
 }
