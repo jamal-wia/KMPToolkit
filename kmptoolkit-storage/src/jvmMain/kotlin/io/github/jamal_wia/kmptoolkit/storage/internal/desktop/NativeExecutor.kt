@@ -6,7 +6,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -41,6 +40,10 @@ internal sealed interface NativeOutcome<out T> {
  * - **A limit is a limit for the caller, not for the call.** A call that has not started when its limit passes (or
  *   its caller is cancelled) is withdrawn from the queue and never runs, so a timed-out write is never applied later. A call that
  *   is running cannot be stopped: its result is delivered to nobody and handed to `discard` (to wipe a key).
+ * - **A value is never dropped.** A value a call returned that does not reach its caller as [NativeOutcome.Completed] reaches
+ *   `discard` exactly once, whatever the reason: the caller left or timed out first, the caller is cancelled in the instant
+ *   the value lands, or the delivery itself fails (an `Error` while the executor allocates the outcome, the thread dying).
+ *   It is handed over before that failure leaves the delivery, so even a thread that dies leaves no unwiped key behind.
  * - **Interactive calls** pass `limit = null`: a prompt may be on screen, so there is no limit, but the caller stays
  *   cancellable.
  * - **No lock is held across a call.** The executor owns no lock a binding call can wait on; callers never hold a
@@ -98,24 +101,43 @@ internal class NativeExecutor(
 
         fun execute() {
             if (!state.compareAndSet(QUEUED, RUNNING)) return
-            val outcome: NativeOutcome<T> = try {
-                NativeOutcome.Completed(block())
+            val value: T = try {
+                block()
             } catch (error: Throwable) {
-                classify(error)
+                settle(classify(error))
+                return
             }
-            settle(outcome)
+            publish(value)
         }
 
-        /** Delivers [outcome] to the caller, or to `discard` when the caller already left. */
-        private fun settle(outcome: NativeOutcome<T>) {
+        /**
+         * Delivers the [value] the call returned: to the caller as `Completed`, or to `discard` when the caller already left.
+         * Whatever happens on the way (an `Error` while allocating the outcome or at the delivery seam, a caller that
+         * left first, the thread dying) a value that is not handed over as `Completed` reaches `discard` exactly once and
+         * before the failure leaves this function, so a key the call returned is never dropped unwiped. The caller of a failed
+         * delivery is answered `Threw` by [settleAfterEscape]; an abandoned caller needs no answer.
+         */
+        private fun publish(value: T) {
+            var handedOver = false
+            try {
+                beforeDelivery()
+                val outcome: NativeOutcome.Completed<T> = NativeOutcome.Completed(value)
+                result = outcome
+                if (state.compareAndSet(RUNNING, FINISHED)) {
+                    // From here the caller owns the value: it reads `result` on a limit or a cancellation (see `call`).
+                    handedOver = true
+                    done.complete(outcome)
+                }
+            } finally {
+                if (!handedOver) NativeExecutor.discardQuietly(discard, value)
+            }
+        }
+
+        /** Delivers a [outcome] that carries no value to wipe to the caller; an abandoned caller needs no answer. */
+        private fun settle(outcome: NativeOutcome<Nothing>) {
             beforeDelivery()
             result = outcome
-            if (state.compareAndSet(RUNNING, FINISHED)) {
-                done.complete(outcome)
-            } else if (outcome is NativeOutcome.Completed<T>) {
-                // Abandoned while running: nobody will read the value, so let its owner wipe it.
-                NativeExecutor.discardQuietly(discard, outcome.value)
-            }
+            if (state.compareAndSet(RUNNING, FINISHED)) done.complete(outcome)
         }
 
         /** The native thread met an error outside [execute]'s own handling: never leave a caller waiting for it. */
@@ -147,7 +169,7 @@ internal class NativeExecutor(
 
     /**
      * Runs [block] on the native thread and waits for it. [limit] `null` waits without a limit (cancellable);
-     * a limit must be positive. [discard] receives a result nobody will read.
+     * a limit must be positive. [discard] receives a result nobody will read (see "A value is never dropped" above).
      */
     suspend fun <T> call(limit: Duration?, discard: (T) -> Unit = {}, block: () -> T): NativeOutcome<T> {
         require(limit == null || limit > Duration.ZERO) { "limit must be positive" }
@@ -195,7 +217,9 @@ internal class NativeExecutor(
                 }
                 Abandoned.RUNNING -> NativeOutcome.TimedOut
             }
-        } catch (cancelled: CancellationException) {
+        } catch (escaped: Throwable) {
+            // A cancellation, or anything else that leaves this call while its task is still in play: the task must not be left
+            // behind to deliver a value to nobody.
             when (task.abandon()) {
                 // Never awaited here: this coroutine is cancelled, so an await would throw at once and skip the wipe.
                 // FINISHED is set only after `result` is written, so reading it needs no waiting.
@@ -203,7 +227,7 @@ internal class NativeExecutor(
                 Abandoned.WITHDRAWN -> queue.remove(task)
                 Abandoned.RUNNING, Abandoned.REFUSED -> Unit
             }
-            throw cancelled
+            throw escaped
         }
     }
 
