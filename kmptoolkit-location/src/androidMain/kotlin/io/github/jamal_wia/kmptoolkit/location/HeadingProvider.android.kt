@@ -353,9 +353,9 @@ internal class AndroidHeadingProvider(
         } catch (failure: Throwable) {
             val candidate: LocationListener? = positionCandidate
             if (candidate != null && source != null) {
-                runCatching { source.unregister(candidate) }.exceptionOrNull()?.let(failure::addSuppressed)
+                failure.attach(runCatching { source.unregister(candidate) }.exceptionOrNull())
             }
-            runCatching { hub.unregister(sensorListener) }.exceptionOrNull()?.let(failure::addSuppressed)
+            failure.attach(runCatching { hub.unregister(sensorListener) }.exceptionOrNull())
             throw failure
         }
 
@@ -367,13 +367,28 @@ internal class AndroidHeadingProvider(
             val positionFailure: Throwable? =
                 if (registered != null && source != null) runCatching { source.unregister(registered) }.exceptionOrNull() else null
             val sensorFailure: Throwable? = runCatching { hub.unregister(sensorListener) }.exceptionOrNull()
-            positionFailure?.let { failure: Throwable ->
-                guardLogger { logger.w(failure) { "Could not remove the heading position listener" } }
+            try {
+                positionFailure?.let { failure: Throwable ->
+                    guardLogger { logger.w(failure) { "Could not remove the heading position listener" } }
+                }
+            } catch (loggerFailure: Throwable) {
+                // An Error of the app's logger is not absorbed (guardLogger), but the second removal's failure
+                // would never be logged then: it rides along instead of being lost.
+                loggerFailure.attach(sensorFailure)
+                throw loggerFailure
             }
             sensorFailure?.let { failure: Throwable ->
                 guardLogger { logger.w(failure) { "Could not remove the heading sensor listener" } }
             }
         }
+    }
+
+    /**
+     * Attaches [other] as suppressed, unless there is none or it is this very instance: `addSuppressed` throws
+     * on self-suppression, and that would replace the failure in flight and skip the undo that follows.
+     */
+    private fun Throwable.attach(other: Throwable?) {
+        if (other != null && other !== this) addSuppressed(other)
     }
 
     /**
