@@ -1,7 +1,7 @@
 # kmptoolkit-storage — API reference
 
 Every public symbol in `io.github.jamal_wia.kmptoolkit.storage`. Where a symbol exists on one platform only, its heading says
-so. The signatures are listings of the published API (the ABI dumps under `kmptoolkit-storage/api/` are checked in every build).
+so. The signatures are listings written from the published API; the checked record is the ABI dump under `kmptoolkit-storage/api/`.
 
 ---
 

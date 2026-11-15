@@ -240,20 +240,20 @@ Preparation, per operating system:
   with its file backend).
 - **Every OS:** the suites loop their operations and assert that the open-descriptor count and the native-object ledger come back to where they started.
 
-The Linux cases that manipulate the daemon (a locked collection, a killed daemon, a dismissed prompt) and the real-store behaviour of the macOS verification items in
+The Linux cases that manipulate the daemon (a locked collection, a killed daemon, a dismissed prompt) and the real-store behaviour of the points listed under "Not observed on a real keychain" in
 [`05-platform-notes.md`](05-platform-notes.md#desktop-secure-stores) are manual runs that need a scripted environment.
 
 ### Docs samples
 
-Every Kotlin snippet in this documentation set is checked, in two parts, so that a snippet that does not compile or does not run is a doc defect found by a build:
+The Kotlin snippets of this documentation set are checked by a build, in the parts below, so that a snippet that does not compile or does not run is a doc defect found by a build. The checks differ per platform: only the desktop and shared snippets are compiled as a consumer, the Android ones run on the Android host, the iOS ones are only compiled, and a few snippets are compiled but not run:
 
 - **Compiled as a consumer.** The snippets live in the non-published module `docs-samples` (not named `kmptoolkit-*`, so the BOM does not list it), which depends on `kmptoolkit-storage` as an ordinary
   project dependency. Kotlin's cross-module rules therefore apply to them: a smart cast on a public property of another module (`error.key`) does not compile, and the compiler's return-value checker
   is on, so a snippet that drops a result fails the build. `:docs-samples:compileKotlinJvm` is the check.
 - **Run, with the fake binding.** The same files are compiled into `kmptoolkit-storage`'s own `jvmTest`, where the internal fake binding is visible, and `DocsSamplesDesktopRunTest` runs the desktop and shared snippets against the OS-key store over that fake and
-  against the app-key store. The Android snippets run in `AndroidDocsSamplesRound11Test` (the `AndroidDocsSamplesRound9Test` pattern) and the iOS ones are compiled in `iosTest`.
+  against the app-key store (`openSecrets` of 02 is compiled but not run: it asks the real operating system; `createDesktopStorage` of 02 and the `guide-config` values of 03 are declarations that are compiled only). The Android snippets run in `AndroidDocsSamplesRound11Test` (the `AndroidDocsSamplesRound9Test` pattern) and the iOS ones are compiled in `iosTest`.
 - **Kept equal to the docs.** `DocsSamplesDriftTest` extracts every `kotlin` fence of `01` to `07`: a fence marked `<!-- sample: id -->` must equal, line for line, the code between the `// sample:begin id` and `// sample:end id` lines of exactly
-  one source file; the other fences must be marked `<!-- listing -->` (an API signature listing) or `<!-- build-script -->`. An unmarked fence fails the test.
+  one source file; the other fences must be marked `<!-- listing -->` (an API signature listing, which nothing compares with the ABI dump) or `<!-- build-script -->`. An unmarked fence fails the test, and so does a fence opened as `kt`, `kts` or anything but exactly `kotlin`. The test is re-run by Gradle when a doc or any of the sample source roots changes.
 
 ### The gaps, stated plainly
 

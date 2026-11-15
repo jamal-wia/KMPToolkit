@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
  *   `// sample:begin id` and `// sample:end id` lines of exactly one source file (a file of `docs-samples`, the Android host test
  *   `AndroidDocsSamplesRound11Test`, the iOS test `IosDocsSamplesCompileTest` or the fixture test `DocsSamplesTestingTest`), and
  *   every such block must belong to exactly one fence: a sample nobody documents is dead code;
- * - `<!-- listing -->`: an API signature listing (checked by the ABI dumps) or an excerpt of the library's own code, not a consumer sample;
+ * - `<!-- listing -->`: an API signature listing (written from the published API; nothing compares it with the ABI dump) or an excerpt of the library's own code, not a consumer sample;
  * - `<!-- build-script -->`: a Gradle snippet.
  *
  * A fence with no marker, or a marker that names nothing, fails. The compile and run checks of the samples themselves are

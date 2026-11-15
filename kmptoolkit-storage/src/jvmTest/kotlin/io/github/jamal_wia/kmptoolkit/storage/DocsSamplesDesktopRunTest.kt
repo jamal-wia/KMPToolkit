@@ -49,7 +49,8 @@ import kotlinx.coroutines.withTimeout
  * samples are the files of `docs-samples/src/jvmMain/kotlin`, compiled into this module's jvmTest by its build file; each test names the
  * sample it runs and asserts the reaction the document promises, not what the implementation happens to do.
  *
- * Not run here: `openSecrets` (it asks the real operating system through `probeDesktopKeyStore()` and the real factory).
+ * Not run here: `openSecrets` (it asks the real operating system through `probeDesktopKeyStore()` and the real factory), and the plain
+ * declarations `createDesktopStorage` and `guide-config` (`appStore`, `sessionStore`), which the consumer compile covers.
  */
 class DocsSamplesDesktopRunTest {
 
