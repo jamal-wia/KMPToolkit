@@ -155,4 +155,8 @@ tasks.matching { it.name == "runReleaseDistributable" }.configureEach {
     mustRunAfter(tasks.named("test"))
     // A stale verdict of an earlier run must never stand in for this run.
     doFirst { delete(resultFile) }
+    // The independent check of the login keychain belongs to the packaged run itself, not to the smoke task above it: when the app FAILS,
+    // this task fails, the smoke task never executes, and Gradle does not run the finalizer of a task that did not execute. A failed run
+    // is exactly where a leftover item is most likely, so the check must run after it too (breaker round 2, M1).
+    finalizedBy(":smoke-storage-desktop:verifySmokeLeftNoKeychainItem")
 }

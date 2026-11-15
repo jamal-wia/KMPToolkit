@@ -19,13 +19,14 @@ import java.util.concurrent.TimeUnit
 // Run on macOS (plan 6.7 P: Mac); the Gradle part (compile, ProGuard, jlink, jpackage) works on any OS with a full JDK.
 
 // A secure run must leave NOTHING in the login keychain (the host app removes its own key item, see Cleanup.kt). This check does not
-// trust that: after every macOS run that was not probe-only it asks `security` (a read of attributes, no secret) for an item with the
-// smoke's label and fails the build if one is there. The label must equal ITEM_LABEL in Main.kt.
+// trust that: after every macOS run that was not probe-only, PASSED OR FAILED (it finalizes the packaged run of both variants, see
+// variant.gradle.kts), it asks `security` (a read of attributes, no secret) for an item with the smoke's label and fails the build
+// if one is there. The label must equal ITEM_LABEL in Main.kt.
 val keychainLabel: String = "KMPToolkit packaging smoke (safe to delete)"
 // The exit status `security` gives for "The specified item could not be found in the keychain".
 val ITEM_NOT_FOUND_EXIT: Int = 44
 val probeOnly: Boolean = providers.gradleProperty("smoke.probeOnly").orNull == "true"
-val verifyNoKeychainItem: TaskProvider<Task> = tasks.register("verifySmokeLeftNoKeychainItem") {
+tasks.register("verifySmokeLeftNoKeychainItem") {
     group = "verification"
     description = "Fails if the smoke's secure run left an item labelled '$keychainLabel' in the login keychain (macOS, not probe-only)."
     onlyIf { System.getProperty("os.name").orEmpty().startsWith("Mac") && !probeOnly }
@@ -37,7 +38,7 @@ val verifyNoKeychainItem: TaskProvider<Task> = tasks.register("verifySmokeLeftNo
         }
         val output: String = process.inputStream.bufferedReader().readText().trim()
         when (val code: Int = process.exitValue()) {
-            0 -> error("the smoke left an item labelled '$keychainLabel' in the login keychain. Remove it with: security delete-generic-password -l '$keychainLabel'\n$output")
+            0 -> error("the smoke left an item labelled '$keychainLabel' in the login keychain. Remove it with: security delete-generic-password -l '$keychainLabel' (each call deletes ONE item: repeat until it reports that the item could not be found)\n$output")
             ITEM_NOT_FOUND_EXIT -> logger.lifecycle("keychain check: no item labelled '$keychainLabel' is left in the login keychain")
             else -> error("could not check the login keychain: `security find-generic-password` exited with $code: $output")
         }
@@ -52,7 +53,7 @@ for ((suffix: String, variant: String) in listOf("Ffm" to "ffm", "Jna" to "jna")
         // first, so a wrong verdict rule fails the gate before it can judge a run.
         dependsOn(":smoke-storage-desktop:$variant:test")
         dependsOn(":smoke-storage-desktop:$variant:runReleaseDistributable")
-        finalizedBy(verifyNoKeychainItem)
+        // The keychain check finalizes the packaged run itself (variant.gradle.kts), so it also runs when that run fails.
         val resultFile: RegularFile = layout.projectDirectory.file("$variant/build/smoke/result.txt")
         // Not an output of runReleaseDistributable, so the verdict is read here: a run that never reached main() leaves no file.
         doLast {
