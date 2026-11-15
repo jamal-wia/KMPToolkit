@@ -13,6 +13,7 @@ import io.github.jamal_wia.kmptoolkit.files.WriteOptions
 import io.github.jamal_wia.kmptoolkit.files.createFileAccess
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.Jca
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.JcaFailure
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.LockAcquisition
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.refuseUnlessRegularOrAbsent
 import java.io.ByteArrayOutputStream
@@ -69,10 +70,30 @@ internal class JvmKeyValueStorage(
     private val timeSource: TimeSource.WithComparableMarks = TimeSource.Monotonic,
 ) : KeyValueStorage {
 
-    private val lockFile: File = CrossProcessLock.lockFileOf(file)
+    /**
+     * The lock file and the temporary-file prefix of this store. Both are derived from the file name and need SHA-256 only for a
+     * very long name (251 and 233 bytes or more). They are computed once here, but a SHA-256 provider that fails (a PKCS#11 token
+     * under a FIPS-configured JDK) is an environment problem, so the failure is NOT thrown out of the constructor, and so not out of
+     * the factory (every failure of this module is a value): the names stay unknown and every WRITE tries again, answering
+     * `OperationFailed` with the provider failure as its cause until the provider works, and then works. Reads need neither name.
+     * The value is a pure function of the file name, so a race between two first writes only computes it twice.
+     */
+    private class Names(val lockFile: File, val tempPrefix: String)
 
-    /** The prefix of every temporary sibling of this store, including the one-time creation of its lock file. */
-    private val tempPrefix: String = temporaryPrefixOf(file.name)
+    @Volatile private var names: Names? =
+        try {
+            Names(CrossProcessLock.lockFileOf(file), temporaryPrefixOf(file.name))
+        } catch (_: JcaFailure) {
+            null
+        }
+
+    private fun names(): Names =
+        names ?: Names(CrossProcessLock.lockFileOf(file), temporaryPrefixOf(file.name)).also { computed: Names -> names = computed }
+
+    private val lockFile: File get() = names().lockFile
+
+    /** The prefix of every temporary sibling of this store. */
+    private val tempPrefix: String get() = names().tempPrefix
 
     /**
      * Shared by every instance whose path is the same file on a volume that folds case or Unicode
@@ -138,6 +159,12 @@ internal class JvmKeyValueStorage(
         key: String?,
         crossinline block: () -> T,
     ): StorageResult<T> = withContext(dispatcher) {
+        // The names a write needs (see Names): a provider failure here is this write's OperationFailed, before any lock is taken.
+        try {
+            names()
+        } catch (failure: JcaFailure) {
+            return@withContext StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = failure))
+        }
         val budget: Duration = crossProcessLock.deadline
         val started: ComparableTimeMark = timeSource.markNow()
         LOCKS.withLock(lockKey, budget, onTimeout = { unavailable<T>() }) {

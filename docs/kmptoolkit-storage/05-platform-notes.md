@@ -509,9 +509,10 @@ engine without support for additional authenticated data, a failing SHA-256, pla
 an `Exception` nor an `Error` (legal in Kotlin, which has no checked exceptions). Whatever the random source had written when it failed is wiped. The one
 thing it never types is an `Error`: the JDK's DRBG `SecureRandom` (the default on Windows, and on Linux wherever `securerandom.source` is not exactly `/dev/random` or
 `/dev/urandom`, for example with `-Djava.security.egd=file:/dev/./urandom`) reports a seed source it cannot read as an `InternalError`, a
-`VirtualMachineError` that the library does not catch: that call throws it, and nothing is created, moved or held when it does. (The plain store
-computes its lock and temporary-file names when it is made and uses SHA-256 only for a file name of 232 bytes or more, so a failing SHA-256
-provider with such a name makes the factory throw an `IllegalStateException`, not a store call.)
+`VirtualMachineError` that the library does not catch: that call throws it, and nothing is created, moved or held when it does. (The plain store derives its lock-file and temporary-file names from the file name and
+uses SHA-256 only for a file name of 232 bytes or more. A failing SHA-256 provider with such a name never makes the factory throw: the
+names are computed again by every write, which answers `OperationFailed` with the provider failure as its cause and touches nothing, and works
+once the provider does; reads need neither name.)
 
 Only a GCM tag that does not verify means "wrong key or tampered", and only one that carries no provider cause. A PKCS#11 provider reports a
 token error during a decryption as a bad-tag exception that has the token's exception as its cause, so the library reads a bad-tag exception

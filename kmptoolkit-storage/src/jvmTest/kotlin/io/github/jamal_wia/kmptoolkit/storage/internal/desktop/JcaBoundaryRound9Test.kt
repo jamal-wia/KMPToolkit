@@ -1,6 +1,9 @@
 package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
 
 import io.github.jamal_wia.kmptoolkit.storage.JvmKeyValueStorage
+import io.github.jamal_wia.kmptoolkit.storage.StorageError
+import io.github.jamal_wia.kmptoolkit.storage.StorageOperation
+import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import java.io.File
 import java.security.Provider
 import java.security.ProviderException
@@ -38,7 +41,7 @@ class JcaBoundaryRound9Test {
     private val aad: ByteArray = "aad".toByteArray(Charsets.UTF_8)
     private val plain: ByteArray = "plain".toByteArray(Charsets.UTF_8)
 
-    private fun <T> withProvider(provider: Provider, block: () -> T): T {
+    private inline fun <T> withProvider(provider: Provider, block: () -> T): T {
         check(Security.insertProviderAt(provider, 1) == 1) { "control: the stand-in provider is first" }
         try {
             return block()
@@ -126,23 +129,45 @@ class JcaBoundaryRound9Test {
     }
 
     /**
-     * The decision for the plain store: it computes its lock and temporary-file names when it is made, and hashes only a file name
-     * of 232 bytes or more, so a failing SHA-256 provider with such a name fails the construction (the factory), typed, never as a
-     * raw `ProviderException`. A shorter name needs no digest at all (control). Construction is not a store call.
+     * The plain store derives its lock and temporary-file names from the file name and hashes only a name of 232 bytes or more, so a
+     * failing SHA-256 provider matters only for such a name. Round 9 computed the names in the constructor and let the factory throw a
+     * typed `IllegalStateException` ("construction is not a store call"); that pin was wrong (breaker B7-m1: the factory's KDoc and
+     * 01-overview say every failure is a value, and both encrypted stores answer the same condition per call). Corrected rule: the
+     * construction never throws (it still asks for the digest, as the breaker's control asserts, and keeps the failure to itself), every
+     * write tries the names again and answers `OperationFailed` with the provider failure as its cause and touches nothing, a read
+     * needs neither name and works, and the same instance writes once the provider works. A shorter name needs no digest at all (control).
      */
     @Test
-    fun `a plain store with a long name and a failing SHA-256 provider fails its construction with a typed failure`() {
+    fun `a plain store with a long name and a failing SHA-256 provider is made, answers its writes OperationFailed and recovers`() {
         val longName: String = "plain-r9-" + "x".repeat(240 - "plain-r9-".length)
         assertEquals(240, longName.toByteArray(Charsets.UTF_8).size, "control: the name is long enough to be hashed")
-        JvmKeyValueStorage(File(longName.take(100)), Dispatchers.IO)
-        withProvider(A7TokenDigestProvider()) {
-            A7TokenDigestSpi.marker = longName.toByteArray(Charsets.UTF_8)
-            val asked: Int = A7TokenDigestSpi.failures.get()
-            val thrown: Throwable? = runCatching { JvmKeyValueStorage(File(longName), Dispatchers.IO) }.exceptionOrNull()
-            assertTrue(A7TokenDigestSpi.failures.get() > asked, "control: the stand-in digest was asked for the long name")
-            assertTyped("plain store construction", thrown, ProviderException::class.java)
-            A7TokenDigestSpi.marker = null
-            JvmKeyValueStorage(File(longName), Dispatchers.IO)
+        SecureTestRig(DesktopOs.MACOS).use { rig: SecureTestRig ->
+            kotlinx.coroutines.runBlocking {
+                val file = File(rig.directory, longName)
+                val short = JvmKeyValueStorage(File(rig.directory, longName.take(100)), Dispatchers.IO)
+                assertEquals(StorageResult.Success(Unit), short.put("a", "1"), "control: a short name needs no digest")
+                withProvider(A7TokenDigestProvider()) {
+                    A7TokenDigestSpi.marker = longName.toByteArray(Charsets.UTF_8)
+                    val asked: Int = A7TokenDigestSpi.failures.get()
+                    val store: JvmKeyValueStorage = JvmKeyValueStorage(file, Dispatchers.IO)
+                    assertTrue(A7TokenDigestSpi.failures.get() > asked, "control: construction asked the stand-in digest and did not throw")
+                    val askedAtConstruction: Int = A7TokenDigestSpi.failures.get()
+                    assertEquals(StorageResult.Success(null), store.get("a"), "a read needs neither name")
+                    val failed: StorageResult<Unit> = store.put("a", "1")
+                    assertTrue(A7TokenDigestSpi.failures.get() > askedAtConstruction, "control: the write asked the digest again")
+                    val error: StorageError = assertIs<StorageResult.Failure>(failed, "put: $failed").error
+                    val operation: StorageError.OperationFailed = assertIs<StorageError.OperationFailed>(error, "put: $error")
+                    assertEquals(StorageOperation.PUT, operation.operation)
+                    assertEquals("a", operation.key)
+                    assertIs<JcaFailure>(operation.cause, "the provider failure is the cause")
+                    assertIs<StorageResult.Failure>(store.remove("a"), "remove fails typed too")
+                    assertIs<StorageResult.Failure>(store.clear(), "clear fails typed too (it needs the temporary prefix)")
+                    assertEquals(false, file.exists(), "nothing was written")
+                    A7TokenDigestSpi.marker = null
+                    assertEquals(StorageResult.Success(Unit), store.put("a", "1"), "the same instance writes once the provider works")
+                    assertEquals(StorageResult.Success("1"), store.get("a"), "and reads it back")
+                }
+            }
         }
     }
 
