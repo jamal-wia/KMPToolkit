@@ -14,21 +14,22 @@ import kotlin.test.assertTrue
 /**
  * Group sto-desktop, round 17 (observation O-1 of breaker round 15): a file system that folds case folds more than ASCII. On APFS
  * `x/Hidden.claſs` (U+017F, the long s) is the file `x/Hidden.class`, and a class loader over such a directory loads it, while
- * `lowercase()` keeps the long s. [ClassFileScan.isClassFileName] folds each of the last six characters one to one (upper case, then
- * lower case), so the long s is an `s`; `ß`, whose upper case is two characters, is not folded (`x.claß` is no class).
+ * `lowercase()` keeps the long s. Round 18 (breaker round 16, observation O-1): APFS folds `ß` and `ẞ` (U+1E9E) to `ss` as well
+ * (`H1.claß` and `H5.claẞ` exist as `H1.class` on APFS), so [ClassFileScan.isClassFileName] folds the name to lower case, to upper
+ * case and to lower case again; the round-17 claim that `x.claß` is no class was false and its row is flipped.
  *
- * Mutation by reading: `name.lowercase().endsWith(".class")` turns the name table and the jar read red; a fold through
- * `uppercase().lowercase()` of the whole name turns the `ß` row red.
+ * Mutation by reading: `name.lowercase().endsWith(".class")` turns the name table and the jar read red; a fold that folds each
+ * character one to one turns the `ß` and `ẞ` rows red; dropping the first `lowercase()` turns the `ẞ` row red.
  */
 class JcaBytecodeScanClassExtensionRound17Test {
 
     @Test
     fun `a name whose extension folds to class under Unicode case folding is a class file name and a look-alike is not`() {
-        for (name: String in listOf("x/Hidden.claſs", "x/Hidden.CLAſS", "x/Hidden.claſſ", "x/Hidden.CLASS", "x/Hidden.cLaSs")) {
+        for (name: String in listOf("x/Hidden.claſs", "x/Hidden.CLAſS", "x/Hidden.claſſ", "x/Hidden.CLASS", "x/Hidden.cLaSs", "x/Hidden.claß", "x/Hidden.CLAß", "x/Hidden.claẞ", "x/Hidden.CLAẞ")) {
             assertTrue(ClassFileScan.isClassFileName(name), "$name is a class file name (any case, the long s included)")
         }
-        // Not a case of the extension: `ß` has no one-character upper case, a dotless i and a Kelvin sign are not in "class".
-        for (name: String in listOf("x/Hidden.claß", "x/Hidden.claßs", "x/Hidden.clası", "x/Hidden.clazz", "x/Hidden.ſclass", "claſs")) {
+        // Not a case of the extension: an extra letter after the fold, a dotless i, a wrong letter, a misplaced long s, no dot.
+        for (name: String in listOf("x/Hidden.claßs", "x/Hidden.clası", "x/Hidden.clazz", "x/Hidden.ſclass", "claſs")) {
             assertFalse(ClassFileScan.isClassFileName(name), "$name is not a class file name")
         }
     }
