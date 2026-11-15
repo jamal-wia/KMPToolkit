@@ -36,7 +36,8 @@ import org.robolectric.RobolectricTestRunner
 
 /**
  * Breaker review round 3 of group sto-android (ticket release-5-1-0, STO-4): the production lookup
- * ([AndroidKeyStoreAliases.existingKey], `KeyStore.getEntry`) against a key-store provider that answers the way the
+ * ([AndroidKeyStoreAliases.existingKey]; `KeyStore.getEntry` when this class was written, `KeyStore.getKey` since the
+ * round-3 fix) against a key-store provider that answers the way the
  * keystore 2 `AndroidKeyStoreSpi` (API 31 and later) really answers.
  *
  * Contract: [resolveExistingKey] and [AliasedKeyStore.existingKey] (a lookup failure that is not the platform's proof,
