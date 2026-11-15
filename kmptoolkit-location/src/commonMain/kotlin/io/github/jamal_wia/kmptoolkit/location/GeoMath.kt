@@ -63,7 +63,9 @@ public fun GeoCoordinates.destinationPoint(distanceMeters: Double, bearingDegree
 
     val phi1: Double = latitude.toRadiansValue()
     val lambda1: Double = longitude.toRadiansValue()
-    val theta: Double = bearingDegrees.toRadiansValue()
+    // Reduced first: bearing * PI overflows to infinity above about 5.7e306, and a turn is a turn
+    // (the reduction is exact, and a bearing below 360 passes through unchanged).
+    val theta: Double = (bearingDegrees % 360.0).toRadiansValue()
     val delta: Double = distanceMeters / EARTH_MEAN_RADIUS_METERS
 
     val sinPhi1: Double = sin(phi1)
@@ -94,12 +96,22 @@ public fun GeoCoordinates.destinationPoint(distanceMeters: Double, bearingDegree
 private const val BOX_EDGE_PADDING_DEGREES: Double = 5.0e-10
 
 /**
+ * Slack added to the angular radius before the extreme longitude is computed: 1e-14 rad, about 6e-8 m
+ * and 20 to 50 times the rounding of everything involved (see [boundingBox]).
+ */
+private const val ANGLE_SLACK_RADIANS: Double = 1.0e-14
+
+/** Relative inflation of the asin argument of [boundingBox]: 16 * 2.2e-16, five times the rounding of the ratio. */
+private const val RATIO_INFLATION: Double = 1.0 + 16.0 * 2.220446049250313e-16
+
+/**
  * The smallest box holding every point within [radiusMeters] of this position on the same sphere,
  * with each edge rounded outward by 5e-10 degrees (about 0.05 mm) so
  * that floating-point rounding can never leave a point that is exactly on the circle outside it.
  * It is a prefilter before [distanceInMetersTo]: a point outside the box is outside the radius, a
  * point inside still needs the exact distance. A pole inside the circle gives the full longitude
- * span. `west > east` in the result means the box crosses the antimeridian, so build a SQL
+ * span, and so does a circle that passes so close to a pole (within a few meters at worst, for a
+ * circle of a quarter of the Earth) that rounding cannot rule the pole out. `west > east` in the result means the box crosses the antimeridian, so build a SQL
  * `BETWEEN` clause from [GeoBounds.longitudeRanges], never from `west..east`.
  *
  * Throws [IllegalArgumentException] for a negative or non-finite radius.
@@ -113,31 +125,38 @@ public fun GeoCoordinates.boundingBox(radiusMeters: Double): GeoBounds {
     val rawSouth: Double = latitude - angularRadiusDegrees
     val rawNorth: Double = latitude + angularRadiusDegrees
 
-    // A pole inside the circle: the box reaches the pole and spans every longitude.
-    if (rawNorth >= 90.0 || rawSouth <= -90.0) {
-        return GeoBounds(
-            south = (rawSouth - BOX_EDGE_PADDING_DEGREES).coerceAtLeast(-90.0),
-            west = -180.0,
-            north = (rawNorth + BOX_EDGE_PADDING_DEGREES).coerceAtMost(90.0),
-            east = 180.0,
-        )
-    }
+    // The latitude edges: rounded outward; a pole inside the circle puts the edge on the pole.
+    val south: Double = (rawSouth - BOX_EDGE_PADDING_DEGREES).coerceAtLeast(-90.0)
+    val north: Double = (rawNorth + BOX_EDGE_PADDING_DEGREES).coerceAtMost(90.0)
 
-    // The circle's extreme longitudes: sin(delta-lambda) = sin(rho) / cos(phi). Neither pole is inside,
-    // so the quotient is below 1; the clamp only absorbs rounding at the border.
-    val ratio: Double = (sin(angularRadius) / cos(latitude.toRadiansValue())).coerceAtMost(1.0)
-    val halfSpanDegrees: Double = asin(ratio).toDegreesValue()
+    // A pole inside the circle: the box reaches the pole and spans every longitude.
+    if (rawNorth >= 90.0 || rawSouth <= -90.0) return GeoBounds(south = south, west = -180.0, north = north, east = 180.0)
+
+    // The circle's extreme longitudes: sin(delta-lambda) = sin(rho) / sin(colatitude), the right
+    // spherical triangle pole - centre - point of tangency. asin is ill-conditioned where its argument
+    // approaches 1 (a circle that almost touches a pole): an error e in the argument becomes about
+    // e / sqrt(1 - ratio^2) in the angle, up to 1e8 times larger, so no fixed padding of the result is
+    // safe there. The padding is therefore put on the INPUT of asin, which is monotonic: the radius gets
+    // a slack of ANGLE_SLACK_RADIANS (covering the rounding of the radius, of the centre's conversion
+    // and of the distance function that the caller compares with: a few 1e-16 rad each) and the ratio is
+    // inflated by RATIO_INFLATION (covering the relative rounding of sin, the division and the
+    // conversion, about 6 units of 1.1e-16, with a margin of five). The result then bounds the extreme
+    // longitude of every circle within the slack of this one, however close the tangency. The
+    // colatitude is taken as (90 - |latitude|) degrees, exact for |latitude| >= 45 (Sterbenz), so
+    // its conversion has a relative error only; cos(latitude) next to a pole would not have that.
+    // A ratio that reaches 1 after the inflation means a pole cannot be ruled out: every longitude.
+    val colatitude: Double = (90.0 - abs(latitude)).toRadiansValue()
+    val inflatedRatio: Double =
+        sin(minOf(angularRadius + ANGLE_SLACK_RADIANS, PI / 2.0)) / sin(colatitude) * RATIO_INFLATION
+    if (inflatedRatio >= 1.0) return GeoBounds(south = south, west = -180.0, north = north, east = 180.0)
+
+    val halfSpanDegrees: Double = asin(inflatedRatio).toDegreesValue()
     var west: Double = longitude - halfSpanDegrees - BOX_EDGE_PADDING_DEGREES
     var east: Double = longitude + halfSpanDegrees + BOX_EDGE_PADDING_DEGREES
     // An edge exactly at +-180 stays: only a value past it wraps, so east == 180 is not a crossing.
     if (west < -180.0) west += 360.0
     if (east > 180.0) east -= 360.0
-    return GeoBounds(
-        south = (rawSouth - BOX_EDGE_PADDING_DEGREES).coerceAtLeast(-90.0),
-        west = west,
-        north = (rawNorth + BOX_EDGE_PADDING_DEGREES).coerceAtMost(90.0),
-        east = east,
-    )
+    return GeoBounds(south = south, west = west, north = north, east = east)
 }
 
 /**
