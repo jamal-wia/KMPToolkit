@@ -67,3 +67,11 @@ internal class JcaScanFixtureCleanBoundaryUse {
 internal class JcaScanFixtureCleanOtherJdk {
     fun size(path: Path): Long = Files.size(path) + "x".toByteArray(Charsets.UTF_8).size
 }
+
+/**
+ * Round 12 (breaker A10-m1): a top-level class whose back-quoted name holds a `$`, so that its binary name looks like a class nested in
+ * the boundary. It is compiled from this file, not from `Jca.kt`, and it touches the JCA: the scan must not exempt it.
+ */
+internal class `Jca$Round12NotNested` {
+    fun digest(bytes: ByteArray): ByteArray = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+}

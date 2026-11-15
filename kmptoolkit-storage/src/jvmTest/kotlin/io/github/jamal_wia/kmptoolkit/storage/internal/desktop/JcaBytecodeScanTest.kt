@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 /**
  * Group sto-desktop, round 11 (breaker A9-m2): the JCA boundary of decisions D-P12 is enforced on the COMPILED classes of the
  * storage module's jvm target, not only on source text (`JcaBoundaryScanTest` stays as the second layer). In every class but `Jca`
- * (and its nested classes), the constant pool must name no `java.security`, `javax.crypto`, `java.util.Base64` or
+ * (and the classes nested in it: told apart by their `SourceFile`, never by the shape of a name), the constant pool must name no `java.security`, `javax.crypto`, `java.util.Base64` or
  * `kotlin.io.encoding` class, hold no string that spells those packages, and mention no such type in a descriptor except
  * `SecureRandom`, the type of the random source that crosses the boundary (see [ClassFileScan]). Baseline zero.
  *
@@ -58,10 +58,10 @@ class JcaBytecodeScanTest {
     @Test
     fun `no compiled class but the boundary touches the JCA`() {
         val all: List<ClassFileScan.Facts> = mainClasses(codeSource(Jca::class.java))
-        val boundary: List<ClassFileScan.Facts> = all.filter { facts: ClassFileScan.Facts -> ClassFileScan.isBoundary(facts.name) }
+        val boundary: List<ClassFileScan.Facts> = all.filter(ClassFileScan::isBoundaryClass)
         assertTrue(boundary.isNotEmpty(), "control: the boundary class is in the scanned set")
         assertTrue(boundary.any { facts: ClassFileScan.Facts -> ClassFileScan.violations(facts).isNotEmpty() }, "control: the same scan flags the boundary, so it sees JCA code")
-        val offenders: List<String> = all.filterNot { facts: ClassFileScan.Facts -> ClassFileScan.isBoundary(facts.name) }.flatMap(ClassFileScan::violations)
+        val offenders: List<String> = all.filterNot(ClassFileScan::isBoundaryClass).flatMap(ClassFileScan::violations)
         assertEquals(emptyList(), offenders, "a compiled class that touches the JCA outside Jca: route it through the boundary (D-P12)")
     }
 
@@ -141,12 +141,38 @@ class JcaBytecodeScanTest {
     }
 
     @Test
-    fun `the boundary and its nested classes are recognised and nothing else is`() {
-        assertTrue(ClassFileScan.isBoundary("io/github/x/desktop/Jca"))
-        assertTrue(ClassFileScan.isBoundary("io/github/x/desktop/Jca\$provider\$1"))
-        assertTrue(!ClassFileScan.isBoundary("io/github/x/desktop/JcaFailure"), "JcaFailure holds no JCA reference and is scanned like every other class")
-        assertTrue(!ClassFileScan.isBoundary("io/github/x/desktop/JcaBoundary"))
-        assertTrue(!ClassFileScan.isBoundary("io/github/x/other/Jca"))
+    fun `the boundary is recognised by its exact name and a nested class by its name and its source file`() {
+        assertTrue(ClassFileScan.isBoundary(boundaryName), "control: the real boundary")
+        assertTrue(!ClassFileScan.isBoundary("$boundaryName\$provider\$1"), "a name is exact: a name that only starts like the boundary is not it")
+        assertTrue(!ClassFileScan.isBoundary("io/github/x/desktop/Jca"), "a class Jca of another package")
+        assertTrue(!ClassFileScan.isBoundary("${boundaryName}Failure"), "JcaFailure holds no JCA reference and is scanned like every other class")
+        fun synthetic(name: String, sourceFile: String?): ClassFileScan.Facts =
+            ClassFileScan.parse(SyntheticClass.build(name, sourceFile = sourceFile, withMembers = true) { pool: SyntheticClass.Pool -> pool.classOf("x/Y") })
+        assertTrue(ClassFileScan.isBoundaryClass(synthetic(boundaryName, "Jca.kt")), "the boundary")
+        assertTrue(ClassFileScan.isBoundaryClass(synthetic("$boundaryName\$provider\$1", "Jca.kt")), "a class nested in the boundary: its name and the file it was compiled from")
+        assertTrue(!ClassFileScan.isBoundaryClass(synthetic("$boundaryName\$Helper", "Helper.kt")), "a top-level class called Jca\$Helper compiled from another file")
+        assertTrue(!ClassFileScan.isBoundaryClass(synthetic("$boundaryName\$Helper", null)), "a class with no SourceFile attribute is nested in nothing")
+        assertTrue(!ClassFileScan.isBoundaryClass(synthetic("io/github/x/desktop/Jca\$1", "Jca.kt")), "another package's Jca.kt")
+        assertTrue(!ClassFileScan.isBoundaryClass(synthetic("${boundaryName}Failure", "Jca.kt")), "a look-alike name in the boundary's file")
+    }
+
+    @Test
+    fun `the source file of a class is read past its interfaces, fields, methods and attributes`() {
+        val facts: ClassFileScan.Facts = ClassFileScan.parse(SyntheticClass.build("a/B", sourceFile = "Some.kt", withMembers = true) { pool: SyntheticClass.Pool -> pool.long(1L) })
+        assertEquals("Some.kt", facts.sourceFile, "a parser that misses one skipped table reads another attribute's bytes")
+        assertEquals(null, ClassFileScan.parse(SyntheticClass.build("a/B", withMembers = true) { pool: SyntheticClass.Pool -> pool.long(1L) }).sourceFile)
+        assertEquals(null, ClassFileScan.parse(SyntheticClass.build("a/B") { pool: SyntheticClass.Pool -> pool.long(1L) }).sourceFile)
+    }
+
+    @Test
+    fun `the compiled boundary names Jca kt and a fixture that only looks nested does not`() {
+        val real: ClassFileScan.Facts = ClassFileScan.classBytes(codeSource(Jca::class.java)).map(ClassFileScan::parse).single { facts: ClassFileScan.Facts -> facts.name == boundaryName }
+        assertEquals("Jca.kt", real.sourceFile, "control: the file the boundary's nested classes are told apart by")
+        assertTrue(ClassFileScan.isBoundaryClass(real))
+        val lookAlike: ClassFileScan.Facts = fixtureFacts("Jca\$Round12NotNested")
+        assertTrue(lookAlike.name.startsWith("$boundaryName\$"), "control: its binary name looks like a class nested in the boundary")
+        assertTrue(!ClassFileScan.isBoundaryClass(lookAlike), "it is a top-level class compiled from ${lookAlike.sourceFile}")
+        assertTrue(ClassFileScan.violations(lookAlike).isNotEmpty(), "control: it touches the JCA, so the real-tree scan must not let it through")
     }
 
     @Test
@@ -246,11 +272,19 @@ class JcaBytecodeScanTest {
             }
         }
 
-        fun build(thisName: String, fill: (Pool) -> Unit): ByteArray {
+        /**
+         * [sourceFile] adds a `SourceFile` attribute; [withMembers] adds an interface, a field and a method that carry attributes
+         * (the tables a parser has to skip to reach the attributes of the class).
+         */
+        fun build(thisName: String, sourceFile: String? = null, withMembers: Boolean = false, fill: (Pool) -> Unit): ByteArray {
             val pool = ByteArrayOutputStream()
             val builder = Pool(DataOutputStream(pool))
             val thisClass: Int = builder.classOf(thisName)
             fill(builder)
+            val memberName: Int = builder.utf8("member")
+            val memberAttribute: Int = builder.utf8("Whatever")
+            val sourceFileName: Int = builder.utf8("SourceFile")
+            val sourceFileText: Int = sourceFile?.let { text: String -> builder.utf8(text) } ?: 0
             val out = ByteArrayOutputStream()
             DataOutputStream(out).apply {
                 writeInt(0xCAFEBABE.toInt())
@@ -261,10 +295,38 @@ class JcaBytecodeScanTest {
                 writeShort(0x21)
                 writeShort(thisClass)
                 writeShort(0)
-                writeShort(0)
-                writeShort(0)
-                writeShort(0)
-                writeShort(0)
+                if (withMembers) {
+                    writeShort(1)
+                    writeShort(thisClass)
+                    // one field, then one method: access, name, descriptor, then an attribute of five bytes and one of none
+                    repeat(2) {
+                        writeShort(1)
+                        writeShort(1)
+                        writeShort(memberName)
+                        writeShort(memberName)
+                        writeShort(2)
+                        writeShort(memberAttribute)
+                        writeInt(5)
+                        write(ByteArray(5) { 0x7f })
+                        writeShort(memberAttribute)
+                        writeInt(0)
+                    }
+                } else {
+                    writeShort(0)
+                    writeShort(0)
+                    writeShort(0)
+                }
+                if (sourceFile == null) {
+                    writeShort(0)
+                } else {
+                    writeShort(2)
+                    writeShort(memberAttribute)
+                    writeInt(3)
+                    write(ByteArray(3))
+                    writeShort(sourceFileName)
+                    writeInt(2)
+                    writeShort(sourceFileText)
+                }
             }
             return out.toByteArray()
         }

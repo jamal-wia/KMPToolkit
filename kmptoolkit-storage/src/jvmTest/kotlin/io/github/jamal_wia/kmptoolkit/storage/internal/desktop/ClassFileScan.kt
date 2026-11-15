@@ -34,7 +34,14 @@ import kotlin.io.path.readBytes
 internal object ClassFileScan {
 
     /** Which JDK crypto types a class file touches, as read from its constant pool. */
-    class Facts(val name: String, val classRefs: Set<String>, val strings: Set<String>, val descriptors: Set<String>)
+    class Facts(
+        val name: String,
+        val classRefs: Set<String>,
+        val strings: Set<String>,
+        val descriptors: Set<String>,
+        /** The class's `SourceFile` attribute (the file it was compiled from), `null` when it has none. */
+        val sourceFile: String? = null,
+    )
 
     /** A class file that is not one: bad magic, an unknown constant tag, or a truncated pool. */
     class MalformedClass(message: String) : IllegalArgumentException(message)
@@ -45,8 +52,25 @@ internal object ClassFileScan {
     private val DESCRIPTOR_TYPE: Regex = Regex("L([^;()\\[]+);")
     private const val ALLOWED_TYPE: String = "java/security/SecureRandom"
 
-    /** The internal name of the boundary and of its nested classes and lambdas (`.../desktop/Jca`, `.../desktop/Jca$...`). */
-    fun isBoundary(className: String): Boolean = className.endsWith("/desktop/Jca") || className.contains("/desktop/Jca$")
+    /** The internal name of the boundary, `Jca`, taken from the class itself: a spelling of a path cannot drift away from the real one. */
+    private val BOUNDARY: String = Jca::class.java.name.replace('.', '/')
+
+    /** The file the boundary and every class nested in it are compiled from. */
+    private const val BOUNDARY_SOURCE_FILE: String = "Jca.kt"
+
+    /**
+     * Whether [className] is the boundary class itself: EXACTLY its internal name. Never a name shape: a class `Jca` of another
+     * package, or a top-level class whose back-quoted name holds a `$` (`Jca$Helper`), is not the boundary.
+     */
+    fun isBoundary(className: String): Boolean = className == BOUNDARY
+
+    /**
+     * Whether [facts] describe the boundary or a class nested in it (a lambda or a local class of `Jca`): the boundary by its exact
+     * name, a nested class by a name that starts with `Jca$` AND a `SourceFile` attribute of `Jca.kt`. A name can be forged with
+     * back-quotes, the file a class was compiled from cannot, and a file `Jca.kt` of the boundary's package is the boundary file.
+     */
+    fun isBoundaryClass(facts: Facts): Boolean =
+        isBoundary(facts.name) || (facts.name.startsWith("$BOUNDARY$") && facts.sourceFile == BOUNDARY_SOURCE_FILE)
 
     fun isForbiddenType(internalName: String): Boolean {
         val bare: String = if (internalName.startsWith("[")) internalName.trimStart('[').removePrefix("L").removeSuffix(";") else internalName
@@ -88,11 +112,30 @@ internal object ClassFileScan {
             val thisClass: Int = input.readUnsignedShort()
             fun text(entry: Int, what: String): String = utf8.getOrNull(entry) ?: throw MalformedClass("$what $entry is not a Utf8 entry")
             val thisName: String = text(classEntries[thisClass] ?: throw MalformedClass("this_class $thisClass is not a CONSTANT_Class entry"), "this_class name")
+            // The rest of the class file, as far as the scan needs it: the super class, the interfaces, the fields and the methods
+            // are skipped, the attributes of the class are read for `SourceFile` (the file the class was compiled from).
+            input.readUnsignedShort()
+            input.skipFully(input.readUnsignedShort() * 2)
+            skipMembers(input)
+            skipMembers(input)
+            var sourceFile: String? = null
+            repeat(input.readUnsignedShort()) {
+                val attributeName: String = text(input.readUnsignedShort(), "attribute name")
+                val length: Int = input.readInt()
+                if (length < 0) throw MalformedClass("attribute $attributeName is longer than a class file can hold")
+                if (attributeName == "SourceFile" && sourceFile == null) {
+                    if (length != 2) throw MalformedClass("SourceFile attribute of $length bytes")
+                    sourceFile = text(input.readUnsignedShort(), "SourceFile")
+                } else {
+                    input.skipFully(length)
+                }
+            }
             return Facts(
                 name = thisName,
                 classRefs = classEntries.values.map { nameIndex: Int -> text(nameIndex, "class name") }.toSet(),
                 strings = stringEntries.map { stringIndex: Int -> text(stringIndex, "string") }.toSet(),
                 descriptors = utf8.filterNotNull().filter { value: String -> '(' in value || (value.startsWith("L") && value.endsWith(";")) }.toSet(),
+                sourceFile = sourceFile,
             )
         } catch (eof: EOFException) {
             throw MalformedClass("truncated class file")
@@ -121,6 +164,19 @@ internal object ClassFileScan {
                 jar.entries().asSequence().filter { entry -> !entry.isDirectory && entry.name.endsWith(".class") }.map { entry -> jar.getInputStream(entry).use { stream -> stream.readBytes() } }.toList()
             }
             else -> error("the class location $location is neither a directory nor a jar: the scan cannot run (it must not pass silently)")
+        }
+    }
+
+    /** Skips a `fields` or `methods` table: access flags, name, descriptor and the attributes of each member. */
+    private fun skipMembers(input: DataInputStream) {
+        repeat(input.readUnsignedShort()) {
+            input.skipFully(6)
+            repeat(input.readUnsignedShort()) {
+                input.skipFully(2)
+                val length: Int = input.readInt()
+                if (length < 0) throw MalformedClass("a member attribute is longer than a class file can hold")
+                input.skipFully(length)
+            }
         }
     }
 
