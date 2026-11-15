@@ -43,6 +43,14 @@ a test passes another value (`InMemoryKeyValueStorage(SecureStorageProtection.OS
 to feed code that branches on it. It implements `ensureKey()` too: it succeeds, prompts for nothing
 and changes nothing, unless a failure knob is set.
 
+**Using it as a plain store.** Because the fixture is a `SecureKeyValueStorage`, an expression whose
+static type is the fixture (or any `EncryptedKeyValueStorage`) resolves `getStringOrNull`,
+`getStringOr`, `getIntOr`, `getLongOr` and `getBooleanOr` to the deprecated overloads for encrypted
+stores, so a test that uses the fixture as a plain store gets a deprecation warning at each such
+call. The warning is intended for production code and is harmless here; to avoid it, declare the
+variable as the plain type (`val storage: KeyValueStorage = InMemoryKeyValueStorage()`) or read with
+`get(...).getOrNull()`.
+
 ```kotlin
 @Test
 fun `a stored session is resumed`() = runTest {
