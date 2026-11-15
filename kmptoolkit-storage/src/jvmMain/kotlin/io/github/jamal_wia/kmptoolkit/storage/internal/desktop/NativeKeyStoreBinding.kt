@@ -95,9 +95,10 @@ public interface DpapiCalls {
  * The raw libsecret and gio calls of the freedesktop Secret Service. Lookup goes through libsecret's backend
  * selection (`secret_backend_get`), so the Flatpak portal and file backends keep working; the Secret Service D-Bus
  * API (`secret_service_search_sync`) is never used for lookup. Needs libsecret 0.19 or newer: a binding resolves
- * the `secret_password_search_sync` symbol explicitly when it loads and reports [RawStatus.SYMBOL_MISSING] for it,
- * never an exception (FFM: `SymbolLookup.find` returning empty; JNA: `NativeLibrary.getFunction` with the
- * `UnsatisfiedLinkError` caught for that one symbol).
+ * the `secret_password_search_sync` symbol explicitly when it loads and reports [RawStatus.SYMBOL_MISSING] for it, and
+ * for a libsecret that cannot be loaded at all, never an exception (FFM: `SymbolLookup.find` returning empty, a library
+ * that does not open; JNA: `NativeLibrary.getFunction` with the `UnsatisfiedLinkError` caught for that one symbol, a
+ * library that does not load).
  */
 @ToolkitInternalApi
 @SubclassOptInRequired(ToolkitInternalApi::class)
@@ -122,10 +123,18 @@ public interface SecretServiceCalls {
      * Whether the default collection is locked (the `Locked` property); never prompts. When no collection exists at the
      * `default` alias this is `Success(true)`: storing would prompt to create a keyring, which is a prompt like an
      * unlock. It is never a failure and never `false` for that case.
+     *
+     * On the file backend and on the portal (when [backendIsPortal] is `true`) this answers `false` without a D-Bus call,
+     * because neither has a collection that can be locked; the portal and file check comes first, so a missing default
+     * collection counts as locked only on the Secret Service backend. A failure of the backend question is returned as is.
      */
     public fun defaultCollectionLocked(): RawResult<Boolean>
 
-    /** Whether libsecret selected its Flatpak Secret-portal backend; never prompts. */
+    /**
+     * Whether libsecret selected its Flatpak Secret-portal backend; never prompts. libsecret's file backend is the one it
+     * selects for the portal, and also for Snap and for `SECRET_BACKEND=file`, so this answers `true` for those too.
+     * A libsecret without the backend API (older than 0.20.1) has no portal: the answer is `Success(false)`.
+     */
     public fun backendIsPortal(): RawResult<Boolean>
 }
 
@@ -197,7 +206,10 @@ public class RawStatus(
         /** Success: code 0, no domain, no name. */
         public val SUCCESS: RawStatus = RawStatus(0)
 
-        /** The dedicated status a binding reports when a required symbol cannot be resolved (libsecret older than 0.19). */
+        /**
+     * The dedicated status a binding reports when a required native symbol is missing (libsecret older than 0.19) or the
+     * library that holds it cannot be loaded; it is never thrown.
+     */
         public val SYMBOL_MISSING: RawStatus = RawStatus(SYMBOL_MISSING_CODE, SYMBOL_MISSING_DOMAIN)
 
         private const val SYMBOL_MISSING_CODE: Int = -1_000_001
