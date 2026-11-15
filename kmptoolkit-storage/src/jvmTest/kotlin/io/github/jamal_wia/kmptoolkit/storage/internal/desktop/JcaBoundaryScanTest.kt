@@ -20,8 +20,11 @@ import kotlin.test.assertTrue
  * back-quoted package segment (back-quotes are deleted before matching).
  *
  * Since round 11 this is the SECOND layer. The first is `JcaBytecodeScanTest`, which reads the constant pools of the compiled classes
- * and therefore cannot be fooled by quoting, back-quotes, spacing, aliases, constructor references or a call on an instance the
- * boundary handed out (breaker A9-m2: the third round in a row of lexer shapes). This layer stays for what the bytecode cannot say:
+ * and therefore is not fooled by quoting, back-quotes, spacing, aliases, constructor references, a call on an instance the boundary
+ * handed out (a call on the random source through its supertypes `java.util.Random`, `RandomGenerator` or `asKotlinRandom()` is
+ * flagged too: breaker A10-m2) or a class that is named like the boundary but is not it (breaker A10-m1). It does not see
+ * reflection by a string built at run time, nor a helper of another module that reaches the JCA inside its own code (`ClassFileScan`
+ * lists these limits). Breaker A9-m2 was the third round in a row of lexer shapes. This layer stays for what the bytecode cannot say:
  * it reads the source files themselves, so it sees an unused import or a file the compiler never reached, and it is the reason the
  * lexer is kept correct for the shapes the breakers found (raw strings closing at the last three quotes of a run, back-quoted names as
  * one token, whitespace around the dots of a qualified name, `::Alias`, a second alias and an import alias).

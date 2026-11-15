@@ -528,7 +528,11 @@ token error under a FIPS-configured JDK, or the entropy-source failure of Native
 engine without support for additional authenticated data, a failing SHA-256, plain noise from a broken engine, or a `Throwable` that is neither
 an `Exception` nor an `Error` (legal in Kotlin, which has no checked exceptions). An `InterruptedException` from a provider is typed too and the
 thread's interrupt status is put back, so the interrupt is still visible to the caller. Whatever the random source had written when it failed is wiped. Two scans
-of the build enforce that nothing else touches the JCA: one reads the compiled classes' constant pools, one the sources. The one
+of the build enforce that nothing else of the desktop code touches the JCA: one reads the compiled classes' constant pools, so it
+sees a use however the source spells it, a call on the random source the boundary hands out (also through `java.util.Random`,
+`RandomGenerator` or `asKotlinRandom()`, which no main code uses today) and a class that is only named like the boundary; one reads the
+sources. Neither sees reflection by a string built at run time, or a helper of another module that reaches the JCA inside its own
+code. The one
 thing it never types is an `Error`: the JDK's DRBG `SecureRandom` (the default on Windows, and on Linux wherever `securerandom.source` is not exactly `/dev/random` or
 `/dev/urandom`, for example with `-Djava.security.egd=file:/dev/./urandom`) reports a seed source it cannot read as an `InternalError`, a
 `VirtualMachineError` that the library does not catch: that call throws it, and nothing is created, moved or held when it does. (The plain store derives its lock-file and temporary-file names from the file name and

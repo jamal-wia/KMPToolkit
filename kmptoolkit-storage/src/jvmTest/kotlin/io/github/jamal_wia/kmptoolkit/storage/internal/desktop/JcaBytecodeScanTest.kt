@@ -19,10 +19,12 @@ import kotlin.test.assertTrue
  * storage module's jvm target, not only on source text (`JcaBoundaryScanTest` stays as the second layer). In every class but `Jca`
  * (and the classes nested in it: told apart by their `SourceFile`, never by the shape of a name), the constant pool must name no `java.security`, `javax.crypto`, `java.util.Base64` or
  * `kotlin.io.encoding` class, hold no string that spells those packages, and mention no such type in a descriptor except
- * `SecureRandom`, the type of the random source that crosses the boundary (see [ClassFileScan]). Baseline zero.
+ * `SecureRandom`, the type of the random source that crosses the boundary. Round 12 adds the supertypes through which that source
+ * can be driven without naming it (`java.util.Random`, `java.util.random.*`, `kotlin.random.PlatformRandomKt`), by class name and by
+ * descriptor (see [ClassFileScan], which also states what the scan cannot see). Baseline zero.
  *
- * Why it cannot be passed by a lexical trick: quoting, back-quotes, spaced names, aliases of aliases, constructor references and a
- * call on an instance obtained from the boundary all compile to a class reference in the pool. The scan needs no tool, no new
+ * Why it cannot be passed by a lexical trick: quoting, back-quotes, spaced names, aliases of aliases, constructor references, a
+ * call on an instance obtained from the boundary and the same call after an implicit upcast all compile to a class reference in the pool. The scan needs no tool, no new
  * dependency and no path layout: the classes are found from the code source of `Jca` itself, and the test FAILS (never passes) when it
  * finds too few classes, no boundary class, no class of the common source set, or a test class (a wrong location).
  *
@@ -126,6 +128,36 @@ class JcaBytecodeScanTest {
             val facts: ClassFileScan.Facts = ClassFileScan.parse(SyntheticClass.build("a/B") { pool: SyntheticClass.Pool -> pool.classOf(name) })
             assertEquals(emptyList(), ClassFileScan.violations(facts), "$name must not be flagged")
         }
+    }
+
+    @Test
+    fun `the supertypes through which the random source can be driven are flagged by class name and by descriptor and look-alikes are not`() {
+        val flagged: List<String> = listOf(
+            "java/util/Random", "[Ljava/util/Random;", "java/util/random/RandomGenerator", "java/util/random/RandomGenerator\$SplittableGenerator",
+            "java/util/random/RandomGeneratorFactory", "kotlin/random/PlatformRandomKt",
+        )
+        for (name: String in flagged) {
+            val facts: ClassFileScan.Facts = ClassFileScan.parse(SyntheticClass.build("a/B") { pool: SyntheticClass.Pool -> pool.classOf(name) })
+            assertEquals(1, ClassFileScan.violations(facts).size, "$name must be flagged")
+        }
+        for (name: String in listOf("java/util/RandomAccess", "java/util/Randomizer", "java/util/randomx/Thing", "kotlin/random/Random", "kotlin/random/Random\$Default", "kotlin/random/PlatformRandomKtx")) {
+            val facts: ClassFileScan.Facts = ClassFileScan.parse(SyntheticClass.build("a/B") { pool: SyntheticClass.Pool -> pool.classOf(name) })
+            assertEquals(emptyList(), ClassFileScan.violations(facts), "$name must not be flagged")
+        }
+        fun factsWithUtf8(text: String): ClassFileScan.Facts = ClassFileScan.parse(SyntheticClass.build("a/B") { pool: SyntheticClass.Pool -> pool.utf8(text) })
+        assertEquals(1, ClassFileScan.violations(factsWithUtf8("(Ljava/util/Random;)V")).size, "a function that takes a java.util.Random in another module is called through this descriptor")
+        assertEquals(1, ClassFileScan.violations(factsWithUtf8("(I)Ljava/util/random/RandomGenerator;")).size)
+        assertEquals(emptyList(), ClassFileScan.violations(factsWithUtf8("(Lkotlin/random/Random;)V")), "Kotlin's own Random is no JCA type")
+    }
+
+    @Test
+    fun `a call on the boundary's random source after an upcast is flagged in each of the three shapes`() {
+        for (name: String in listOf("JcaA10UpcastFixtureRandom", "JcaA10UpcastFixtureGenerator", "JcaA10UpcastFixtureKotlin")) {
+            val facts: ClassFileScan.Facts = fixtureFacts(name)
+            assertTrue(ClassFileScan.violations(facts).isNotEmpty(), "$name drives the random source through a supertype: the owner of its call is flagged")
+        }
+        val kotlin: ClassFileScan.Facts = fixtureFacts("JcaA10UpcastFixtureKotlin")
+        assertTrue(kotlin.classRefs.contains("kotlin/random/PlatformRandomKt"), "control: asKotlinRandom is called on the facade class the scan names")
     }
 
     @Test

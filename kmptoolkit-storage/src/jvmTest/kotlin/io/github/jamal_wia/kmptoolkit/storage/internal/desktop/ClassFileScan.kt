@@ -21,15 +21,24 @@ import kotlin.io.path.readBytes
  *
  * What is flagged, in a class that is not the boundary:
  * - a `CONSTANT_Class` whose internal name (array and `L...;` wrapping stripped) is under `java/security/`, `javax/crypto/`,
- *   `kotlin/io/encoding/`, or is `java/util/Base64` or one of its nested classes: a construction, a call, a field read, an
- *   `instanceof`, a cast, or a call on an INSTANCE the boundary handed out (its owner is the JDK type);
- * - a `CONSTANT_String` that spells one of those packages with dots (`Class.forName("java.security.SecureRandom")` written out);
+ *   `kotlin/io/encoding/`, is `java/util/Base64` or one of its nested classes, or is one of the SUPERTYPES through which a
+ *   `SecureRandom` can be driven without naming it: `java/util/Random`, anything under `java/util/random/` (`RandomGenerator`) and
+ *   `kotlin/random/PlatformRandomKt` (`asKotlinRandom`, `asJavaRandom`). That covers a construction, a call, a field read, an
+ *   `instanceof`, a cast, a call on an INSTANCE the boundary handed out (its owner is the JDK type), and the same call after an
+ *   implicit upcast (`val plain: java.util.Random = random`, a parameter of type `RandomGenerator`, `random.asKotlinRandom()`),
+ *   whose owner is the supertype. None of those supertypes is used by the module's main code today; a legitimate non-secure
+ *   `Random` there would have to go through the boundary;
+ * - a `CONSTANT_String` that spells one of the JCA packages with dots (`Class.forName("java.security.SecureRandom")` written out);
  * - a descriptor (a `Utf8` entry) that mentions one of those types other than `java/security/SecureRandom`, the one type that may
  *   cross the boundary (`JcaRandom`, how an injectable random source is accepted). Naming it in a signature is no call: a call on it
- *   is a `CONSTANT_Class`, which is flagged.
+ *   is a `CONSTANT_Class`, which is flagged. A function of another module that takes a `java.util.Random` or a `RandomGenerator` is
+ *   flagged through the descriptor of the call, so passing a `JcaRandom` to it is seen too.
  *
- * Not seen, stated: reflection by a computed string, a non-inline helper of ANOTHER module that uses the JCA, a value obtained
- * from the boundary and upcast before it is used, and compile-time constants (an `Int` constant is inlined as a number).
+ * Not seen, stated: reflection by a computed string (`Class.forName("java.sec" + name)` built at run time; a constant expression is
+ * folded by the compiler into one string and is flagged), `MethodHandles` and a `ServiceLoader` lookup by a computed name, and a
+ * helper of ANOTHER module that reaches the JCA inside its own code (the scan reads this module's classes only). Compile-time
+ * constants are no hole: an `Int` constant is inlined as a number and names no class. The source scan (`JcaBoundaryScanTest`) sees
+ * none of those either.
  */
 internal object ClassFileScan {
 
@@ -46,8 +55,10 @@ internal object ClassFileScan {
     /** A class file that is not one: bad magic, an unknown constant tag, or a truncated pool. */
     class MalformedClass(message: String) : IllegalArgumentException(message)
 
-    private val FORBIDDEN_PREFIXES: List<String> = listOf("java/security/", "javax/crypto/", "kotlin/io/encoding/")
-    private const val BASE64: String = "java/util/Base64"
+    private val FORBIDDEN_PREFIXES: List<String> = listOf("java/security/", "javax/crypto/", "kotlin/io/encoding/", "java/util/random/")
+
+    /** Types that are forbidden by their exact name and by the names of their nested classes (`Name$...`). */
+    private val FORBIDDEN_NAMES: List<String> = listOf("java/util/Base64", "java/util/Random", "kotlin/random/PlatformRandomKt")
     private val DOTTED: List<String> = listOf("java.security", "javax.crypto", "java.util.Base64", "kotlin.io.encoding")
     private val DESCRIPTOR_TYPE: Regex = Regex("L([^;()\\[]+);")
     private const val ALLOWED_TYPE: String = "java/security/SecureRandom"
@@ -74,7 +85,8 @@ internal object ClassFileScan {
 
     fun isForbiddenType(internalName: String): Boolean {
         val bare: String = if (internalName.startsWith("[")) internalName.trimStart('[').removePrefix("L").removeSuffix(";") else internalName
-        return FORBIDDEN_PREFIXES.any { prefix: String -> bare.startsWith(prefix) } || bare == BASE64 || bare.startsWith("$BASE64$")
+        return FORBIDDEN_PREFIXES.any { prefix: String -> bare.startsWith(prefix) } ||
+            FORBIDDEN_NAMES.any { name: String -> bare == name || bare.startsWith("$name$") }
     }
 
     /** Parses the constant pool of [bytes]; throws [MalformedClass] for anything that is not a well-formed class file. */
