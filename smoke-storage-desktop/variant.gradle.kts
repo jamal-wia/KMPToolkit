@@ -22,6 +22,8 @@ val isFfm: Boolean = when (variant) {
 val packagingJdk: Int = if (isFfm) 25 else 21
 
 kotlin {
+    // The host reaches the library's binding seam (public, @ToolkitInternalApi) to remove the key item its secure round trip creates.
+    compilerOptions { optIn.add("io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi") }
     // The host is compiled at the library's own bytecode level; the packaging JDK above is what the app runs on.
     jvmToolchain(21)
     sourceSets.named("main") { kotlin.srcDir(layout.projectDirectory.dir("../src/main/kotlin")) }
@@ -31,6 +33,8 @@ kotlin {
 
 dependencies {
     implementation(project(":kmptoolkit-storage"))
+    // @ToolkitInternalApi, the opt-in of the binding seam; kmptoolkit-storage does not expose it (implementation there).
+    implementation(project(":kmptoolkit-core"))
     implementation(libs.kotlinx.coroutines.core)
     // The Compose compiler plugin the Compose Desktop plugin demands fails the build without the runtime on the class path, though
     // the host has no composable. The only Compose artifact here; the app has no UI.
