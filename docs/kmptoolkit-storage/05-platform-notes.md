@@ -543,10 +543,14 @@ the cause) or that another exception carries as its cause is typed like any othe
 be an exception that came from another thread and inventing an interrupt is worse than missing one that a provider constructor hid. Whatever the random source had written when it failed is wiped. Two scans
 of the build enforce that nothing else of the desktop code touches the JCA: one reads the constant pools of the compiled classes (commonMain and
 jvmMain, and the `jvmFfm` output wherever that source set exists), so it
-sees a use however the source spells it, a call on the random source the boundary hands out (also through `java.util.Random`,
-`RandomGenerator` or `asKotlinRandom()`, which no main code uses today) and a class that is only named like the boundary; one reads the
-sources. Neither sees reflection by a string built at run time, or a helper of another module that reaches the JCA inside its own
-code. The one
+sees a use however the source spells it and a call on the random source the boundary hands out (also through `java.util.Random`,
+`RandomGenerator` or `asKotlinRandom()`, which no main code uses today). The boundary is exempt by its exact class name and by nothing
+else: the class has no nested class, a class whose name only starts with `Jca$` (a back-quoted name, a renamed file facade) fails the
+scan for that name whatever file it was compiled from (the file name a class carries is only a base name and proves nothing), and a
+second class with the boundary's name in another output location fails it too. The other scan reads the source files of `jvmMain` and,
+where it exists, `jvmFfm`. Neither sees reflection by a string built at run time, or a helper of another module that reaches the JCA
+inside its own code; the bytecode scan does not read classes compiled from Java sources of `jvmFfm` (there are none) and does not
+flag the `toString()` of a provider's random engine that a caller reaches through `Object`. The one
 thing it never types is an `Error`: the JDK's DRBG `SecureRandom` (the default on Windows, and on Linux wherever `securerandom.source` is not exactly `/dev/random` or
 `/dev/urandom`, for example with `-Djava.security.egd=file:/dev/./urandom`) reports a seed source it cannot read as an `InternalError`, a
 `VirtualMachineError` that the library does not catch: that call throws it, and nothing is created, moved or held when it does. (The plain store derives its lock-file and temporary-file names from the file name and

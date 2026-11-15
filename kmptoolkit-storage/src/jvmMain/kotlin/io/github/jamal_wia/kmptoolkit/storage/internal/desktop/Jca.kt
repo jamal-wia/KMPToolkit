@@ -25,7 +25,9 @@ internal typealias JcaRandom = SecureRandom
  * THE JCA boundary of `kmptoolkit-storage` (decisions D-P12): every `Cipher`, `SecretKeyFactory`, `SecureRandom`,
  * `MessageDigest` and `Base64` use of the module's JVM code goes through this object, and nothing else imports `java.security`,
  * `javax.crypto` or `java.util.Base64` (`JcaBytecodeScanTest`, on the compiled classes, and `JcaBoundaryScanTest`, on the sources, fail
- * when a class of the desktop code does; the Android store's Keystore code is out of their scope). Three rules live
+ * when a class of the desktop code does; the Android store's Keystore code is out of their scope; this object has no nested class, and
+ * a class named `Jca$...` fails the bytecode scan whatever file it comes from, so a lambda or local class added here needs a deliberate
+ * rule in `ClassFileScan` first). Three rules live
  * here and nowhere else, which is the point of the boundary:
  *
  * 1. **A provider failure is one typed failure.** Whatever a JCA engine throws while it works, short of an `Error` (a

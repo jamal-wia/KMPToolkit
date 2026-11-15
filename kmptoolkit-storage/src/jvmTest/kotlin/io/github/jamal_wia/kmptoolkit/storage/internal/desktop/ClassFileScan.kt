@@ -38,9 +38,12 @@ import kotlin.io.path.readBytes
  *
  * Not seen, stated: reflection by a computed string (`Class.forName("java.sec" + name)` built at run time; a constant expression is
  * folded by the compiler into one string and is flagged), `MethodHandles` and a `ServiceLoader` lookup by a computed name, and a
- * helper of ANOTHER module that reaches the JCA inside its own code (the scan reads this module's classes only). Compile-time
- * constants are no hole: an `Int` constant is inlined as a number and names no class. The source scan (`JcaBoundaryScanTest`) sees
- * none of those either.
+ * helper of ANOTHER module that reaches the JCA inside its own code (the scan reads this module's classes only), the `toString()` of
+ * a provider's random engine that code outside the boundary reaches through `Object` (`"$random"`: the owner is `StringBuilder`, the
+ * descriptor `Object`; negligible, and nothing in the module does it), and classes compiled from JAVA sources of `jvmFfm` (they land
+ * in Gradle's Java output, not under the Kotlin `ffm` directory [mainOutputs] lists; the set has none). Compile-time constants are
+ * no hole: an `Int` constant is inlined as a number and names no class. The source scan (`JcaBoundaryScanTest`) sees none of those
+ * either.
  */
 internal object ClassFileScan {
 
