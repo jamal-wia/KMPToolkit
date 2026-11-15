@@ -49,7 +49,9 @@ internal sealed interface NativeOutcome<out T> {
  *   call and an interrupt that is not [close] never ends the loop. The thread is made before the call is queued: a
  *   thread that cannot be made (a thread limit) answers that one call [NativeOutcome.Threw], the call is never queued
  *   (so no later caller's thread can run it), and the next call tries again. A native thread that has died is replaced
- *   by the next call too.
+ *   by the next call too, and a thread that dies while calls are queued (only an `Error` such as an `OutOfMemoryError` can
+ *   end the loop) hands them to its replacement before it ends, so they are neither refused as "closed" nor left without a
+ *   thread; if no replacement can be made they answer [NativeOutcome.Threw] with that cause.
  * - **A call never throws for the caller's own interrupt.** The queue is unbounded and the call is added with `offer`,
  *   which cannot be interrupted, so a caller whose thread is already interrupted still gets an outcome and keeps its
  *   interrupt status.
@@ -64,6 +66,12 @@ internal sealed interface NativeOutcome<out T> {
  */
 internal class NativeExecutor(
     private val threadFactory: ThreadFactory = daemonThreadFactory("kmptoolkit-storage-native"),
+    /**
+     * Test seam: runs where the executor allocates after a call returned, i.e. where an `OutOfMemoryError` could come from
+     * (the only way an `Error` can leave the loop). Production does nothing. It is the one way a test can make the native
+     * thread die with calls queued.
+     */
+    private val beforeDelivery: () -> Unit = {},
 ) : AutoCloseable {
 
     /** What [Task.abandon] found when a caller stopped waiting. */
@@ -81,7 +89,7 @@ internal class NativeExecutor(
         REFUSED,
     }
 
-    private class Task<T>(val block: () -> T, val discard: (T) -> Unit) {
+    private class Task<T>(val block: () -> T, val discard: (T) -> Unit, val beforeDelivery: () -> Unit) {
         val state: AtomicInteger = AtomicInteger(QUEUED)
         val done: CompletableDeferred<NativeOutcome<T>> = CompletableDeferred()
 
@@ -100,6 +108,7 @@ internal class NativeExecutor(
 
         /** Delivers [outcome] to the caller, or to `discard` when the caller already left. */
         private fun settle(outcome: NativeOutcome<T>) {
+            beforeDelivery()
             result = outcome
             if (state.compareAndSet(RUNNING, FINISHED)) {
                 done.complete(outcome)
@@ -119,6 +128,9 @@ internal class NativeExecutor(
             if (state.compareAndSet(RUNNING, ABANDONED_RUNNING)) return Abandoned.RUNNING
             return if (state.get() == FINISHED) Abandoned.DELIVERED else Abandoned.REFUSED
         }
+
+        /** Takes the task out of play if it has not started; `false` when it runs, finished or was refused (it then answers by itself). */
+        fun withdraw(): Boolean = state.compareAndSet(QUEUED, ABANDONED)
 
         fun refuse(reason: Throwable) {
             if (state.compareAndSet(QUEUED, REFUSED)) done.complete(NativeOutcome.Threw(reason))
@@ -149,12 +161,26 @@ internal class NativeExecutor(
             // the next call tries again.
             return NativeOutcome.Threw(error)
         }
-        val task: Task<T> = Task(block, discard)
+        val task: Task<T> = Task(block, discard, beforeDelivery)
         // `offer`, not `put`: on an unbounded queue it never blocks, and unlike `put` it does not take the queue lock
         // interruptibly, so a caller whose thread is already interrupted neither gets an InterruptedException out of an
         // API that answers outcomes nor loses its interrupt status.
         queue.offer(task)
-        if (closed.get()) refuseQueued()
+        if (closed.get()) {
+            refuseQueued()
+        } else if (thread?.isAlive != true) {
+            // The thread that ensureStarted saw ended after that (its loop died on an Error) and its last look at the queue was
+            // before the offer above: it cannot be counted on to run this task. The thread clears `thread` before that look, so
+            // either it saw the task and made a replacement, or this read sees no live thread and makes one here.
+            try {
+                ensureStarted()
+            } catch (error: Throwable) {
+                if (task.withdraw()) {
+                    queue.remove(task)
+                    return NativeOutcome.Threw(error)
+                }
+            }
+        }
         try {
             val outcome: NativeOutcome<T>? =
                 if (limit == null) task.done.await() else withTimeoutOrNull(limit) { task.done.await() }
@@ -162,7 +188,7 @@ internal class NativeExecutor(
             // The limit passed. A result that landed in the same instant is still a result.
             return when (task.abandon()) {
                 Abandoned.DELIVERED -> checkNotNull(task.result)
-                Abandoned.REFUSED -> NativeOutcome.Threw(IllegalStateException("The native executor is closed"))
+                Abandoned.REFUSED -> task.done.await()
                 Abandoned.WITHDRAWN -> {
                     queue.remove(task)
                     NativeOutcome.TimedOut
@@ -205,6 +231,7 @@ internal class NativeExecutor(
     }
 
     private fun runLoop() {
+        var current: Task<*>? = null
         try {
             while (!closed.get()) {
                 val task: Task<*> = try {
@@ -214,6 +241,7 @@ internal class NativeExecutor(
                     // thread's status) must not end the loop for good: nothing would ever make the thread again.
                     continue
                 }
+                current = task
                 running.set(true)
                 try {
                     task.execute()
@@ -227,14 +255,47 @@ internal class NativeExecutor(
                     // call would fail at once); close() is seen through `closed`, not through the status.
                     Thread.interrupted()
                 }
+                current = null
             }
+        } catch (death: Throwable) {
+            // Even the handling above failed (an OutOfMemoryError): the call this thread was running must not wait forever.
+            // Once more, now that the stack has unwound; if that fails too the caller's own limit or cancellation ends it.
+            current?.let { task: Task<*> ->
+                try {
+                    task.settleAfterEscape(death)
+                } catch (_: Throwable) {
+                    // Nothing more can be done for it.
+                }
+            }
+            throw death
         } finally {
-            refuseQueued()
+            retire()
         }
     }
 
-    private fun refuseQueued() {
-        val reason = IllegalStateException("The native executor is closed")
+    /**
+     * The end of the loop, for any reason. Closed: every queued call is refused. Otherwise the thread died with the executor
+     * open: it forgets itself first, then looks at the queue, and hands what is queued to a replacement (see `call`, which
+     * looks at `thread` after its offer: between the two, either side sees the other). If no replacement can be made the queued
+     * calls answer [NativeOutcome.Threw] with that cause instead of waiting for a thread that nothing will make.
+     */
+    private fun retire() {
+        if (closed.get()) {
+            refuseQueued()
+            return
+        }
+        synchronized(startLock) {
+            if (thread === Thread.currentThread()) thread = null
+        }
+        if (queue.isEmpty()) return
+        try {
+            ensureStarted()
+        } catch (error: Throwable) {
+            refuseQueued(error)
+        }
+    }
+
+    private fun refuseQueued(reason: Throwable = IllegalStateException("The native executor is closed")) {
         while (true) {
             val task: Task<*> = queue.poll() ?: return
             task.refuse(reason)

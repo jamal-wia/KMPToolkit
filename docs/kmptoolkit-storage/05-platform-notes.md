@@ -324,7 +324,10 @@ app sharing that code with desktop could not compile it for desktop without the 
     be stopped: its late result is discarded and the key bytes in it are wiped. A call that may show a dialog has no limit but
     stays cancellable. No store lock is held while a native call that can prompt is awaited. The native thread outlives what a
     call does to it: the interrupt status a call leaves behind is cleared after every call and does not end the loop, and a
-    thread that cannot be created (a thread limit) answers that one call as failed and is created again by the next call.
+    thread that cannot be created (a thread limit) answers that one call as failed and is created again by the next call. A native
+    thread that dies with the executor still open (only an `Error` such as an `OutOfMemoryError` can end it) hands the calls
+    queued behind it to a replacement thread, answers the call it was running as failed, and is replaced by the next call too; if
+    no replacement can be made the queued calls answer as failed with that cause. After the executor is closed no thread is made.
 
 - **Encrypted file format v1 (internal, for the desktop encrypted stores).** The encrypted desktop stores keep one binary
   file that is rewritten as a whole: magic `KTSS`, format version `1`, a kind byte (1 = an OS item holds the data key,
