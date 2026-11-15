@@ -18,16 +18,25 @@ import java.nio.file.FileSystemException
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.NoSuchFileException
+import java.nio.file.OpenOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.FileAttribute
 
 private val WINDOWS_RENAME_BACKOFF_MILLIS: LongArray = longArrayOf(1, 2, 4, 8, 16, 32, 50, 50, 50)
 
-/** [FileSystemOps] over java.nio.file: the desktop JVM always, Android from API 26. */
+/**
+ * [FileSystemOps] over java.nio.file: the desktop JVM always, Android from API 26.
+ *
+ * `NioFileSystemOps(applyOwnerOnly = false)` ignores the `ownerOnly` request of [createNew] and [createDirectory]:
+ * Android, whose app sandbox already hides the files.
+ */
 @OptIn(ToolkitInternalApi::class)
-internal class NioFileSystemOps : FileSystemOps {
+internal class NioFileSystemOps(private val ownerOnlyAttributes: OwnerOnlyAttributes) : FileSystemOps {
+
+    constructor(applyOwnerOnly: Boolean = true) : this(OwnerOnlyAttributes(applyOwnerOnly))
 
     override val windowsPaths: Boolean = hostUsesWindowsPaths
 
@@ -93,14 +102,38 @@ internal class NioFileSystemOps : FileSystemOps {
     }
 
     override fun createDirectory(path: String) {
-        val p: Path = pathOf(path)
-        nio(path) { Files.createDirectory(p) }
+        createDirectory(path, ownerOnly = false)
     }
 
-    override fun createNew(path: String, protection: FileProtection): WritableFile {
+    override fun createDirectory(path: String, ownerOnly: Boolean) {
         val p: Path = pathOf(path)
-        val channel: FileChannel = nio(path) {
-            FileChannel.open(p, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+        if (!ownerOnly) {
+            nio(path) { Files.createDirectory(p) }
+            return
+        }
+        val attributes: Array<FileAttribute<*>> = ownerOnlyAttributes.forDirectory(p)
+        try {
+            nio(path) { Files.createDirectory(p, *attributes) }
+        } catch (e: FileOpException) {
+            if (attributes.isEmpty() || e.error !is FileError.Unsupported) throw e
+            // A file system that refuses the permission attribute stores none: documented as ignored.
+            nio(path) { Files.createDirectory(p) }
+        }
+    }
+
+    override fun createNew(path: String, protection: FileProtection): WritableFile =
+        createNew(path, protection, ownerOnly = false)
+
+    override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile {
+        val p: Path = pathOf(path)
+        val options: Set<OpenOption> = setOf(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+        val attributes: Array<FileAttribute<*>> = if (ownerOnly) ownerOnlyAttributes.forFile(p) else emptyArray()
+        val channel: FileChannel = try {
+            nio(path) { FileChannel.open(p, options, *attributes) }
+        } catch (e: FileOpException) {
+            if (attributes.isEmpty() || e.error !is FileError.Unsupported) throw e
+            // A file system that refuses the permission attribute stores none: documented as ignored.
+            nio(path) { FileChannel.open(p, options) }
         }
         return NioWritableFile(channel, path)
     }

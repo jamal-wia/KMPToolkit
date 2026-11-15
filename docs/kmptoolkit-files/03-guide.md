@@ -65,6 +65,36 @@ files.withIo {
   volume is `CrossDevice`). Use it to keep a watched directory free of temporary names.
 - `tempPrefix` — the temporary file's name prefix for this call (default
   `FileAccessConfig.tempPrefix`).
+- `ownerOnly = true` — the written file is readable and writable by its owner only (since 5.1.0): see
+  [Owner-only files and directories](#owner-only-files-and-directories).
+
+### Owner-only files and directories
+
+Files that hold secrets (an encrypted store, a key blob, a lock file next to them) should not be
+readable by other users of the machine. Pass `ownerOnly = true` to `writeAtomically`, and
+`ownerOnly = true` to `createDirectories`:
+
+```kotlin
+files.withIo {
+    createDirectories(storeDirectory, durable = true, ownerOnly = true)
+    writeAtomically(storeFile, ciphertext, WriteOptions(ownerOnly = true))
+}
+```
+
+- The temporary file is created owner-only (POSIX mode 0600; Windows a DACL that grants only the
+  current user and SYSTEM), so the final name never exists with wider access. Nothing is changed after
+  creation: a later `chmod` of the file is undone by the next `ownerOnly` write, which replaces the file.
+- A directory is made owner-only (POSIX 0700; Windows the same DACL, inheritable by what is created
+  inside) only when this call creates it. An existing directory is never changed, so a subdirectory
+  of the home directory that was 0755 stays 0755.
+- `createParentDirectories = true` together with `ownerOnly = true` creates the missing parents (and
+  `tempDirectory`) owner-only too.
+- On a file system that stores no permissions (FAT, exFAT, some network shares), on Android and on iOS
+  the request is accepted and ignored, never an error. See
+  [platform notes](05-platform-notes.md#owner-only-files-and-directories).
+
+Implementations of `FileAccess` written against 5.0.0 add the `ownerOnly` parameter to
+`createDirectories`.
 
 On every failure the temporary file is removed and the target is untouched, with one documented
 exception: when one of the final directory syncs of `SyncedWithDirectory` fails the call reports

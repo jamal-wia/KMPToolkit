@@ -41,8 +41,17 @@ public interface FileAccess {
      * is synced into its parent before Success is returned (iOS: one `F_FULLFSYNC`). Directories that existed before
      * are assumed durable. Without [durable] nothing is synced, so a power loss shortly after the call can lose the
      * new directories. A sync failure is [FileError.Io]; the directories then exist but may not be durable.
+     *
+     * With [ownerOnly], every directory this call creates is accessible to its owner only, from the moment it exists:
+     * POSIX mode 0700; Windows a DACL that grants only the current user and SYSTEM (inheritable by the entries below
+     * it). A directory that already existed, including one a concurrent caller created first, is never changed.
+     * Ignored, never an error, on a file system without permissions (FAT, exFAT), on Android and on iOS. See
+     * [WriteOptions.ownerOnly] for files.
+     *
+     * Implementations of this interface written against 5.0.0 must add the [ownerOnly] parameter.
+     * @since 5.1.0 for [ownerOnly]
      */
-    public fun createDirectories(path: String, durable: Boolean = false): FileResult<Unit>
+    public fun createDirectories(path: String, durable: Boolean = false, ownerOnly: Boolean = false): FileResult<Unit>
 
     /**
      * The whole content of the file at [path] (links followed), at most [maxBytes] bytes.

@@ -138,6 +138,37 @@ system's SELinux policy and `targetSdk`; this has not been verified on a device 
 [Owner checks](#owner-checks-device-only)). Until it is, do not build a flow that relies on
 `ExistingFile.Fail` succeeding on Android; handle `Unsupported`.
 
+## Owner-only files and directories
+
+`WriteOptions.ownerOnly` and `createDirectories(ownerOnly = true)` (since 5.1.0) restrict what the call
+creates, at the moment of creation, through the attribute argument of the creating call
+(`FileChannel.open` with `CREATE_NEW`, `Files.createDirectory`), never by a change afterwards. A change
+afterwards would leave a window in which the new name is readable, and would silently tighten a
+directory the app does not own.
+
+| Platform | Files | Directories this call creates | Existing directory |
+|---|---|---|---|
+| Linux and macOS (desktop JVM) | POSIX mode 0600 (`rw-------`) | 0700 (`rwx------`) | never changed |
+| Windows (desktop JVM) | DACL of two allow entries, the current user and SYSTEM, none of the parent's entries | the same two entries, inheritable by files and directories created inside | never changed |
+| FAT, exFAT, other volumes with neither a POSIX nor an ACL view | ignored: the write succeeds, the file has what the volume gives it | ignored | never changed |
+| Android (every API level) | ignored: the app sandbox already hides the files | ignored | never changed |
+| iOS | ignored: the app sandbox already hides the files | ignored | never changed |
+
+- The mode is set on the temporary file, so the renamed file keeps it and an external `chmod 644` of
+  the old file is undone by the next `ownerOnly` write. `ExistingFile.Fail` links the same temporary
+  file, so it has the same mode.
+- The POSIX modes are subject to the process umask only in the restricting direction: a more
+  restrictive umask can make a file stricter than 0600, never wider.
+- Windows: the DACL is passed to the creating call, so the file does not first exist with the parent's
+  inherited entries. The current user is resolved from the `user.name` system property; if it or the
+  SYSTEM account cannot be resolved the write fails with `FileError.Io`, closed, rather than creating
+  a file without the restriction. A file system that refuses the permission attribute at creation is
+  treated as one without permissions: the call is repeated without it.
+- "Ignored" is deliberate: an unsupported volume must not make a write fail, and the data of a
+  desktop secret store is ciphertext, so owner-only there is defence in depth.
+- The permission of a file already written is not part of the contract: only the `ownerOnly` call
+  sets it, and a call without it leaves the platform default (umask, inherited ACL).
+
 ## `F_FULLFSYNC` and directory sync
 
 Only `Durability.SyncedWithDirectory` uses `F_FULLFSYNC` on iOS: `fcntl(fd, F_FULLFSYNC)` on the

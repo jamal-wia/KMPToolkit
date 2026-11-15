@@ -115,6 +115,8 @@ abstract interface io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps { // i
     abstract fun rename(kotlin/String, kotlin/String) // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.rename|rename(kotlin.String;kotlin.String){}[0]
     abstract fun syncDirectory(kotlin/String, kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.syncDirectory|syncDirectory(kotlin.String;kotlin.Boolean){}[0]
     abstract fun usableSpace(kotlin/String): kotlin/Long? // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.usableSpace|usableSpace(kotlin.String){}[0]
+    open fun createDirectory(kotlin/String, kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.createDirectory|createDirectory(kotlin.String;kotlin.Boolean){}[0]
+    open fun createNew(kotlin/String, io.github.jamal_wia.kmptoolkit.files/FileProtection, kotlin/Boolean): io.github.jamal_wia.kmptoolkit.files.spi/WritableFile // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.createNew|createNew(kotlin.String;io.github.jamal_wia.kmptoolkit.files.FileProtection;kotlin.Boolean){}[0]
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.files.spi/ReadableFile { // io.github.jamal_wia.kmptoolkit.files.spi/ReadableFile|null[0]
@@ -135,7 +137,7 @@ abstract interface io.github.jamal_wia.kmptoolkit.files/AppDirectories { // io.g
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.files/FileAccess { // io.github.jamal_wia.kmptoolkit.files/FileAccess|null[0]
-    abstract fun createDirectories(kotlin/String, kotlin/Boolean = ...): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files/FileAccess.createDirectories|createDirectories(kotlin.String;kotlin.Boolean){}[0]
+    abstract fun createDirectories(kotlin/String, kotlin/Boolean = ..., kotlin/Boolean = ...): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files/FileAccess.createDirectories|createDirectories(kotlin.String;kotlin.Boolean;kotlin.Boolean){}[0]
     abstract fun delete(kotlin/String): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files/FileAccess.delete|delete(kotlin.String){}[0]
     abstract fun deleteRecursively(kotlin/String, io.github.jamal_wia.kmptoolkit.files/CancellationCheck = ...): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files/FileAccess.deleteRecursively|deleteRecursively(kotlin.String;io.github.jamal_wia.kmptoolkit.files.CancellationCheck){}[0]
     abstract fun freeSpaceBytes(kotlin/String): kotlin/Long? // io.github.jamal_wia.kmptoolkit.files/FileAccess.freeSpaceBytes|freeSpaceBytes(kotlin.String){}[0]
@@ -452,7 +454,7 @@ final class io.github.jamal_wia.kmptoolkit.files/MoveOptions { // io.github.jama
 }
 
 final class io.github.jamal_wia.kmptoolkit.files/WriteOptions { // io.github.jamal_wia.kmptoolkit.files/WriteOptions|null[0]
-    constructor <init>(io.github.jamal_wia.kmptoolkit.files/Durability = ..., io.github.jamal_wia.kmptoolkit.files/ExistingFile = ..., io.github.jamal_wia.kmptoolkit.files/FileProtection = ..., kotlin/Boolean = ..., kotlin/String? = ..., kotlin/String? = ...) // io.github.jamal_wia.kmptoolkit.files/WriteOptions.<init>|<init>(io.github.jamal_wia.kmptoolkit.files.Durability;io.github.jamal_wia.kmptoolkit.files.ExistingFile;io.github.jamal_wia.kmptoolkit.files.FileProtection;kotlin.Boolean;kotlin.String?;kotlin.String?){}[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.files/Durability = ..., io.github.jamal_wia.kmptoolkit.files/ExistingFile = ..., io.github.jamal_wia.kmptoolkit.files/FileProtection = ..., kotlin/Boolean = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/Boolean = ...) // io.github.jamal_wia.kmptoolkit.files/WriteOptions.<init>|<init>(io.github.jamal_wia.kmptoolkit.files.Durability;io.github.jamal_wia.kmptoolkit.files.ExistingFile;io.github.jamal_wia.kmptoolkit.files.FileProtection;kotlin.Boolean;kotlin.String?;kotlin.String?;kotlin.Boolean){}[0]
 
     final val createParentDirectories // io.github.jamal_wia.kmptoolkit.files/WriteOptions.createParentDirectories|{}createParentDirectories[0]
         final fun <get-createParentDirectories>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.files/WriteOptions.createParentDirectories.<get-createParentDirectories>|<get-createParentDirectories>(){}[0]
@@ -460,6 +462,8 @@ final class io.github.jamal_wia.kmptoolkit.files/WriteOptions { // io.github.jam
         final fun <get-durability>(): io.github.jamal_wia.kmptoolkit.files/Durability // io.github.jamal_wia.kmptoolkit.files/WriteOptions.durability.<get-durability>|<get-durability>(){}[0]
     final val existing // io.github.jamal_wia.kmptoolkit.files/WriteOptions.existing|{}existing[0]
         final fun <get-existing>(): io.github.jamal_wia.kmptoolkit.files/ExistingFile // io.github.jamal_wia.kmptoolkit.files/WriteOptions.existing.<get-existing>|<get-existing>(){}[0]
+    final val ownerOnly // io.github.jamal_wia.kmptoolkit.files/WriteOptions.ownerOnly|{}ownerOnly[0]
+        final fun <get-ownerOnly>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.files/WriteOptions.ownerOnly.<get-ownerOnly>|<get-ownerOnly>(){}[0]
     final val protection // io.github.jamal_wia.kmptoolkit.files/WriteOptions.protection|{}protection[0]
         final fun <get-protection>(): io.github.jamal_wia.kmptoolkit.files/FileProtection // io.github.jamal_wia.kmptoolkit.files/WriteOptions.protection.<get-protection>|<get-protection>(){}[0]
     final val tempDirectory // io.github.jamal_wia.kmptoolkit.files/WriteOptions.tempDirectory|{}tempDirectory[0]
@@ -473,7 +477,8 @@ final class io.github.jamal_wia.kmptoolkit.files/WriteOptions { // io.github.jam
     final fun component4(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.files/WriteOptions.component4|component4(){}[0]
     final fun component5(): kotlin/String? // io.github.jamal_wia.kmptoolkit.files/WriteOptions.component5|component5(){}[0]
     final fun component6(): kotlin/String? // io.github.jamal_wia.kmptoolkit.files/WriteOptions.component6|component6(){}[0]
-    final fun copy(io.github.jamal_wia.kmptoolkit.files/Durability = ..., io.github.jamal_wia.kmptoolkit.files/ExistingFile = ..., io.github.jamal_wia.kmptoolkit.files/FileProtection = ..., kotlin/Boolean = ..., kotlin/String? = ..., kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.files/WriteOptions // io.github.jamal_wia.kmptoolkit.files/WriteOptions.copy|copy(io.github.jamal_wia.kmptoolkit.files.Durability;io.github.jamal_wia.kmptoolkit.files.ExistingFile;io.github.jamal_wia.kmptoolkit.files.FileProtection;kotlin.Boolean;kotlin.String?;kotlin.String?){}[0]
+    final fun component7(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.files/WriteOptions.component7|component7(){}[0]
+    final fun copy(io.github.jamal_wia.kmptoolkit.files/Durability = ..., io.github.jamal_wia.kmptoolkit.files/ExistingFile = ..., io.github.jamal_wia.kmptoolkit.files/FileProtection = ..., kotlin/Boolean = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/Boolean = ...): io.github.jamal_wia.kmptoolkit.files/WriteOptions // io.github.jamal_wia.kmptoolkit.files/WriteOptions.copy|copy(io.github.jamal_wia.kmptoolkit.files.Durability;io.github.jamal_wia.kmptoolkit.files.ExistingFile;io.github.jamal_wia.kmptoolkit.files.FileProtection;kotlin.Boolean;kotlin.String?;kotlin.String?;kotlin.Boolean){}[0]
     final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.files/WriteOptions.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.files/WriteOptions.hashCode|hashCode(){}[0]
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.files/WriteOptions.toString|toString(){}[0]
