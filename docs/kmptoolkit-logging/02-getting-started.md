@@ -17,7 +17,9 @@ kotlin {
 ```
 
 It brings nothing else with it — no other `kmptoolkit-*` module, no coroutines, no third-party
-logger, no Compose. The Kotlin standard library is the whole transitive graph.
+logger, no Compose. The Kotlin standard library is the whole transitive graph. The artifact
+publishes Android, iOS and desktop JVM variants, so the same `commonMain` line serves a source set
+shared with a desktop app.
 
 ## 2. Create one factory at startup
 
@@ -77,6 +79,12 @@ D/UserRepository: loading user 42
 ```
 
 iOS (Xcode console):
+
+```
+D/UserRepository: loading user 42
+```
+
+Desktop JVM (standard error):
 
 ```
 D/UserRepository: loading user 42
