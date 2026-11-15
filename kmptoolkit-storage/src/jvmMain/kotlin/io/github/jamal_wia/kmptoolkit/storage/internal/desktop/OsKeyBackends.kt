@@ -43,6 +43,9 @@ internal class NativeCaller(private val executor: NativeExecutor, val allowUi: B
      *   a time limit, a cancellation). A block that starts after that finds the claim taken and does nothing.
      *
      * The outcome is `Completed(null)` only for that last race, which no caller can see (it has already left).
+     *
+     * There is no `discard`: a value the block returns that nobody reads is dropped unwiped, so `T` must not be secret (a status, a
+     * ciphertext). A call that returns key material uses [call] with a `discard` that wipes it.
      */
     suspend fun <T> callOwning(secret: ByteArray, interactive: Boolean = allowUi, block: (ByteArray) -> T): NativeOutcome<T?> {
         val claimed = AtomicBoolean(false)
