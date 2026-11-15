@@ -156,7 +156,10 @@ class HeadingIosCoreLocationTest {
         val delegate = HeadingDelegate(RecordingEvents(overlayAnswer = true), logger = NoopLogger)
         val coreLocation = CLLocationManager()
         val opened = CoreLocationHeadingManager(coreLocation, delegate)
+        // The constructor does not register the delegate; CoreLocationHeadingDevice.openManager does, so do the same here.
+        coreLocation.delegate = delegate
         delegate.locationManagerShouldDisplayHeadingCalibration(coreLocation)
+        assertNotNull(coreLocation.delegate, "control: the delegate is set while the collection runs")
 
         opened.release()
 
@@ -173,6 +176,8 @@ class HeadingIosCoreLocationTest {
             dismissals++
             throw IllegalStateException("the dismissal failed")
         }
+        // The constructor does not register the delegate; CoreLocationHeadingDevice.openManager does, so do the same here.
+        coreLocation.delegate = delegate
         delegate.locationManagerShouldDisplayHeadingCalibration(coreLocation)
         assertNotNull(coreLocation.delegate, "control: the delegate is set while the collection runs")
         opened.startHeading()
