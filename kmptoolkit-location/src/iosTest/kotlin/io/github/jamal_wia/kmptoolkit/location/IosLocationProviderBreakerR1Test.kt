@@ -208,28 +208,36 @@ class IosLocationProviderBreakerR1Test {
         for (i: Int in 1..reseedsAfterLive) flap(2.0 + i)
         gate.complete(Unit)
         runCurrent()
+        // After the backlog: a live fix far away, 1 s later, inside the 60 s interval. The last thing the
+        // session sent is the newest reseed, a seed, so this fix must pass at once (D-21).
+        fake.clock.advance(1.seconds)
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        fake.managers.single().deliver(rawFix(fake.clock, latitude = 70.0))
+        runCurrent()
         job.cancel()
         runCurrent()
         return labels
     }
 
     /**
-     * Defect class: lost update / stale marker. The KDoc of SeedMarker claims a seed eight reseeds old
-     * "can no longer be in flight"; the inbox between the platform flow and the throttle loop holds 64
-     * readings, so it can. Once evicted, the seed is judged as a live fix: it starts minUpdateInterval
-     * and the first live fix after it is held, then discarded by the next SERVICE_DISABLED.
-     * Mutation by reading: MAX_REMEMBERED = 8 is what turns the attack case red; the control case (7
-     * later reseeds) is green on the same code.
+     * Defect class: lost update / stale marker (round 1: the capped SeedMarker forgot a seed still in
+     * flight). Revised in breaker round 2: the round-1 form asserted that the stuck collector still
+     * receives the intermediate live fix `fix50`, which the conflated contract of observeLocation ("a
+     * collector that is busy skips intermediate readings and ends on the newest") does not promise and
+     * which the round-2 finding M1 (IosLocationProviderBreakerR2Test) forbids. What the contract does
+     * promise after any backlog: the collector ends on the newest reading (the newest reseed), and that
+     * reseed is still a seed, so the next far live fix passes at once inside minUpdateInterval.
+     * Mutation by reading: sending emitSeed's element as `StreamReading.live` turns `fix70` red.
      */
     @Test
     fun `a seed is still a seed when eight later reseeds queued behind a slow collector`() = runTest {
-        val control: List<String> = seedBacklog(reseedsAfterLive = 7)
-        assertTrue("fix50" in control, "control: with 7 later reseeds the live fix after the reseed passes: $control")
-        val attack: List<String> = seedBacklog(reseedsAfterLive = 8)
-        assertTrue(
-            "fix50" in attack,
-            "the live fix right after a reseed must pass at once (D-21) however many reseeds wait behind it; got $attack",
-        )
+        for (reseeds: Int in listOf(7, 8, 70)) {
+            val labels: List<String> = seedBacklog(reseedsAfterLive = reseeds)
+            val newest = "fix${2 + reseeds}"
+            assertEquals(newest, labels.getOrNull(labels.lastIndex - 1), "reseeds=$reseeds: the collector ends the backlog on the newest reseed: $labels")
+            assertEquals("fix70", labels.last(), "reseeds=$reseeds: the live fix after the newest reseed must pass at once (D-21): $labels")
+        }
     }
 
     // ---------------------------------------------------------------------------------------------
