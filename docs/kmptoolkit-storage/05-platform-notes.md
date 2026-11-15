@@ -543,8 +543,9 @@ engine throws into one typed failure, so no provider failure is a thrown excepti
 token error under a FIPS-configured JDK, or the entropy-source failure of NativePRNG, the default `SecureRandom` on macOS and Linux), an AES-GCM
 engine without support for additional authenticated data, a failing SHA-256, plain noise from a broken engine, or a `Throwable` that is neither
 an `Exception` nor an `Error` (legal in Kotlin, which has no checked exceptions). An `InterruptedException` from a provider is typed too and the
-thread's interrupt status is put back, so the work that follows on that thread inside the store call (the thread of the caller's
-dispatcher: the caller's own thread under `Dispatchers.Unconfined`, a pool thread under `Dispatchers.IO`) still sees the interrupt; the
+thread's interrupt status is put back, so the work that follows on that thread inside the store call (the thread of the store's
+dispatcher: a pool thread under the default `Dispatchers.IO`, the caller's own thread only when the store's dispatcher is `Dispatchers.Unconfined`
+or runs the call inline on it) still sees the interrupt; the
 caller's own code after the call does not, on whichever thread it resumes (unless its thread was already interrupted when the call reached
 it). A store call never leaves an interrupt status on a thread that it found clear: when the call's work on a thread ends (at the end of the
 call's block, before any caller is resumed, which matters for a caller on a dispatcher that needs no dispatch such as `Dispatchers.Unconfined`:

@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
  * thread that it found clear.**
  *
  * The JCA boundary puts the interrupt status back after a provider was interrupted ([Jca] calls [noteRestored]), so that code
- * running on that thread right after the provider call sees the interrupt. A store call runs on a thread of the caller's dispatcher
+ * running on that thread right after the provider call sees the interrupt. A store call runs on a thread of the store's dispatcher
  * that the library does not own, and kotlinx.coroutines does not clear a worker's status between two tasks (its scheduler does it
  * only when a worker parks), so a status left behind would reach the next, unrelated coroutine on that worker, whose file I/O the
  * JDK would then refuse. This element ends that: it is added to the context of every dispatch of a store ([withStoreContext]) and

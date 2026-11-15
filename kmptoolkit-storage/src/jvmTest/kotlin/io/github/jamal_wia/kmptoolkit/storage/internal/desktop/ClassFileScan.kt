@@ -365,10 +365,10 @@ internal object ClassFileScan {
      * default) loads `x/Hidden.CLASS` as `x.Hidden`, and Gradle packs such a file from the resources verbatim, so a case-sensitive test
      * would skip a class that runs. Such a file system folds more than ASCII: APFS treats `Hidden.claſs` (U+017F, the long s),
      * `Hidden.claß` (`ß`) and `Hidden.claẞ` (U+1E9E) as `Hidden.class` (observed on APFS in breaker round 16), and `lowercase()` alone
-     * leaves all three as they are. The name is therefore folded the way those file systems do, to lower case, to upper case and to
+     * does not fold them to a name that ends in `s` (the long s and `ß` stay as they are, `ẞ` becomes `ß`). The name is therefore folded the way those file systems do, to lower case, to upper case and to
      * lower case again (the long s becomes `S` and then `s`, `ß` and `ẞ` become `ss`). A file that is named like a class and is not one
-     * fails the parse loudly (`MalformedClass`) instead of being skipped. The fold is the simple one of the JDK's `String` case
-     * mapping, not every folding a file system could implement: a file system with another table is a limit of this defence in depth
+     * fails the parse loudly (`MalformedClass`) instead of being skipped. The fold is the full case mapping of the JDK's `String`
+     * (`String.uppercase()` applies SpecialCasing, which is why `ß` becomes `SS`), not every folding a file system could implement: a file system with another table is a limit of this defence in depth
      * (decisions D-36). The nested archives above are matched in lower case.
      */
     fun isClassFileName(name: String): Boolean = name.lowercase().uppercase().lowercase().endsWith(CLASS_SUFFIX)
