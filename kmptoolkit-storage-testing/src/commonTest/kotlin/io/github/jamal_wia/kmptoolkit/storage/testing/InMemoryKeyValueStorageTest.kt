@@ -6,6 +6,9 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageError
 import io.github.jamal_wia.kmptoolkit.storage.StorageOperation
 import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import io.github.jamal_wia.kmptoolkit.storage.errorOrNull
+import io.github.jamal_wia.kmptoolkit.storage.getBoolean
+import io.github.jamal_wia.kmptoolkit.storage.getInt
+import io.github.jamal_wia.kmptoolkit.storage.getLong
 import io.github.jamal_wia.kmptoolkit.storage.getOrNull
 import io.github.jamal_wia.kmptoolkit.storage.isSuccess
 import kotlin.test.Test
@@ -244,6 +247,29 @@ class InMemoryKeyValueStorageTest {
 
         assertEquals(mapOf("k" to "old"), storage.contents)
         assertEquals(listOf("k"), storage.writes)
+    }
+
+    // Mirrors KeyValueStorageContractTest (kmptoolkit-storage), which this module cannot extend: a change
+    // to either pair of cases has to be made in both places.
+    @Test
+    fun `a typed read of a stored value of another type is InvalidValue naming the key and leaves the value alone`() = runTest {
+        storage.put("k", "forty-two")
+
+        val results: List<StorageResult<Any?>> = listOf(storage.getInt("k"), storage.getLong("k"), storage.getBoolean("k"))
+
+        for (result: StorageResult<Any?> in results) {
+            val error: StorageError? = result.errorOrNull()
+            assertTrue(error is StorageError.InvalidValue && error.key == "k", "expected InvalidValue(k), was $result")
+        }
+        assertEquals(StorageResult.Success("forty-two"), storage.get("k"))
+        assertEquals(mapOf("k" to "forty-two"), storage.contents)
+    }
+
+    @Test
+    fun `a typed read of an absent key is Success null rather than InvalidValue`() = runTest {
+        assertEquals(StorageResult.Success(null), storage.getInt("missing"))
+        assertEquals(StorageResult.Success(null), storage.getLong("missing"))
+        assertEquals(StorageResult.Success(null), storage.getBoolean("missing"))
     }
 
     @Test

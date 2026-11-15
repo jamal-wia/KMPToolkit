@@ -68,7 +68,7 @@ What it adds is control:
 | Knob | Effect |
 |---|---|
 | `failNextOperationWith = error` | the next operation — `get`, `put`, `remove`, `clear` or `ensureKey` — fails with that `StorageError` and has no effect, then the knob clears |
-| `failEveryOperationWith = error` | every operation fails with that `StorageError`, with no effect, until you set it back to `null`; for a store that stays broken (a keyring that stays locked, `Unsupported`) |
+| `failEveryOperationWith = error` | every operation fails with that `StorageError`, with no effect, until you set it back to `null`; for a store that stays broken (a keyring that stays locked as `Unavailable`, an `Unsupported` environment) |
 
 `failNextOperationWith` is checked first: while both are set, the next operation gets the one-shot
 error and the one after it the sticky one. A `put` of an unpaired surrogate is rejected with
@@ -83,6 +83,9 @@ and observation:
 
 `writes` is the one that reading `contents` cannot replace: it tells a value written once apart from
 one written, removed, and written again. It belongs to the instance, like the knobs and `protection`.
+Under concurrent writers its order is the order in which the records landed, and an entry can be
+visible in `contents` a moment before its record is in `writes` (one `put` updates the shared entries
+and then the log, as two separate atomic steps).
 
 ### Modelling a restart or a second process
 
@@ -101,7 +104,7 @@ fun `the session survives a process restart`() = runTest {
 }
 
 @Test
-fun `a keyring that stays locked is reported as unsupported, not as signed out`() = runTest {
+fun `a store that is unsupported here is reported as unsupported, not as signed out`() = runTest {
     val storage = InMemoryKeyValueStorage()
     storage.failEveryOperationWith = StorageError.Unsupported(UnsupportedReason.NO_KEY_STORE)
 
@@ -147,11 +150,21 @@ writing means the *write* fails. Set it again to fail more than one call, or use
   likewise only happen when scripted.
 - **No key and no prompt.** `ensureKey()` never creates or verifies anything; use the knobs to script
   what the real call can answer.
+- **No "key lost" state.** On an OS-key store, after `Undecryptable(null)` the `remove` and `clear()`
+  calls still work and the next `put` starts a fresh key; `failEveryOperationWith = Undecryptable(null)`
+  would fail `remove` and `clear()` as well. To test a recovery path (clear, then sign in again),
+  script the read with `failNextOperationWith = StorageError.Undecryptable(null)` and let `remove` and
+  `clear()` run normally.
 
 It is safe from any number of threads: the contents and the knobs are immutable snapshots changed
 with compare-and-set, so no write is lost and an armed one-shot failure fails exactly one of any
-number of concurrent operations. Operations on different keys have no defined order, and no operation
-suspends, so a cancelled caller never leaves one half done.
+number of concurrent operations. Operations on different keys have no defined order.
+
+It also behaves like the real stores for a cancelled caller: each operation checks first whether its
+caller is still active, so a cancelled caller gets a `CancellationException` and nothing changes (no
+entry, no `writes` record, and an armed `failNextOperationWith` stays armed). A test that asserts
+"nothing is saved when the save is cancelled" therefore means the same against the fixture and
+against a real store.
 
 ## Testing the module itself
 
