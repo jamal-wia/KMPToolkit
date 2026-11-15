@@ -138,7 +138,7 @@ class IosHoldListenerBalanceTest {
     }
 
     @Test
-    fun `a release in the same turn as the denial never registers a hold listener`() = runTest {
+    fun `a release in the same turn as the denial removes the listener the denial registered`() = runTest {
         val env = FakeIosLocationEnvironment(testScheduler)
         val probe: Probe = collect(env)
         val manager: FakeIosLocationManager = env.managers.single()
@@ -146,7 +146,8 @@ class IosHoldListenerBalanceTest {
         probe.job.cancel()
         runCurrent()
         assertEquals(1, manager.detachCount)
-        assertBalanced(env, registered = 0, where = "denial and cancellation in one turn")
+        // The listener is registered when the denial marks the stream (before the re-read), so the release finds it.
+        assertBalanced(env, registered = 1, where = "denial and cancellation in one turn")
     }
 
     @Test
@@ -241,7 +242,7 @@ class IosHoldListenerBalanceTest {
     }
 
     @Test
-    fun `a denial that meets a switch-off before the re-read never leaves a hold listener behind`() = runTest {
+    fun `a denial that meets a switch-off before the re-read removes its listener and never holds later`() = runTest {
         val env = FakeIosLocationEnvironment(testScheduler)
         val probe: Probe = collect(env)
         val manager: FakeIosLocationManager = env.managers.single()
@@ -250,15 +251,17 @@ class IosHoldListenerBalanceTest {
         env.announceChange()
         runCurrent()
         assertEquals(LocationUnavailability.SERVICE_DISABLED.name, probe.labels.last())
-        assertEquals(0, env.registered, "the re-read said off: no hold, no listener")
+        assertEquals(1, env.registered, "the denial registered one listener before the re-read")
+        assertEquals(1, env.unregistered, "the re-read said off: no hold, the listener is removed with it")
+        assertTrue(env.activeListeners.isEmpty(), "the re-read said off: no listener is left")
         env.servicesOn = true
         env.announceChange()
         runCurrent()
         assertTrue(manager.updating, "control: running again, the pending denial did not turn into a hold")
-        assertEquals(0, env.registered, "a stale denial does not hold later")
+        assertEquals(1, env.registered, "a stale denial does not hold later (no new registration)")
         probe.job.cancel()
         runCurrent()
-        assertBalanced(env, registered = 0, where = "denial then switch-off")
+        assertBalanced(env, registered = 1, where = "denial then switch-off")
     }
 
     @Test

@@ -315,7 +315,11 @@ private class StreamSession(
     private var manager: IosLocationManager? = null
     private var unregisterActive: (() -> Unit)? = null
 
-    /** The did-become-active listener that exists only while holding after a denial (null otherwise). */
+    /**
+     * The did-become-active listener that exists from the moment a denial marks the stream until the hold ends
+     * (null otherwise): an activation after the denial counts as evidence even before the re-read has entered
+     * the hold.
+     */
     private var unregisterHold: (() -> Unit)? = null
     private var released: Boolean = false
     private var state: StreamState = StreamState.IDLE
@@ -323,8 +327,8 @@ private class StreamSession(
 
     /**
      * A running stream was stopped by a `kCLErrorDenied` and the re-read has not decided yet: a re-read of
-     * "granted and on" then holds instead of restarting. Cleared by an authorization callback (new evidence),
-     * by the hold itself and by the re-read ending in SERVICE_DISABLED or TERMINAL.
+     * "granted and on" then holds instead of restarting. Cleared by an authorization callback or an activation
+     * (new evidence), by the hold itself and by the re-read ending in SERVICE_DISABLED or TERMINAL.
      */
     private var denialPending: Boolean = false
 
@@ -403,15 +407,20 @@ private class StreamSession(
     }
 
     /**
-     * The updates are already stopped (the denial did that): register the did-become-active listener, which
-     * exists only for as long as the hold lasts, and say once that there is no position. The listener is
-     * stored before anything else can run, so a release or a cancellation always finds it.
+     * The updates are already stopped (the denial did that): say once that there is no position. The
+     * did-become-active listener normally exists since the denial ([watchActivation]); it is registered here
+     * only if none is, and exists only for as long as the hold lasts.
      */
     private fun hold() {
         denialPending = false
-        unregisterHold = env.addBecameActiveListener { becameActiveInHold() }
+        watchActivation()
         state = StreamState.DENIAL_HOLD
         out(StreamReading.live(LocationReading.Unavailable(LocationUnavailability.NO_FIX)))
+    }
+
+    /** Registers the hold's did-become-active listener unless there is one; stored before anything else can run, so a release or a cancellation always finds it. */
+    private fun watchActivation() {
+        if (unregisterHold == null) unregisterHold = env.addBecameActiveListener { becameActiveInHold() }
     }
 
     /** Ends the hold, if any: removes its listener and goes back to IDLE (a re-read decides what comes next). */
@@ -421,9 +430,13 @@ private class StreamSession(
         if (state == StreamState.DENIAL_HOLD) state = StreamState.IDLE
     }
 
-    /** The app became active while holding: updates may be servable again although no status changed. */
+    /**
+     * The app became active after a denial, while holding or before the re-read has entered the hold: updates
+     * may be servable again although no status changed, so the denial no longer decides.
+     */
     private fun becameActiveInHold() {
-        if (released || state != StreamState.DENIAL_HOLD) return
+        if (released || (state != StreamState.DENIAL_HOLD && !denialPending)) return
+        denialPending = false
         leaveHold()
         onChange()
     }
@@ -480,6 +493,7 @@ private class StreamSession(
                     manager?.stopUpdatingLocation()
                     state = StreamState.IDLE
                     denialPending = true
+                    watchActivation()
                 }
                 onChange()
             }
