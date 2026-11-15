@@ -8,10 +8,10 @@ shaped this module's implementation.
 **None.** No Android permission is declared or required, nothing goes into `Info.plist`, and no
 entitlement is needed for the default configuration.
 
-The one exception is opt-in and yours: passing `accessGroup` to the iOS
+The one exception is opt-in and yours: passing `accessGroup` in `IosSecureStorageOptions` to the iOS
 `createSecureKeyValueStorage` requires a matching **Keychain Sharing** entitlement in your app. The
 library cannot check that for you — a group you do not have makes every operation fail with
-`StorageError.OperationFailed`.
+`StorageError.Unsupported(UnsupportedReason.MISSING_ENTITLEMENT)` (the Keychain status `-34018`).
 
 Following the repository rule in `docs/01-architecture.md`, this module declares nothing in its own
 `AndroidManifest.xml`. There is, in fact, no manifest to declare it in.
@@ -198,19 +198,88 @@ If you ever edit that file: do not "simplify" it back to a dictionary literal.
   you, clear the secure store on first run, keyed off a flag in the plain store — which *is* removed
   with the app.
 - **`put` updates before it adds.** `SecItemAdd` on an existing item fails with `errSecDuplicateItem`
-  rather than replacing it, so an unconditional add would make `put` non-overwriting. The update
-  path carries no `kSecAttrAccessible`, which is why an item keeps the accessibility it was created
-  with.
-- **`clear` deletes by service.** One `SecItemDelete` matching the store's `kSecAttrService` and no
-  account — items written by another store, another framework, or the same app under a different
-  service are not matched.
-- **Statuses that are translated:** `errSecItemNotFound` → absent; `errSecNotAvailable` (`-25291`)
-  and `errSecInteractionNotAllowed` (`-25308`) → `Unavailable`; `errSecDecode` (`-26275`) →
-  `Undecryptable`. Anything else keeps its raw code in `OperationFailed.platformCode` rather than
-  being flattened into a category it does not belong to.
+  rather than replacing it, so an unconditional add would make `put` non-overwriting. Every write
+  carries the configured accessibility, the update of an existing item included: a changed
+  `IosSecureStorageOptions.accessibility` reaches each item on its next `put`, and an item that is never
+  written again keeps the class it was stored with (`clear()` moves everything at once). Another writer or
+  remover (a second coroutine, a second store over the same service, an app extension in the access group) can
+  change the item between the update and the add, so a miss is retried: update, then add, up to eight rounds
+  (`MAX_WRITE_ATTEMPTS`), each lost round meaning someone else made progress. A `put` therefore never fails
+  because it raced another write or a `remove`; it gives up with `OperationFailed(PUT, key, -25299)` only after
+  eight lost rounds in a row, and never reports a value that is not stored.
+- **`clear` deletes by service, in one access group.** One `SecItemDelete` matching the store's
+  `kSecAttrService`, no account, `kSecAttrSynchronizable = kSecAttrSynchronizableAny` (local and iCloud
+  items alike) and exactly one `kSecAttrAccessGroup`: the one in `IosSecureStorageOptions.accessGroup`, or,
+  when that is `null`, **the app's default access group**. A delete that names no group matches every group
+  the app belongs to, so it would also remove a same-named store's items in a shared group; the library
+  therefore resolves the default group first. It does so with a probe item (service
+  `<store service>.accessgroupprobe`, account `kmptoolkit.accessgroupprobe.<random UUID>`, a new account on every
+  call) that it adds without a group and reads the group of from the answer, then removes inside the same
+  `clear()`. The unique account is what keeps the group honest: no lookup is made, so a probe that another
+  process left in its own default group (an app extension killed mid-`clear()`) is never mistaken for this app's, and
+  concurrent `clear()` calls cannot collide on the probe. The removal names the probe service and the resolved
+  group but no account, so it also sweeps a leftover of this app's own default group; one in another group is left
+  alone. If the group cannot be resolved (for example before the first unlock, when the probe cannot be added),
+  `clear()` fails and deletes nothing; when the probe was added but the answer named no (or a blank) group, or the
+  delete of the probe by group failed, the probe is deleted by its own unique account, with no group, before the
+  failure is returned (the cleanup's status is ignored, the original failure is kept), so a failed `clear()`
+  leaves no probe behind, unless the cleanup delete fails as well; that one probe is swept by the next successful
+  `clear()`. Items
+  written by another store, another framework, or the same app under a different service are not matched.
+  (Changed in 6.0.0: earlier versions sent no group and no synchronizable attribute, so they could also
+  remove a shared-group store's items and missed the store's own iCloud items.)
+- **Known limit: with `accessGroup = null`, `get`, `put` and `remove` address every access group the app can
+  reach.** Only `clear()` is pinned to the default group. A query that names no group matches items in every group
+  of the app, so when a store with `accessGroup = null` and a same-named store in a shared group (another
+  `accessGroup`, or an app extension) exist side by side, the first one's `get` can return the second one's value,
+  its `remove` can delete it, and its `put` can overwrite it instead of adding to its own group. Reads and
+  writes are not narrowed to the default group on purpose: items created under an earlier default group (the
+  `keychain-access-groups` order changed between releases) would then become invisible, which is a data loss.
+  When several stores share a keychain group, give each an explicit `accessGroup`, or distinct store names.
+- **Reads and writes name the exact `synchronizable` value**, so a store only ever sees its own kind of
+  item. `synchronizable = true` needs a portable accessibility (`WHEN_UNLOCKED` or `AFTER_FIRST_UNLOCK`),
+  because iOS does not sync a `THIS_DEVICE_ONLY` item; the options class rejects the combination, and the
+  default accessibility is `THIS_DEVICE_ONLY`, so pass both. Synchronizable items live in iCloud Keychain
+  and leave the device, and an accessibility without `THIS_DEVICE_ONLY` lets an encrypted backup carry
+  an item too.
+- **`ensureKey()` never changes anything and never prompts.** It is an attribute-only
+  `SecItemCopyMatching` for the store's service (no data requested), with `kSecUseAuthenticationUI` set to
+  fail and `kSecAttrSynchronizable = Any`. No items is `Success`: there is no key to create. For a
+  `userPresence` store that already holds items, whether the query answers `Success` or `errSecInteractionNotAllowed`
+  (`Unavailable`) is **not observed on a device**: the `ensure-key-user-presence` case of the harness records it, and
+  the mapping follows what it shows. Failures report `StorageOperation.ENSURE_KEY` with no key.
+- **User presence (`IosSecureStorageOptions.userPresence`).** Items are stored with a `SecAccessControl`
+  (`.userPresence`, `.biometryAny` or `.biometryCurrentSet`) instead of `kSecAttrAccessible`, protected by
+  the configured accessibility class, and the sheet's reason is the app's `prompt`, passed through a fresh
+  `LAContext` for each operation. iOS keeps one item per key, so the sheet shows on **every** `get`; an
+  in-memory cache in the app is the answer, as for any prompting store. Replacing an existing item may show
+  it too. Cancelling the coroutine that waits for the sheet dismisses it (the `LAContext` is invalidated).
+  Changing `userPresence` for keys that already exist needs a `clear()`: an item cannot swap between
+  an accessibility and an access control. **Not observed on a device:** the sheet, the exact status after
+  a biometry re-enrollment, and whether an overwrite prompts are recorded by the `storage-ios-harness`
+  module, which the owner runs; the notes here are updated with what it observes.
+- **Statuses that are translated:**
+
+  | Status | Result |
+  |---|---|
+  | `errSecItemNotFound` on `get` | `Success(null)` |
+  | `errSecNotAvailable` (`-25291`), `errSecInteractionNotAllowed` (`-25308`) | `Unavailable` |
+  | `errSecUserCanceled` (`-128`) | `AccessDenied(-128)` |
+  | `errSecAuthFailed` (`-25293`) | `AccessDenied(-25293)` |
+  | `errSecMissingEntitlement` (`-34018`), an access group the app is not in | `Unsupported(MISSING_ENTITLEMENT)` |
+  | `errSecDecode` (`-26275`) | `Undecryptable(key)`; `Undecryptable(null)` for `ensureKey` and `clear` |
+  | an unpaired surrogate in a key or value | `InvalidValue(key)`, before any Keychain call |
+  | anything else | `OperationFailed(operation, key, platformCode)` |
+
+  A `WHEN_PASSCODE_SET_THIS_DEVICE_ONLY` item is deleted by iOS when the passcode is removed, so a later
+  read answers `Success(null)`, exactly as for a key that was never written.
+- **The Keychain itself is not exercised by the unit tests.** A Kotlin/Native test binary has no usable
+  Keychain; the store's logic runs against an in-memory model of the rules above, and everything only a
+  device decides (default group resolution, synchronizable and group behaviour, accessibility on update,
+  `-34018`, user presence) is a case of the `storage-ios-harness` module.
 - **The plain store's writes cannot fail.** `NSUserDefaults` reports no status, so those operations
   always return `Success`. That is not a shortcut — there is genuinely no error to surface, and the
-  result type exists for the Keychain store's sake.
+  result type exists for the Keychain store's sake. (The secure store's writes can fail: see the table.)
 
 ## Desktop
 
@@ -269,7 +338,8 @@ call from the main thread and from any number of coroutines at once:
 - **iOS.** `NSUserDefaults` and Keychain calls go through `cfprefsd` and `securityd`, both IPC. Two
   writers adding the same Keychain item at once — two coroutines, or an app extension sharing the
   access group — make the loser's `SecItemAdd` fail with `errSecDuplicateItem`; the store then
-  updates the item instead, so neither write reports a failure.
+  updates the item instead, so neither write reports a failure. The store holds no lock and no state, so
+  a call waiting on a user-presence sheet blocks no other call, and cancelling it dismisses the sheet.
 - **Desktop.** Instances over the same file share a coroutine lock (`KeyedMutex` of `kmptoolkit-files`), so their read-modify-write
   cycles over the file never interleave. The lock is keyed by the path in Unicode NFC with the full
   case mapping (`ß`, `ẞ` and `ss`, the Greek sigma forms, `Settings` and `settings` share it), so two

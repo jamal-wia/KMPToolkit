@@ -80,5 +80,9 @@ include(":kmptoolkit-bom")
 // dependency. Deliberately not named kmptoolkit-*, so the BOM does not list it.
 include(":test-support")
 
+// Not published — Kotlin half of the iOS secure-storage host app (storage-ios-harness/ios-host); real Keychain
+// round trips run by a person on the simulator. Deliberately not named kmptoolkit-*, so the BOM does not list it.
+include(":storage-ios-harness")
+
 // Not published — Android Compose demo, smoke-tests the released artifacts by coordinate.
 include(":sample")

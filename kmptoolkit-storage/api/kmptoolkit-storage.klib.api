@@ -6,6 +6,18 @@
 // - Show declarations: true
 
 // Library unique name: <io.github.jamal-wia:kmptoolkit-storage>
+final enum class io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy : kotlin/Enum<io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy> { // io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy|null[0]
+    enum entry BIOMETRY_ANY // io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy.BIOMETRY_ANY|null[0]
+    enum entry BIOMETRY_CURRENT_SET // io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy.BIOMETRY_CURRENT_SET|null[0]
+    enum entry USER_PRESENCE // io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy.USER_PRESENCE|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy> // io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy // io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy> // io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy.values|values#static(){}[0]
+}
+
 final enum class io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility : kotlin/Enum<io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility> { // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility|null[0]
     enum entry AFTER_FIRST_UNLOCK // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility.AFTER_FIRST_UNLOCK|null[0]
     enum entry AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY|null[0]
@@ -221,6 +233,28 @@ final class io.github.jamal_wia.kmptoolkit.storage/DeviceIdProvider { // io.gith
     }
 }
 
+final class io.github.jamal_wia.kmptoolkit.storage/IosSecureStorageOptions { // io.github.jamal_wia.kmptoolkit.storage/IosSecureStorageOptions|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility = ..., kotlin/String? = ..., kotlin/Boolean = ..., io.github.jamal_wia.kmptoolkit.storage/IosUserPresence? = ...) // io.github.jamal_wia.kmptoolkit.storage/IosSecureStorageOptions.<init>|<init>(io.github.jamal_wia.kmptoolkit.storage.KeychainAccessibility;kotlin.String?;kotlin.Boolean;io.github.jamal_wia.kmptoolkit.storage.IosUserPresence?){}[0]
+
+    final val accessGroup // io.github.jamal_wia.kmptoolkit.storage/IosSecureStorageOptions.accessGroup|{}accessGroup[0]
+        final fun <get-accessGroup>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.storage/IosSecureStorageOptions.accessGroup.<get-accessGroup>|<get-accessGroup>(){}[0]
+    final val accessibility // io.github.jamal_wia.kmptoolkit.storage/IosSecureStorageOptions.accessibility|{}accessibility[0]
+        final fun <get-accessibility>(): io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility // io.github.jamal_wia.kmptoolkit.storage/IosSecureStorageOptions.accessibility.<get-accessibility>|<get-accessibility>(){}[0]
+    final val synchronizable // io.github.jamal_wia.kmptoolkit.storage/IosSecureStorageOptions.synchronizable|{}synchronizable[0]
+        final fun <get-synchronizable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.storage/IosSecureStorageOptions.synchronizable.<get-synchronizable>|<get-synchronizable>(){}[0]
+    final val userPresence // io.github.jamal_wia.kmptoolkit.storage/IosSecureStorageOptions.userPresence|{}userPresence[0]
+        final fun <get-userPresence>(): io.github.jamal_wia.kmptoolkit.storage/IosUserPresence? // io.github.jamal_wia.kmptoolkit.storage/IosSecureStorageOptions.userPresence.<get-userPresence>|<get-userPresence>(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.storage/IosUserPresence { // io.github.jamal_wia.kmptoolkit.storage/IosUserPresence|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy, kotlin/String) // io.github.jamal_wia.kmptoolkit.storage/IosUserPresence.<init>|<init>(io.github.jamal_wia.kmptoolkit.storage.IosUserPresencePolicy;kotlin.String){}[0]
+
+    final val policy // io.github.jamal_wia.kmptoolkit.storage/IosUserPresence.policy|{}policy[0]
+        final fun <get-policy>(): io.github.jamal_wia.kmptoolkit.storage/IosUserPresencePolicy // io.github.jamal_wia.kmptoolkit.storage/IosUserPresence.policy.<get-policy>|<get-policy>(){}[0]
+    final val prompt // io.github.jamal_wia.kmptoolkit.storage/IosUserPresence.prompt|{}prompt[0]
+        final fun <get-prompt>(): kotlin/String // io.github.jamal_wia.kmptoolkit.storage/IosUserPresence.prompt.<get-prompt>|<get-prompt>(){}[0]
+}
+
 final class io.github.jamal_wia.kmptoolkit.storage/StorageConfig { // io.github.jamal_wia.kmptoolkit.storage/StorageConfig|null[0]
     constructor <init>(kotlin/String? = ...) // io.github.jamal_wia.kmptoolkit.storage/StorageConfig.<init>|<init>(kotlin.String?){}[0]
 
@@ -240,7 +274,7 @@ final val io.github.jamal_wia.kmptoolkit.storage/isSuccess // io.github.jamal_wi
 final fun <#A: kotlin/Any?> (io.github.jamal_wia.kmptoolkit.storage/StorageResult<#A>).io.github.jamal_wia.kmptoolkit.storage/errorOrNull(): io.github.jamal_wia.kmptoolkit.storage/StorageError? // io.github.jamal_wia.kmptoolkit.storage/errorOrNull|errorOrNull@io.github.jamal_wia.kmptoolkit.storage.StorageResult<0:0>(){0§<kotlin.Any?>}[0]
 final fun <#A: kotlin/Any?> (io.github.jamal_wia.kmptoolkit.storage/StorageResult<#A>).io.github.jamal_wia.kmptoolkit.storage/getOrNull(): #A? // io.github.jamal_wia.kmptoolkit.storage/getOrNull|getOrNull@io.github.jamal_wia.kmptoolkit.storage.StorageResult<0:0>(){0§<kotlin.Any?>}[0]
 final fun io.github.jamal_wia.kmptoolkit.storage/createKeyValueStorage(io.github.jamal_wia.kmptoolkit.storage/StorageConfig = ...): io.github.jamal_wia.kmptoolkit.storage/KeyValueStorage // io.github.jamal_wia.kmptoolkit.storage/createKeyValueStorage|createKeyValueStorage(io.github.jamal_wia.kmptoolkit.storage.StorageConfig){}[0]
-final fun io.github.jamal_wia.kmptoolkit.storage/createSecureKeyValueStorage(io.github.jamal_wia.kmptoolkit.storage/StorageConfig = ..., io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility = ..., kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.storage/SecureKeyValueStorage // io.github.jamal_wia.kmptoolkit.storage/createSecureKeyValueStorage|createSecureKeyValueStorage(io.github.jamal_wia.kmptoolkit.storage.StorageConfig;io.github.jamal_wia.kmptoolkit.storage.KeychainAccessibility;kotlin.String?){}[0]
+final fun io.github.jamal_wia.kmptoolkit.storage/createSecureKeyValueStorage(io.github.jamal_wia.kmptoolkit.storage/StorageConfig = ..., io.github.jamal_wia.kmptoolkit.storage/IosSecureStorageOptions = ...): io.github.jamal_wia.kmptoolkit.storage/SecureKeyValueStorage // io.github.jamal_wia.kmptoolkit.storage/createSecureKeyValueStorage|createSecureKeyValueStorage(io.github.jamal_wia.kmptoolkit.storage.StorageConfig;io.github.jamal_wia.kmptoolkit.storage.IosSecureStorageOptions){}[0]
 final suspend fun (io.github.jamal_wia.kmptoolkit.storage/EncryptedKeyValueStorage).io.github.jamal_wia.kmptoolkit.storage/getBooleanOr(kotlin/String, kotlin/Boolean): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.storage/getBooleanOr|getBooleanOr@io.github.jamal_wia.kmptoolkit.storage.EncryptedKeyValueStorage(kotlin.String;kotlin.Boolean){}[0]
 final suspend fun (io.github.jamal_wia.kmptoolkit.storage/EncryptedKeyValueStorage).io.github.jamal_wia.kmptoolkit.storage/getIntOr(kotlin/String, kotlin/Int): kotlin/Int // io.github.jamal_wia.kmptoolkit.storage/getIntOr|getIntOr@io.github.jamal_wia.kmptoolkit.storage.EncryptedKeyValueStorage(kotlin.String;kotlin.Int){}[0]
 final suspend fun (io.github.jamal_wia.kmptoolkit.storage/EncryptedKeyValueStorage).io.github.jamal_wia.kmptoolkit.storage/getLongOr(kotlin/String, kotlin/Long): kotlin/Long // io.github.jamal_wia.kmptoolkit.storage/getLongOr|getLongOr@io.github.jamal_wia.kmptoolkit.storage.EncryptedKeyValueStorage(kotlin.String;kotlin.Long){}[0]

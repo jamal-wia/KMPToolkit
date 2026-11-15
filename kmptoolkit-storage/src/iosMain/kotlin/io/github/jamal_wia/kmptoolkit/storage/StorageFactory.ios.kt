@@ -53,39 +53,42 @@ public fun createKeyValueStorage(config: StorageConfig = StorageConfig()): KeyVa
  *
  * Items are filed under a `kSecAttrService` derived from [config], so two stores with different
  * names never see each other's values. Nothing about the service string is hardcoded by this
- * library.
+ * library. The factory never touches the Keychain: it cannot fail on the device's state, and the first
+ * Keychain call happens with the first operation.
  *
  * Keychain items **outlive an app uninstall** on iOS — reinstalling the app can hand you a token
  * written by the previous install. That is the platform's behavior, not this module's; if it
  * matters, call [KeyValueStorage.clear] on first run, keyed off a flag in the plain store, which
  * *is* removed with the app.
  *
+ * [KeyValueStorage.clear] removes this store's items, local and synchronizable, in exactly one access
+ * group: [IosSecureStorageOptions.accessGroup] when it is set, otherwise the app's default access group, so
+ * it never touches a same-named store that lives in a shared group. `get`, `put` and `remove` of a store with
+ * `accessGroup = null` are not pinned that way and can reach a same-named store in a shared group: a known limit,
+ * described at [IosSecureStorageOptions.accessGroup].
+ *
  * @param config which store to open — see [StorageConfig].
- * @param accessibility when iOS is allowed to decrypt these items. The default keeps them readable
- *   by background work after the first unlock following a reboot, and out of any backup. Change it
- *   only if you have a reason — see [KeychainAccessibility].
- * @param accessGroup the `kSecAttrAccessGroup` to file items under, for sharing them with an app
- *   extension or a sibling app in the same group. `null` — the default — uses the app's own default
- *   access group. A group your entitlements do not grant makes every operation fail with
- *   [StorageError.OperationFailed]; the library cannot check entitlements for you.
+ * @param options the Keychain attributes of the store: accessibility, access group, iCloud
+ *   synchronization and user presence. The defaults keep the items readable by background work after the first
+ *   unlock following a reboot, out of any backup, and out of iCloud. A group your entitlements do not grant
+ *   makes every operation fail with [StorageError.Unsupported] ([UnsupportedReason.MISSING_ENTITLEMENT]); the
+ *   library cannot check entitlements for you. See [IosSecureStorageOptions].
  */
 public fun createSecureKeyValueStorage(
     config: StorageConfig = StorageConfig(),
-    accessibility: KeychainAccessibility = KeychainAccessibility.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
-    accessGroup: String? = null,
+    options: IosSecureStorageOptions = IosSecureStorageOptions(),
 ): SecureKeyValueStorage = IosSecureKeyValueStorage(
     service = secureStoreId(config.name ?: bundleIdentifier()),
-    accessibility = accessibility,
-    accessGroup = accessGroup,
+    options = options,
     dispatcher = Dispatchers.IO,
 )
 
 /**
  * When iOS may decrypt a Keychain item — the `kSecAttrAccessible` attribute.
  *
- * It is set when an item is first added and is not changed by a later write, so switching this
- * value affects new keys rather than existing ones. Clear the store if you need the change to
- * apply to everything.
+ * It is applied on every write, an update of an existing item included, so a changed value reaches
+ * each item on its next `put`. A key that is never written again keeps the class it was stored with;
+ * clear the store if you need the change to apply to everything at once.
  *
  * `ThisDeviceOnly` variants are excluded from encrypted backups and from device-to-device transfer.
  * That is usually what you want for a token: a secret that migrates to a new phone is a secret the
@@ -116,7 +119,9 @@ public enum class KeychainAccessibility {
     /**
      * Readable while unlocked, and only on a device that has a passcode set — removing the passcode
      * deletes these items outright. Never backed up. For secrets that must not exist on an
-     * unprotected device; be ready for reads to fail with [StorageError.Undecryptable] afterwards.
+     * unprotected device. The items are gone, not unreadable: afterwards a read answers
+     * [StorageResult.Success] with `null`, exactly as for a key that was never written, so be ready to
+     * re-acquire the value.
      */
     WHEN_PASSCODE_SET_THIS_DEVICE_ONLY,
 }

@@ -115,20 +115,16 @@ class IosSecureKeyValueStorageTest {
     }
 
     @Test
-    fun `errSecDecode without a key keeps its raw status instead of naming a key it does not have`() {
+    fun `errSecDecode without a key is a store-wide Undecryptable rather than a named entry`() {
         assertEquals(
-            StorageError.OperationFailed(
-                StorageOperation.CLEAR,
-                key = null,
-                platformCode = ERR_SEC_DECODE,
-            ),
+            StorageError.Undecryptable(key = null),
             ERR_SEC_DECODE.toStorageError(StorageOperation.CLEAR, key = null),
         )
     }
 
     @Test
     fun `an unrecognized status keeps its raw code for the caller to report`() {
-        val unknown = -34018 // errSecMissingEntitlement
+        val unknown = -25244 // an OSStatus the table does not translate
 
         assertEquals(
             StorageError.OperationFailed(
@@ -137,6 +133,14 @@ class IosSecureKeyValueStorageTest {
                 platformCode = unknown,
             ),
             unknown.toStorageError(StorageOperation.PUT, "k"),
+        )
+    }
+
+    @Test
+    fun `errSecMissingEntitlement is unsupported rather than a generic failure`() {
+        assertEquals(
+            StorageError.Unsupported(UnsupportedReason.MISSING_ENTITLEMENT),
+            ERR_SEC_MISSING_ENTITLEMENT.toStorageError(StorageOperation.GET, "k"),
         )
     }
 

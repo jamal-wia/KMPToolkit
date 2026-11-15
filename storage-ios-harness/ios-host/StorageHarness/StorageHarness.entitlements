@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The first group is the app's DEFAULT access group (where an item with no group lands). The simulator accepts
+	     these literal identifiers; a real device would need them prefixed with a team id. The harness is for the simulator.
+	     The group in HarnessCases.kt named "notgranted" is deliberately absent from this list. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>io.github.jamal-wia.kmptoolkit.storageharness</string>
+		<string>io.github.jamal-wia.kmptoolkit.storageharness.shared</string>
+		<string>io.github.jamal-wia.kmptoolkit.storageharness.other</string>
+	</array>
+</dict>
+</plist>
