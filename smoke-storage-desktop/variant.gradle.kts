@@ -150,6 +150,9 @@ gradle.taskGraph.whenReady {
     allTasks.filterIsInstance<AbstractCheckNativeDistributionRuntime>().filter { it.project === project }.forEach { it.checkJdkVendor.set(false) }
 }
 tasks.matching { it.name == "runReleaseDistributable" }.configureEach {
+    // The module's own checks (the verdict rules, the key-item cleanup) judge the run, so they run first: a wrong rule must fail the gate
+    // before it can judge anything. The smoke tasks depend on both; this only orders them.
+    mustRunAfter(tasks.named("test"))
     // A stale verdict of an earlier run must never stand in for this run.
     doFirst { delete(resultFile) }
 }
