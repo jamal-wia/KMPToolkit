@@ -3,9 +3,9 @@ package io.github.jamal_wia.kmptoolkit.storage
 /**
  * A small, string-keyed, string-valued store whose contents survive a process restart.
  *
- * Backed by `SharedPreferences` on Android and an `NSUserDefaults` suite on iOS — see
- * `docs/kmptoolkit-storage/05-platform-notes.md`. Construct one through the platform factory
- * `createKeyValueStorage(...)` and pass the interface into shared code; shared code never names the
+ * Backed by `SharedPreferences` on Android, an `NSUserDefaults` suite on iOS and a properties file on
+ * desktop (`jvm`) — see `docs/kmptoolkit-storage/05-platform-notes.md`. Construct one through the platform
+ * factory `createKeyValueStorage(...)` and pass the interface into shared code; shared code never names the
  * factory.
  *
  * The contract every implementation keeps:

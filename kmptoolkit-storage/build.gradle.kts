@@ -55,8 +55,10 @@ kotlin {
     // KeyValueStorage is the type a consumer's shared settings and repository code takes as a
     // parameter; an app that shares that code with desktop cannot compile it for desktop at all if
     // the interface exists on only two of its three targets. Unlike the Compose no-op targets, the
-    // jvm half is real: a properties-file store the app points at its own directory. There is no
-    // secure store on desktop — see `docs/kmptoolkit-storage/05-platform-notes.md`.
+    // jvm half is real: a properties-file store the app points at its own directory, plus encrypted
+    // stores (the OS key store through the FFM binding of the `ffm` compilation, or the optional
+    // kmptoolkit-storage-jna artifact on JDK 21, and an app-key store) — see
+    // `docs/kmptoolkit-storage/05-platform-notes.md`.
     jvm()
 
     sourceSets {
