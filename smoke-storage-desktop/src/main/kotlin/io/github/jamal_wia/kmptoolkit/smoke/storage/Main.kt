@@ -5,9 +5,7 @@ import io.github.jamal_wia.kmptoolkit.storage.DesktopSecureStorageOptions
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.SecureKeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.StorageConfig
-import io.github.jamal_wia.kmptoolkit.storage.StorageError
 import io.github.jamal_wia.kmptoolkit.storage.StorageResult
-import io.github.jamal_wia.kmptoolkit.storage.UnsupportedReason
 import io.github.jamal_wia.kmptoolkit.storage.createKeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.createSecureKeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.probeDesktopKeyStore
@@ -54,8 +52,6 @@ private class Options(val variant: String, val resultFile: File?, val secureRequ
         }
     }
 }
-
-private class SmokeFailure(message: String) : RuntimeException(message)
 
 /** What the secure half did: it ran and passed, or it was skipped because no key store can serve this session. */
 private sealed interface SecureOutcome {
@@ -110,6 +106,7 @@ public fun main(args: Array<String>) {
 }
 
 private suspend fun run(options: Options, directory: File, say: (String) -> Unit): SecureOutcome {
+    checkRunOptions(options.secureRequired, options.probeOnly)
     checkPackaging(options.variant, say)
     plainRoundTrip(directory, say)
     return secureRoundTrip(directory, options, say)
@@ -172,14 +169,9 @@ private suspend fun secureRoundTrip(directory: File, run: Options, say: (String)
     val options: DesktopSecureStorageOptions = DesktopSecureStorageOptions(itemLabel = ITEM_LABEL, allowUserInteraction = false)
     val keyStore: DesktopKeyStore = when (val probe: StorageResult<DesktopKeyStore> = probeDesktopKeyStore(options)) {
         is StorageResult.Success -> probe.value
-        is StorageResult.Failure -> {
-            // Only "no key store can serve this session" is a skip. A broken binding (UNSUPPORTED_RUNTIME,
-            // NATIVE_ACCESS_UNAVAILABLE: the thing this smoke exists to catch) and every other answer is a failure.
-            val error: StorageError = probe.error
-            val skippable: Boolean = error is StorageError.Unavailable ||
-                (error is StorageError.Unsupported && error.reason in SKIPPABLE_REASONS)
-            if (!skippable || required) throw SmokeFailure("the key-store probe failed${if (required) " (secure round trip required)" else ""}: $error")
-            return SecureOutcome.Skipped(error.toString())
+        is StorageResult.Failure -> when (val decision: ProbeFailureDecision = decideProbeFailure(probe.error, required)) {
+            is ProbeFailureDecision.Skip -> return SecureOutcome.Skipped(decision.why)
+            is ProbeFailureDecision.Fail -> throw SmokeFailure(decision.reason)
         }
     }
     say("probe: key store $keyStore")
@@ -201,8 +193,6 @@ private suspend fun secureRoundTrip(directory: File, run: Options, say: (String)
     }
     return SecureOutcome.Passed(keyStore)
 }
-
-private val SKIPPABLE_REASONS: Set<UnsupportedReason> = setOf(UnsupportedReason.NO_KEY_STORE, UnsupportedReason.NO_USER_SESSION)
 
 private fun <T> StorageResult<T>.orFail(step: String): T = when (this) {
     is StorageResult.Success -> value

@@ -25,6 +25,8 @@ kotlin {
     // The host is compiled at the library's own bytecode level; the packaging JDK above is what the app runs on.
     jvmToolchain(21)
     sourceSets.named("main") { kotlin.srcDir(layout.projectDirectory.dir("../src/main/kotlin")) }
+    // The module's own checks (verdict rules, key-item cleanup), shared by both variants like the sources they test.
+    sourceSets.named("test") { kotlin.srcDir(layout.projectDirectory.dir("../src/test/kotlin")) }
 }
 
 dependencies {
@@ -36,7 +38,11 @@ dependencies {
     // JDK 21 cannot use the FFM binding of kmptoolkit-storage, so the jna variant adds the optional bridge artifact (its whole opt-in).
     // The ffm variant must NOT carry it: the host asserts that.
     if (!isFfm) runtimeOnly(project(":kmptoolkit-storage-jna"))
+    testImplementation(kotlin("test"))
+    testImplementation(libs.kotlinx.coroutines.test)
 }
+
+tasks.withType<Test>().configureEach { useJUnit() }
 
 /**
  * What a consumer's shrinker is given by the library artifacts: every .pro file under META-INF/proguard of every runtime jar, copied

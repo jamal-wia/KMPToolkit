@@ -19,6 +19,9 @@ for ((suffix: String, variant: String) in listOf("Ffm" to "ffm", "Jna" to "jna")
     tasks.register("smoke$suffix") {
         group = "verification"
         description = "Builds the $variant release distribution of the storage packaging smoke (ProGuard on), runs it and prints its verdict."
+        // The module's own checks (the verdict rules and the key-item cleanup, against a fake binding: no key store is touched) come
+        // first, so a wrong verdict rule fails the gate before it can judge a run.
+        dependsOn(":smoke-storage-desktop:$variant:test")
         dependsOn(":smoke-storage-desktop:$variant:runReleaseDistributable")
         val resultFile: RegularFile = layout.projectDirectory.file("$variant/build/smoke/result.txt")
         // Not an output of runReleaseDistributable, so the verdict is read here: a run that never reached main() leaves no file.
