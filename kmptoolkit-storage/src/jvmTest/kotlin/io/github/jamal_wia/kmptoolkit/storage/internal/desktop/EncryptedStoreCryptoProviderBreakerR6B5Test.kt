@@ -10,12 +10,13 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import io.github.jamal_wia.kmptoolkit.storage.appKeyStoreId
 import java.io.File
 import java.security.Provider
-import java.security.SecureRandom
+import java.security.SecureRandom as JcaSecureRandom
 import java.security.Security
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -141,12 +142,17 @@ class EncryptedStoreCryptoProviderBreakerR6B5Test {
         }
     }
 
-    /** A `SecureRandom` that keeps every 32-byte array it fills: those are the data keys `EnvelopeCipher.newDataKey` makes. */
-    private class DataKeyRecorder : SecureRandom() {
+    /**
+     * The cipher's random source, deterministic: every array is filled from `Random(SEED)` (the JCA parent's own generator is
+     * never used), and every 32-byte array is kept: those are the data keys `EnvelopeCipher.newDataKey` makes.
+     */
+    private class DataKeyRecorder : JcaSecureRandom() {
+        private val source: Random = Random(SEED)
         val dataKeys: CopyOnWriteArrayList<ByteArray> = CopyOnWriteArrayList()
 
+        @Synchronized
         override fun nextBytes(bytes: ByteArray) {
-            super.nextBytes(bytes)
+            source.nextBytes(bytes)
             if (bytes.size == SecureFileFormat.DATA_KEY_BYTES) dataKeys += bytes
         }
     }
@@ -167,7 +173,7 @@ class EncryptedStoreCryptoProviderBreakerR6B5Test {
                     val recorder = DataKeyRecorder()
                     val store: EncryptedKeyValueStorage = rig.store(cipher = EnvelopeCipher(recorder))
                     assertIs<StorageError.OperationFailed>(typed("$os first put", suspend { store.put("k", "v") }), "$os: control")
-                    assertTrue(recorder.dataKeys.isNotEmpty(), "$os: control, a data key was made")
+                    assertTrue(recorder.dataKeys.isNotEmpty(), "$os: control, a data key was made (seed=$SEED)")
                     if (recorder.dataKeys.any { key: ByteArray -> key.any { it != 0.toByte() } }) leaks += "$os OS-key create"
                 }
             }
@@ -177,11 +183,11 @@ class EncryptedStoreCryptoProviderBreakerR6B5Test {
                     "wipe", rig.directory, AppEncryptionKey.Raw { ByteArray(32) { 7 } }, Dispatchers.IO, CrossProcessLock(), cipher = EnvelopeCipher(recorder),
                 )
                 assertIs<StorageError.OperationFailed>(typed("raw first put", suspend { raw.put("k", "v") }), "raw: control")
-                assertTrue(recorder.dataKeys.isNotEmpty(), "raw: control, a data key was made")
+                assertTrue(recorder.dataKeys.isNotEmpty(), "raw: control, a data key was made (seed=$SEED)")
                 if (recorder.dataKeys.any { key: ByteArray -> key.any { it != 0.toByte() } }) leaks += "raw app-key create"
                 assertTrue(!File(rig.directory, "${appKeyStoreId("wipe")}.bin").exists(), "raw: no file")
             }
-            assertEquals(emptyList(), leaks, "a data key made for a create that failed to seal was left unwiped")
+            assertEquals(emptyList(), leaks, "a data key made for a create that failed to seal was left unwiped (seed=$SEED)")
         }
         Unit
     }
@@ -234,5 +240,6 @@ class EncryptedStoreCryptoProviderBreakerR6B5Test {
 
     private companion object {
         val HANG_BOUND = 120.seconds
+        const val SEED: Int = 505
     }
 }
