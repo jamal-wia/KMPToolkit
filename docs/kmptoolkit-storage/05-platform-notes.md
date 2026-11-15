@@ -331,7 +331,9 @@ app sharing that code with desktop could not compile it for desktop without the 
     cancelled, is withdrawn and never runs, so a timed-out write is never applied later. The withdrawal happens at the instant of
     the cancellation or of the limit, in the thread that cancels, not when the caller's own dispatcher gets round to resuming the
     caller: a busy dispatcher (a saturated `Dispatchers.IO`, a UI thread) cannot keep a cancelled caller's call queued for the native
-    thread, which has just become free, to run. The watch is registered before the call is queued, so no cancellation is missed. A
+    thread, which has just become free, to run. Every watch is registered before the call is queued (a call with a limit is queued inside the scope of its limit, after the
+    watch on that scope), so neither a cancellation nor a limit is missed, and a limit that cannot be armed leaves the call
+    unqueued. A
     caller that is already cancelled when it calls gets its `CancellationException` at once and queues nothing. A call that was
     already running cannot
     be stopped: its late result is discarded and the key bytes in it are wiped. A call that may show a dialog has no limit but

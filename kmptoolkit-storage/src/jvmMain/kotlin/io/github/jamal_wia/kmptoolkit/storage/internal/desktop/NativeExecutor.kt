@@ -46,8 +46,10 @@ internal sealed interface NativeOutcome<out T> {
  *   its caller is cancelled) is withdrawn from the queue and never runs, so a timed-out write is never applied later. The
  *   withdrawal happens at the instant of the cancellation or of the limit, in the thread that cancels, not when the caller's
  *   dispatcher gets round to resuming the caller (a busy dispatcher would otherwise leave the call queued, and the native
- *   thread, which has just become free, would run it). The cancellation handler is registered before the call is queued, so
- *   there is no moment at which a call is queued and its caller's cancellation is not watched. A call that
+ *   thread, which has just become free, would run it). Every watch is registered before the call is queued, so there is no moment at
+ *   which a call is queued and its caller's cancellation, or its limit, is not watched: a limited call is queued inside the scope
+ *   of its limit, after the watch on that scope, and a limit that cannot even be armed (an `Error` while the timer is set up)
+ *   leaves `call` before anything was queued. A call that
  *   is running cannot be stopped: its result is delivered to nobody and handed to `discard` (to wipe a key). A caller that is
  *   already cancelled when it calls gets its `CancellationException` at once and queues nothing, so no call ever starts for a
  *   caller that was cancelled before it asked.
@@ -174,6 +176,9 @@ internal class NativeExecutor(
         /** Takes the task out of play if it has not started; `false` when it runs, finished or was refused (it then answers by itself). */
         fun withdraw(): Boolean = state.compareAndSet(QUEUED, ABANDONED)
 
+        /** `false` once a watch withdrew the task or [close] refused it: such a task is never offered. */
+        fun isQueued(): Boolean = state.get() == QUEUED
+
         fun refuse(reason: Throwable) {
             if (state.compareAndSet(QUEUED, REFUSED)) done.complete(NativeOutcome.Threw(reason))
         }
@@ -209,21 +214,24 @@ internal class NativeExecutor(
             return NativeOutcome.Threw(error)
         }
         val task: Task<T> = Task(block, discard, beforeDelivery)
-        // Watched BEFORE the task is queued, so there is no moment at which the task is visible to the native thread and the
-        // cancellation of its caller is not watched.
+        // Every watch is registered BEFORE the task is queued, so there is no moment at which the task is visible to the native
+        // thread and the cancellation of its caller, or the passing of its limit, is not watched. A limited call is therefore
+        // queued INSIDE the scope of its limit, after the watch on that scope.
         val callerWatch: DisposableHandle? = withdrawOnCancelling(currentCoroutineContext()[Job], task)
         try {
-            enqueue(task)?.let { answered: NativeOutcome<T> -> return answered }
             val outcome: NativeOutcome<T>? =
                 if (limit == null) {
+                    enqueue(task)?.let { answered: NativeOutcome<T> -> return answered }
                     task.done.await()
                 } else {
+                    // The timer is armed before this block runs: an Error that arming throws leaves `call` before anything was
+                    // queued, so a call whose limit could not even be armed never runs.
                     withTimeoutOrNull(limit) {
                         // The limit cancels this scope, not the caller's job: it is watched too (a scope that is already cancelled runs
-                        // the handler at once). A limit that passes between the offer and this line is thus seen as soon as it can be.
+                        // the handler at once), and only then is the call queued.
                         val limitWatch: DisposableHandle? = withdrawOnCancelling(currentCoroutineContext()[Job], task)
                         try {
-                            task.done.await()
+                            enqueue(task) ?: task.done.await()
                         } finally {
                             limitWatch?.dispose()
                         }
@@ -273,12 +281,15 @@ internal class NativeExecutor(
         }
 
     /**
-     * Offers [task] and makes sure a live native thread will see it. A caller cancelled before the offer has had the task withdrawn
-     * by its handler already (a withdrawn task is never run, whoever takes it from the queue); its own wait then throws at once
-     * and `call` removes the task again, so nothing stays queued behind a hung call. Answers the call at once (`Threw`) when no
+     * Offers [task] and makes sure a live native thread will see it. A caller cancelled (or a limit passed) before the offer has had
+     * the task withdrawn by its handler already: such a task is not offered at all (a withdrawn task is never run, whoever takes it
+     * from the queue), its own wait throws at once and `call` removes it again, so nothing stays queued behind a hung call. Answers the call at once (`Threw`) when no
      * thread could be made for it and it was still queued; `null` otherwise.
      */
     private fun <T> enqueue(task: Task<T>): NativeOutcome<T>? {
+        // A watch that already withdrew the task (its caller or its limit is gone) leaves nothing to offer: the native thread would
+        // only take a dead task, and the caller's wait throws at once.
+        if (!task.isQueued()) return null
         // `offer`, not `put`: on an unbounded queue it never blocks, and unlike `put` it does not take the queue lock
         // interruptibly, so a caller whose thread is already interrupted neither gets an InterruptedException out of an
         // API that answers outcomes nor loses its interrupt status.

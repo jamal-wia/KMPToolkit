@@ -44,11 +44,14 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * - **Audit row 7, made injectable.** A caller that leaves `call` by a Throwable that is not a cancellation. The seam is on the
  *   caller's side, not in production code: the caller runs on a dispatcher that is also the coroutine `Delay`, and its
- *   `invokeOnTimeout` (which `withTimeoutOrNull` calls on the caller's thread right after the task was queued) throws an
- *   `Error`. Three moments: the task is still queued (it must be withdrawn and never run: KDoc "a call that has not started when
- *   its limit passes (or its caller is cancelled) is withdrawn from the queue and never runs"), it is running (its late value
- *   must reach discard once), it already finished (the delivered value nobody will read must reach discard once). The Error itself
- *   must reach the caller unchanged (the widening must not swallow or wrap it).
+ *   `invokeOnTimeout` (which `withTimeoutOrNull` calls on the caller's thread) throws an `Error`. Since round 11 (A9-m1: a limited
+ *   call is queued inside its limit's scope, after the watch on that scope) the timer is armed BEFORE the call is queued, so the
+ *   Error leaves `call` before anything is queued. Test 1 keeps the task-queued shape (an executor whose native thread is busy);
+ *   tests 2 and 3 were written for the old order (the Error thrown after the call started, after it finished) and were rewritten
+ *   in round 11, as the lead ruled and an Opus advisor confirmed, to the same attack in the new order: on an IDLE executor (a task
+ *   offered now would run at once) and after an earlier call of the same caller finished: the call must never be queued, run or
+ *   leak, nothing is discarded that was never produced, an earlier delivered value stays intact, the executor serves the next call,
+ *   and the Error reaches the caller as the very same instance (neither swallowed nor wrapped nor turned into an outcome).
  * - **Per-value accounting under failing deliveries.** A seeded storm: callers with no limit, a 1 ms limit or a cancellation race
  *   delivery failures at random visits of the `beforeDelivery` seam (one, or two in a row, which kills the loop) and `close()`.
  *   Every value a block produced must end in exactly one place: handed to its caller as `Completed` (and still intact there),
@@ -94,6 +97,9 @@ class NativeExecutorA6BreakerR6Test {
         }.also { pools += it }
         val armed: AtomicInteger = AtomicInteger()
 
+        /** The Error this dispatcher threw: what the caller must be handed back, the very same instance. */
+        val thrown: AtomicReference<InjectedTimerError?> = AtomicReference(null)
+
         override fun dispatch(context: CoroutineContext, block: Runnable) {
             pool.execute(block)
         }
@@ -105,8 +111,16 @@ class NativeExecutorA6BreakerR6Test {
         override fun invokeOnTimeout(timeMillis: Long, block: Runnable, context: CoroutineContext): DisposableHandle {
             armed.incrementAndGet()
             beforeThrow()
-            throw InjectedTimerError()
+            throw InjectedTimerError().also { thrown.set(it) }
         }
+    }
+
+    /**
+     * One native thread, FIFO: when this answers, every call queued before it has run. It runs on a loop of its own, never on the
+     * failing `Delay`, so it can be used from inside the seam.
+     */
+    private fun fifoProbe(executor: NativeExecutor): NativeOutcome<Int> = runBlocking {
+        withTimeoutOrNull(HANG_BOUND_MS.milliseconds) { executor.call(null) { 0 } } ?: fail("hang bound: the FIFO probe never answered")
     }
 
     private fun await(latch: CountDownLatch, what: String) {
@@ -189,69 +203,106 @@ class NativeExecutorA6BreakerR6Test {
     }
 
     @Test
-    fun `a caller that leaves by an Error while its call runs gets the Error and the late value reaches discard once`() {
+    fun `a caller whose limit cannot be armed on an idle executor gets the Error unchanged and its call is never queued or run`() {
         val executor: NativeExecutor = NativeExecutor(factory).also { executors += it }
-        val blockStarted = CountDownLatch(1)
-        val releaseBlock = CountDownLatch(1)
+        // Control: the native thread exists and waits for work, so a task offered now would run at once.
+        assertEquals(1, assertIs<NativeOutcome.Completed<Int>>(runBlocking { executor.call(null) { 1 } }, "control: the native thread is up").value)
+        val nativeThread: Thread = threads.single()
+        val runs = AtomicInteger()
         val secret = Secret()
-        // The Error is thrown only once the block runs: the task is RUNNING when the caller leaves.
-        val dispatcher = TimerFailingDispatcher(beforeThrow = { await(blockStarted, "the block's start") })
+        val seen = ArmingSeen(executor, runs)
+        val dispatcher = TimerFailingDispatcher(beforeThrow = seen::record)
 
         val left: CompletableDeferred<Any?> = callFromFailingTimer(executor, dispatcher, secret.discard) {
-            blockStarted.countDown()
-            await(releaseBlock, "the release of the block")
+            runs.incrementAndGet()
             secret.bytes
         }
         val escaped: Any? = leftWith(left)
-        assertIs<InjectedTimerError>(escaped, "the Error must leave call() unchanged: $escaped")
-        assertTrue(secret.bytes.all { it == 0x5A.toByte() }, "control: the key exists and is intact while the call runs")
+        assertEquals(1, dispatcher.armed.get(), "control: the caller reached the arming of its limit")
+        assertSame(
+            dispatcher.thrown.get(),
+            escaped,
+            "the Error must leave call() as the same instance (neither swallowed, wrapped nor turned into an outcome): $escaped",
+        )
+        assertEquals(0, assertIs<NativeOutcome.Completed<Int>>(seen.probe.get(), "control: the FIFO probe answered").value)
+        assertEquals(0, seen.pendingAtArming.get(), "nothing may be queued or running when the limit is armed")
+        assertEquals(
+            0,
+            seen.runsAfterProbe.get(),
+            "KDoc: a limit that cannot be armed leaves call() before anything is queued; the idle native thread ran the call " +
+                "(a task offered before its limit was armed) before the caller had a limit",
+        )
 
-        releaseBlock.countDown()
-        // The native thread delivers (or discards) before it takes the next task.
         val after: NativeOutcome<Int> = runBlocking { executor.call(null) { 3 } }
         assertEquals(3, assertIs<NativeOutcome.Completed<Int>>(after, "control: the executor still serves calls").value)
-
-        assertEquals(
-            1,
-            secret.discarded.size,
-            "KDoc 'A value is never dropped': the caller left by an Error while the call ran, nobody will read its value, so it " +
-                "must reach discard exactly once; it reached it ${secret.discarded.size} times",
-        )
-        assertSame(secret.bytes, secret.discarded.single(), "discard received another array than the one the call returned")
-        assertTrue(secret.bytes.all { it == 0.toByte() }, "the undelivered key bytes were not wiped")
-        assertEquals(0, executor.pendingCalls)
+        assertEquals(0, runs.get(), "the call of a caller that left by an Error before its limit was armed must never run")
+        assertTrue(secret.discarded.isEmpty(), "a call that never ran has no value to discard: ${secret.discarded.size}")
+        assertTrue(secret.bytes.all { it == 0x5A.toByte() }, "the key was never produced by a call, so nothing may have wiped it")
+        assertEquals(0, executor.pendingCalls, "nothing may be left queued or running")
+        assertSame(nativeThread, threads.single(), "no replacement native thread may have been made")
+        assertTrue(nativeThread.isAlive, "the native thread must outlive a caller's failed arming")
+        executor.close()
+        nativeThread.join(HANG_BOUND_MS)
+        assertFalse(nativeThread.isAlive, "the native thread outlived close")
     }
 
     @Test
-    fun `a caller that leaves by an Error after its call finished hands the finished value to discard once`() {
+    fun `a caller that finished a call and then cannot arm its next limit keeps the finished value and has nothing discarded`() {
         val executor: NativeExecutor = NativeExecutor(factory).also { executors += it }
-        val blockStarted = CountDownLatch(1)
-        val firstPublished = CountDownLatch(1)
-        val secret = Secret()
-        // The Error is thrown only after the value was published (FINISHED): the caller never read it.
-        val dispatcher = TimerFailingDispatcher(beforeThrow = { await(firstPublished, "the publication of the first value") })
-
-        val left: CompletableDeferred<Any?> = callFromFailingTimer(executor, dispatcher, secret.discard) {
-            blockStarted.countDown()
-            secret.bytes
+        val first = Secret()
+        val secondRuns = AtomicInteger()
+        val seen = ArmingSeen(executor, secondRuns)
+        val dispatcher = TimerFailingDispatcher(beforeThrow = seen::record)
+        val firstOutcome: CompletableDeferred<NativeOutcome<ByteArray>> = CompletableDeferred()
+        val armedAfterFirst = AtomicInteger(-1)
+        val left: CompletableDeferred<Any?> = CompletableDeferred()
+        // One caller, one shared discard handler: a value misrouted by either call would show up in it.
+        CoroutineScope(Job() + dispatcher).launch {
+            try {
+                firstOutcome.complete(executor.call(null, first.discard) { first.bytes })
+                armedAfterFirst.set(dispatcher.armed.get())
+                left.complete(executor.call(30.seconds, first.discard) { secondRuns.incrementAndGet(); ByteArray(32) { 0x33 } })
+            } catch (escaped: Throwable) {
+                left.complete(escaped)
+            }
         }
-        await(blockStarted, "the block's start")
-        // One native thread, FIFO: when this call has answered, the first task has been published (state FINISHED).
-        val second: NativeOutcome<Int> = runBlocking { executor.call(null) { 4 } }
-        assertEquals(4, assertIs<NativeOutcome.Completed<Int>>(second, "control: the second call answers").value)
-        assertTrue(secret.discarded.isEmpty(), "control: a published value is not discarded by the native thread")
-        firstPublished.countDown()
-
         val escaped: Any? = leftWith(left)
-        assertIs<InjectedTimerError>(escaped, "the Error must leave call() unchanged: $escaped")
-        assertEquals(
-            1,
-            secret.discarded.size,
-            "the value was delivered to a caller that then left by an Error without reading it: it must reach discard once " +
-                "(audit row 7), it reached it ${secret.discarded.size} times",
-        )
-        assertSame(secret.bytes, secret.discarded.single())
-        assertTrue(secret.bytes.all { it == 0.toByte() }, "the unread key bytes were not wiped")
+        val firstValue: NativeOutcome<ByteArray> = runBlocking {
+            withTimeoutOrNull(HANG_BOUND_MS.milliseconds) { firstOutcome.await() } ?: fail("hang bound: the first call never answered")
+        }
+        assertEquals(0, armedAfterFirst.get(), "control: the first call took the unlimited path and armed no timer")
+        assertEquals(1, dispatcher.armed.get(), "control: the second call reached the arming of its limit")
+        assertSame(dispatcher.thrown.get(), escaped, "the Error must leave call() as the same instance: $escaped")
+        assertSame(first.bytes, assertIs<NativeOutcome.Completed<ByteArray>>(firstValue, "control: the first call answered").value)
+        assertTrue(first.bytes.all { it == 0x5A.toByte() }, "the first call's delivered value must stay intact after the second call failed")
+        assertEquals(0, assertIs<NativeOutcome.Completed<Int>>(seen.probe.get(), "control: the FIFO probe answered").value)
+        assertEquals(0, seen.pendingAtArming.get(), "nothing may be queued or running when the second limit is armed")
+        assertEquals(0, seen.runsAfterProbe.get(), "the second call ran although its limit could not be armed")
+
+        val after: NativeOutcome<Int> = runBlocking { executor.call(null) { 4 } }
+        assertEquals(4, assertIs<NativeOutcome.Completed<Int>>(after, "control: the executor still serves calls").value)
+        assertEquals(0, secondRuns.get(), "the second call must never run")
+        assertTrue(first.discarded.isEmpty(), "no value was left undelivered, so nothing may reach discard: ${first.discarded.size}")
+        assertEquals(0, executor.pendingCalls, "nothing may be left queued or running")
+        assertEquals(1, threads.size, "no replacement native thread may have been made")
+        val nativeThread: Thread = threads.single()
+        executor.close()
+        nativeThread.join(HANG_BOUND_MS)
+        assertFalse(nativeThread.isAlive, "the native thread outlived close")
+    }
+
+    /** What the caller's thread saw at the moment its limit was armed (recorded in the seam, asserted by the test, never inside it). */
+    private inner class ArmingSeen(private val executor: NativeExecutor, private val runs: AtomicInteger) {
+        val pendingAtArming: AtomicReference<Int?> = AtomicReference(null)
+        val probe: AtomicReference<NativeOutcome<Int>?> = AtomicReference(null)
+        val runsAfterProbe: AtomicReference<Int?> = AtomicReference(null)
+
+        fun record() {
+            pendingAtArming.set(executor.pendingCalls)
+            // FIFO and one native thread: if the failing call had been offered already, it has run when the probe answers.
+            probe.set(fifoProbe(executor))
+            runsAfterProbe.set(runs.get())
+        }
     }
 
     @Test
