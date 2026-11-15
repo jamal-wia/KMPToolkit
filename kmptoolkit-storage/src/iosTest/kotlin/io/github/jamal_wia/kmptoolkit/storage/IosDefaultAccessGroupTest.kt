@@ -216,21 +216,67 @@ class IosDefaultAccessGroupTest {
         assertTrue(keychain.items.any { it.account == "mine" }, "the store's own items must not be deleted when the probe stays")
     }
 
+    /** The model, except that a successful add answers with [group] instead of the group the item went to. */
+    private class AddAnswers(val inner: InMemoryKeychainPort, val group: String?) : KeychainPort by inner {
+        override fun addReadingAccessGroup(query: platform.CoreFoundation.CFDictionaryRef): KeychainAccessGroup =
+            KeychainAccessGroup(inner.addReadingAccessGroup(query).status, group)
+    }
+
     @Test
-    fun `a success that carries no access group string fails closed`() = runTest {
-        // The framework answered success but the attribute dictionary named no group: the store cannot say which group is its own.
+    fun `a success that carries no access group string fails closed and removes its own probe`() = runTest {
+        // The framework answered success but the attribute dictionary named no group: the store cannot say which group is
+        // its own, and the probe it added is in the Keychain: deleted by its unique account, with no group.
         val model = InMemoryKeychainPort()
         model.seed(model.item("mine"))
-        val withoutGroup = object : KeychainPort by model {
-            override fun addReadingAccessGroup(query: platform.CoreFoundation.CFDictionaryRef): KeychainAccessGroup =
-                KeychainAccessGroup(platform.Security.errSecSuccess, null)
-        }
+        model.seed(model.item("theirs", group = "TEAM.shared"))
 
-        val error: StorageError = storeOver(withoutGroup).clear().error()
+        val error: StorageError = storeOver(AddAnswers(model, group = null)).clear().error()
+
+        assertEquals(StorageError.OperationFailed(StorageOperation.CLEAR, key = null, platformCode = null), error)
+        assertEquals(listOf("mine", "theirs"), model.items.map { it.account }, "the store's items stay, no probe stays")
+        val deletes: List<InMemoryKeychainPort.Call> = model.calls.filter { it.operation == "delete" }
+        assertEquals(1, deletes.size, "exactly one delete: the cleanup of the probe")
+        assertEquals(probeService, deletes.single().query["service"])
+        assertTrue(deletes.single().query["account"]?.startsWith(KeychainQueries.PROBE_ACCOUNT + ".") == true, "${deletes.single().query}")
+        assertEquals(null, deletes.single().query["group"], "the group is the thing that is not known")
+    }
+
+    @Test
+    fun `a blank access group string is as unusable as none and removes the probe`() = runTest {
+        val model = InMemoryKeychainPort()
+        model.seed(model.item("mine"))
+
+        val error: StorageError = storeOver(AddAnswers(model, group = "")).clear().error()
 
         assertEquals(StorageError.OperationFailed(StorageOperation.CLEAR, key = null, platformCode = null), error)
         assertEquals(listOf("mine"), model.items.map { it.account })
-        assertTrue("delete" !in model.operations())
+        assertEquals(listOf(probeService), model.calls.filter { it.operation == "delete" }.map { it.query["service"] })
+    }
+
+    @Test
+    fun `repeated clears without a reported group never accumulate probes`() = runTest {
+        val model = InMemoryKeychainPort()
+        model.seed(model.item("mine"))
+        val store: IosSecureKeyValueStorage = storeOver(AddAnswers(model, group = null))
+
+        repeat(5) { assertTrue(store.clear() is StorageResult.Failure) }
+
+        assertEquals(5, model.calls.count { it.operation == "addReadingAccessGroup" }, "control: five probes were added")
+        assertEquals(emptyList(), model.items.filter { it.service == probeService }, "no probe may be left behind")
+    }
+
+    @Test
+    fun `a failing cleanup of the unreported probe keeps the original failure`() = runTest {
+        val model = InMemoryKeychainPort()
+        model.seed(model.item("mine"))
+        model.script = { operation: String, q: Map<String, String> ->
+            if (operation == "delete" && q["service"] == probeService) -25244 else null
+        }
+
+        val error: StorageError = storeOver(AddAnswers(model, group = null)).clear().error()
+
+        assertEquals(StorageError.OperationFailed(StorageOperation.CLEAR, key = null, platformCode = null), error)
+        assertTrue(model.items.any { it.account == "mine" }, "the store's items are never touched")
     }
 
     @Test

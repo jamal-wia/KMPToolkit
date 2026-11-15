@@ -255,6 +255,16 @@ class KeychainQueriesTest {
         assertNull(remove["account"], "naming no account sweeps every probe of the group")
     }
 
+    @Test
+    fun `the cleanup of an unreported probe names its unique account and no group`() {
+        val remove: Map<String, String> = queries().probeRemoveOwn("kmptoolkit.accessgroupprobe.fixed").use { describe(it) }
+
+        assertEquals("kmptoolkit.accessgroupprobe.fixed", remove["account"])
+        assertEquals(KeychainQueries.probeService(SERVICE), remove["service"])
+        assertEquals("false", remove["synchronizable"])
+        assertNull(remove["group"], "the group is exactly what the caller does not know")
+    }
+
     private companion object {
         const val SERVICE: String = "app.queries.kmptoolkit.securestorage"
     }

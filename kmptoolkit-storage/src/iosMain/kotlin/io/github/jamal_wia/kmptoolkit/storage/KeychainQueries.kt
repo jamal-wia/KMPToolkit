@@ -170,16 +170,6 @@ internal class KeychainQueries(
     }
 
     /**
-     * Reads whichever probe of the probe service the Keychain returns first, in any group, with its attributes.
-     * Production code does not use it: a lookup that names no group would adopt another process's probe (see
-     * [DefaultAccessGroup]). It stays because `KeychainQueriesBreakerR1Test` pins its shape.
-     */
-    fun probeLookup(): KeychainQuery = probeScope().apply {
-        putConstant(kSecReturnAttributes, kCFBooleanTrue)
-        putConstant(kSecMatchLimit, kSecMatchLimitOne)
-    }
-
-    /**
      * A new probe item under [account] (unique per call, see [newProbeAccount]) that reports its attributes: the access
      * group the Keychain files it under. It names no group, which is how the default group is learned.
      */
@@ -196,6 +186,15 @@ internal class KeychainQueries(
      */
     fun probeRemove(group: String): KeychainQuery = probeScope().apply {
         putString(kSecAttrAccessGroup, group)
+    }
+
+    /**
+     * The probe added under [account], wherever the Keychain filed it: names the unique account and no group. It is
+     * the cleanup of a probe whose add succeeded but whose answer did not say which group it went to, so [probeRemove]
+     * cannot be built. The account belongs to one call, so this can match only that call's probe and no other item.
+     */
+    fun probeRemoveOwn(account: String): KeychainQuery = probeScope().apply {
+        putString(kSecAttrAccount, account)
     }
 
     internal companion object {
