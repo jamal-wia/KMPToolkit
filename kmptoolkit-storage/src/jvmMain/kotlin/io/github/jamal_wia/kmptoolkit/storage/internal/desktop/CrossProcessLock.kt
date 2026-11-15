@@ -21,7 +21,6 @@ import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileAttribute
-import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -91,8 +90,10 @@ internal sealed interface LockAcquisition {
  *
  * - **Creation.** The lock file is created owner-only through `writeAtomically(ExistingFile.Fail)`, so the final name never
  *   exists with wider access; `AlreadyExists` counts as success (another process won). On a file system without hard links
- *   (`Unsupported`: FAT and exFAT, or any mount that refuses links) the file is created with `CREATE_NEW` and, where the volume
- *   has POSIX modes, mode 0600. It is never renamed and never deleted by the library.
+ *   (`Unsupported`: FAT and exFAT, or any mount that refuses links) the file is created with `CREATE_NEW` and the same owner-only
+ *   attributes ([LockFileAttributes]: mode 0600 where the provider has POSIX modes, a DACL of the current user and SYSTEM where it
+ *   has ACLs); if they cannot be established nothing is created and the acquisition is [LockAcquisition.Failed]. It is never
+ *   renamed and never deleted by the library.
  * - **Wait.** `tryLock` is polled every [pollInterval] until [deadline], then [LockAcquisition.TimedOut]. A handle is
  *   open only while one attempt runs, never while waiting, so a waiter holds no file descriptor. The wait is a coroutine
  *   `delay` and a `withTimeoutOrNull`, so it is cancellable and a test runs it on virtual time. A holder of the lock in
@@ -148,6 +149,8 @@ internal class CrossProcessLock(
     val deadline: Duration = LOCK_DEADLINE,
     private val pollInterval: Duration = POLL_INTERVAL,
     private val tryLock: (FileChannel) -> FileLock? = { channel: FileChannel -> channel.tryLock() },
+    /** Test seam: the owner-only attributes of a lock file created without hard links (the production rule by default). */
+    private val lockFileAttributes: LockFileAttributes = LockFileAttributes(),
 ) {
     init {
         require(deadline > Duration.ZERO && pollInterval > Duration.ZERO) { "deadline and pollInterval must be positive" }
@@ -297,16 +300,14 @@ internal class CrossProcessLock(
         }
     }
 
-    /** Creates the lock file with no-replace semantics and, where the volume has POSIX modes, mode 0600. An existing file is success. */
+    /**
+     * Creates the lock file with no-replace semantics and the same owner-only attributes the files layer gives its own
+     * files (mode 0600 where the provider has POSIX modes, the current user and SYSTEM where it has ACLs). An existing file is
+     * success. Attributes that cannot be established are an [IOException]: nothing is created.
+     */
     private fun createWithoutLinks(lockFile: File) {
         val path: Path = lockFile.toPath()
-        val ownerOnly: Array<FileAttribute<*>> =
-            if ("posix" in path.fileSystem.supportedFileAttributeViews()) {
-                // path-hygiene-ignore: PH2 owner-only mode of the lock file on a volume that has POSIX modes (checked just above)
-                arrayOf(PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
-            } else {
-                emptyArray()
-            }
+        val ownerOnly: Array<FileAttribute<*>> = lockFileAttributes.forNewFile(path)
         try {
             FileChannel.open(path, setOf(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE), *ownerOnly).close()
         } catch (_: FileAlreadyExistsException) {

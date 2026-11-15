@@ -261,8 +261,10 @@ app sharing that code with desktop could not compile it for desktop without the 
   - The lock file is empty, is created the first time a write needs it (a read never creates it, and neither does a
     `clear()` of a store whose directory does not exist) through an atomic create-if-absent, owner-only from the moment
     it exists (POSIX 0600; the Windows owner-and-SYSTEM ACL), and is never renamed and never deleted by the library.
-    On a volume without hard links (FAT, exFAT, or a mount that refuses links) it is created with `CREATE_NEW` and, where the
-    volume has POSIX modes, mode 0600; a file another creator made first is accepted. Delete it by hand only while no
+    On a volume without hard links (FAT, exFAT, or a mount that refuses links) it is created with `CREATE_NEW` and the
+    same owner-only attributes (mode 0600 where the provider has POSIX modes; on Windows the owner-and-SYSTEM ACL); a file
+    another creator made first is accepted, and if the ACL cannot be built the write answers `OperationFailed` and no lock
+    file is created. Delete it by hand only while no
     process uses the store. When `<file name>.lock` would exceed 255 bytes, the file name is cut at a character
     boundary and `~`, 16 hex characters of its SHA-256 and `.lock` follow.
   - The lock is on the sibling and never on the data file because on Windows a mandatory lock on the data file would block
