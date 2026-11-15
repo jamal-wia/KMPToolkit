@@ -45,10 +45,20 @@ internal interface ValueCipher {
     suspend fun encryptFor(key: String, plaintext: String): String = encrypt(plaintext)
 
     /**
-     * [decrypt] for the value stored under [key]; reads what [encryptFor] wrote, and what [encrypt] wrote before
-     * the binding existed (a 4.0.0 or older entry), which carries no binding.
+     * [decrypt] for the value stored under [key]; reads what [encryptFor] wrote, and nothing older: an entry without
+     * the version byte is not read here, see [decryptLegacyFor].
+     *
+     * @throws java.security.GeneralSecurityException (a `BadPaddingException`) the bytes are not an envelope this
+     *   cipher wrote for [key]: another version, another key name, or tampered.
      */
     suspend fun decryptFor(key: String, encoded: String): String = decrypt(encoded)
+
+    /**
+     * Reads an entry written before the version byte existed (4.0.0 and 5.0.0): bound to [key] (5.0.0), else not bound
+     * at all (4.0.0 and older). Only the one-time migration pass and the reads before it finishes call this; once the
+     * store has been migrated an unversioned entry is lost. The default has no older format.
+     */
+    suspend fun decryptLegacyFor(key: String, encoded: String): String = decryptFor(key, encoded)
 }
 
 /**
@@ -87,7 +97,9 @@ internal interface SecretKeySource {
 /**
  * AES-256-GCM over a key from a [SecretKeySource].
  *
- * The output is `Base64(iv ‖ ciphertext‖tag)`. The IV is the one the platform generated for that
+ * The output is `Base64(version ‖ iv ‖ ciphertext ‖ tag)`, with the version byte and the key name authenticated as
+ * associated data. Entries of the older format (`Base64(iv ‖ ciphertext ‖ tag)`) are read only through
+ * [decryptLegacyFor]. The IV is the one the platform generated for that
  * particular encryption: with an AndroidKeyStore key, `setRandomizedEncryptionRequired` is left at
  * its default `true`, so the system refuses to let a caller supply one and GCM's catastrophic
  * nonce-reuse failure is not reachable from here.
@@ -108,39 +120,61 @@ internal class KeystoreValueCipher(
         { error: Throwable -> isPermanentlyInvalidatedKey(error) },
 ) : ValueCipher {
 
-    override suspend fun encrypt(plaintext: String): String = encryptBound(plaintext, aad = null)
+    override suspend fun encrypt(plaintext: String): String = encryptVersioned(plaintext, key = null)
 
-    override suspend fun encryptFor(key: String, plaintext: String): String = encryptBound(plaintext, aad = aadOf(key))
+    override suspend fun encryptFor(key: String, plaintext: String): String = encryptVersioned(plaintext, key)
+
+    override suspend fun decrypt(encoded: String): String = decryptVersioned(encoded, key = null)
+
+    override suspend fun decryptFor(key: String, encoded: String): String = decryptVersioned(encoded, key)
 
     /**
-     * Tries the binding to [key] first; an entry that fails its tag that way is read once more as an unbound one (a
-     * value written before 5.0.0 has none). A ciphertext moved from another key fails both, so it is never taken for
-     * this key's value. A moved entry that was itself unbound (written before 5.0.0) is still accepted until it is
-     * written again.
+     * Tries the binding to [key] first (5.0.0); an entry that fails its tag that way is read once more as an unbound
+     * one (4.0.0 and older have none). A ciphertext moved from another key fails both, so it is never taken for this
+     * key's value; a moved entry that was itself unbound is accepted until the migration pass has rewritten it.
      */
-    override suspend fun decryptFor(key: String, encoded: String): String = try {
-        decryptBound(encoded, aad = aadOf(key))
+    override suspend fun decryptLegacyFor(key: String, encoded: String): String = try {
+        decryptUnversioned(encoded, aad = legacyAadOf(key))
     } catch (_: BadPaddingException) {
-        decryptBound(encoded, aad = null)
+        decryptUnversioned(encoded, aad = null)
     }
 
-    override suspend fun decrypt(encoded: String): String = decryptBound(encoded, aad = null)
+    /** The key name behind a fixed prefix: what 5.0.0 authenticated (never empty: empty associated data is none). */
+    private fun legacyAadOf(key: String): ByteArray = (AAD_PREFIX + key).toByteArray(Charsets.UTF_8)
 
-    /** Authenticated, never empty (empty associated data is the same as none): the key name behind a fixed prefix. */
-    private fun aadOf(key: String): ByteArray = (AAD_PREFIX + key).toByteArray(Charsets.UTF_8)
+    /** Authenticated, so a version byte that is changed fails the tag: the version byte, then the key name if any. */
+    private fun aadOf(key: String?): ByteArray =
+        if (key == null) byteArrayOf(FORMAT_VERSION) else byteArrayOf(FORMAT_VERSION) + legacyAadOf(key)
 
-    private suspend fun encryptBound(plaintext: String, aad: ByteArray?): String {
+    private suspend fun encryptVersioned(plaintext: String, key: String?): String {
         val cipher: Cipher = initialised { candidate: SecretKey, fresh: Cipher -> fresh.init(Cipher.ENCRYPT_MODE, candidate) }
-        if (aad != null) cipher.updateAAD(aad)
+        cipher.updateAAD(aadOf(key))
         val ciphertext: ByteArray = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
-        return Base64.encodeToString(cipher.iv + ciphertext, Base64.NO_WRAP)
+        return Base64.encodeToString(byteArrayOf(FORMAT_VERSION) + cipher.iv + ciphertext, Base64.NO_WRAP)
     }
 
-    private suspend fun decryptBound(encoded: String, aad: ByteArray?): String {
+    private suspend fun decryptVersioned(encoded: String, key: String?): String {
         // The key is resolved before the stored bytes are looked at, so that a key store which will
-        // not open is reported as Unavailable — retry later — rather than as Undecryptable — the
-        // value is lost. With the checks the other way round, an entry that is also malformed would
+        // not open is reported as Unavailable (retry later) rather than as Undecryptable (the
+        // value is lost). With the checks the other way round, an entry that is also malformed would
         // hide the outage behind a permanent-sounding error.
+        val first: SecretKey = keySource.key()
+        val bytes: ByteArray = Base64.decode(encoded, Base64.NO_WRAP)
+        require(bytes.size > HEADER_LENGTH_BYTES) { "ciphertext is too short to contain a version and an IV" }
+        // Not an IllegalArgumentException: an unversioned entry (or another version) is an entry this reader cannot
+        // open, the same answer as a failed tag.
+        if (bytes[0] != FORMAT_VERSION) throw BadPaddingException("unsupported envelope version")
+        val spec = GCMParameterSpec(TAG_LENGTH_BITS, bytes, VERSION_LENGTH_BYTES, IV_LENGTH_BYTES)
+        val cipher: Cipher = initialised(first) { candidate: SecretKey, fresh: Cipher ->
+            fresh.init(Cipher.DECRYPT_MODE, candidate, spec)
+        }
+        cipher.updateAAD(aadOf(key))
+        val plaintext: ByteArray = cipher.doFinal(bytes, HEADER_LENGTH_BYTES, bytes.size - HEADER_LENGTH_BYTES)
+        return plaintext.toString(Charsets.UTF_8)
+    }
+
+    /** The format before the version byte: `iv ‖ ciphertext ‖ tag`, optionally with the 5.0.0 key binding as [aad]. */
+    private suspend fun decryptUnversioned(encoded: String, aad: ByteArray?): String {
         val first: SecretKey = keySource.key()
         val bytes: ByteArray = Base64.decode(encoded, Base64.NO_WRAP)
         require(bytes.size > IV_LENGTH_BYTES) { "ciphertext is too short to contain an IV" }
@@ -149,8 +183,7 @@ internal class KeystoreValueCipher(
             fresh.init(Cipher.DECRYPT_MODE, candidate, spec)
         }
         if (aad != null) cipher.updateAAD(aad)
-        val plaintext: ByteArray =
-            cipher.doFinal(bytes, IV_LENGTH_BYTES, bytes.size - IV_LENGTH_BYTES)
+        val plaintext: ByteArray = cipher.doFinal(bytes, IV_LENGTH_BYTES, bytes.size - IV_LENGTH_BYTES)
         return plaintext.toString(Charsets.UTF_8)
     }
 
@@ -196,6 +229,14 @@ internal class KeystoreValueCipher(
 
         /** GCM's standard nonce length, and the only one AndroidKeyStore generates. */
         const val IV_LENGTH_BYTES = 12
+
+        /** The envelope version this cipher writes and the only one it reads: the first byte of every entry. */
+        const val FORMAT_VERSION: Byte = 1
+
+        const val VERSION_LENGTH_BYTES = 1
+
+        /** The version byte and the IV ahead of the ciphertext. */
+        const val HEADER_LENGTH_BYTES = VERSION_LENGTH_BYTES + IV_LENGTH_BYTES
 
         /** Full-length GCM authentication tag. */
         const val TAG_LENGTH_BITS = 128

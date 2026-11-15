@@ -78,10 +78,11 @@ The reasoning, stated plainly because a consumer deserves to know why their APK 
 
 What this trade costs, honestly:
 
-- **No key rotation and no versioned envelope.** Changing the algorithm later means every existing
-  entry reads back as `Undecryptable`. Acceptable because that is already a reachable state (see
-  below) and every consumer must handle it; not acceptable for data a user cannot re-acquire, which
-  this store is not for.
+- **No key rotation.** The envelope carries a version byte, so the format can evolve, but nothing
+  rotates the key. Changing the algorithm without a migration means every existing entry reads back
+  as `Undecryptable`. Acceptable because that is already a reachable state (see below) and every
+  consumer must handle it; not acceptable for data a user cannot re-acquire, which this store is
+  not for.
 - **No FIPS story, no key-hierarchy features.** If you need those, you need Tink, and you should
   build on it directly rather than through this module.
 - **We own the framing.** IV length, tag length and Base64 flags are ours to get right, and are
@@ -98,19 +99,33 @@ Two further choices inside that implementation:
 
 ### The Android failure you must handle
 
-Since 5.0.0 a secure value is also bound to the key name it is stored under: the key name is authenticated
-associated data of the AES-GCM encryption, so a ciphertext copied from one key to another in the preferences file
-(for example the access token over the password) fails its tag and reads as `Undecryptable`. Nothing written earlier
-becomes unreadable: an entry that fails the bound check is read once more as an unbound one, which is what 4.0.0 and
-earlier wrote. Such an old entry stays movable between keys until it is written again. The format on disk is unchanged
-(`Base64(iv ‖ ciphertext‖tag)`), but a downgrade to 4.0.0 cannot read entries written by 5.0.0.
+**The envelope.** Every secure value is `Base64(version ‖ iv ‖ ciphertext ‖ tag)`: a version byte (currently `1`), the
+12-byte IV, and the AES-GCM ciphertext with its 16-byte tag. The version byte and the key name the value is stored
+under are authenticated associated data, so a ciphertext copied from one key to another in the preferences file (for
+example the access token over the password), or one whose version byte was changed, fails its tag and reads as
+`Undecryptable`. The version byte lets the format evolve and makes a downgrade detectable.
 
-The Keystore entry is destroyed when the user **adds, changes, or removes the device lock**, and an
-app restored to a new device from a backup carries the ciphertext without the key. In both cases the
-value is gone while the entry remains, and reads return `StorageError.Undecryptable`. The module
-recovers as far as it can — an alias whose key has become unrecoverable is dropped and a new key
-generated, so *new* writes work again instead of the store being bricked for the life of the install
-— but the old values are not recoverable by anyone.
+**Entries written before the version byte** (4.0.0 and 5.0.0: `Base64(iv ‖ ciphertext ‖ tag)`, the 5.0.0 ones bound to
+their key name, the 4.0.0 ones bound to nothing) are read while the store has not been migrated. The first call that
+can reach the Keystore key (a `get` of an existing entry, or a `put`) runs a one-time pass that re-encrypts every
+readable old entry into the versioned format and then records, in the same preferences file under a reserved name
+(`.kmptoolkit.envelope-format`; a key of that exact name is refused with `InvalidValue`), that the store is migrated.
+The pass writes each entry with compare-and-set: an entry that was written or removed meanwhile, such as a background
+token refresh, is never overwritten with the old value or brought back. A pass that cannot finish (the Keystore is
+unavailable, a fault that may pass) changes nothing it did not rewrite and is retried by the next call. **After the
+pass an entry without the version byte is `Undecryptable(key)`**: the old fallback that accepted unbound entries for
+ever is closed. `clear()` keeps the record; a fresh store is recorded by its first write.
+
+**Downgrading** the library after upgrading to this format loses the secure values: an older version cannot read a
+versioned entry and reports it `Undecryptable`.
+
+The Keystore key can be lost: an app restored to a new device from a backup carries the ciphertext without the key,
+and the platform can invalidate a key permanently (`KeyPermanentlyInvalidatedException`). Reads of the affected values
+return `StorageError.Undecryptable`. The module recovers as far as it can, so a store is never bricked for the life of
+the install: an alias whose key has become unrecoverable is dropped and a new key generated, and a key the platform
+reports as permanently invalidated is deleted and replaced by a new one under the alias lock (compare-and-delete: only
+the dead key itself, never a newer one another caller made). *New* writes succeed again, old values are
+`Undecryptable(key)`, and nothing can recover them.
 
 A decrypt that fails for a *transient* keystore reason is the exception: when anything in the
 failure's cause chain is an `android.security.KeyStoreException` whose `isTransientFailure()` is
@@ -141,9 +156,11 @@ one won the alias, and every value encrypted under the earlier one became `Undec
 gap existed in the recovery from a changed device lock, where a late caller could delete the
 replacement key another caller had just made.
 
-The lookup now runs under one lock for the whole process, shared by every store instance, and asks
-the Keystore again once it holds the lock — so the second caller finds the first caller's key. The
-lock is held only while a key is resolved, once per store instance.
+The lookup now runs under one lock **per alias** for the whole process, shared by every store
+instance over that alias, and asks the Keystore again once it holds the lock — so the second caller
+finds the first caller's key. A slow Keystore call for one alias never stalls the stores of another
+alias, and a key that is already resolved is answered from a process-wide per-alias cache without
+taking any lock. The lock is held only while a key is resolved, dropped or deleted.
 
 **One process per store.** An in-process lock cannot order two *processes*, and the AndroidKeyStore
 has no atomic create-if-absent. If your app runs components in a second process
