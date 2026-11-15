@@ -409,11 +409,21 @@ through a link you made to a name that does not end in exactly `.bin` has no ide
 answers `OperationFailed`, because the service is the name without its suffix and `X` and `X.bin` would otherwise share one key item (a create of
 one would delete the other's key). Only ASCII case is folded; a look-alike (a dotless `i`, fullwidth letters, a combining mark) is never the suffix. On macOS the Unicode normalization form
 (NFC or NFD) of the path and name is ignored (APFS and HFS+ ignore it too); elsewhere the stored form is kept. A file moved or
-copied into another directory is a store whose key is lost (below), never one that opens another store's key. The identity
+copied into another directory is a store whose key is lost (below), never one that opens another store's key. So is a
+**case-only rename** of the store file's base name or of a directory on its path, on a volume that folds case (macOS, Windows): the stored
+spelling is the identity, so the renamed file has another identity than the item the key was made for, `get` answers `Undecryptable(null)`,
+and the next `put` moves the file aside (quarantine, never a deletion) and creates a new key; rename it back to get the data back (only the
+`.bin` suffix is exempt from this, above). The identity
 is derived again under the lock in every round and is never remembered: a file system that cannot be asked where the file
 really is (an `IOException` or `SecurityException` while resolving the path) answers `OperationFailed` for that one call,
 touches nothing and makes no OS call, and the next call asks again; there is no fallback path and so never a second identity
-for the same store. **Residual:** on a Linux directory that is case-insensitive (ext4 casefold, vfat) the library lists the
+for the same store. **Known limits of the suffix rule (documented, not coded):** (1) NTFS compares names through its own upper-case table, which maps a dotless `ı` to `I`, so a
+stored `x.bın` is the same file as the configured `x.bin` there, and that spelling is still refused as a name without identity (only ASCII case is
+folded); a user would have to create or rename the file with a dotless `i` to meet it. (2) The question "is the configured name a link" is asked in the
+round, a moment after the path was resolved: on a volume that does NOT fold case, a link of the user's own to the `.BIN` file of ANOTHER store that is
+replaced by a regular file inside that window would be accepted with the other store's identity. Both need someone to act inside a window or against
+the user's own files; (2) cannot happen on a volume that folds case.
+**Residual:** on a Linux directory that is case-insensitive (ext4 casefold, vfat) the library lists the
 directory to find the stored spelling, but a volume that hides it from the JDK would still give two spellings two identities.
 
 **The data key is cached** in process memory per identity, shared by every instance over the same file. A cached key is never
