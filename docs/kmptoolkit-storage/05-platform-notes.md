@@ -527,7 +527,12 @@ engine throws into one typed failure, so no provider failure is a thrown excepti
 token error under a FIPS-configured JDK, or the entropy-source failure of NativePRNG, the default `SecureRandom` on macOS and Linux), an AES-GCM
 engine without support for additional authenticated data, a failing SHA-256, plain noise from a broken engine, or a `Throwable` that is neither
 an `Exception` nor an `Error` (legal in Kotlin, which has no checked exceptions). An `InterruptedException` from a provider is typed too and the
-thread's interrupt status is put back, so the interrupt is still visible to the caller. Whatever the random source had written when it failed is wiped. Two scans
+thread's interrupt status is put back, so the code that runs on that thread (the thread of the caller's dispatcher: the caller's own
+thread under `Dispatchers.Unconfined`, a pool thread under `Dispatchers.IO`, where the pool clears the status before its next task) still
+sees the interrupt; a caller resumed on another thread does not. Only an `InterruptedException` that the provider call throws itself counts: one
+that the JDK wraps (an SPI constructor that throws while `getInstance` makes the engine leaves as a `NoSuchAlgorithmException` with it as
+the cause) or that another exception carries as its cause is typed like any other failure and leaves the status alone, because a cause can
+be an exception that came from another thread and inventing an interrupt is worse than missing one that a provider constructor hid. Whatever the random source had written when it failed is wiped. Two scans
 of the build enforce that nothing else of the desktop code touches the JCA: one reads the constant pools of the compiled classes (commonMain and
 jvmMain, and the `jvmFfm` output wherever that source set exists), so it
 sees a use however the source spells it, a call on the random source the boundary hands out (also through `java.util.Random`,

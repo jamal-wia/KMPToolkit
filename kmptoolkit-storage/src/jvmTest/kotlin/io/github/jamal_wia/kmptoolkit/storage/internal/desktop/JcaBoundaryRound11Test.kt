@@ -11,7 +11,8 @@ import kotlin.test.assertTrue
  * Group sto-desktop, round 11 (observation O3 of the phase A breakers): a provider that is interrupted throws `InterruptedException`,
  * which clears the thread's interrupt status. The boundary types it like every other provider failure and puts the status back, so a
  * caller (a store call on a thread that is being shut down) still sees the interrupt after the call answered `OperationFailed`.
- * Other failures leave the status alone.
+ * Other failures leave the status alone, and so does an `InterruptedException` that is only the cause of another exception (round 12:
+ * the one the JDK's `getInstance` wraps included; stated in the `Jca` KDoc and in 05 as a deliberate limit).
  */
 class JcaBoundaryRound11Test {
 
@@ -38,7 +39,9 @@ class JcaBoundaryRound11Test {
 
     @Test
     fun `a failure that is not an interrupt leaves the interrupt status alone`() {
-        for (failure: Throwable in listOf(IllegalStateException("noise"), java.security.ProviderException("token error"), RuntimeException(InterruptedException("only a cause")))) {
+        for (failure: Throwable in listOf(IllegalStateException("noise"), java.security.ProviderException("token error"), RuntimeException(InterruptedException("only a cause")),
+            // The JDK's own wrapping of an SPI constructor that threw while `getInstance` made the engine (round 12, observation O3 of A10).
+            java.security.NoSuchAlgorithmException("Error constructing implementation", InterruptedException("wrapped by getInstance")))) {
             assertFailsWith<JcaFailure>(failure.toString()) { Jca.randomBytes(FailsWith(failure), 8) }
             assertEquals(false, Thread.currentThread().isInterrupted, "$failure: the status must not be set")
         }

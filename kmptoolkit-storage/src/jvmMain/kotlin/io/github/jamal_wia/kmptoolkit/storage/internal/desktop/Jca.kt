@@ -35,7 +35,12 @@ internal typealias JcaRandom = SecureRandom
  *    original as the cause. The JCA specifies different exceptions for different engines and every audit round of 6.0.0 found one
  *    more shape; catching every `Throwable` of the provider call but an `Error` closes the class. Only the provider call itself is
  *    inside the catch: the callers' own argument checks stay outside and keep their types. An `InterruptedException` is typed like
- *    the rest and the thread's interrupt status is restored.
+ *    the rest and the thread's interrupt status is restored, so the code that runs on that thread sees it (a pooled dispatcher
+ *    thread clears it before its next task; a caller resumed on another thread never sees it). Only an `InterruptedException` that
+ *    the provider call throws itself is an interrupt: one the JDK wraps (an SPI constructor that throws during `getInstance` leaves
+ *    as a `NoSuchAlgorithmException` with it as the cause) or that another exception carries as its cause is NOT looked for, because
+ *    a cause may come from another thread and an invented interrupt does more harm than one hidden by a provider constructor that
+ *    blocks interruptibly (pinned by `JcaBoundaryRound11Test`).
  * 2. **"Wrong key or tampered" is decided in one place** ([aesGcmOpen]), and only a GCM tag that does not verify says it. Nothing a
  *    provider fails with in any other way can read as lost data (that verdict makes an app delete things).
  * 3. **An `Error` is never typed.** `OutOfMemoryError`, `StackOverflowError` and `InternalError` are `VirtualMachineError`s; after
