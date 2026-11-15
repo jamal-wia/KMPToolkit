@@ -29,9 +29,16 @@ import kotlin.test.assertTrue
  * descriptor (see [ClassFileScan], which also states what the scan cannot see). Baseline zero.
  *
  * Why it cannot be passed by a lexical trick: quoting, back-quotes, spaced names, aliases of aliases, constructor references, a
- * call on an instance obtained from the boundary and the same call after an implicit upcast all compile to a class reference in the pool. The scan needs no tool, no new
- * dependency and no path layout: the classes are found from the code source of `Jca` itself, together with every other jvm main output under the same `classes` tree (found by walking: the `ffm` compilation of source set `jvmFfm` where a branch has one, the javac output of Java sources), and the test FAILS (never passes) when it
- * finds too few classes, no boundary class or more than one (a same-named class of another location would be exempt), no class of the common source set, or a test class (a wrong location).
+ * call on an instance obtained from the boundary and the same call after an implicit upcast all compile to a class reference in the pool.
+ * The scan needs no tool and no new dependency. Its PRIMARY test reads every `.class` entry of the BUILT jvm jar (the build hands the
+ * jar to `jvmTest` in the system property `kmptoolkit.test.jvmJar`): the jar is what ships, so a class that is packed from the class
+ * directories, from the processed resources or from any `from(...)` of the jar task is read, with nothing to discover. It FAILS (never
+ * passes) when the property is missing, the file is missing or no archive, the jar holds no class entry, holds a nested archive or lists an entry
+ * name twice, and when the controls below do not hold: too few classes, no boundary class or more than one (a same-named class of another
+ * location would be exempt), no class of the common source set, or a test class (a wrong jar). It does not see what no class-file read can:
+ * reflection by a name built at run time, a helper of another module (see [ClassFileScan]). The SECOND test walks the directories the jar is built from
+ * (the code source of `Jca`, every other jvm main output under the same `classes` tree and the `processedResources` beside it: the `ffm`
+ * compilation of source set `jvmFfm` where a branch has one, the javac output of Java sources), for a tree without a jar.
  *
  * Controls and mutations: the real tree is checked for size and for its landmarks; the boundary itself is flagged by the same scan
  * (so it sees JCA code); fixtures compiled with the tests (`JcaScanFixtures.kt`) are flagged or left alone as named; class bytes built

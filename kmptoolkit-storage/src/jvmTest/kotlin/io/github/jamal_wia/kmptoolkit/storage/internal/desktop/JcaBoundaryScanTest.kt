@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
  * direct provider call; naming it as a type, which is how `EnvelopeCipher` accepts an injectable random source, is not), and a
  * back-quoted package segment (back-quotes are deleted before matching).
  *
- * Since round 11 this is the SECOND layer. The first is `JcaBytecodeScanTest`, which reads the constant pools of the compiled classes
+ * Since round 11 this is the SECOND layer. The first is `JcaBytecodeScanTest`, which reads the constant pools of every class entry of the built jvm jar
  * and therefore is not fooled by quoting, back-quotes, spacing, aliases, constructor references, a call on an instance the boundary
  * handed out (a call on the random source through its supertypes `java.util.Random`, `RandomGenerator` or `asKotlinRandom()` is
  * flagged too: breaker A10-m2) or a class that is named like the boundary but is not it (breaker A10-m1). It does not see

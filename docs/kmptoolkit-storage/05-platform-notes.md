@@ -541,14 +541,16 @@ sees the interrupt; a caller resumed on another thread does not. Only an `Interr
 that the JDK wraps (an SPI constructor that throws while `getInstance` makes the engine leaves as a `NoSuchAlgorithmException` with it as
 the cause) or that another exception carries as its cause is typed like any other failure and leaves the status alone, because a cause can
 be an exception that came from another thread and inventing an interrupt is worse than missing one that a provider constructor hid. Whatever the random source had written when it failed is wiped. Two scans
-of the build enforce that nothing else of the desktop code touches the JCA: one reads the constant pools of EVERY compiled output of the jvm
-main code that exists (commonMain and jvmMain, the `jvmFfm` output wherever that source set exists, and the javac output of Java sources
-such as `src/jvmMain/java`; all found by walking Gradle's `classes` tree, none listed by name, so a new source set or language cannot hide), so it
+of the build enforce that nothing else of the desktop code touches the JCA: one reads the constant pools of EVERY class entry of the built jvm jar (the one artifact that ships: commonMain and jvmMain, the `jvmFfm`
+output wherever that source set exists, the javac output of Java sources such as `src/jvmMain/java`, and any class packed from the resources or
+from a later `from(...)` of the jar task; the build hands the jar to the test, so no directory is discovered or classified and a new source
+set, language or input cannot hide, and the test fails when it has no jar, an empty jar, a nested archive or a repeated entry name; a second scan of
+the directories the jar is built from backs it for a tree without a jar), so it
 sees a use however the source spells it and a call on the random source the boundary hands out (also through `java.util.Random`,
 `RandomGenerator` or `asKotlinRandom()`, which no main code uses today). The boundary is exempt by its exact class name and by nothing
 else: the class has no nested class, a class whose name only starts with `Jca$` (a back-quoted name, a renamed file facade) fails the
 scan for that name whatever file it was compiled from (the file name a class carries is only a base name and proves nothing), and a
-second class with the boundary's name in another output location fails it too. The other scan reads every `.kt` and `.java` file under every
+second class with the boundary's name anywhere else in the jar fails it too. The other scan reads every `.kt` and `.java` file under every
 `jvm*` source directory of the module that is not a test source set (`jvmMain`, `jvmFfm` where it exists, a set that does not exist yet; found
 by walking `src/`). Neither sees reflection by a string built at run time, or a helper of another module that reaches the JCA
 inside its own code; the bytecode scan does not flag the `toString()` of a provider's random engine that a caller reaches through `Object`.

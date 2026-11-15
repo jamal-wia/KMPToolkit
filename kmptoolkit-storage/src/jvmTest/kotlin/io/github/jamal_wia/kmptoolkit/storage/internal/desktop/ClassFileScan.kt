@@ -46,13 +46,28 @@ import kotlin.io.path.readBytes
  * descriptor `Object`; negligible, and nothing in the module does it). Compile-time constants are no hole: an `Int` constant is inlined
  * as a number and names no class. The source scan (`JcaBoundaryScanTest`) sees none of those either.
  *
- * Where the classes are read from: EVERY compilation output of the jvm main code that exists, found by walking Gradle's `classes`
- * tree ([mainOutputs]), Kotlin and Java alike: `build/classes/kotlin/jvm/main`, the `ffm` output where that source set exists, and
- * the javac output of Java sources (`src/jvmMain/java` is compiled into `build/classes/java/jvmMain` and shipped in the jvm jar). No
- * directory is listed by name, so a new source set or language cannot hide. The scan fails, and never passes, when it cannot find
- * the `classes` tree. One build fact about `jvmFfm`: a Java source under `src/jvmFfm/java` makes the build fail on a branch that has
- * that source set (the Java and Kotlin compile tasks of the `ffm` compilation disagree on the JVM target, observed by the round-12
- * breaker), so no such class ships; were that ever fixed, its output would be found by the same walk.
+ * Where the classes are read from, in two layers.
+ *
+ * PRIMARY: the entries of the BUILT JVM JAR ([shippedJar], [shippedClassBytes]). The build makes `jvmTest` depend on `jvmJar` and
+ * gives it the jar's path in the system property [JVM_JAR_PROPERTY]; the scan reads EVERY `.class` entry of that one file, whatever the
+ * entry's path. The jar is by definition what ships, so nothing is discovered and nothing is classified by a directory name: a class
+ * that is packed from the class directories, from the processed resources, from a multi-release directory or from a `from(...)` that a
+ * later build change adds (the `ffm` output of the FFM branch rides in this jar the same way) is read. The scan FAILS, and never
+ * passes, when the property is missing or the file does not exist, when the file is not a readable archive, when it holds no class
+ * entry, when it holds a nested archive (`.jar`, `.war`, `.ear`, `.zip`: its classes would be invisible to this read, so it is refused
+ * instead of counted as scanned; the jar holds none), and when an entry name occurs twice (Gradle's `Jar` task refuses to write one, so
+ * it cannot happen to a built jar; the read fails on it all the same, so no class can hide behind another of its name). What the jar read
+ * cannot see is stated above (reflection by a computed string, a helper of another module, `toString()` through `Object`) plus what is
+ * not in this jar: the Android artifact and the iOS klib are out of scope by D-P12 (the Android store has its own rules), and a
+ * renamed jvm target has no `jvmJar`, so its `jvmTest` does not exist either.
+ *
+ * SECOND: the directories the jar is built from ([mainOutputs]): every compilation output of the jvm main code found by walking
+ * Gradle's `classes` tree and the `processedResources` beside it, Kotlin and Java alike (`build/classes/kotlin/jvm/main`, the `ffm`
+ * output where that source set exists, the javac output of `src/jvmMain/java`, a `.class` file among the resources). It exists for
+ * a tree without a jar and for a failure that names the file; it is a classification by path (a `jvm` segment, no `test` or `check`
+ * segment), so a shipped output named like a test is invisible to it and only the jar read sees it. One build fact about `jvmFfm`: a
+ * Java source under `src/jvmFfm/java` makes the build fail on a branch that has that source set (the Java and Kotlin compile tasks
+ * of the `ffm` compilation disagree on the JVM target, observed by the round-12 breaker), so no such class ships.
  */
 internal object ClassFileScan {
 
