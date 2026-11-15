@@ -118,8 +118,9 @@ internal class CoreLocationHeadingDevice(private val logger: Logger) : IosHeadin
  * reference is what keeps the delegate alive while the collection runs, and [release] sets the delegate to `nil`
  * before both are dropped. A calibration overlay that this manager's delegate agreed to show stays up until
  * calibration completes or `dismissHeadingCalibrationDisplay` is called on the manager that asked for it, so
- * [release] dismisses it (only when it was agreed to: a release of a manager that never showed one calls nothing).
- * [dismissCalibrationDisplay] is the seam that records that call in tests.
+ * [release] dismisses it, after both updates were stopped (only when it was agreed to: a release of a manager that
+ * never showed one calls nothing). A dismissal that throws still leaves the manager stopped, its delegate nil and
+ * the references dropped. [dismissCalibrationDisplay] is the seam that records that call in tests.
  */
 @OptIn(ExperimentalForeignApi::class)
 internal class CoreLocationHeadingManager(
@@ -156,12 +157,19 @@ internal class CoreLocationHeadingManager(
 
     override fun release() {
         val manager: CLLocationManager = held ?: return
-        if (strongDelegate?.calibrationDisplayAgreed == true) dismissCalibrationDisplay(manager)
-        manager.stopUpdatingHeading()
-        manager.stopUpdatingLocation()
-        manager.delegate = null
-        held = null
-        strongDelegate = null
+        val dismissOverlay: Boolean = strongDelegate?.calibrationDisplayAgreed == true
+        try {
+            // The updates stop first: whatever the dismissal does, the manager no longer runs when this returns.
+            manager.stopUpdatingHeading()
+            manager.stopUpdatingLocation()
+            if (dismissOverlay) dismissCalibrationDisplay(manager)
+        } finally {
+            // A failing dismissal still ends the release: the delegate is nil and both references are dropped, so
+            // the failure leaves once and a second release is a no-op.
+            manager.delegate = null
+            held = null
+            strongDelegate = null
+        }
     }
 }
 

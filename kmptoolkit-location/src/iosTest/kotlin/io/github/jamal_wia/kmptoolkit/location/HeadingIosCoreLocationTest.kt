@@ -165,6 +165,31 @@ class HeadingIosCoreLocationTest {
     }
 
     @Test
+    fun `a dismissal that throws still ends the release once and a second release dismisses nothing`() {
+        val delegate = HeadingDelegate(RecordingEvents(overlayAnswer = true), logger = NoopLogger)
+        val coreLocation = CLLocationManager()
+        var dismissals = 0
+        val opened = CoreLocationHeadingManager(coreLocation, delegate) { _: CLLocationManager ->
+            dismissals++
+            throw IllegalStateException("the dismissal failed")
+        }
+        delegate.locationManagerShouldDisplayHeadingCalibration(coreLocation)
+        assertNotNull(coreLocation.delegate, "control: the delegate is set while the collection runs")
+        opened.startHeading()
+
+        val failure: Throwable? = runCatching { opened.release() }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException, "the dismissal failure leaves the release once: $failure")
+        assertEquals(1, dismissals, "control: the dismissal ran")
+        assertNull(coreLocation.delegate, "the delegate was set to nil although the dismissal failed")
+        assertNull(opened.coreLocationManager, "the manager was dropped although the dismissal failed")
+
+        opened.release()
+
+        assertEquals(1, dismissals, "a second release dismisses nothing and fails nothing")
+    }
+
+    @Test
     fun `the factory builds without a manager and availability is the device's`() {
         val provider: HeadingProvider = createHeadingProvider()
 
