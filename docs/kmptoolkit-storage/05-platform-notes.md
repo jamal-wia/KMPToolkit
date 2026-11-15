@@ -294,7 +294,7 @@ app sharing that code with desktop could not compile it for desktop without the 
     `clear()` with `OperationFailed` and the pipe is never replaced; `clear()` removes it (the way out the class documents for a file
     that cannot be used, as for one that cannot be parsed), after which the store works again. An interrupted thread takes the lock
     normally (`FileChannel.tryLock` is not interruptible on any JDK checked, 17 to 25); the JDK then refuses that thread's file I/O,
-    so its write answers `OperationFailed` (cause `ClosedByInterruptException`) and writes nothing. The plain store never writes
+    so its write answers `OperationFailed` (cause: an `IOException` that wraps `ClosedByInterruptException`) and writes nothing. The plain store never writes
     unlocked because of an interrupt: a file system without locks is told apart by the `IOException` of `tryLock` itself, never by
     an interrupt. Reads are unaffected by a lock path.
   - **A file system that refuses file locks** (the lock file opens but `FileChannel.tryLock` itself throws an
