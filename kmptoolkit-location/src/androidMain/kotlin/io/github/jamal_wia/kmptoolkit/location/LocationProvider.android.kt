@@ -166,13 +166,17 @@ internal class AndroidLocationProvider(
         if (!hasAnyPermission(platform)) return unavailable(LocationUnavailability.PERMISSION_MISSING)
         val requested: AndroidLocationSource =
             (options.platform as? AndroidCurrentLocationOptions)?.source ?: AndroidLocationSource.AUTO
-        val providers: List<String> = when (val selection: Selection = select(platform, requested, options.accuracy, forStream = false)) {
-            is Selection.Failed -> return unavailable(selection.reason)
-            is Selection.Providers -> if (selection.firstOnly) selection.names.take(1) else selection.names
+        val selection: Selection.Providers = when (val chosen: Selection = select(platform, requested, options.accuracy, forStream = false)) {
+            is Selection.Failed -> return unavailable(chosen.reason)
+            is Selection.Providers -> chosen
         }
+        val providers: List<String> = if (selection.firstOnly) selection.names.take(1) else selection.names
         // A switched-off source is a known answer: reported at once, never after waiting out the timeout.
         if (isDisabled(platform, providers)) return unavailable(LocationUnavailability.SERVICE_DISABLED)
         val enabled: List<String> = providers.filter { provider: String -> platform.isProviderEnabled(provider) }
+        // The row's candidates that this call does not ask (switched off, or behind the first of a "first of" row):
+        // when every source that was asked refuses the caller, they decide between "grant missing" and "service off".
+        val notRaced: List<String> = selection.names.filter { provider: String -> provider !in enabled }
         // The sources can switch off between the two reads above: an empty list is the same known answer.
         if (enabled.isEmpty()) return unavailable(LocationUnavailability.SERVICE_DISABLED)
         val cached: LocationFix? = freshestWithin(agedCache(platform, enabled), options.maxAge)
@@ -183,12 +187,27 @@ internal class AndroidLocationProvider(
         return when (outcome) {
             is RaceResult.Fix -> LocationReading.Available(outcome.fix)
             is RaceResult.Exhausted -> unavailable(
-                if (outcome.refused) LocationUnavailability.PERMISSION_MISSING else LocationUnavailability.NO_FIX,
+                when {
+                    !outcome.refused -> LocationUnavailability.NO_FIX
+                    // The stream on the same device registers the candidate that is only off and reads SERVICE_DISABLED
+                    // (PLAN D8 one mapper, D19): the grant is not what is missing, so the answer must not be PERMISSION_MISSING.
+                    onlySwitchedOffRemains(platform, notRaced) -> LocationUnavailability.SERVICE_DISABLED
+                    else -> LocationUnavailability.PERMISSION_MISSING
+                },
             )
             RaceResult.Disabled -> unavailable(LocationUnavailability.SERVICE_DISABLED)
             null -> unavailable(LocationUnavailability.NO_FIX)
         }
     }
+
+    /**
+     * Every source the call asked refused the caller. True when a candidate that was not asked is present and
+     * switched off (or the device switch is off): the caller holds its grant and the user can change the service,
+     * exactly what the stream reports for the same state. False when every candidate refused (`PERMISSION_MISSING`)
+     * and for an explicit source, whose only candidate was asked.
+     */
+    private fun onlySwitchedOffRemains(platform: LocationBackend, notRaced: List<String>): Boolean =
+        notRaced.isNotEmpty() && (!platform.isLocationEnabled() || notRaced.any { provider: String -> !platform.isProviderEnabled(provider) })
 
     /**
      * Asks every source for a fresh fix at once and takes the first valid one (PLAN D13, F2): a GPS that
