@@ -45,6 +45,10 @@ tasks.register("verifySmokeLeftNoKeychainItem") {
     }
 }
 
+// When this build began: a verdict file older than this was written by an EARLIER build. `-x ...:runReleaseDistributable` skips the run task,
+// and with it the deletion of the old verdict that the run task makes first, so the smoke tasks refuse a verdict that this build did not write.
+val buildBegan: Long = System.currentTimeMillis()
+
 for ((suffix: String, variant: String) in listOf("Ffm" to "ffm", "Jna" to "jna")) {
     tasks.register("smoke$suffix") {
         group = "verification"
@@ -59,6 +63,9 @@ for ((suffix: String, variant: String) in listOf("Ffm" to "ffm", "Jna" to "jna")
         doLast {
             val file: File = resultFile.asFile
             check(file.isFile) { "$variant: the distribution ran but wrote no verdict to $file (main() was not reached)" }
+            check(file.lastModified() >= buildBegan) {
+                "$variant: the verdict in $file was written by an earlier build, not by this one (was the packaged run excluded with -x?). A stale verdict never counts: run the task without -x ...:runReleaseDistributable"
+            }
             val text: String = file.readText()
             logger.lifecycle("---- smoke $variant ----\n$text")
             check(text.lineSequence().any { it.startsWith("SMOKE-RESULT: PASS") }) { "$variant: no PASS verdict in $file" }
