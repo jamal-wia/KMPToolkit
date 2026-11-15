@@ -28,8 +28,8 @@ import kotlin.test.assertTrue
  * Mutation by reading: a lexer that tracks `${ ... }` nesting inside string literals, the boundary's typealiases added to the
  * type list (or no typealias exported at all), and back-quotes stripped before matching turn the three red tests green. The
  * green tests pin what must keep holding: the scan's controls (it fails loudly on an empty or missing tree) and that no JVM
- * source outside `src/jvmMain/kotlin` can reach the jvm compilation unseen (no `.java` or `.kts` sources, no other jvm source set
- * directory beside `jvmMain`/`jvmTest`).
+ * source can reach the jvm compilation unseen (rewritten in breaker round 14 to check the scan's real roots and the built jar, see
+ * that test's KDoc).
  */
 class JcaBoundaryScanA8BreakerR8Test {
 
@@ -92,15 +92,46 @@ class JcaBoundaryScanA8BreakerR8Test {
         assertTrue(scan(source).isNotEmpty(), "a back-quoted package segment hid a java.security engine class (scan: ${scan(source)})")
     }
 
+    /**
+     * Breaker round 14 rewrote this test (it pinned the jvm source sets to exactly `jvmMain` and `jvmTest`, which was the scanned set
+     * of round 8 and turns red on a branch that adds the SCANNED sets `jvmFfm`/`jvmFfmTest`). What it pins is unchanged and is now
+     * checked against what the scan really reads and what really ships, instead of against a list of names:
+     * (1) every `src/jvm*` directory is a root of the source scan (its own `sourceRoots`, found by reflection, not a copy of its rule)
+     * or a test source set, which the jvm jar does not pack; (2) no file in a scanned root is a JVM-language source the scan does not
+     * read (it reads `.kt` and `.java`); (3) every class the BUILT jvm jar ships was compiled from a file whose name is in a scanned root,
+     * or in `commonMain` (read only by the bytecode scan, a stated residual of the source scan), so a source that reaches the jvm
+     * compilation from anywhere else (an intermediate source set such as `desktopMain`, a `srcDir(...)`, generated code) fails it.
+     */
     @Test
     fun `no JVM source can reach the jvm compilation outside the scanned directory`() {
         val src: File = moduleSrc()
-        val jvmSets: List<String> = src.listFiles().orEmpty().filter { it.isDirectory && it.name.startsWith("jvm") }.map { it.name }.sorted()
-        assertEquals(listOf("jvmMain", "jvmTest"), jvmSets, "a jvm source set the boundary scan does not read")
-        val main = File(src, "jvmMain")
-        val foreign: List<String> = main.walkTopDown().filter { it.isFile && it.extension in setOf("java", "kts") }.map { it.name }.toList()
-        assertEquals(emptyList(), foreign, "a JVM source in jvmMain that the scan (*.kt only) never reads")
-        assertTrue(File(File(main, "kotlin"), "io").isDirectory, "control: the scanned tree exists")
+        val scanned: List<File> = scannedRoots(src)
+        assertTrue(File(src, "jvmMain") in scanned, "control: jvmMain is read by the source scan ($scanned)")
+        val jvmSets: List<File> = src.listFiles().orEmpty().filter { it.isDirectory && it.name.lowercase().startsWith("jvm") }.sortedBy { it.name }
+        val unscanned: List<String> = jvmSets.filter { it !in scanned && !it.name.endsWith("Test") }.map { it.name }
+        assertEquals(emptyList(), unscanned, "a jvm source set the boundary scan does not read (scanned: ${scanned.map { it.name }})")
+        val foreign: List<String> = scanned.flatMap { root: File ->
+            root.walkTopDown().filter { it.isFile && it.extension.lowercase() in UNREAD_JVM_SOURCES }.map { it.path }.toList()
+        }
+        assertEquals(emptyList(), foreign, "a JVM source in a scanned source set that the scan (*.kt and *.java only) never reads")
+        val known: Set<String> = (scanned + File(src, "commonMain")).flatMap { root: File ->
+            root.walkTopDown().filter { it.isFile && it.extension in setOf("kt", "java") }.map { it.name }.toList()
+        }.toSet()
+        val shipped: List<ClassFileScan.Facts> =
+            ClassFileScan.shippedClassBytes(ClassFileScan.shippedJar(System.getProperty(ClassFileScan.JVM_JAR_PROPERTY))).map(ClassFileScan::parse)
+        assertTrue(shipped.size > 20, "control: the jvm jar ships the module's classes (${shipped.size})")
+        assertTrue(shipped.any { it.sourceFile == "Jca.kt" } && "Jca.kt" in known, "control: the boundary's source file is shipped and scanned")
+        val unseen: List<String> = shipped.filter { it.sourceFile == null || it.sourceFile !in known }.map { "${it.name} (from ${it.sourceFile})" }.sorted()
+        assertEquals(emptyList(), unseen, "a class the jvm jar ships was compiled from a source file that is in no directory the source scan reads")
+    }
+
+    /** The roots of the source scan, from `JcaBoundaryScanTest.sourceRoots(File)` itself (keep a method of that shape there). */
+    private fun scannedRoots(src: File): List<File> {
+        val method: Method = JcaBoundaryScanTest::class.java.declaredMethods.firstOrNull { candidate: Method ->
+            candidate.name == "sourceRoots" && candidate.parameterTypes.contentEquals(arrayOf(File::class.java))
+        } ?: error("JcaBoundaryScanTest has no sourceRoots(File): the scanned directories cannot be known (the test must not pass silently)")
+        method.isAccessible = true
+        return (method.invoke(JcaBoundaryScanTest(), src) as List<*>).map { it as File }
     }
 
     private fun moduleSrc(): File {
@@ -108,6 +139,11 @@ class JcaBoundaryScanA8BreakerR8Test {
         return listOf(File(working, "src"), File(File(working, "kmptoolkit-storage"), "src"))
             .firstOrNull { File(it, "jvmMain").isDirectory }
             ?: error("the storage module's sources were not found from ${working.path}")
+    }
+
+    private companion object {
+        /** JVM-language source extensions that the source scan does not read; `.kts` is a Kotlin script, which a source set may hold. */
+        val UNREAD_JVM_SOURCES: Set<String> = setOf("kts", "groovy", "scala", "clj")
     }
 
     private fun boundarySource(): String =
