@@ -3,6 +3,11 @@
 What is actually on disk, why the crypto looks the way it does, and the two platform traps that
 shaped this module's implementation.
 
+## Minimums
+
+Android API 24, iOS 15 (what Kotlin/Native links for every iOS target by default), and JDK 21 on desktop. The desktop OS-key store additionally needs a
+native binding: JDK 22 or newer (built in) or JDK 21 with `kmptoolkit-storage-jna`; a libsecret of 0.19 or newer on Linux.
+
 ## Permissions and app configuration
 
 **None.** No Android permission is declared or required, nothing goes into `Info.plist`, and no
@@ -324,6 +329,7 @@ a hang on the splash screen with no error anywhere.
 This module therefore builds every query with `CFDictionaryCreateMutable` and adds entries
 individually with `CFDictionaryAddValue`:
 
+<!-- listing -->
 ```kotlin
 KeychainQuery()
     .apply {
@@ -468,7 +474,11 @@ app sharing that code with desktop could not compile it for desktop without the 
   keep the directory you choose owner-only too (anyone who can write it can roll the file back or delete it). A volume that
   stores no permissions (FAT, exFAT) ignores the request, and the write still succeeds. An external `chmod` of the data file
   is undone by the next write, which replaces the file. **This is a behaviour change:** an app that shared the file with another
-  OS user stops working.
+  OS user stops working. **macOS guarantees the mode, not the absence of an inherited ACL entry:** an extended ACL entry that the parent directory marks
+  inheritable (`chmod +a "everyone allow read,write,list,add_file,file_inherit,directory_inherit" <dir>`, which any owner can set) is added to every new
+  file and directory whatever mode is requested, and the JDK cannot clear it (check with `ls -le`, clear with `chmod -N`). The encrypted stores write only
+  ciphertext and keep their key elsewhere, so owner-only is defence in depth there; for the plain store keep the directory under a parent without inheritable
+  ACL entries.
 - **Concurrency.** Instances over the same file in one process share a lock (a `KeyedMutex` keyed by the
   case- and Unicode-folded canonical path). Writes are also coordinated **across processes**: after the in-process
   lock, a `put`, `remove` or `clear()` takes `FileChannel.tryLock` on a separate sibling,
@@ -977,6 +987,70 @@ a key derived from what your app provides.
   than the instance's key (a passphrase file opened with a raw key, or the other way round) is a key that cannot open it:
   `AccessDenied` on every operation, nothing moved or changed.
 - **A forgotten passphrase** has no reset in the API: delete the store's files and start over.
+
+## Threat model
+
+Who can do what to a store's data, per platform and store. The actors:
+
+- **O**: another OS user of the machine.
+- **C**: an offline copy: a stolen disk, a backup, a sync history.
+- **S**: another program of the same user.
+- **P**: code inside the app's own process.
+- **W**: something that can write the store's files but cannot run code as the user: a sync client, a restored backup, a sandboxed process with file
+  access, another user given write access to the directory.
+- **A**: an administrator or root of the running machine.
+
+| Store | O | C | S | P | W | A |
+|---|---|---|---|---|---|---|
+| Android Keystore store (`OS_KEY_STORE_APP_ISOLATED`) | stopped | stopped, except copies the app opted into (a backup that carries the preferences file has no key) | stopped | not stopped | can delete or roll back the preferences file | not stopped |
+| iOS Keychain store (`OS_KEY_STORE_APP_ISOLATED`) | stopped | stopped, **except** copies the app opted into: an `accessibility` without `THIS_DEVICE_ONLY` lets encrypted device backups carry the items, and `synchronizable` puts them in iCloud Keychain | stopped | not stopped | not applicable (no app-visible file) | not stopped |
+| Desktop OS-key, macOS file keychain (`OS_KEY_STORE_USER_SCOPED`) | stopped | stopped while the login password protects the keychain | **behind a prompt** the user may allow; every `java -jar` tool on one JDK shares one code identity | not stopped | can roll back or delete the file; cannot redirect the store to another key (below) | not stopped while the user is logged in |
+| Desktop OS-key, Windows DPAPI (`OS_KEY_STORE_USER_SCOPED`) | stopped | stopped while the account has a password; a domain's DPAPI backup key opens blobs offline | **not stopped**: a same-user process can call DPAPI, so it can read and also replace the key | not stopped | can roll back or delete the file | not stopped |
+| Desktop OS-key, Linux Secret Service (`OS_KEY_STORE_USER_SCOPED`) | stopped | stopped while the login keyring is encrypted with a real password | **not stopped** while the collection is unlocked: a same-user process can read and write the item | not stopped | can roll back or delete the file | not stopped |
+| Desktop passphrase store (`PASSPHRASE`) | stopped | stopped as long as the passphrase is strong and not stored | stopped while the passphrase is strong and not stored, and while no such program runs when it is typed or the store is open; on Windows and Linux a same-user program can usually capture keystrokes or read the app's memory | not stopped | can roll back or delete the file | not stopped while the store is open |
+| Desktop raw-key store (`APP_PROVIDED_KEY`) | exactly as strong as the key's home | | | | | |
+| Plain stores (any platform) | the file is owner-only on desktop; Android and iOS isolate app data | not stopped | not stopped on desktop | not stopped | can read, change and delete | not stopped |
+
+Reading the matrix:
+
+- **"Stopped" for C holds only while the login secret protects the OS store.** A Windows account without a password, a login keyring with an empty password (common with
+  auto-login; the keyring is unencrypted on disk) or a weak login password lets an offline copy be opened. On a domain machine the domain's DPAPI backup key opens blobs offline.
+- **Windows and Linux do not stop S.** A same-user process can call DPAPI, or write a Secret Service item, so S can read the key and also replace it. The macOS file keychain puts S behind an access prompt that the
+  user may allow. The macOS data-protection keychain, which would stop S, is not offered in 6.0.0. A secret that must resist S belongs in a passphrase the user types, in a raw key kept somewhere S cannot read, or on
+  Android and iOS, where the platform isolates apps.
+- **Nothing here stops P**, code inside your own process, and nothing stops A while the user is logged in.
+- **W can roll the store back or delete it** (a restored backup, a sync client replacing the file with an older copy): the library does not protect against whole-file rollback. What W cannot do is point a store at the
+  key of another: the identity of an OS-key store is the real path of its file, a header whose fingerprint names another identity is "key lost", and a file copied into another directory is a store whose key is lost, never one
+  that opens another store's key. That holds against W everywhere and against S on macOS (behind the access prompt); on Windows and Linux S can already read and replace the key. Keep the store's directory owner-only: others who
+  can write it become W (the library never changes an existing directory).
+- **The passphrase store** is as strong as the passphrase. The raw-key store is exactly as strong as wherever the key lives.
+- **Rejected key sources.** The library offers no key derived from machine facts (a hostname, a hardware id: the machine is not a secret from the machine), no key stored beside the ciphertext (the consumer-side defect this module
+  was built to end), no key readable by permission alone, and no insecure, development or automatic fallback: a store that cannot get its key is a typed error, never a weaker store.
+
+## Packaging and runtime (desktop)
+
+| Runtime | The OS-key store | The app-key and plain stores |
+|---|---|---|
+| JDK 22 and newer | the FFM binding in `kmptoolkit-storage` (a JNA artifact on the classpath is ignored) | work |
+| JDK 21 with `kmptoolkit-storage-jna` | the JNA binding | work |
+| JDK 21 without it | `Unsupported(UNSUPPORTED_RUNTIME)` on every call | work |
+
+- **Native access.** Pass `--enable-native-access=ALL-UNNAMED` (JEP 454 for FFM from JDK 22, JEP 472 for JNA from JDK 24; harmless on JDK 21). `--illegal-native-access=deny` makes the OS-key store answer
+  `Unsupported(NATIVE_ACCESS_UNAVAILABLE)`.
+- **Shrinkers.** `kmptoolkit-storage` and `kmptoolkit-storage-jna` ship their ProGuard and R8 rules in `META-INF/proguard/`, which a shrinker reads from the jar. Copy them by hand only when your tool ignores that folder:
+  the FFM binding is loaded by its fixed class name and a libsecret callback is found by name (`kmptoolkit-storage.pro`); the JNA binding class, its `Library` and `Callback` interfaces, the `Exceptions` attribute
+  (without it every DPAPI failure reads as a generic one and "no user session" is never seen) and JNA's own classes must be kept (`kmptoolkit-storage-jna.pro`).
+- **`jlink` and `jpackage` runtime images.** Include `jdk.security.auth`: the library reads the process token's user through `com.sun.security.auth.module.NTSystem` (by reflection) to build the Windows owner-only ACL, and without
+  the module every owner-only write fails closed on Windows.
+- **JNA and notarisation.** `kmptoolkit-storage-jna` carries about 30 prebuilt `libjnidispatch` binaries and extracts one to a temporary directory on first use (set `jna.tmpdir` where the temporary directory is `noexec`). A notarised macOS
+  app that adds the artifact must sign the nested `libjnidispatch.jnilib`. An app that also has plain `jna` (OSHI, Testcontainers) gets duplicate `com.sun.jna` classes: exclude `net.java.dev.jna:jna` or `jna-jpms`, one of the two.
+- **Roaming profiles and DPAPI.** The Windows data key is a DPAPI blob inside the store file, meaningful only together with the logon credentials of the user on the machine that made it. Keep the store's directory in the local
+  application data (`%LOCALAPPDATA%`), not in a roaming profile: a roamed copy is a store whose blob may not unwrap (`Undecryptable(null)`). A store that must follow a user across machines should be a passphrase store.
+- **Network file systems** (NFS, SMB) grant or refuse file locks unreliably, so cross-process exclusion is not guaranteed there. Creation is file-first (only the process that won the atomic creation of the file ever replaces an OS key item), which
+  keeps a lost lock from replacing another process's key; keep a store on a local volume all the same.
+- **Orphan key items.** When a store's directory is deleted or moved by hand, the macOS keychain item or the Linux Secret Service item made for it stays: the library never deletes an item for a file it cannot see (and never deletes
+  quarantined files). Remove an orphan with Keychain Access (search for the service `<name>.kmptoolkit.securestorage`) or Seahorse (the `service` attribute); Windows has no OS item to orphan.
+- **Quarantine files.** A file that cannot be used is moved aside as `<file>.undecryptable-<UTC time>` (never deleted by the library). It holds the user's old bytes: keep or delete it deliberately.
 
 ## Threading
 
