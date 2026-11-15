@@ -74,8 +74,9 @@ internal class MacPlatform(
  * The macOS binding: generic-password items of the login keychain through `SecItem*`.
  *
  * - Every CoreFoundation object a call creates, and the `SecItemCopyMatching` result, is released in a `finally`; the
- *   native copy of a key (the mutable `CFData` of an add, the block that fed it, the data a read returns) is zeroed
- *   before it is released.
+ *   native copies of a key that the binding allocates (the mutable `CFData` of an add and the block that fed it) are
+ *   zeroed before they are released. The `CFData` that a read returns is not the binding's to write into (its bytes are
+ *   read-only by Apple's contract): it is copied into a Kotlin array, which the caller wipes, and released.
  * - `allowUi = false` passes `kSecUseAuthenticationUI = kSecUseAuthenticationUIFail`. `kSecUseAuthenticationUISkip`
  *   is never passed: it silently omits items that need UI and answers -25300.
  * - `kSecUseDataProtectionKeychain = false` is set explicitly on every query (the login file keychain).
@@ -106,7 +107,7 @@ internal class JnaMacKeychainCalls(
             try {
                 if (status != 0) return RawResult.Failure(RawStatus(status))
                 if (data == null) return RawResult.Failure(RawStatus(ERR_SEC_INTERNAL_COMPONENT))
-                return RawResult.Success(copyAndWipe(data))
+                return RawResult.Success(copyOut(data))
             } finally {
                 if (data != null) cf.CFRelease(data)
             }
@@ -195,14 +196,16 @@ internal class JnaMacKeychainCalls(
         cf.CFDictionarySetValue(dictionary, constant(keyName), value)
     }
 
-    /** Copies a returned `CFData` out and zeroes it: the read is the only reference to that fresh object. */
-    private fun copyAndWipe(data: Pointer): ByteArray {
+    /**
+     * Copies the bytes of the `CFData` that `SecItemCopyMatching` returned into a Kotlin array and writes nothing into the object.
+     * Its bytes are read-only by Apple's contract and the binding has no buffer of its own to wipe there (decisions.md D-31);
+     * the caller wipes the returned array, and the allocator clears the freed block when the object is released.
+     */
+    private fun copyOut(data: Pointer): ByteArray {
         val length: Long = cf.CFDataGetLength(data)
         val bytes: Pointer? = cf.CFDataGetBytePtr(data)
         if (length <= 0L || bytes == null) return ByteArray(0)
-        val copy: ByteArray = bytes.getByteArray(0L, length.toInt())
-        bytes.clear(length)
-        return copy
+        return bytes.getByteArray(0L, length.toInt())
     }
 
     /** Tracks the CoreFoundation objects of one call; [close] zeroes the key data and releases everything, last created first. */

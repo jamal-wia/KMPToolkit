@@ -22,7 +22,9 @@ import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.SecretServiceCall
  * - **Minimal JNA.** Only `jna-jpms` core, with hand-written interfaces over the system libraries
  *   (`/System/Library/Frameworks/Security.framework`, `%SystemRoot%\System32\crypt32.dll`, the sonames
  *   `libsecret-1.so.0`, `libglib-2.0.so.0`, `libgobject-2.0.so.0` and `libgio-2.0.so.0`); never `jna-platform`.
- * - **Every raw call frees every operating-system-allocated output and zeroes its native copy of a key** before it returns.
+ * - **Every raw call frees every operating-system-allocated output and zeroes the native copies of a key that the binding
+ *   itself allocates** (the add buffers, the DPAPI and libsecret buffers) before it returns. An object the operating system
+ *   returns and owns the bytes of (the `CFData` of a keychain read) is copied into a Kotlin array and released, never written to.
  * - **libsecret older than 0.19** (a missing library or symbol) answers every Linux call with `RawStatus.SYMBOL_MISSING`,
  *   never an exception.
  *

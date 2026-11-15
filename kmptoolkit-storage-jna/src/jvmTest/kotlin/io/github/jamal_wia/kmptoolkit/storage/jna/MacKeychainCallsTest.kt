@@ -23,7 +23,19 @@ import kotlin.test.assertTrue
 internal sealed interface CfObject {
     class Text(val value: String) : CfObject
     class Dict(val entries: MutableMap<String, CfObject> = LinkedHashMap()) : CfObject
-    class Data(val buffer: Memory = Memory(256), var length: Long = 0L, var wipedAtRelease: Boolean = false) : CfObject
+    /**
+     * A `CFData`. [returnedBySystem] marks the immutable object a `SecItemCopyMatching` hands out (decisions.md D-31: its bytes are
+     * read-only by Apple's contract, so the binding must neither write into them nor ask for a mutable pointer to them);
+     * [original] is what the system put there, compared at release into [unchangedAtRelease].
+     */
+    class Data(
+        val buffer: Memory = Memory(256),
+        var length: Long = 0L,
+        var wipedAtRelease: Boolean = false,
+        val returnedBySystem: Boolean = false,
+        var original: ByteArray? = null,
+        var unchangedAtRelease: Boolean = true,
+    ) : CfObject
     class Constant(val name: String) : CfObject
 }
 
@@ -36,7 +48,15 @@ internal class FakeMacLibraries(private val missingSymbols: Set<String> = emptyS
     val queries: CopyOnWriteArrayList<CfObject.Dict> = CopyOnWriteArrayList()
     val addedDictionaries: CopyOnWriteArrayList<CfObject.Dict> = CopyOnWriteArrayList()
     val deletedDictionaries: CopyOnWriteArrayList<CfObject.Dict> = CopyOnWriteArrayList()
+
+    /** The `CFData` objects the binding created itself (the mutable copy of a key an add hands over) and released. */
     val releasedData: CopyOnWriteArrayList<CfObject.Data> = CopyOnWriteArrayList()
+
+    /** The `CFData` objects a `SecItemCopyMatching` handed out and the binding released (never written to, D-31). */
+    val returnedData: CopyOnWriteArrayList<CfObject.Data> = CopyOnWriteArrayList()
+
+    /** Calls of `CFDataGetMutableBytePtr` on a system-returned (immutable) `CFData`: always a violation. */
+    val mutableAccessToReturnedData: AtomicInteger = AtomicInteger()
     val security: AtomicInteger = AtomicInteger()
 
     /** What `SecItemCopyMatching` answers; `null` data means a failure status without a result. */
@@ -92,7 +112,11 @@ internal class FakeMacLibraries(private val missingSymbols: Set<String> = emptyS
             target.length += length
         }
 
-        override fun CFDataGetMutableBytePtr(data: Pointer): Pointer? = (objects.get(data) as CfObject.Data).buffer
+        override fun CFDataGetMutableBytePtr(data: Pointer): Pointer? {
+            val target = objects.get(data) as CfObject.Data
+            if (target.returnedBySystem) mutableAccessToReturnedData.incrementAndGet()
+            return target.buffer
+        }
 
         override fun CFDataGetBytePtr(data: Pointer): Pointer? = (objects.get(data) as CfObject.Data).buffer
 
@@ -101,8 +125,14 @@ internal class FakeMacLibraries(private val missingSymbols: Set<String> = emptyS
         override fun CFRelease(cf: Pointer) {
             val released: CfObject = objects.release(cf)
             if (released is CfObject.Data) {
-                released.wipedAtRelease = released.buffer.getByteArray(0L, 256).all { it == 0.toByte() }
-                releasedData.add(released)
+                if (released.returnedBySystem) {
+                    val expected: ByteArray = released.original ?: ByteArray(0)
+                    released.unchangedAtRelease = released.buffer.getByteArray(0L, expected.size).contentEquals(expected)
+                    returnedData.add(released)
+                } else {
+                    released.wipedAtRelease = released.buffer.getByteArray(0L, 256).all { it == 0.toByte() }
+                    releasedData.add(released)
+                }
             }
         }
     }
@@ -118,7 +148,7 @@ internal class FakeMacLibraries(private val missingSymbols: Set<String> = emptyS
                 // An attribute-only query answers with a dictionary of attributes, never the secret.
                 result?.value = objects.create(CfObject.Dict())
             } else if (data != null && status == 0) {
-                val created = CfObject.Data()
+                val created = CfObject.Data(returnedBySystem = true, original = data.copyOf())
                 created.buffer.write(0L, data, 0, data.size)
                 created.length = data.size.toLong()
                 result?.value = objects.create(created)
@@ -192,8 +222,14 @@ class MacKeychainCallsTest {
         assertEquals("kCFBooleanFalse", query.constantName("kSecUseDataProtectionKeychain"), "the login (file) keychain, explicitly")
         assertFalse(query.entries.containsKey("kSecUseAuthenticationUI"), "an interactive read does not suppress the dialog")
         assertEquals(0, fake.live, "every CoreFoundation object the call created is released, the result included")
-        assertEquals(1, fake.releasedData.size, "control: the result data existed")
-        assertTrue(fake.releasedData.single().wipedAtRelease, "the data of a read is zeroed before it is released")
+        assertEquals(1, fake.returnedData.size, "control: the result data existed and was released")
+        assertTrue(fake.returnedData.single().original!!.isNotEmpty(), "control: the result data held a key")
+        assertTrue(
+            fake.returnedData.single().unchangedAtRelease,
+            "the data a read returns is read-only by Apple's contract (D-31): the binding copies it out and writes nothing into it",
+        )
+        assertEquals(0, fake.mutableAccessToReturnedData.get(), "the binding never asks for a mutable pointer to the returned data")
+        assertTrue(fake.releasedData.isEmpty(), "a read creates no CFData of its own")
         scratch.assertAllFreedAndWiped("read")
     }
 
@@ -386,6 +422,8 @@ class MacKeychainCallsTest {
         assertEquals(0, fake.live, "seed=$seed: nothing left alive after 1000 operations")
         assertEquals(fake.objects.created.get(), fake.objects.released.get(), "seed=$seed")
         assertTrue(fake.releasedData.all { it.wipedAtRelease }, "seed=$seed: every released CFData was zero")
+        assertTrue(fake.returnedData.all { it.unchangedAtRelease }, "seed=$seed: a returned CFData was written to")
+        assertEquals(0, fake.mutableAccessToReturnedData.get(), "seed=$seed")
         assertEquals(scratch.allocated, scratch.closed.get(), "seed=$seed: every scratch block was freed")
         assertTrue(scratch.blocks.all { it.wipedAtClose }, "seed=$seed")
     }

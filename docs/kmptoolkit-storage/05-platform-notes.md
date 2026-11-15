@@ -379,8 +379,11 @@ app sharing that code with desktop could not compile it for desktop without the 
   - **Libraries, by absolute path or soname:** `/System/Library/Frameworks/Security.framework/Security` and CoreFoundation
     (macOS), `%SystemRoot%\System32\crypt32.dll` and `kernel32.dll` (Windows), `libsecret-1.so.0`, `libglib-2.0.so.0`,
     `libgobject-2.0.so.0` and `libgio-2.0.so.0` (Linux).
-  - **Every raw call frees what the OS allocated and zeroes its native copy of the key** (`CFRelease`, `LocalFree`,
-    `g_error_free`, `g_free`, `g_list_free`, `g_object_unref`, `secret_value_unref`).
+  - **Every raw call frees what the OS allocated and zeroes the native copies of the key that the binding itself allocates**
+    (`CFRelease`, `LocalFree`, `g_error_free`, `g_free`, `g_list_free`, `g_object_unref`, `secret_value_unref`). Those copies are
+    the add buffers (the mutable `CFData` and the block that fed it), the DPAPI buffers and the libsecret password buffer of a
+    store. The `CFData` that a keychain read returns is not one of them: its bytes are read-only by Apple's contract, so the
+    binding copies them into a Kotlin array (which the caller wipes) and releases the object without writing into it.
   - **libsecret older than 0.19** (a missing library, or any missing symbol the binding uses, `secret_password_search_sync` first)
     answers every Linux call with the dedicated `SYMBOL_MISSING` status, never an exception, so the secure store reports
     `Unsupported(NO_KEY_STORE)`. Only the load step catches an `UnsatisfiedLinkError` (for the required symbols, and for the two
