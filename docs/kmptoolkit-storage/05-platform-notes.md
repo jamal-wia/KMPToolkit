@@ -521,12 +521,14 @@ file; it never creates the target.)
 or restricted set) never makes a store call throw an exception: a `put`, `get`, `remove`, `clear()`, `ensureKey()` or `changeKey` that needs the missing
 algorithm answers `OperationFailed` (with the provider failure as its cause) and writes, creates and moves nothing; a store with data is never
 read as "key lost", and a passphrase is never called wrong (`AccessDenied`) for it. The same instance works once the algorithm is available.
-The same holds for a provider that is present and fails. Every JCA use of the module (AES-GCM, PBKDF2, the SHA-256 of a long file name and of an
+The same holds for a provider that is present and fails. Every JCA use of the desktop code (the Android store has its own Keystore code; AES-GCM, PBKDF2, the SHA-256 of a long file name and of an
 OS-key store's identity, the random source that makes every nonce, salt and data key) goes through ONE internal boundary that turns whatever an
 engine throws into one typed failure, so no provider failure is a thrown exception or a verdict about the data: a `ProviderException` (a PKCS#11
 token error under a FIPS-configured JDK, or the entropy-source failure of NativePRNG, the default `SecureRandom` on macOS and Linux), an AES-GCM
 engine without support for additional authenticated data, a failing SHA-256, plain noise from a broken engine, or a `Throwable` that is neither
-an `Exception` nor an `Error` (legal in Kotlin, which has no checked exceptions). Whatever the random source had written when it failed is wiped. The one
+an `Exception` nor an `Error` (legal in Kotlin, which has no checked exceptions). An `InterruptedException` from a provider is typed too and the
+thread's interrupt status is put back, so the interrupt is still visible to the caller. Whatever the random source had written when it failed is wiped. Two scans
+of the build enforce that nothing else touches the JCA: one reads the compiled classes' constant pools, one the sources. The one
 thing it never types is an `Error`: the JDK's DRBG `SecureRandom` (the default on Windows, and on Linux wherever `securerandom.source` is not exactly `/dev/random` or
 `/dev/urandom`, for example with `-Djava.security.egd=file:/dev/./urandom`) reports a seed source it cannot read as an `InternalError`, a
 `VirtualMachineError` that the library does not catch: that call throws it, and nothing is created, moved or held when it does. (The plain store derives its lock-file and temporary-file names from the file name and
