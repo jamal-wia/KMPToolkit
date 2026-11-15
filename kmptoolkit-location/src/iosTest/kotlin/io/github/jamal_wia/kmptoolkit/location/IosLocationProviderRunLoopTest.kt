@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -96,9 +97,18 @@ class IosLocationProviderRunLoopTest {
     @Test
     fun `the services observer creates and releases a real manager on the main queue and works again`() {
         val provider: LocationProvider = createLocationProvider(logger)
+        // The switch is a property of the host: both reads must agree, whatever it is.
+        val expected: Boolean = await(scope.async { provider.isLocationEnabled() })
         repeat(3) { round: Int ->
-            val first: Boolean = await(scope.async { provider.observeLocationEnabled().first() })
-            assertTrue(first || !first, "collection $round emitted a Boolean")
+            // One collection emits exactly one value (distinct, and nothing changes on a headless host)
+            // and that value is the switch the one-shot read reports.
+            val seen: Channel<Boolean> = Channel(Channel.UNLIMITED)
+            val collection: Job = scope.launch { provider.observeLocationEnabled().collect { value: Boolean -> seen.trySend(value) } }
+            val first: Boolean = await(scope.async { seen.receive() })
+            assertEquals(expected, first, "collection $round: the first value is the services switch")
+            pump(5)
+            assertTrue(seen.tryReceive().isFailure, "collection $round: the observer emitted a second value although nothing changed")
+            collection.cancel()
             pump(3)
         }
         // A collector cancelled while its manager is being created: the release still runs.
@@ -107,7 +117,7 @@ class IosLocationProviderRunLoopTest {
         job.cancel()
         pump(5)
         val again: Boolean = await(scope.async { provider.observeLocationEnabled().first() })
-        assertEquals(again, again)
+        assertEquals(expected, again, "a fresh collection after a cancelled one still reports the switch")
     }
 
     @Test
