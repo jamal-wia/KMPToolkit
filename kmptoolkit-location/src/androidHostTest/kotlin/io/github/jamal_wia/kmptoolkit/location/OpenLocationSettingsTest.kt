@@ -73,7 +73,7 @@ class OpenLocationSettingsTest {
         registerLocationSettingsScreen()
         // Created before the activity resumes: a factory that quietly tracked activities itself
         // would see this resume and launch from the activity.
-        val provider: LocationProvider = createLocationProvider(application, LocationProviderConfig(), logger)
+        val provider: LocationProvider = createLocationProvider(application, logger)
         resumedActivity()
 
         provider.openLocationSettings()
@@ -101,11 +101,11 @@ class OpenLocationSettingsTest {
         val factory = ::createLocationProvider
         val withLauncher = ::createLocationProviderWithLauncher
 
-        factory(application, LocationProviderConfig(), logger).openLocationSettings()
+        factory(application, logger).openLocationSettings()
         assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)
         assertNull(shadowOf(application).nextStartedActivity)
 
-        withLauncher(application, SystemScreenLauncher.SeparateTask, LocationProviderConfig(), logger)
+        withLauncher(application, SystemScreenLauncher.SeparateTask, logger)
             .openLocationSettings()
         assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)
         assertNull(shadowOf(application).nextStartedActivity)
@@ -114,7 +114,7 @@ class OpenLocationSettingsTest {
 
     @Test
     fun `the default factory reports a device without the screen and does not throw`() {
-        createLocationProvider(application, LocationProviderConfig(), logger).openLocationSettings()
+        createLocationProvider(application, logger).openLocationSettings()
 
         assertNull(shadowOf(application).nextStartedActivity)
         assertEquals(1, logger.warnings.size)
@@ -182,7 +182,6 @@ class OpenLocationSettingsTest {
         val provider: LocationProvider = createLocationProviderWithLauncher(
             application,
             SystemScreenLauncher { request -> requests.add(request) },
-            LocationProviderConfig(),
             logger,
         )
 
