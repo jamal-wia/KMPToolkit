@@ -530,12 +530,23 @@ internal class AndroidLocationProvider(
         private var lastRefusal: SecurityException? = null
 
         /**
-         * The state last reported, so a provider callback and a broadcast that describe the same transition send one
+         * The state last decided, so a provider callback and a broadcast that describe the same transition send one
          * reading. `null` means unknown: an evaluation did not finish (a platform read failed), so what the collector
-         * holds may no longer be the state recorded here (a live fix can arrive in between and contradict it). Unknown
-         * never equals a state, so the next evaluation always reports the true one, at worst as one duplicate reading.
+         * holds may no longer be the state recorded here (a live fix can arrive in between and contradict it). An
+         * unknown record is never compared with a state: it is resolved against [shownDisabled], what the collector
+         * can actually observe, so the next evaluation corrects a wrong reading and replaces no right one.
          */
         private var disabledNow: Boolean? = false
+
+        /**
+         * Whether the last element sent to the collector is SERVICE_DISABLED (`true`) or anything else, a position or
+         * NO_FIX (`false`). Written at EVERY send, a live fix included, which is what [disabledNow] cannot see. Only an
+         * unknown [disabledNow] is resolved against it; a known one is used exactly as recorded. A state change the
+         * collector already shows (a position while the service is on, SERVICE_DISABLED while it is off) sends nothing,
+         * so a no-change event after a failed evaluation never replaces a live position with NO_FIX or an older cached
+         * fix. The collector can observe only the last element, not which evaluation produced it.
+         */
+        private var shownDisabled: Boolean = false
 
         /** Set by [release]: nothing is registered after it. */
         private var closed: Boolean = false
@@ -558,6 +569,7 @@ internal class AndroidLocationProvider(
                 // leave a recorded state whose reading was never sent.
                 val seed: StreamReading = StreamReading.seed(currentReading(platform, deliverable, options.maxSeedAge, disabled))
                 disabledNow = disabled
+                shownDisabled = disabled
                 out.trySend(seed)
                 var accepted: List<String> = register(selected, firstOnly)
                 if (accepted.isEmpty()) {
@@ -693,8 +705,13 @@ internal class AndroidLocationProvider(
                 val candidatesOff: Boolean = isDisabled(platform, candidates)
                 if (candidatesOff) {
                     if (disabledNow != true) {
+                        // Known "on": always report. Unknown: report unless the collector already shows SERVICE_DISABLED.
+                        val mustSend: Boolean = disabledNow == false || !shownDisabled
                         disabledNow = true
-                        out.trySend(StreamReading.live(unavailable(LocationUnavailability.SERVICE_DISABLED)))
+                        if (mustSend) {
+                            shownDisabled = true
+                            out.trySend(StreamReading.live(unavailable(LocationUnavailability.SERVICE_DISABLED)))
+                        }
                     }
                     return
                 }
@@ -709,15 +726,22 @@ internal class AndroidLocationProvider(
             }
             val disabled: Boolean = isDisabled(platform, deliverable)
             if (disabled == disabledNow) return
+            if (disabledNow == null && disabled == shownDisabled) {
+                // Unknown record, but the collector already shows this state: nothing to correct, nothing to send.
+                disabledNow = disabled
+                return
+            }
             // Build the reading, then record the state, then send: a reading that fails to build (a failing grant or
             // cache read) never records a state whose reading was not sent, and the evaluation entry marks the state
-            // unknown, so the next event runs this transition again even after a live fix was sent in between.
+            // unknown, so the next event resolves it against what the collector shows (a live fix sent in between
+            // included) and sends only what corrects it.
             val reading: StreamReading = if (disabled) {
                 StreamReading.live(unavailable(LocationUnavailability.SERVICE_DISABLED))
             } else {
                 StreamReading.seed(currentReading(platform, deliverable, options.maxSeedAge, disabled = false))
             }
             disabledNow = disabled
+            shownDisabled = disabled
             out.trySend(reading)
         }
 
@@ -790,6 +814,7 @@ internal class AndroidLocationProvider(
             gate.submit {
                 try {
                     val fix: LocationFix = location.toLocationFix(coarseOnly = isCoarseOnly(platform)) ?: return@submit
+                    shownDisabled = false
                     out.trySend(StreamReading.live(LocationReading.Available(fix)))
                 } catch (failure: Exception) {
                     logger.w(failure) { "Could not read the location grant for a delivered fix; the fix is dropped" }
