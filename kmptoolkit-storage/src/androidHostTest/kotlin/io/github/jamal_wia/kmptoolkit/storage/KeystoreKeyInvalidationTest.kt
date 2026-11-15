@@ -169,7 +169,7 @@ class KeystoreKeyInvalidationTest {
     }
 
     /**
-     * The platform behaviour that makes the defect permanent: `getEntry` keeps answering the same dead entry for the
+     * The platform behaviour that makes the defect permanent: the key lookup keeps answering the same dead entry for the
      * alias until the alias is deleted or replaced.
      */
     private class PermanentlyDeadKeyStore : AliasedKeyStore {

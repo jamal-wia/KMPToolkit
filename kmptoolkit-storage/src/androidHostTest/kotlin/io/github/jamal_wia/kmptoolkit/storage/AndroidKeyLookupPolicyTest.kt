@@ -24,7 +24,12 @@ import org.robolectric.RobolectricTestRunner
  * later resolution (`mayDelete = false`) delete nothing and surface as [StorageError.Unavailable].
  *
  * Driven through [resolveExistingKey], the policy the real `AndroidKeyStoreAliases.existingKey` runs over
- * `KeyStore.getEntry` / `deleteEntry`, with a fake key store that throws each exception type at the first lookup.
+ * `KeyStore.getKey` / `deleteEntry`, with a fake key store that throws each exception type at the first lookup. The
+ * lookup is a lambda here, so these tests prove the CLASSIFICATION of what a lookup throws (which exception forms delete
+ * the alias and which do not), whichever key-store call produces it; that the production code makes the call that
+ * reports the failure at all (`getKey`, not `getEntry`, which swallows daemon failures on API 31+) is proved by
+ * `AndroidKeyStoreLookupBreakerR3Test`, which runs the production `AndroidKeyStoreAliases` over a provider that answers
+ * like keystore 2.
  */
 @RunWith(RobolectricTestRunner::class)
 class AndroidKeyLookupPolicyTest {

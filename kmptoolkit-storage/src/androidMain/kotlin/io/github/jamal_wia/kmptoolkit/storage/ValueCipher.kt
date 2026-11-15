@@ -345,7 +345,7 @@ internal fun isPermanentlyInvalidatedKey(error: Throwable): Boolean {
 internal const val PLATFORM_KEY_INVALIDATED_MESSAGE: String = "User changed or deleted their auth credentials"
 
 /**
- * Whether [error], thrown by `KeyStore.getEntry`, is the platform's verdict that the key is permanently invalidated:
+ * Whether [error], thrown by `KeyStore.getKey`, is the platform's verdict that the key is permanently invalidated:
  * either a `KeyPermanentlyInvalidatedException` in the cause chain ([isPermanentlyInvalidatedKey]), or the form the
  * provider produces at a lookup, an `UnrecoverableKeyException` with NO cause whose message is exactly
  * [PLATFORM_KEY_INVALIDATED_MESSAGE]. A failure that carries a cause (a `KeyStoreException` of the daemon: a transient
@@ -439,8 +439,9 @@ internal class AndroidKeystoreKeySource(
     /**
      * Only the first resolution in the process may delete an alias, and only one the platform has proven permanently
      * invalidated ([resolveExistingKey], [isPermanentlyInvalidatedAtLookup]). A later one is a re-lookup after [invalidate], and a keystore fault during it
-     * also surfaces as an unrecoverable entry on API 24-32, where nothing tells it from a dead key: deleting then would
-     * destroy every stored value over a hiccup. It fails with [StorageKeyUnavailableException] instead, and the next
+     * also surfaces as an unrecoverable entry (the lookup is `KeyStore.getKey`, which reports a daemon failure as an
+     * exception on every API level; on API 24-32 nothing tells it from a dead key): deleting then would destroy every
+     * stored value over a hiccup. It fails with [StorageKeyUnavailableException] instead, and the next
      * process start recovers a key that was proven dead.
      */
     private fun resolve(): SecretKey = try {
@@ -522,7 +523,11 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
         val keyStore: KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         return resolveExistingKey(
             mayDelete = mayDelete,
-            lookup = { (keyStore.getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.secretKey },
+            // getKey, never getEntry: on API 31+ the default KeyStoreSpi.engineGetEntry asks engineIsKeyEntry and
+            // engineContainsAlias first, and both turn every daemon failure into "no such alias" (null), so a passing
+            // fault would look like an empty alias and generateKey would overwrite a live key. engineGetKey reports the
+            // failures as exceptions, which resolveExistingKey classifies.
+            lookup = { keyStore.getKey(alias, null) as? SecretKey },
             delete = { keyStore.deleteEntry(alias) },
         )
     }
@@ -587,9 +592,9 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
 /**
  * Looks an alias up and, only for a key the platform has PROVEN dead, deletes it so that a new one can be generated.
  *
- * `getEntry` answers `UnrecoverableKeyException` for a key that is gone, but also for faults that pass: a keystore
- * daemon that is restarting, a device that is locked while the key needs it unlocked, a provider that is busy. On the
- * older platforms nothing in the exception tells the two apart, and deleting the alias over a fault that passes
+ * `KeyStore.getKey` (the provider's `engineGetKey`) answers `UnrecoverableKeyException` for a key that is gone, but also
+ * for faults that pass: a keystore daemon that is restarting, a device that is locked while the key needs it unlocked, a
+ * provider that is busy. On the older platforms nothing in the exception tells the two apart, and deleting the alias over a fault that passes
  * destroys every stored value. So the entry is deleted only when [isPermanentlyInvalidatedAtLookup] holds for the
  * exception, only when [mayDelete] (the first resolution in the process), and never for a locked device or a fault the
  * platform calls transient. The proof is the platform's own verdict in the form it really has at a lookup: an
@@ -602,9 +607,19 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
  * succeeds or the user clears the app data. That is the deliberate price of never destroying values on an ambiguous
  * fault.
  *
+ * The lookup is `getKey`, not `getEntry`, on purpose. On API 31+ (keystore 2) `KeyStore.getEntry` does not reach
+ * `engineGetKey`: the provider does not override `engineGetEntry`, and the libcore default asks `engineIsKeyEntry` and
+ * `engineContainsAlias` first, which swallow every `android.security.KeyStoreException` of the daemon and answer "no such
+ * alias". `getEntry` would then answer `null` for a busy or restarting daemon, and the caller, taking that for an empty
+ * alias, would generate a new key over the live one and lose every stored value. `getKey` calls `engineGetKey` directly,
+ * which answers `null` only for "key not found" and reports every other failure as an exception in the forms classified
+ * here. Residual, no code can fix it: on API 24-30 (keystore 1) `engineGetKey` itself starts with `KeyStore.contains()`,
+ * which turns a lost connection to the daemon into `false`, so a daemon death at exactly that moment still looks like an
+ * empty alias with either call.
+ *
  * A function over the two key-store calls so that the policy can be tested on the JVM, where no AndroidKeyStore exists.
  *
- * @param lookup `KeyStore.getEntry` for the alias, as the secret key or `null` when the alias holds none.
+ * @param lookup `KeyStore.getKey` for the alias, as the secret key or `null` when the alias holds none.
  * @param delete `KeyStore.deleteEntry` for the alias.
  * @return the key, or `null` when there is none to use (never filed, or proven dead and deleted).
  */

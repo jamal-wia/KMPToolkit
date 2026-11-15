@@ -146,7 +146,7 @@ The same rule protects the key itself: a transient fault never makes the module 
 and look the alias up again, and a transient `UnrecoverableKeyException` during that lookup never
 deletes the alias. An alias is deleted only on proof, and an `UnrecoverableKeyException` alone is not proof (a keystore
 fault and a locked device look the same on API 24-32). The proof is the platform's own verdict in the form it has at a
-lookup: the provider (`AndroidKeyStoreSpi.engineGetKey`, API 30 and 34, read from the framework bytecode) turns the
+lookup (`KeyStore.getKey`, the provider's `engineGetKey`; API 30 and 34, read from the framework bytecode) turns the
 daemon's `KeyPermanentlyInvalidatedException` into an `UnrecoverableKeyException` with **no cause** and exactly the message
 `User changed or deleted their auth credentials`; that form, or a `KeyPermanentlyInvalidatedException` in the cause chain,
 deletes the alias. Every other lookup failure, notably `UnrecoverableKeyException("Failed to obtain information about key")`
@@ -154,8 +154,23 @@ with the daemon's `KeyStoreException` as its cause, a locked device and every un
 `Unavailable`. Such a store stays `Unavailable` until the lookup succeeds (the cipher never gets a key handle to repair
 it), and a key that stays unreachable can be recovered only by clearing the app data: the deliberate price of never
 destroying values over a fault that passes. API 28 never reports the invalidation at the lookup, only when the key is
-first used, where the cipher's own handling replaces it. The
-lookup-time deletion runs only on the first key resolution in a process. A key the platform rejects later is forgotten and looked up again once, but
+first used, where the cipher's own handling replaces it.
+
+The key is looked up with `KeyStore.getKey`, never `KeyStore.getEntry`. On API 31+ (keystore 2) `getEntry` does not reach
+`engineGetKey`: the provider does not override `engineGetEntry`, and the libcore default asks `engineIsKeyEntry` and
+`engineContainsAlias` first, which swallow every failure of the keystore daemon and answer "no such alias". With
+`getEntry` a busy or restarting daemon at the lookup would look like an empty alias, a new key would be generated over
+the live one, and every stored value would be lost. `getKey` answers `null` only for "key not found" and reports every
+other failure as an exception, so the rules above (delete only on proof, otherwise `Unavailable`) apply to a real device.
+(Found by reading the framework bytecode of API 31, 34 and 36.1, not observed on a device.)
+
+**A loss no code can prevent.** On API 24-30 (keystore 1) the provider's `engineGetKey` itself starts with
+`KeyStore.contains()`, which turns a lost connection to the keystore daemon into `false`. If the daemon dies at exactly
+that moment the alias looks empty with `getKey` as with `getEntry`, and the store generates a new key over the existing
+one: the stored values become `Undecryptable`. The window is the length of one call and needs the daemon to die inside
+it; the library cannot close it, and the same holds for the two-process case below. Not observed on a device.
+
+The lookup-time deletion runs only on the first key resolution in a process. A key the platform rejects later is forgotten and looked up again once, but
 that lookup never deletes: if it hits an unrecoverable entry — which on API 24-32 a keystore fault
 also looks like, since nothing there can name a transient failure — the call fails with
 `StorageError.Unavailable` and the next process start recovers a key that was proven dead. A read that
@@ -239,7 +254,7 @@ keeps the properties it has.
   answers `Unavailable`.
 
 Not observed on a device: the validity window, the invalidation by a lock-screen removal or an enrolment change, the
-missing-lock-screen and missing-biometric failures, the exact exception of a lookup of an invalidated key and the prompt flow need a real Keystore and a lock screen. The host tests cover the key parameters per API level, the
+missing-lock-screen and missing-biometric failures, the exact exception `KeyStore.getKey` throws for an invalidated key (also on API 31+, where it may instead answer `null` if the keystore already deleted the key when the lock screen was removed) and the prompt flow need a real Keystore and a lock screen. The host tests cover the key parameters per API level, the
 mapping, the lifecycle (cancellation, a dismissed prompt, a seeded storm over a window that opens and closes) and the
 replacement of an invalidated key through a fake Keystore whose key handle refuses as the platform does.
 
