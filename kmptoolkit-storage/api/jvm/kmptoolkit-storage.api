@@ -224,9 +224,9 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/MacKeychainCalls {
-	public abstract fun addGenericPassword (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[B)I
+	public abstract fun addGenericPassword (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[BZ)I
 	public abstract fun copyGenericPassword (Ljava/lang/String;Ljava/lang/String;Z)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
-	public abstract fun deleteGenericPassword (Ljava/lang/String;Ljava/lang/String;)I
+	public abstract fun deleteGenericPassword (Ljava/lang/String;Ljava/lang/String;Z)I
 	public abstract fun probe (Z)I
 }
 

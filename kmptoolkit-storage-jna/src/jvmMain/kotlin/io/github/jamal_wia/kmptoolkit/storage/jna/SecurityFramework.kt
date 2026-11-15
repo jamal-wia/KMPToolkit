@@ -115,16 +115,8 @@ internal class JnaMacKeychainCalls(
         }
     }
 
-    // The seam of this commit has no allowUi on add and delete; the advisor's decision adds it (a put with
-    // allowUserInteraction = false must not show a keychain dialog). The implementation below already honours it, so
-    // adopting the new seam is a signature change only: these two overrides then pass their parameter through.
-    override fun addGenericPassword(service: String, account: String, label: String, secret: ByteArray): Int =
-        add(service, account, label, secret, allowUi = true)
-
-    override fun deleteGenericPassword(service: String, account: String): Int = delete(service, account, allowUi = true)
-
     /** `SecItemAdd`; [allowUi] `false` passes `kSecUseAuthenticationUIFail`, and a macOS that cannot suppress the dialog answers `errSecNotAvailable` without calling. */
-    fun add(service: String, account: String, label: String, secret: ByteArray, allowUi: Boolean): Int {
+    override fun addGenericPassword(service: String, account: String, label: String, secret: ByteArray, allowUi: Boolean): Int {
         val refs = Refs()
         try {
             val attributes: Pointer = identityQuery(refs, service, account)
@@ -141,7 +133,7 @@ internal class JnaMacKeychainCalls(
     }
 
     /** `SecItemDelete`; [allowUi] `false` passes `kSecUseAuthenticationUIFail`, and a macOS that cannot suppress the dialog answers `errSecNotAvailable` without calling. */
-    fun delete(service: String, account: String, allowUi: Boolean): Int {
+    override fun deleteGenericPassword(service: String, account: String, allowUi: Boolean): Int {
         val refs = Refs()
         try {
             val query: Pointer = identityQuery(refs, service, account)

@@ -234,7 +234,7 @@ class MacKeychainCallsTest {
     fun `an add carries the label and the key, zeroes every native copy of the key and releases everything`() {
         val fake = FakeMacLibraries()
         val scratch = RecordingScratch()
-        val status: Int = calls(fake, scratch).addGenericPassword("svc", "acct", "My label", secret)
+        val status: Int = calls(fake, scratch).addGenericPassword("svc", "acct", "My label", secret, allowUi = true)
 
         assertEquals(0, status)
         val added: CfObject.Dict = fake.addedDictionaries.single()
@@ -255,7 +255,7 @@ class MacKeychainCallsTest {
         val fake = FakeMacLibraries()
         fake.addStatus = -25299
         val scratch = RecordingScratch()
-        assertEquals(-25299, calls(fake, scratch).addGenericPassword("svc", "acct", "l", secret))
+        assertEquals(-25299, calls(fake, scratch).addGenericPassword("svc", "acct", "l", secret, allowUi = true))
         assertEquals(0, fake.live)
         assertTrue(fake.releasedData.all { it.wipedAtRelease })
         scratch.assertAllFreedAndWiped("failed add")
@@ -265,7 +265,7 @@ class MacKeychainCallsTest {
     fun `a delete addresses only the service and account`() {
         val fake = FakeMacLibraries()
         fake.deleteStatus = -25300
-        assertEquals(-25300, calls(fake, RecordingScratch()).deleteGenericPassword("svc", "acct"))
+        assertEquals(-25300, calls(fake, RecordingScratch()).deleteGenericPassword("svc", "acct", allowUi = true))
         val query: CfObject.Dict = fake.deletedDictionaries.single()
         assertEquals(setOf("kSecClass", "kSecAttrService", "kSecAttrAccount", "kSecUseDataProtectionKeychain"), query.entries.keys)
         assertEquals(0, fake.live)
@@ -275,19 +275,19 @@ class MacKeychainCallsTest {
     fun `a non-interactive add and delete pass UIFail, an interactive one does not, and a macOS that cannot suppress the dialog never calls`() {
         val fake = FakeMacLibraries()
         val calls: JnaMacKeychainCalls = calls(fake, RecordingScratch())
-        assertEquals(0, calls.add("svc", "acct", "l", secret, allowUi = false))
-        assertEquals(0, calls.delete("svc", "acct", allowUi = false))
+        assertEquals(0, calls.addGenericPassword("svc", "acct", "l", secret, allowUi = false))
+        assertEquals(0, calls.deleteGenericPassword("svc", "acct", allowUi = false))
         assertEquals("kSecUseAuthenticationUIFail", fake.addedDictionaries.single().constantName("kSecUseAuthenticationUI"))
         assertEquals("kSecUseAuthenticationUIFail", fake.deletedDictionaries.single().constantName("kSecUseAuthenticationUI"))
-        assertEquals(0, calls.add("svc", "acct", "l", secret, allowUi = true))
+        assertEquals(0, calls.addGenericPassword("svc", "acct", "l", secret, allowUi = true))
         assertFalse(fake.addedDictionaries.last().entries.containsKey("kSecUseAuthenticationUI"))
         assertEquals(0, fake.live)
 
         val noUi = FakeMacLibraries(missingSymbols = setOf("kSecUseAuthenticationUI"))
         val scratch = RecordingScratch()
         val blocked: JnaMacKeychainCalls = calls(noUi, scratch)
-        assertEquals(JnaMacKeychainCalls.ERR_SEC_NOT_AVAILABLE, blocked.add("svc", "acct", "l", secret, allowUi = false))
-        assertEquals(JnaMacKeychainCalls.ERR_SEC_NOT_AVAILABLE, blocked.delete("svc", "acct", allowUi = false))
+        assertEquals(JnaMacKeychainCalls.ERR_SEC_NOT_AVAILABLE, blocked.addGenericPassword("svc", "acct", "l", secret, allowUi = false))
+        assertEquals(JnaMacKeychainCalls.ERR_SEC_NOT_AVAILABLE, blocked.deleteGenericPassword("svc", "acct", allowUi = false))
         assertEquals(0, noUi.security.get(), "no keychain call that could show a dialog is made")
         assertEquals(0, noUi.live)
         assertEquals(scratch.allocated, scratch.closed.get())
@@ -342,7 +342,7 @@ class MacKeychainCallsTest {
         val fake = FakeMacLibraries()
         fake.throwFromSecurity = NoSuchMethodError("SecItemAdd")
         val scratch = RecordingScratch()
-        assertFailsWith<NoSuchMethodError> { calls(fake, scratch).addGenericPassword("svc", "acct", "l", secret) }
+        assertFailsWith<NoSuchMethodError> { calls(fake, scratch).addGenericPassword("svc", "acct", "l", secret, allowUi = true) }
         assertEquals(0, fake.live, "the CoreFoundation objects are released on the throwing path")
         assertTrue(fake.releasedData.single().wipedAtRelease, "the key data is wiped on the throwing path")
         scratch.assertAllFreedAndWiped("throwing add")
@@ -366,8 +366,8 @@ class MacKeychainCallsTest {
                     try {
                         when (random.nextInt(4)) {
                             0 -> calls.copyGenericPassword("svc$worker", "acct", random.nextBoolean())
-                            1 -> calls.addGenericPassword("svc$worker", "acct", "l", secret)
-                            2 -> calls.deleteGenericPassword("svc$worker", "acct")
+                            1 -> calls.addGenericPassword("svc$worker", "acct", "l", secret, random.nextBoolean())
+                            2 -> calls.deleteGenericPassword("svc$worker", "acct", random.nextBoolean())
                             else -> calls.probe(random.nextBoolean())
                         }
                     } catch (error: Throwable) {

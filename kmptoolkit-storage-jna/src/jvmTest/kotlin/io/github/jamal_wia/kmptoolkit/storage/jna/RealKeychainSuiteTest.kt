@@ -36,13 +36,13 @@ class RealKeychainSuiteTest {
     fun cleanUp() {
         if (!::calls.isInitialized) return
         // Only identities this suite named itself: no pattern, no wildcard, nothing it did not create.
-        for (service: String in services) calls.deleteGenericPassword(service, ACCOUNT)
+        for (service: String in services) calls.deleteGenericPassword(service, ACCOUNT, allowUi = true)
     }
 
     private fun service(test: String): String {
         val name: String = RealStoreGate.identity(test)
         services.add(name)
-        calls.deleteGenericPassword(name, ACCOUNT)
+        calls.deleteGenericPassword(name, ACCOUNT, allowUi = true)
         return name
     }
 
@@ -54,26 +54,26 @@ class RealKeychainSuiteTest {
         assertEquals(-25300, assertIs<RawResult.Failure>(calls.copyGenericPassword(service, ACCOUNT, allowUi = true)).status.code, "absent: errSecItemNotFound, interactive")
         assertEquals(-25300, assertIs<RawResult.Failure>(calls.copyGenericPassword(service, ACCOUNT, allowUi = false)).status.code, "absent: non-interactive (the UIFail read of 4.5 case: recorded)")
 
-        assertEquals(0, calls.addGenericPassword(service, ACCOUNT, "KMPToolkit test item", key))
+        assertEquals(0, calls.addGenericPassword(service, ACCOUNT, "KMPToolkit test item", key, allowUi = true))
         assertContentEquals(key, assertIs<RawResult.Success<ByteArray?>>(calls.copyGenericPassword(service, ACCOUNT, true)).value)
         assertContentEquals(key, assertIs<RawResult.Success<ByteArray?>>(calls.copyGenericPassword(service, ACCOUNT, false)).value, "an item this process created reads without a dialog")
-        assertEquals(-25299, calls.addGenericPassword(service, ACCOUNT, "again", ByteArray(32) { 9 }), "errSecDuplicateItem: a key item is never updated")
+        assertEquals(-25299, calls.addGenericPassword(service, ACCOUNT, "again", ByteArray(32) { 9 }, allowUi = true), "errSecDuplicateItem: a key item is never updated")
         assertContentEquals(key, assertIs<RawResult.Success<ByteArray?>>(calls.copyGenericPassword(service, ACCOUNT, true)).value, "the refused add changed nothing")
 
-        assertEquals(0, calls.deleteGenericPassword(service, ACCOUNT))
+        assertEquals(0, calls.deleteGenericPassword(service, ACCOUNT, allowUi = true))
         assertEquals(-25300, assertIs<RawResult.Failure>(calls.copyGenericPassword(service, ACCOUNT, true)).status.code)
-        assertEquals(-25300, calls.deleteGenericPassword(service, ACCOUNT), "deleting an absent item is errSecItemNotFound")
+        assertEquals(-25300, calls.deleteGenericPassword(service, ACCOUNT, allowUi = true), "deleting an absent item is errSecItemNotFound")
     }
 
     @Test
     fun `two stores and non-ASCII names stay separate`() {
         val first: String = service("two-first-ünï")
         val second: String = service("two-second")
-        assertEquals(0, calls.addGenericPassword(first, ACCOUNT, "first", key))
-        assertEquals(0, calls.addGenericPassword(second, ACCOUNT, "second", ByteArray(32) { 5 }))
+        assertEquals(0, calls.addGenericPassword(first, ACCOUNT, "first", key, allowUi = true))
+        assertEquals(0, calls.addGenericPassword(second, ACCOUNT, "second", ByteArray(32) { 5 }, allowUi = true))
         assertContentEquals(key, assertIs<RawResult.Success<ByteArray?>>(calls.copyGenericPassword(first, ACCOUNT, true)).value)
         assertContentEquals(ByteArray(32) { 5 }, assertIs<RawResult.Success<ByteArray?>>(calls.copyGenericPassword(second, ACCOUNT, true)).value)
-        assertEquals(0, calls.deleteGenericPassword(first, ACCOUNT))
+        assertEquals(0, calls.deleteGenericPassword(first, ACCOUNT, allowUi = true))
         assertEquals(0, assertIs<RawResult.Success<ByteArray?>>(calls.copyGenericPassword(second, ACCOUNT, true)).value!![0] - 5, "deleting one store leaves the other")
     }
 
@@ -121,7 +121,7 @@ class RealKeychainSuiteTest {
     @Test
     fun `a thousand operations leave the descriptor count unchanged`() {
         val service: String = service("descriptors")
-        assertEquals(0, calls.addGenericPassword(service, ACCOUNT, "descriptor loop", key))
+        assertEquals(0, calls.addGenericPassword(service, ACCOUNT, "descriptor loop", key, allowUi = true))
         repeat(WARM_UP) { calls.copyGenericPassword(service, ACCOUNT, false) }
         val before: Long = RealStoreGate.openDescriptors()
         assertTrue(before > 0, "control: the descriptor count is readable")
@@ -131,7 +131,7 @@ class RealKeychainSuiteTest {
         }
         val after: Long = RealStoreGate.openDescriptors()
         assertEquals(before, after, "1,000 keychain operations must not leak a descriptor")
-        assertEquals(RawStatus(0).code, calls.deleteGenericPassword(service, ACCOUNT))
+        assertEquals(RawStatus(0).code, calls.deleteGenericPassword(service, ACCOUNT, allowUi = true))
     }
 
     private companion object {

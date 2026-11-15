@@ -96,15 +96,15 @@ internal class FakeNativeKeyStoreBinding : NativeKeyStoreBinding {
             return RawResult.Success(secret.copyOf())
         }
 
-        override fun addGenericPassword(service: String, account: String, label: String, secret: ByteArray): Int {
-            enter("addGenericPassword", "$service|$account|${secret.size} bytes")
+        override fun addGenericPassword(service: String, account: String, label: String, secret: ByteArray, allowUi: Boolean): Int {
+            enter("addGenericPassword", "$service|$account|${secret.size} bytes|ui=$allowUi")
             forcedStatus["addGenericPassword"]?.let { return it }
             if (macItems.putIfAbsent(service to account, secret.copyOf()) != null) return ERR_SEC_DUPLICATE_ITEM
             return 0
         }
 
-        override fun deleteGenericPassword(service: String, account: String): Int {
-            enter("deleteGenericPassword", "$service|$account")
+        override fun deleteGenericPassword(service: String, account: String, allowUi: Boolean): Int {
+            enter("deleteGenericPassword", "$service|$account|ui=$allowUi")
             forcedStatus["deleteGenericPassword"]?.let { return it }
             return if (macItems.remove(service to account) != null) 0 else ERR_SEC_ITEM_NOT_FOUND
         }

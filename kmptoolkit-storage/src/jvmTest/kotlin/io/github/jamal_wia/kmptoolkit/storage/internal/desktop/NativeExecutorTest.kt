@@ -264,6 +264,34 @@ class NativeExecutorTest {
     }
 
     @Test
+    fun `a discard handler that throws neither kills the native thread nor replaces the cancellation`() = runTest {
+        val release = CountDownLatch(1)
+        val started = CountDownLatch(1)
+        val discardRan = CountDownLatch(1)
+        val call = launch(start = CoroutineStart.UNDISPATCHED) {
+            executor.call<Int>(
+                null,
+                discard = {
+                    discardRan.countDown()
+                    throw IllegalStateException("a handler that fails")
+                },
+            ) {
+                started.countDown()
+                await(release, "release")
+                1
+            }
+        }
+        await(started, "the call to start")
+        call.cancelAndJoin()
+        assertTrue(call.isCancelled, "the caller ends cancelled, not with the handler's exception")
+        release.countDown()
+        await(discardRan, "the throwing handler to run")
+
+        assertEquals(8, (executor.call(null) { 8 } as NativeOutcome.Completed<Int>).value, "the native thread must survive the handler")
+        assertEquals(1, factory.created.size)
+    }
+
+    @Test
     fun `an executor that never ran a call starts no thread and closes cleanly`() {
         executor.close()
         assertEquals(0, factory.created.size)

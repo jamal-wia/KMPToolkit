@@ -56,7 +56,7 @@ class JnaBindingLoadingTest {
         assertEquals(listOf(0, 0, 0), listOf(macLoads.get(), windowsLoads.get(), linuxLoads.get()), "no library is touched before a call")
 
         assertIs<io.github.jamal_wia.kmptoolkit.storage.internal.desktop.RawResult<*>>(mac.copyGenericPassword("s", "a", true))
-        mac.deleteGenericPassword("s", "a")
+        mac.deleteGenericPassword("s", "a", allowUi = true)
         assertEquals(listOf(1, 0, 0), listOf(macLoads.get(), windowsLoads.get(), linuxLoads.get()), "only the used OS loads, and only once")
     }
 
