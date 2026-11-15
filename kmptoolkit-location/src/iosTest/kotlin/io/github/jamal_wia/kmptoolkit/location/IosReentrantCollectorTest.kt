@@ -77,6 +77,9 @@ class IosReentrantCollectorTest {
         lateinit var job: Job
         val labels: MutableList<String> = mutableListOf()
         var failure: Throwable? = null
+
+        /** The stream itself completed after its terminal reading (PERMISSION_MISSING) before the collector wanted to end. */
+        var completedByTerminal: Boolean = false
     }
 
     private enum class End { FIRST, CANCEL }
@@ -114,6 +117,15 @@ class IosReentrantCollectorTest {
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation
+            } catch (noMatch: NoSuchElementException) {
+                // `first` throws this when the stream completes before a match. The contract completes a stream
+                // exactly once, after PERMISSION_MISSING (the terminal reading, the last label): that is the
+                // stream ending as documented, not a failure of the collector. Any other completion is a failure.
+                if (end == End.FIRST && probe.labels.lastOrNull() == LocationUnavailability.PERMISSION_MISSING.name) {
+                    probe.completedByTerminal = true
+                } else {
+                    probe.failure = noMatch
+                }
             } catch (failure: Throwable) {
                 probe.failure = failure
             }
@@ -371,6 +383,7 @@ class IosReentrantCollectorTest {
     fun `a seeded storm with collectors that end on any reading never runs a released manager`() = runTest {
         var restarts = 0
         var endedOnSeedOrNoFix = 0
+        var endedByTerminal = 0
         for (seed: Int in 1..40) {
             val random = Random(seed)
             val f = Fixture(testScheduler)
@@ -418,6 +431,7 @@ class IosReentrantCollectorTest {
                 val manager: FakeIosLocationManager? = f.fake.liveManagers.lastOrNull()
                 if (current.job.isCompleted || manager == null) {
                     if (current.labels.size == 1) endedOnSeedOrNoFix++
+                    if (current.labels.lastOrNull() == LocationUnavailability.PERMISSION_MISSING.name) endedByTerminal++
                     begin()
                     continue
                 }
@@ -443,5 +457,6 @@ class IosReentrantCollectorTest {
         }
         assertTrue(restarts > 40, "control: the storm restarted updates only $restarts times")
         assertTrue(endedOnSeedOrNoFix > 0, "control: no collection ended on its first reading")
+        assertTrue(endedByTerminal > 0, "control: no collection ended on the terminal PERMISSION_MISSING")
     }
 }
