@@ -345,7 +345,10 @@ app sharing that code with desktop could not compile it for desktop without the 
     limit or cancellation ends the wait, and an interactive call waits until it is cancelled), and is replaced by the next call too; if
     no replacement can be made the queued calls answer as failed with that cause. A value a native call returned that does not
     reach its caller (the caller left first, or the delivery failed) is always handed to the wipe handler first, so a key is never
-    left unwiped by a failed delivery. The same holds for what goes the other way: the copy of the data key that a call hands to the
+    left unwiped by a failed delivery. That holds for a caller whose dispatcher keeps the coroutines contract: a dispatcher whose `dispatch`
+    throws loses the resumption of the awaiting coroutine inside kotlinx.coroutines, so that caller stays suspended and the value is neither
+    delivered nor wiped (the executor cannot tell a dispatch that failed before it queued the resumption from one that queued it first,
+    and wiping a value the caller may still read would hand it a zeroed key); the native thread survives and serves the next call. The same holds for what goes the other way: the copy of the data key that a call hands to the
     OS (the keychain add, the Secret Service store, the DPAPI protect) is wiped by the native thread when the call returns, and by the
     caller when the call can no longer start (withdrawn from the queue, executor closed), so a call that never ran leaves no live copy
     behind. After the executor is closed no thread is made.

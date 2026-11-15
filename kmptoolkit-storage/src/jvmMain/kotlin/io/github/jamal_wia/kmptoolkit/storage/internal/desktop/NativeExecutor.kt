@@ -56,7 +56,13 @@ internal sealed interface NativeOutcome<out T> {
  * - **A value is never dropped.** A value a call returned that does not reach its caller as [NativeOutcome.Completed] reaches
  *   `discard` exactly once, whatever the reason: the caller left or timed out first, the caller is cancelled in the instant
  *   the value lands, or the delivery itself fails (an `Error` while the executor allocates the outcome, the thread dying).
- *   It is handed over before that failure leaves the delivery, so even a thread that dies leaves no unwiped key behind.
+ *   It is handed over before that failure leaves the delivery, so even a thread that dies leaves no unwiped key behind. This
+ *   holds for a caller whose dispatcher keeps the coroutines contract. A dispatcher whose `dispatch` throws loses the resumption of
+ *   the awaiting coroutine inside kotlinx.coroutines (`done.complete` itself throws on the native thread, after the value was handed
+ *   over): that caller stays suspended and the value is neither delivered nor discarded. This is not repaired on purpose: the
+ *   executor cannot tell a dispatch that failed before it queued the resumption from one that queued it first, and a wiped value
+ *   that the caller still reads is a zeroed key, which a store would read as "wrong key". The native thread survives and serves
+ *   the next call (pinned by `NativeExecutorRound12Test`).
  * - **Interactive calls** pass `limit = null`: a prompt may be on screen, so there is no limit, but the caller stays
  *   cancellable.
  * - **No lock is held across a call.** The executor owns no lock a binding call can wait on; callers never hold a
