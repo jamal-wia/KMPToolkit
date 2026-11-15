@@ -15,6 +15,7 @@ import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.w
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
@@ -110,9 +111,22 @@ private sealed interface RaceResult {
     data object Disabled : RaceResult
 }
 
+/**
+ * The sources `AUTO` offers, in preference order. [firstOnly] rows ("network, else gps") use only the
+ * first candidate the caller can use; the others use every candidate that accepts.
+ */
+private class AutoPick(val candidates: List<String>, val firstOnly: Boolean) {
+    /** The sources to use now: the candidates minus the [refused] ones, cut to the first when [firstOnly]. */
+    fun target(refused: Set<String>): List<String> {
+        val usable: List<String> = candidates.filter { provider: String -> provider !in refused }
+        return if (firstOnly) usable.take(1) else usable
+    }
+}
+
 /** Which sources a request uses, or the typed reason there is none. */
 private sealed interface Selection {
-    class Providers(val names: List<String>) : Selection
+    /** [names] in preference order; a [firstOnly] selection uses just the first one the caller can use. */
+    class Providers(val names: List<String>, val firstOnly: Boolean) : Selection
 
     class Failed(val reason: LocationUnavailability) : Selection
 }
@@ -154,7 +168,7 @@ internal class AndroidLocationProvider(
             (options.platform as? AndroidCurrentLocationOptions)?.source ?: AndroidLocationSource.AUTO
         val providers: List<String> = when (val selection: Selection = select(platform, requested, options.accuracy, forStream = false)) {
             is Selection.Failed -> return unavailable(selection.reason)
-            is Selection.Providers -> selection.names
+            is Selection.Providers -> if (selection.firstOnly) selection.names.take(1) else selection.names
         }
         // A switched-off source is a known answer: reported at once, never after waiting out the timeout.
         if (isDisabled(platform, providers)) return unavailable(LocationUnavailability.SERVICE_DISABLED)
@@ -196,9 +210,14 @@ internal class AndroidLocationProvider(
         val winner = CompletableDeferred<RaceResult>()
         val ended = AtomicInteger(0)
         val refusals = AtomicInteger(0)
+        // The sources that can still deliver: a source that refused the caller or failed is removed, because its
+        // "on" flag says nothing (it can never answer). "Disabled" is decided over this set only (PLAN D19).
+        val inRace: MutableSet<String> = ConcurrentHashMap.newKeySet<String>().apply { addAll(providers) }
         fun checkDisabled() {
             try {
-                if (isDisabled(platform, providers)) winner.complete(RaceResult.Disabled)
+                val remaining: List<String> = inRace.toList()
+                // An empty set is "every source ended", which sourceEnded answers; it is not "switched off".
+                if (remaining.isNotEmpty() && isDisabled(platform, remaining)) winner.complete(RaceResult.Disabled)
             } catch (failure: Exception) {
                 logger.w(failure) { "Could not re-read the location service state" }
             }
@@ -223,11 +242,13 @@ internal class AndroidLocationProvider(
                         } catch (security: SecurityException) {
                             refusals.incrementAndGet()
                             logger.d { "Location provider $provider refused the caller's permission" }
-                            sourceEnded(winner, ended, refusals, providers.size)
+                            inRace.remove(provider)
+                            sourceEnded(winner, ended, refusals, providers.size, ::checkDisabled)
                         } catch (failure: Exception) {
                             // A platform failure of one source (an OEM IllegalArgumentException) must not fail the call.
                             logger.w(failure) { "Location provider $provider failed in getCurrentLocation" }
-                            sourceEnded(winner, ended, refusals, providers.size)
+                            inRace.remove(provider)
+                            sourceEnded(winner, ended, refusals, providers.size, ::checkDisabled)
                         }
                     }
                 }
@@ -245,8 +266,19 @@ internal class AndroidLocationProvider(
         }
     }
 
-    private fun sourceEnded(winner: CompletableDeferred<RaceResult>, ended: AtomicInteger, refusals: AtomicInteger, total: Int) {
-        if (ended.incrementAndGet() == total) winner.complete(RaceResult.Exhausted(refused = refusals.get() > 0))
+    /**
+     * One source ended without a fix. The last one ends the race ([RaceResult.Exhausted]); otherwise the
+     * sources still waiting may all be off already (the one that ended may have been the only one that was on),
+     * so [recheckDisabled] runs: a known answer at once, never the timeout.
+     */
+    private fun sourceEnded(
+        winner: CompletableDeferred<RaceResult>,
+        ended: AtomicInteger,
+        refusals: AtomicInteger,
+        total: Int,
+        recheckDisabled: () -> Unit,
+    ) {
+        if (ended.incrementAndGet() == total) winner.complete(RaceResult.Exhausted(refused = refusals.get() > 0)) else recheckDisabled()
     }
 
     /** Removes [listener]; a failing removal (a dead system server) is logged, never thrown into a callback or a cancellation handler. */
@@ -357,15 +389,21 @@ internal class AndroidLocationProvider(
         }
         val requested: AndroidLocationSource =
             (options.platform as? AndroidLocationUpdatesOptions)?.source ?: AndroidLocationSource.AUTO
-        val providers: List<String> = when (val selection: Selection = select(platform, requested, options.accuracy, forStream = true)) {
+        val selection: Selection.Providers = when (val chosen: Selection = select(platform, requested, options.accuracy, forStream = true)) {
             is Selection.Failed -> {
-                trySend(StreamReading.live(unavailable(selection.reason)))
+                trySend(StreamReading.live(unavailable(chosen.reason)))
                 close()
                 return@callbackFlow
             }
-            is Selection.Providers -> selection.names
+            is Selection.Providers -> chosen
         }
-        val session = StreamSession(platform, options, providers, autoSelect = requested == AndroidLocationSource.AUTO, out = this)
+        val session = StreamSession(
+            platform,
+            options,
+            selection,
+            autoSelect = requested == AndroidLocationSource.AUTO,
+            out = this,
+        )
         try {
             session.start()
         } catch (security: SecurityException) {
@@ -403,7 +441,7 @@ internal class AndroidLocationProvider(
     private inner class StreamSession(
         private val platform: LocationBackend,
         private val options: LocationUpdatesOptions,
-        providers: List<String>,
+        initial: Selection.Providers,
         private val autoSelect: Boolean,
         private val out: SendChannel<StreamReading>,
     ) : LocationListener {
@@ -420,14 +458,29 @@ internal class AndroidLocationProvider(
             accuracy = options.accuracy,
         )
 
-        /** What the selection last decided (empty after a failed re-registration, so the next check retries). */
-        private var selected: List<String> = providers
+        /**
+         * What is registered: the candidates until [start] has registered, then the sources that accepted
+         * (empty after a failed re-registration, so the next check retries).
+         */
+        private var selected: List<String> = initial.names
+
+        /** The "first usable only" rows of the AUTO table register one source; every other selection registers all that accept. */
+        private val firstOnly: Boolean = initial.firstOnly
 
         /**
-         * The sources that can deliver: all selected ones during the registration window, then only the ones
+         * The sources that can deliver: all candidates during the registration window, then only the ones
          * that accepted it (a source that refused the caller's permission never will, so its flag says nothing).
          */
-        private var deliverable: List<String> = providers
+        private var deliverable: List<String> = initial.names
+
+        /**
+         * The sources the platform refused this caller for (a SecurityException). A refusal does not change
+         * without a process restart (D16: a revoke kills the process), so AUTO skips them for the rest of the
+         * stream instead of trying them again on every event.
+         */
+        private val refused: MutableSet<String> = mutableSetOf()
+
+        private var lastRefusal: SecurityException? = null
 
         /** The state last reported, so a provider callback and a broadcast that describe the same transition send one reading. */
         private var disabledNow: Boolean = false
@@ -451,27 +504,37 @@ internal class AndroidLocationProvider(
                 val disabled: Boolean = isDisabled(platform, deliverable)
                 disabledNow = disabled
                 out.trySend(StreamReading.seed(currentReading(platform, deliverable, options.maxSeedAge, disabled)))
-                deliverable = register(selected)
+                val accepted: List<String> = register(selected, firstOnly)
+                // PERMISSION_MISSING only when every candidate refused; one source that is merely off is not that.
+                if (accepted.isEmpty()) throw lastRefusal ?: SecurityException("no location provider accepted the registration")
+                selected = accepted
+                deliverable = accepted
                 unsubscribe = platform.observeServiceChanges { evaluate() }
                 // A change between the seed and the subscription would otherwise be missed.
                 evaluateLocked()
             }
         }
 
-        /** A provider that refuses the caller's permission is skipped, not fatal: a coarse-only app on Android 10 and lower is refused GPS and still gets the network one. */
-        private fun register(wanted: List<String>): List<String> {
+        /**
+         * Registers [wanted] in order and returns the sources that accepted (all of them, or just the first when
+         * [firstOnly]). A provider that refuses the caller's permission is skipped, not fatal, and remembered in
+         * [refused]: a coarse-only app on Android 10 and lower is refused GPS and still gets the network one.
+         * Any other failure propagates; the caller decides what the stream does then.
+         */
+        private fun register(wanted: List<String>, firstOnly: Boolean): List<String> {
             val accepted: MutableList<String> = mutableListOf()
-            var lastRefusal: SecurityException? = null
             for (provider: String in wanted) {
+                if (provider in refused) continue
                 try {
                     platform.requestUpdates(provider, request, this)
                     accepted += provider
-                } catch (refused: SecurityException) {
-                    lastRefusal = refused
+                } catch (refusal: SecurityException) {
+                    lastRefusal = refusal
+                    refused += provider
                     logger.d { "Location provider $provider refused the caller's permission" }
                 }
+                if (firstOnly && accepted.isNotEmpty()) break
             }
-            if (accepted.isEmpty()) throw lastRefusal ?: SecurityException("no location provider accepted the registration")
             return accepted
         }
 
@@ -491,10 +554,13 @@ internal class AndroidLocationProvider(
         private fun evaluateLocked() {
             if (closed) return
             if (autoSelect) {
-                // AUTO uses the first ENABLED source of its table (PLAN D19): when the one it registered went
-                // off while another is on, the registration moves instead of reading SERVICE_DISABLED.
-                val wanted: List<String> = pickAuto(platform, options.accuracy, forStream = true)
-                if (wanted.isNotEmpty() && wanted != selected) rebind(wanted)
+                // AUTO uses the first ENABLED source of its table that accepts the caller (PLAN D19): when the one
+                // it registered went off while another is on, the registration moves instead of reading
+                // SERVICE_DISABLED. A move never ends the evaluation: whatever is registered afterwards is what
+                // the decision below judges.
+                val pick: AutoPick = pickAuto(platform, options.accuracy, forStream = true)
+                val target: List<String> = pick.target(refused)
+                if (target.isNotEmpty() && target != selected) rebind(pick)
             }
             val disabled: Boolean = isDisabled(platform, deliverable)
             if (disabled == disabledNow) return
@@ -508,13 +574,39 @@ internal class AndroidLocationProvider(
             )
         }
 
-        private fun rebind(wanted: List<String>) {
+        /**
+         * Moves the registration to [pick]: the old one is removed first (the platform treats a second
+         * registration of the same listener as a replacement, and two would deliver twice), then the first
+         * accepting candidate is registered. When none accepts (every candidate refused the caller, or the
+         * platform failed) the previous sources are put back, so something stays registered and the caller's
+         * decision judges the real state instead of a hole. Never throws: a failure is logged and leaves
+         * [selected] empty only when nothing could be registered, so the next event tries again.
+         */
+        private fun rebind(pick: AutoPick) {
+            val previous: List<String> = deliverable
             selected = emptyList()
             deliverable = emptyList()
             removeQuietly(platform, this)
-            deliverable = register(wanted)
-            selected = wanted
+            var accepted: List<String> = registerQuietly(pick.candidates, pick.firstOnly)
+            if (accepted.isEmpty()) accepted = registerQuietly(previous, firstOnly = false)
+            if (accepted.isEmpty()) {
+                // Nothing is registered: keep judging the last known sources; selected stays empty (retry on the next event).
+                deliverable = previous
+                return
+            }
+            selected = accepted
+            deliverable = accepted
         }
+
+        /** [register] for a move: a failure is logged, whatever it had registered is removed, and nothing is accepted. */
+        private fun registerQuietly(wanted: List<String>, firstOnly: Boolean): List<String> =
+            try {
+                register(wanted, firstOnly)
+            } catch (failure: Exception) {
+                logger.w(failure) { "Could not move the location registration" }
+                removeQuietly(platform, this)
+                emptyList()
+            }
 
         // Every LocationListener method is implemented: on API 24-29 the three legacy callbacks are
         // abstract (defaults only from API 30) and the platform calls them, so a missing one is an
@@ -602,40 +694,46 @@ internal class AndroidLocationProvider(
         accuracy: LocationAccuracy,
         forStream: Boolean,
     ): Selection {
-        val wanted: List<String> = when (requested) {
-            AndroidLocationSource.FUSED -> listOf(FUSED)
-            AndroidLocationSource.GPS -> listOf(LocationManager.GPS_PROVIDER)
-            AndroidLocationSource.NETWORK -> listOf(LocationManager.NETWORK_PROVIDER)
-            AndroidLocationSource.PASSIVE -> listOf(LocationManager.PASSIVE_PROVIDER)
+        val pick: AutoPick = when (requested) {
+            AndroidLocationSource.FUSED -> AutoPick(listOf(FUSED), firstOnly = false)
+            AndroidLocationSource.GPS -> AutoPick(listOf(LocationManager.GPS_PROVIDER), firstOnly = false)
+            AndroidLocationSource.NETWORK -> AutoPick(listOf(LocationManager.NETWORK_PROVIDER), firstOnly = false)
+            AndroidLocationSource.PASSIVE -> AutoPick(listOf(LocationManager.PASSIVE_PROVIDER), firstOnly = false)
             AndroidLocationSource.AUTO -> pickAuto(platform, accuracy, forStream)
         }
-        val present: List<String> = wanted.filter { provider: String -> platform.hasProvider(provider) }
-        return if (present.isEmpty()) Selection.Failed(LocationUnavailability.UNSUPPORTED) else Selection.Providers(present)
+        val present: List<String> = pick.candidates.filter { provider: String -> platform.hasProvider(provider) }
+        return if (present.isEmpty()) Selection.Failed(LocationUnavailability.UNSUPPORTED) else Selection.Providers(present, pick.firstOnly)
     }
 
     /**
      * The sources of `AUTO` (PLAN D13, D19): the framework fused provider when the device has it AND it is
      * on, else by accuracy: high gps and network, balanced gps and network (a stream: network, else gps),
-     * low power network, else passive. A "first of" row takes the first source that is ON and falls back to
-     * the first one that is only PRESENT when none is on (then the call reads `SERVICE_DISABLED`), so a
-     * switched-off network provider never hides an enabled gps or passive one ("AUTO races only the enabled
-     * providers, and reads SERVICE_DISABLED only when none is enabled"). A device that has only a fused
-     * provider uses it even when it is off.
+     * low power network, else passive. A "first of" row lists its present sources with the ON ones first, then
+     * the ones that are only PRESENT, and is [AutoPick.firstOnly]: the caller uses the first candidate that
+     * accepts it, so a switched-off network provider never hides an enabled gps or passive one ("AUTO races
+     * only the enabled providers, and reads SERVICE_DISABLED only when none is enabled"), and a candidate the
+     * platform refuses the caller is passed over, never turned into a terminal PERMISSION_MISSING while
+     * another candidate of the row can serve (it reads SERVICE_DISABLED while that one is off). A device that
+     * has only a fused provider uses it even when it is off.
      */
-    private fun pickAuto(platform: LocationBackend, accuracy: LocationAccuracy, forStream: Boolean): List<String> {
-        if (platform.hasProvider(FUSED) && platform.isProviderEnabled(FUSED)) return listOf(FUSED)
-        fun firstOf(vararg order: String): List<String> {
+    private fun pickAuto(platform: LocationBackend, accuracy: LocationAccuracy, forStream: Boolean): AutoPick {
+        if (platform.hasProvider(FUSED) && platform.isProviderEnabled(FUSED)) return AutoPick(listOf(FUSED), firstOnly = false)
+        fun firstOf(vararg order: String): AutoPick {
             val present: List<String> = order.filter { provider: String -> platform.hasProvider(provider) }
-            return listOfNotNull(present.firstOrNull { provider: String -> platform.isProviderEnabled(provider) } ?: present.firstOrNull())
+            val (on: List<String>, off: List<String>) = present.partition { provider: String -> platform.isProviderEnabled(provider) }
+            return AutoPick(on + off, firstOnly = true)
         }
-        val table: List<String> = when {
+        val table: AutoPick = when {
             accuracy == LocationAccuracy.HIGH_ACCURACY || (accuracy == LocationAccuracy.BALANCED && !forStream) ->
-                listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-                    .filter { provider: String -> platform.hasProvider(provider) }
+                AutoPick(
+                    listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                        .filter { provider: String -> platform.hasProvider(provider) },
+                    firstOnly = false,
+                )
             accuracy == LocationAccuracy.BALANCED -> firstOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
             else -> firstOf(LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
         }
-        return if (table.isEmpty() && platform.hasProvider(FUSED)) listOf(FUSED) else table
+        return if (table.candidates.isEmpty() && platform.hasProvider(FUSED)) AutoPick(listOf(FUSED), firstOnly = false) else table
     }
 
     /** Device-wide off, or none of the request's sources is on (for a named source: that source is off). */
