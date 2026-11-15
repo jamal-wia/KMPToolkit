@@ -12,10 +12,9 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
 import android.os.Looper
+import io.github.jamal_wia.kmptoolkit.logging.LogLevel
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
-import io.github.jamal_wia.kmptoolkit.logging.d
-import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.math.PI
 import kotlinx.coroutines.flow.Flow
 
@@ -59,7 +58,12 @@ import kotlinx.coroutines.flow.Flow
  * to degrees) and is `null` for every other pipeline or while the platform reports none.
  * [Heading.needsCalibration] is `true` while the platform reports the sensor as
  * `SENSOR_STATUS_UNRELIABLE` or `SENSOR_STATUS_ACCURACY_LOW`; the library does not compare the field
- * strength with the expected one.
+ * strength with the expected one. The platform says so in two ways and both are read: through
+ * `onAccuracyChanged`, and in the `accuracy` of every sample. The second matters because the framework
+ * calls `onAccuracyChanged` only when the accuracy differs from the last one it reported, whose initial
+ * value is `SENSOR_STATUS_UNRELIABLE`, so a sensor that starts unreliable never reaches that callback.
+ * In the accelerometer and magnetometer pipeline only the magnetometer counts. A negative accuracy
+ * (`SENSOR_STATUS_NO_CONTACT`) says nothing and changes nothing.
  *
  * A sensor the platform refuses to enable leaves nothing registered and the stream open and silent,
  * like a device without the sensor; a registration that throws propagates to the collector, again with
@@ -68,7 +72,9 @@ import kotlinx.coroutines.flow.Flow
  * @param context any `Context`; only the framework managers are obtained from its application
  *   context, nothing else is retained.
  * @param options Android-only heading settings.
- * @param logger where a dropped sample, a refused sensor or a failed passive registration is reported.
+ * @param logger where a dropped sample, a refused sensor or a failed passive registration is reported. A
+ *   logger that throws loses its own event and nothing else: it never reaches the platform's thread and
+ *   never stops a registration from being released.
  */
 public fun createHeadingProvider(
     context: Context,
@@ -169,8 +175,9 @@ internal class ManagerHeadingPositions(private val manager: LocationManager) : H
     override fun unregister(listener: LocationListener) = manager.removeUpdates(listener)
 
     private companion object {
-        // Declination moves by about one degree over hundreds of kilometres, so a fix a minute or five
-        // kilometres apart is far more often than the compass needs.
+        // Declination moves by about one degree over hundreds of kilometres. The platform applies BOTH
+        // minimums to a passive listener, so after the first fix another one comes at most once a minute
+        // and only after the device moved five kilometres: far more often than the compass needs.
         const val PASSIVE_MIN_TIME_MILLIS: Long = 60_000L
         const val PASSIVE_MIN_DISTANCE_METERS: Float = 5_000f
     }
@@ -285,7 +292,7 @@ internal class AndroidHeadingProvider(
     private fun declinationFor(position: DeclinationPosition): Double? = try {
         declinationOf(position.coordinates, position.altitudeMeters, currentTimeMillis()).takeIf { value: Double -> value.isFinite() }
     } catch (failure: Exception) {
-        logger.w(failure) { "Could not compute the magnetic declination" }
+        logger.logSafely(LogLevel.WARN, failure) { "Could not compute the magnetic declination" }
         null
     }
 
@@ -308,49 +315,58 @@ internal class AndroidHeadingProvider(
         val hub: HeadingSensors = sensors ?: return null
         val chosen: HeadingPipeline = pipeline ?: return null
         val sensorListener: SensorEventListener = SensorListener(chosen, inputs, screenRotation)
+        val source: HeadingPositions? = positions
+        // Set before the position registration is attempted, so the undo below also covers a registration
+        // that failed half way.
+        var positionCandidate: LocationListener? = null
+        var positionRegistered = false
 
-        // The primary registration: whatever goes wrong, nothing stays registered.
+        // Everything after the first registration is inside this try: whatever goes wrong, with any
+        // Throwable, nothing this call registered stays registered (a thrown call has no handle for the
+        // caller to release). The undo's own failures ride along as suppressed instead of replacing the
+        // original.
         try {
+            // The primary registration: the sensors.
             for (sensor: Sensor in chosen.sensors) {
                 if (!hub.register(sensorListener, sensor)) {
                     runCatching { hub.unregister(sensorListener) }
-                    logger.w { "The platform refused to enable heading sensor ${sensor.name}: the heading stays silent" }
+                    logger.logSafely(LogLevel.WARN) { "The platform refused to enable heading sensor ${sensor.name}: the heading stays silent" }
                     return null
                 }
             }
+
+            // The optional registration: a position for true north, only when the caller named none. Its
+            // failure costs trueDegrees, never the compass.
+            if (declinationAt == null && source != null) {
+                val candidate: LocationListener = PositionListener(inputs)
+                positionCandidate = candidate
+                try {
+                    source.register(candidate)
+                    positionRegistered = true
+                } catch (failure: Exception) {
+                    runCatching { source.unregister(candidate) }
+                    logger.logSafely(LogLevel.DEBUG) { "No passive position for true north (${failure::class.simpleName}): trueDegrees stays null until declinationAt is given" }
+                }
+            }
         } catch (failure: Throwable) {
-            // A later sensor's registration may have failed after an earlier one succeeded: awaitClose
-            // style cleanup never runs on this path, so undo here. The undo's own failure rides along as
-            // suppressed instead of replacing the original.
+            val candidate: LocationListener? = positionCandidate
+            if (candidate != null && source != null) {
+                runCatching { source.unregister(candidate) }.exceptionOrNull()?.let(failure::addSuppressed)
+            }
             runCatching { hub.unregister(sensorListener) }.exceptionOrNull()?.let(failure::addSuppressed)
             throw failure
         }
 
-        // The optional registration: a position for true north, only when the caller named none. Its
-        // failure costs trueDegrees, never the compass.
-        var positionListener: LocationListener? = null
-        val source: HeadingPositions? = positions
-        if (declinationAt == null && source != null) {
-            val candidate: LocationListener = PositionListener(inputs)
-            try {
-                source.register(candidate)
-                positionListener = candidate
-            } catch (failure: Exception) {
-                runCatching { source.unregister(candidate) }
-                logger.d { "No passive position for true north (${failure::class.simpleName}): trueDegrees stays null until declinationAt is given" }
-            }
-        }
-
-        val registered: LocationListener? = positionListener
+        val registered: LocationListener? = if (positionRegistered) positionCandidate else null
         return AutoCloseable {
             // Both removals are idempotent in the framework; one failing must not strand the other.
             if (registered != null && source != null) {
                 runCatching { source.unregister(registered) }.exceptionOrNull()?.let { failure: Throwable ->
-                    logger.w(failure) { "Could not remove the heading position listener" }
+                    logger.logSafely(LogLevel.WARN, failure) { "Could not remove the heading position listener" }
                 }
             }
             runCatching { hub.unregister(sensorListener) }.exceptionOrNull()?.let { failure: Throwable ->
-                logger.w(failure) { "Could not remove the heading sensor listener" }
+                logger.logSafely(LogLevel.WARN, failure) { "Could not remove the heading sensor listener" }
             }
         }
     }
@@ -368,11 +384,11 @@ internal class AndroidHeadingProvider(
         override fun onSensorChanged(event: SensorEvent) {
             try {
                 when (chosen.kind) {
-                    HeadingPipeline.Kind.ROTATION_VECTOR -> onRotationVector(event.values ?: return)
+                    HeadingPipeline.Kind.ROTATION_VECTOR -> onRotationVector(event.values ?: return, event.accuracy)
                     HeadingPipeline.Kind.ACCELEROMETER_MAGNETOMETER -> onRawSample(event)
                 }
             } catch (failure: Exception) {
-                logger.w(failure) { "Dropped a heading sample" }
+                logger.logSafely(LogLevel.WARN, failure) { "Dropped a heading sample" }
             }
         }
 
@@ -384,16 +400,19 @@ internal class AndroidHeadingProvider(
                 HeadingPipeline.Kind.ACCELEROMETER_MAGNETOMETER -> sensor?.type == Sensor.TYPE_MAGNETIC_FIELD
             }
             if (!relevant) return
-            val needsCalibration: Boolean = accuracy <= SensorManager.SENSOR_STATUS_ACCURACY_LOW
-            inputs.update { state: AndroidHeadingState ->
-                if (state.needsCalibration == needsCalibration) state else state.copy(needsCalibration = needsCalibration)
-            }
+            val needsCalibration: Boolean = needsCalibrationAt(accuracy) ?: return
+            inputs.update { state: AndroidHeadingState -> state.withCalibration(needsCalibration) }
         }
 
-        private fun onRotationVector(values: FloatArray) {
+        private fun onRotationVector(values: FloatArray, sampleAccuracy: Int) {
             val azimuth: Double = azimuthFromRotationVector(values, screenRotation) ?: return
             val accuracy: Double? = rotationVectorAccuracyDegrees(values)
-            inputs.update { state: AndroidHeadingState -> state.copy(azimuthDegrees = azimuth, accuracyDegrees = accuracy) }
+            // The sample carries the sensor's accuracy too: onAccuracyChanged is not called for a sensor
+            // that starts at the framework's initial value, so the sample is the only word on it then.
+            val needsCalibration: Boolean? = needsCalibrationAt(sampleAccuracy)
+            inputs.update { state: AndroidHeadingState ->
+                state.copy(azimuthDegrees = azimuth, accuracyDegrees = accuracy).withCalibration(needsCalibration)
+            }
         }
 
         private fun onRawSample(event: SensorEvent) {
@@ -401,11 +420,15 @@ internal class AndroidHeadingProvider(
             if (values.size < 3) return
             val sample = Vector3(values[0], values[1], values[2])
             when (event.sensor?.type) {
+                // An accelerometer sample says nothing about the compass, so its accuracy is not read.
                 Sensor.TYPE_ACCELEROMETER -> inputs.update { state: AndroidHeadingState ->
                     state.withVectors(sample, state.geomagnetic, screenRotation)
                 }
-                Sensor.TYPE_MAGNETIC_FIELD -> inputs.update { state: AndroidHeadingState ->
-                    state.withVectors(state.gravity, sample, screenRotation)
+                Sensor.TYPE_MAGNETIC_FIELD -> {
+                    val needsCalibration: Boolean? = needsCalibrationAt(event.accuracy)
+                    inputs.update { state: AndroidHeadingState ->
+                        state.withVectors(state.gravity, sample, screenRotation).withCalibration(needsCalibration)
+                    }
                 }
             }
         }
@@ -429,7 +452,7 @@ internal class AndroidHeadingProvider(
                     if (state.declinationDegrees == declination) state else state.copy(declinationDegrees = declination)
                 }
             } catch (failure: Exception) {
-                logger.w(failure) { "Dropped a position for the heading declination" }
+                logger.logSafely(LogLevel.WARN, failure) { "Dropped a position for the heading declination" }
             }
         }
 
@@ -442,6 +465,17 @@ internal class AndroidHeadingProvider(
         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
     }
 }
+
+/**
+ * Whether the platform's [accuracy] means the compass needs calibration, or `null` when it says nothing
+ * (`SENSOR_STATUS_NO_CONTACT` and any other negative value; the framework ignores those too).
+ */
+private fun needsCalibrationAt(accuracy: Int): Boolean? =
+    if (accuracy < 0) null else accuracy <= SensorManager.SENSOR_STATUS_ACCURACY_LOW
+
+/** The same state with [needsCalibration] applied; `null` leaves it, and an unchanged flag is the same instance. */
+private fun AndroidHeadingState.withCalibration(needsCalibration: Boolean?): AndroidHeadingState =
+    if (needsCalibration == null || needsCalibration == this.needsCalibration) this else copy(needsCalibration = needsCalibration)
 
 /** A new state with the vectors replaced and the azimuth recomputed once both are known. */
 private fun AndroidHeadingState.withVectors(
@@ -463,9 +497,13 @@ private fun AndroidHeadingState.withVectors(
  * than four, so at most four are handed on.
  */
 internal fun azimuthFromRotationVector(values: FloatArray, screenRotation: ScreenRotation): Double? {
-    if (values.size < 3 || values.any { value: Float -> !value.isFinite() }) return null
+    if (values.size < 3) return null
+    // Only the first four values describe the orientation; the fifth is the accuracy estimate and has its
+    // own rule (rotationVectorAccuracyDegrees), so a non-finite one must not cost the heading.
+    val orientation: FloatArray = if (values.size > ORIENTATION_VALUES) values.copyOf(ORIENTATION_VALUES) else values
+    if (orientation.any { value: Float -> !value.isFinite() }) return null
     val matrix = FloatArray(MATRIX_SIZE)
-    SensorManager.getRotationMatrixFromVector(matrix, if (values.size > 4) values.copyOf(4) else values)
+    SensorManager.getRotationMatrixFromVector(matrix, orientation)
     return azimuthFromMatrix(matrix, screenRotation)
 }
 
@@ -513,4 +551,5 @@ internal fun rotationVectorAccuracyDegrees(values: FloatArray): Double? {
 
 private const val MATRIX_SIZE: Int = 9
 private const val HEADING_ACCURACY_INDEX: Int = 4
+private const val ORIENTATION_VALUES: Int = 4
 private const val RADIANS_TO_DEGREES: Double = 180.0 / PI

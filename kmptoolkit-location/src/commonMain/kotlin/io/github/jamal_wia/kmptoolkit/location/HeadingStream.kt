@@ -3,6 +3,8 @@
 package io.github.jamal_wia.kmptoolkit.location
 
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.logging.LogLevel
+import io.github.jamal_wia.kmptoolkit.logging.Logger
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.math.abs
@@ -27,6 +29,20 @@ internal fun normalizeDegrees(degrees: Double): Double {
     val reduced: Double = degrees % 360.0
     val positive: Double = if (reduced < 0.0) reduced + 360.0 else reduced
     return if (positive >= 360.0) 0.0 else positive + 0.0
+}
+
+/**
+ * Emits one event of a failure path, and absorbs whatever the app's [Logger] throws. A logger is app code and
+ * promises nothing about throwing (`Logger.log`): on a failure path, or inside a platform callback, its failure
+ * must never replace what the path was doing (releasing a sensor, a manager) nor reach the platform's thread.
+ * Only `Exception` is absorbed; an `Error` (out of memory, a linkage error) still propagates.
+ */
+internal fun Logger.logSafely(level: LogLevel, throwable: Throwable? = null, message: () -> String) {
+    try {
+        log(level, throwable, message)
+    } catch (ignored: Exception) {
+        // Nowhere left to report a logger that fails to log; the event is lost, the caller carries on.
+    }
 }
 
 /**
