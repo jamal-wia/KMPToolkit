@@ -34,7 +34,9 @@ import kotlin.io.path.readBytes
  *   whose owner is the supertype. None of those supertypes is used by the module's main code today; a legitimate non-secure
  *   `Random` there would have to go through the boundary;
  * - a `CONSTANT_String` that spells one of the JCA packages with dots (`Class.forName("java.security.SecureRandom")` written out);
- * - a descriptor (a `Utf8` entry) that mentions one of those types other than `java/security/SecureRandom`, the one type that may
+ * - a descriptor or a signature (EVERY `Utf8` entry that is not the name of a `CONSTANT_Class`, read for each `L<name>` that ends in `;` or
+ *   `<`, at any position: a field or method descriptor, an array of any dimension, a generic `Signature` with its arguments, wildcards
+ *   and inner classes, the bound of a type parameter) that mentions one of those types other than `java/security/SecureRandom`, the one type that may
  *   cross the boundary (`JcaRandom`, how an injectable random source is accepted). Naming it in a signature is no call: a call on it
  *   is a `CONSTANT_Class`, which is flagged. A function of another module that takes a `java.util.Random` or a `RandomGenerator` is
  *   flagged through the descriptor of the call, so passing a `JcaRandom` to it is seen too.
@@ -89,7 +91,17 @@ internal object ClassFileScan {
     /** Types that are forbidden by their exact name and by the names of their nested classes (`Name$...`). */
     private val FORBIDDEN_NAMES: List<String> = listOf("java/util/Base64", "java/util/Random", "kotlin/random/PlatformRandomKt")
     private val DOTTED: List<String> = listOf("java.security", "javax.crypto", "java.util.Base64", "kotlin.io.encoding")
-    private val DESCRIPTOR_TYPE: Regex = Regex("L([^;()\\[]+);")
+
+    /**
+     * A class type named inside ANY `Utf8` entry: `L<internal name>` ended by `;` or by `<` (a type with type arguments), at any position.
+     * One rule for every shape the JVM writes a type in: a field or method descriptor (`Ljava/util/Random;`, `([Ljavax/crypto/Cipher;)V`,
+     * any number of array dimensions), a generic `Signature` (`Ljava/util/List<Ljavax/crypto/Cipher;>;`, a wildcard `<+Ljava/util/Random;>`,
+     * a method signature with a `throws` part, an inner class of a generic outer `Lp/O<TT;>.I<Lq/Random;>;`) and the bound of a type
+     * parameter (`<T:Ljava/util/Random;>`, an interface bound `<T::Lq/I;>`). The name stops at `;`, `<`, `>`, `:`, `(`, `)` and `[`, which
+     * a name never holds, so the next type of the same entry starts where this one ended. A type variable (`TT;`) names no class and an
+     * entry that merely looks like a descriptor can only add a finding for a FORBIDDEN type, which is loud and acceptable.
+     */
+    private val DESCRIPTOR_TYPE: Regex = Regex("L([^;<>()\\[:]+)[;<]")
     private const val ALLOWED_TYPE: String = "java/security/SecureRandom"
 
     /** The internal name of the boundary, `Jca`, taken from the class itself: a spelling of a path cannot drift away from the real one. */
@@ -179,11 +191,15 @@ internal object ClassFileScan {
                     input.skipFully(length)
                 }
             }
+            val classNames: Set<Int> = classEntries.values.toSet()
             return Facts(
                 name = thisName,
                 classRefs = classEntries.values.map { nameIndex: Int -> text(nameIndex, "class name") }.toSet(),
                 strings = stringEntries.map { stringIndex: Int -> text(stringIndex, "string") }.toSet(),
-                descriptors = utf8.filterNotNull().filter { value: String -> '(' in value || (value.startsWith("L") && value.endsWith(";")) }.toSet(),
+                // The name of a CONSTANT_Class (`[Ljava/util/Random;` for an array class) is reported as a class above, once.
+                descriptors = utf8.withIndex().mapNotNull { (entry: Int, value: String?) ->
+                    value?.takeIf { text: String -> entry !in classNames && ('(' in text || DESCRIPTOR_TYPE.containsMatchIn(text)) }
+                }.toSet(),
                 sourceFile = sourceFile,
             )
         } catch (eof: EOFException) {
