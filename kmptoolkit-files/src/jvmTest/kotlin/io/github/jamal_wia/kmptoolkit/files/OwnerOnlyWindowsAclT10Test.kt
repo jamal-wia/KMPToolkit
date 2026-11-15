@@ -53,16 +53,19 @@ class OwnerOnlyWindowsAclT10Test {
         return account.domain + "\\" + account.name
     }
 
-    private fun expectedNames(): List<String> {
+    /** The name Windows reports for SYSTEM: the account part is localised on some editions (ru-RU for one). */
+    private fun systemName(): String {
         val lookup: UserPrincipalLookupService = FileSystems.getDefault().userPrincipalLookupService
-        val user: String = lookup.lookupPrincipalByName(tokenUser()).name
-        // Both spellings of SYSTEM name the same account; the localised authority name is the one that may differ.
-        val system: String = try {
+        return try {
             lookup.lookupPrincipalByName("NT AUTHORITY\\SYSTEM").name
         } catch (_: java.io.IOException) {
             lookup.lookupPrincipalByName("SYSTEM").name
         }
-        return listOf(user, system).sorted()
+    }
+
+    private fun expectedNames(): List<String> {
+        val user: String = FileSystems.getDefault().userPrincipalLookupService.lookupPrincipalByName(tokenUser()).name
+        return listOf(user, systemName()).sorted()
     }
 
     @Test
@@ -126,7 +129,7 @@ class OwnerOnlyWindowsAclT10Test {
         val files: FileAccess = createFileAccess()
         val path: String = File(root, "secret").path
         assertTrue(files.writeAtomically(path, byteArrayOf(1), WriteOptions(ownerOnly = true)).isSuccess)
-        val users: List<String> = acl(File(path)).map { it.principal().name }.filter { !it.endsWith("\\SYSTEM", ignoreCase = true) }
+        val users: List<String> = acl(File(path)).map { it.principal().name }.filter { it != systemName() }
         assertEquals(1, users.size, "exactly one entry besides SYSTEM: ${acl(File(path))}")
         assertTrue(users.single().contains('\\'), "the principal is domain-qualified: ${users.single()}")
         assertEquals(tokenUser(), users.single(), "the principal is the token user")
