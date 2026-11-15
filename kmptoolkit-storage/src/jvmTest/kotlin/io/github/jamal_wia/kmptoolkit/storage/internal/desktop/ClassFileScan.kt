@@ -50,7 +50,7 @@ import kotlin.io.path.readBytes
  *
  * PRIMARY: the entries of the BUILT JVM JAR ([shippedJar], [shippedClassBytes]). The build makes `jvmTest` depend on `jvmJar` and
  * gives it the jar's path in the system property [JVM_JAR_PROPERTY]; the scan reads EVERY `.class` entry of that one file, whatever the
- * entry's path. The jar is by definition what ships, so nothing is discovered and nothing is classified by a directory name: a class
+ * entry's path and whatever the case of the extension (`Hidden.CLASS` is a class on a case-insensitive file system). The jar is by definition what ships, so nothing is discovered and nothing is classified by a directory name: a class
  * that is packed from the class directories, from the processed resources, from a multi-release directory or from a `from(...)` that a
  * later build change adds (the `ffm` output of the FFM branch rides in this jar the same way) is read. The scan FAILS, and never
  * passes, when the property is missing or the file does not exist, when the file is not a readable archive, when it holds no class
@@ -263,7 +263,7 @@ internal object ClassFileScan {
             base,
             object : SimpleFileVisitor<Path>() {
                 override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-                    if (file.extension == "class") roots.add(rootOf(file))
+                    if (isClassFileName(file.fileName.toString())) roots.add(rootOf(file))
                     return FileVisitResult.CONTINUE
                 }
             },
@@ -294,9 +294,9 @@ internal object ClassFileScan {
     fun classBytes(location: URL): List<ByteArray> {
         val path: Path = Paths.get(location.toURI())
         return when {
-            path.isDirectory() -> Files.walk(path).use { stream -> stream.filter { file: Path -> file.isRegularFile() && file.extension == "class" }.map { file: Path -> file.readBytes() }.toList() }
+            path.isDirectory() -> Files.walk(path).use { stream -> stream.filter { file: Path -> file.isRegularFile() && isClassFileName(file.fileName.toString()) }.map { file: Path -> file.readBytes() }.toList() }
             path.isRegularFile() && path.extension == "jar" -> JarFile(path.toFile()).use { jar: JarFile ->
-                jar.entries().asSequence().filter { entry -> !entry.isDirectory && entry.name.endsWith(".class") }.map { entry -> jar.getInputStream(entry).use { stream -> stream.readBytes() } }.toList()
+                jar.entries().asSequence().filter { entry -> !entry.isDirectory && isClassFileName(entry.name) }.map { entry -> jar.getInputStream(entry).use { stream -> stream.readBytes() } }.toList()
             }
             else -> error("the class location $location is neither a directory nor a jar: the scan cannot run (it must not pass silently)")
         }
@@ -333,12 +333,23 @@ internal object ClassFileScan {
             check(twice.isEmpty()) { "the jar $jar lists these entries more than once: $twice (a class could hide behind another of its name)" }
             val nested: List<String> = names.filter { name: String -> NESTED_ARCHIVES.any { suffix: String -> name.lowercase().endsWith(suffix) } }
             check(nested.isEmpty()) { "the jar $jar holds the archives $nested: the classes inside them are not read by this scan, so it refuses them" }
-            val classes: List<java.util.jar.JarEntry> = entries.filter { entry -> entry.name.endsWith(".class") }
+            val classes: List<java.util.jar.JarEntry> = entries.filter { entry -> isClassFileName(entry.name) }
             check(classes.isNotEmpty()) { "the jar $jar holds no class entry (${names.size} entries): the scan has nothing to read, so it fails" }
             classes.map { entry -> archive.getInputStream(entry).use { stream -> stream.readBytes() } }
         }
 
     private val NESTED_ARCHIVES: List<String> = listOf(".jar", ".war", ".ear", ".zip")
+
+    /**
+     * Whether a file or an archive entry called [name] is a class file for every reader of this scan: its name ends in `.class` in ANY
+     * case. A class loader that reads a directory on a case-insensitive file system (macOS and Windows by default) loads
+     * `x/Hidden.CLASS` as `x.Hidden`, and Gradle packs such a file from the resources verbatim, so a case-sensitive test would skip a
+     * class that runs. A file that is named like a class and is not one fails the parse loudly (`MalformedClass`) instead of being
+     * skipped. The same rule is used for the nested archives above, which are matched in lower case too.
+     */
+    fun isClassFileName(name: String): Boolean = name.lowercase().endsWith(CLASS_SUFFIX)
+
+    private const val CLASS_SUFFIX: String = ".class"
 
     /** Skips a `fields` or `methods` table: access flags, name, descriptor and the attributes of each member. */
     private fun skipMembers(input: DataInputStream) {
