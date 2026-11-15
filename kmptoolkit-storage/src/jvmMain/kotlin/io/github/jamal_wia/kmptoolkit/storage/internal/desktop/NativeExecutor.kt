@@ -55,7 +55,9 @@ internal sealed interface NativeOutcome<out T> {
  *   interrupt status.
  * - **Release is terminal.** [close] withdraws every queued call (each answers [NativeOutcome.Threw]), interrupts the
  *   thread and refuses new calls. A call that the thread had already taken from the queue when [close] ran may still run
- *   and answer its real result. A new executor is the way to start again.
+ *   and answer its real result. After [close] no thread is made or started any more, not even for a caller that passed the
+ *   `closed` check before [close] ran (at most the one thread whose start [close] overtook, which ends at once). A new
+ *   executor is the way to start again.
  *
  * The limit is enforced with `withTimeoutOrNull`, so a test controls it with virtual time. The shared process
  * instance is [NativeExecutor.shared].
@@ -189,9 +191,11 @@ internal class NativeExecutor(
 
     /** Makes the native thread if there is none. A failed attempt leaves nothing behind, so the next call tries again. */
     private fun ensureStarted() {
-        if (thread?.isAlive == true) return
+        // A closed executor makes no thread: its callers are refused by the `closed` check that follows their offer. Without
+        // this, a thread that ended because of close() reads as "died" and every caller already in flight would replace it.
+        if (closed.get() || thread?.isAlive == true) return
         synchronized(startLock) {
-            if (thread?.isAlive == true) return
+            if (closed.get() || thread?.isAlive == true) return
             val created: Thread = threadFactory.newThread(::runLoop)
             created.start()
             thread = created
