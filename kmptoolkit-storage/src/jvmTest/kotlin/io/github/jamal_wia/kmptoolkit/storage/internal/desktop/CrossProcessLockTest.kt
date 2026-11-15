@@ -131,24 +131,23 @@ class CrossProcessLockTest {
         lateinit var waiter: Job
         var attempts = 0
         val real: FileAccess = createFileAccess()
-        // The second attempt starts after a poll delay: there the holder lets go and the waiter is cancelled, so the lock
-        // is won by a coroutine whose cancellation is already pending.
+        // The first attempt of the waiter finds the lock claimed by the holder (no I/O at all). The holder lets go before the
+        // poll delay ends; the second attempt claims the lock file, and its first file-system call cancels the waiter, so the
+        // lock is won by a coroutine whose cancellation is already pending.
         val scripted = object : FileAccess by real {
             override fun metadata(path: String, followLinks: Boolean): FileMetadata? {
                 attempts++
-                if (attempts == 2) {
-                    holder.close()
-                    waiter.cancel()
-                }
+                if (attempts == 1) waiter.cancel()
                 return real.metadata(path, followLinks)
             }
         }
         val lock = CrossProcessLock(scripted, deadline = 10.seconds, pollInterval = 25.milliseconds)
 
         waiter = launch(start = CoroutineStart.UNDISPATCHED) { lock.acquire(lockFile, prefix) }
+        holder.close()
         waiter.join()
 
-        assertEquals(2, attempts, "control: the second attempt ran, so the lock was really acquired during the cancellation")
+        assertEquals(1, attempts, "control: the second attempt ran, so the lock was really acquired during the cancellation")
         assertTrue(waiter.isCancelled)
         assertEquals(before, descriptors(), "the lock won in the cancellation instant must be released")
         assertIs<LockAcquisition.Held>(CrossProcessLock().acquire(lockFile, prefix), "and free for the next caller").close()

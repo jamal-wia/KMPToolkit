@@ -266,6 +266,11 @@ app sharing that code with desktop could not compile it for desktop without the 
     boundary and `~`, 16 hex characters of its SHA-256 and `.lock` follow.
   - The lock is on the sibling and never on the data file because on Windows a mandatory lock on the data file would block
     the atomic rename.
+  - Inside one JVM only one thread at a time ever opens a lock file: a process-wide claim per lock file (its folded canonical
+    path) is taken first, and a contender of the same JVM is simply busy without opening anything. This is not
+    cosmetic: POSIX file locks belong to the process, so closing any other channel of the lock file in the same JVM would
+    silently release a lock a thread holds, and the JDK's own table of overlapping locks can lose an entry under that churn.
+    Two names for one lock file that the folded canonical path does not join (a hard link) are outside the claim.
   - A lock file the process cannot create or open (a read-only directory, a lock path that is a directory) fails the write
     with `OperationFailed`. Reads are unaffected.
   - **A file system that refuses file locks** (the lock file opens but `FileChannel.tryLock` itself throws an

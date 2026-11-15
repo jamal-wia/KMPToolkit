@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.storage
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.LockAcquisition
 import java.io.File
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -21,6 +22,21 @@ object LockHolderChild {
         System.`in`.read()
         held.close()
         println("RELEASED")
+        System.out.flush()
+    }
+}
+
+/** Tries once, without waiting, to take the lock of the file named by `args[0]`, and says `FREE` (and lets go) or `BUSY`. */
+object LockProbeChild {
+    @JvmStatic
+    fun main(args: Array<String>) {
+        val outcome: LockAcquisition = runBlocking { CrossProcessLock().acquire(File(args[0]), args[1], budget = 1.milliseconds) }
+        if (outcome is LockAcquisition.Held) {
+            outcome.close()
+            println("FREE")
+        } else {
+            println("BUSY")
+        }
         System.out.flush()
     }
 }

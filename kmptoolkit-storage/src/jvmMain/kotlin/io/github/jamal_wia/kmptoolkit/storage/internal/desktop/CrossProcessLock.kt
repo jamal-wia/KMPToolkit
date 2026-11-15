@@ -7,6 +7,7 @@ import io.github.jamal_wia.kmptoolkit.files.FileError
 import io.github.jamal_wia.kmptoolkit.files.FileResult
 import io.github.jamal_wia.kmptoolkit.files.WriteOptions
 import io.github.jamal_wia.kmptoolkit.files.createFileAccess
+import io.github.jamal_wia.kmptoolkit.storage.jvmStorageLockKey
 import java.io.File
 import java.io.IOException
 import java.nio.channels.FileChannel
@@ -16,6 +17,7 @@ import java.nio.file.NoSuchFileException
 import java.nio.charset.StandardCharsets
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -27,8 +29,15 @@ import kotlinx.coroutines.withTimeoutOrNull
 /** The outcome of [CrossProcessLock.acquire]. */
 internal sealed interface LockAcquisition {
 
-    /** The lock is held until [close]. Closing releases the lock and the file handle, and is idempotent. */
-    class Held internal constructor(private val channel: FileChannel, private val lock: FileLock) : LockAcquisition, AutoCloseable {
+    /**
+     * The lock is held until [close]. Closing releases the lock, the file handle and the in-process claim of the lock
+     * file (see [CrossProcessLock]), and is idempotent.
+     */
+    class Held internal constructor(
+        private val channel: FileChannel,
+        private val lock: FileLock,
+        private val releaseClaim: () -> Unit = {},
+    ) : LockAcquisition, AutoCloseable {
         private val closed: AtomicBoolean = AtomicBoolean(false)
 
         override fun close() {
@@ -38,7 +47,11 @@ internal sealed interface LockAcquisition {
             } catch (_: IOException) {
                 // Closing the channel releases the lock anyway.
             } finally {
-                channel.close()
+                try {
+                    channel.close()
+                } finally {
+                    releaseClaim()
+                }
             }
         }
     }
@@ -81,6 +94,15 @@ internal sealed interface LockAcquisition {
  *   backstop, documented in `05-platform-notes.md`. A lock file that opens but whose `tryLock` throws an `IOException`
  *   is [LockAcquisition.NotSupported] (structural: never decided on message text); a lock file that cannot be created or
  *   opened at all is [LockAcquisition.Failed], because the data write would fail the same way.
+ * - **One thread of this JVM at a time touches a lock file's channel.** A process-wide claim per lock file (by the
+ *   store's folded canonical path) is taken before the file is opened; a contender of this JVM finds it taken and is
+ *   simply busy, without opening anything. Two things make that necessary: POSIX `fcntl` locks belong to the process, so
+ *   closing ANY channel of the file in this JVM silently drops a lock another thread holds (a foreign process could then
+ *   take it), and the JDK's own overlapping-lock table can lose an entry when a channel that failed to lock is closed
+ *   while another is released (two holders in one JVM, reproduced in a stand-alone program). The stores already
+ *   serialize their callers per file with a `KeyedMutex`, so in production the claim is never contended; it makes the
+ *   guarantee hold for any caller. Two spellings of one lock file that the folded canonical path does not join (a hard
+ *   link) are outside it.
  * - **Budget.** [acquire] takes the budget that is left of the caller's one deadline (the in-process wait has already
  *   spent part of it), so a write never waits longer than [deadline] in all, however many callers queue in front of it.
  * - **Creation race.** The creation temp carries the store's own temp prefix, so another process's `clear()` can sweep it
@@ -132,10 +154,11 @@ internal class CrossProcessLock(
         var broke: IOException? = null
         var unsupported: IOException? = null
         var lastCreationFailure: IOException? = null
+        val claimKey: String = jvmStorageLockKey(lockFile)
         try {
             withTimeoutOrNull(minOf(budget, deadline)) {
                 while (true) {
-                    when (val attempt: Attempt = attempt(lockFile, tempPrefix)) {
+                    when (val attempt: Attempt = attempt(lockFile, tempPrefix, claimKey)) {
                         is Attempt.Got -> {
                             held = attempt.held
                             return@withTimeoutOrNull
@@ -170,7 +193,20 @@ internal class CrossProcessLock(
         return LockAcquisition.TimedOut
     }
 
-    private fun attempt(lockFile: File, tempPrefix: String): Attempt {
+    private fun attempt(lockFile: File, tempPrefix: String, claimKey: String): Attempt {
+        // Claim before any I/O: see "One thread of this JVM at a time". Kept only by a successful attempt (until Held.close).
+        if (!CLAIMS.add(claimKey)) return Attempt.Busy
+        var keepClaim = false
+        try {
+            val attempt: Attempt = tryOnce(lockFile, tempPrefix) { CLAIMS.remove(claimKey) }
+            keepClaim = attempt is Attempt.Got
+            return attempt
+        } finally {
+            if (!keepClaim) CLAIMS.remove(claimKey)
+        }
+    }
+
+    private fun tryOnce(lockFile: File, tempPrefix: String, releaseClaim: () -> Unit): Attempt {
         try {
             try {
                 ensureLockFile(lockFile, tempPrefix)
@@ -199,7 +235,7 @@ internal class CrossProcessLock(
                 channel.close()
                 return Attempt.Busy
             }
-            return Attempt.Got(LockAcquisition.Held(channel, lock))
+            return Attempt.Got(LockAcquisition.Held(channel, lock, releaseClaim))
         } catch (error: IOException) {
             return Attempt.Broke(error)
         } catch (error: SecurityException) {
@@ -232,6 +268,9 @@ internal class CrossProcessLock(
     }
 
     internal companion object {
+        /** The lock files this JVM holds or is trying right now, by folded canonical path (see the class KDoc). */
+        private val CLAIMS: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
         /** How long a write waits for another process before it answers `Unavailable` (plan 4.11). */
         val LOCK_DEADLINE: Duration = 10.seconds
 
