@@ -444,10 +444,15 @@ class FusedLocationProvider(
     override suspend fun getCurrentLocation(options: CurrentLocationOptions): LocationReading {
         if (!hasLocationPermission()) return unavailable(LocationUnavailability.PERMISSION_MISSING)
         if (!fallback.isLocationEnabled()) return unavailable(LocationUnavailability.SERVICE_DISABLED)
+        val request: CurrentLocationRequest = CurrentLocationRequest.Builder()
+            .setPriority(options.accuracy.toPriority())
+            .setMaxUpdateAgeMillis(options.maxAge.inWholeMilliseconds)   // a cached fix older than maxAge is not returned
+            .setDurationMillis(options.timeout.inWholeMilliseconds)
+            .build()
         val cancellation = CancellationTokenSource()
         return try {
             withTimeoutOrNull(options.timeout) {
-                client.getCurrentLocation(options.accuracy.toPriority(), cancellation.token).await()?.toReading()
+                client.getCurrentLocation(request, cancellation.token).await()?.toReading()
             } ?: unavailable(LocationUnavailability.NO_FIX)
         } catch (_: SecurityException) {
             unavailable(LocationUnavailability.PERMISSION_MISSING)
@@ -465,6 +470,24 @@ class FusedLocationProvider(
             close()
             return@callbackFlow
         }
+        // Seed first, register second. A live fix arrives on the main looper, so a seed sent after the registration
+        // could land behind a newer fix and leave a conflated collector on an older position. The seed also carries
+        // the service state, so a stream started with location off says so at once.
+        val enabledAtStart: Boolean = fallback.isLocationEnabled()
+        val cached: Location? = try {
+            client.lastLocation.await()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null                                              // no cache is "no fix yet", never an error
+        }
+        val seed: LocationReading = when {
+            !enabledAtStart -> unavailable(LocationUnavailability.SERVICE_DISABLED)
+            else -> cached?.takeIf { it.isYoungerThan(options.maxSeedAge) }?.toReading()
+                ?: unavailable(LocationUnavailability.NO_FIX)
+        }
+        trySend(seed)
+
         val callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.toReading()?.let { trySend(it) }     // an invalid platform value is dropped
@@ -481,17 +504,15 @@ class FusedLocationProvider(
             close()
             return@callbackFlow
         }
-        // Seed at once: a cached fix young enough, else the reason, so a combine() downstream never waits.
-        client.lastLocation
-            .addOnSuccessListener { location: Location? ->
-                val seed: LocationReading? = location?.takeIf { it.isYoungerThan(options.maxSeedAge) }?.toReading()
-                trySend(seed ?: unavailable(LocationUnavailability.NO_FIX))
-            }
-            .addOnFailureListener { trySend(unavailable(LocationUnavailability.NO_FIX)) }
-        // The service state is the fallback's: report it, and reseed with "no fix yet" when it returns.
+        // The service state is the fallback's. Its first state is compared with the one the seed showed, not
+        // dropped, so a switch between the seed and this collection is still reported; a return reseeds "no fix yet".
         val watch: Job = launch {
-            fallback.observeLocationEnabled().drop(1).collect { on: Boolean ->
-                trySend(unavailable(if (on) LocationUnavailability.NO_FIX else LocationUnavailability.SERVICE_DISABLED))
+            var shown: Boolean = enabledAtStart
+            fallback.observeLocationEnabled().collect { on: Boolean ->
+                if (on != shown) {
+                    shown = on
+                    trySend(unavailable(if (on) LocationUnavailability.NO_FIX else LocationUnavailability.SERVICE_DISABLED))
+                }
             }
         }
         awaitClose {
@@ -508,21 +529,26 @@ class FusedLocationProvider(
 
     override suspend fun promptToEnableService(): LocationServicePrompt {
         if (isLocationEnabled()) return LocationServicePrompt.ALREADY_ON
-        // No resumed activity: nothing to raise the dialog over right now. Not UNSUPPORTED: the device could ask
-        // properly once the user is back.
-        val activity: Activity = activityAccess.withActivity { it } ?: return LocationServicePrompt.NOT_NOW
         val request = LocationSettingsRequest.Builder()
             .addLocationRequest(LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 0L).build())
             .build()
         return try {
-            LocationServices.getSettingsClient(activity).checkLocationSettings(request).await()
+            // The check needs no Activity: the application context, so no Activity is held across this suspension.
+            LocationServices.getSettingsClient(context).checkLocationSettings(request).await()
             LocationServicePrompt.ALREADY_ON
         } catch (resolvable: ResolvableApiException) {
-            try {
-                resolvable.startResolutionForResult(activity, ENABLE_LOCATION_REQUEST_CODE)
-                LocationServicePrompt.PROMPTED
-            } catch (_: IntentSender.SendIntentException) {
-                LocationServicePrompt.UNSUPPORTED
+            // The Activity is touched only inside the block, on the main thread, and never stored. No resumed
+            // activity: nothing to raise the dialog over right now. Not UNSUPPORTED: the device could ask properly
+            // once the user is back.
+            withContext(Dispatchers.Main) {
+                activityAccess.withActivity { activity: Activity ->
+                    try {
+                        resolvable.startResolutionForResult(activity, ENABLE_LOCATION_REQUEST_CODE)
+                        LocationServicePrompt.PROMPTED
+                    } catch (_: IntentSender.SendIntentException) {
+                        LocationServicePrompt.UNSUPPORTED
+                    }
+                } ?: LocationServicePrompt.NOT_NOW
             }
         } catch (_: ApiException) {
             LocationServicePrompt.UNSUPPORTED
@@ -562,17 +588,22 @@ class FusedLocationProvider(
 }
 ```
 
-(`await()` is `kotlinx-coroutines-play-services`.) The rules the recipe encodes are part of the
-`LocationProvider` contract, not a matter of taste:
+(`await()` is `kotlinx-coroutines-play-services`, `Dispatchers.Main` is `kotlinx-coroutines-android`.)
+The rules the recipe encodes are part of the `LocationProvider` contract, not a matter of taste:
 
 - **Nothing throws.** A missing permission surfaces from Fused as `SecurityException`, and a device without
   a usable Play Services as a failed task (`ApiException`); turn both into typed readings, as this module's
   own providers do.
 - **Map every platform value through `GeoCoordinates.orNull`** and drop a null: an invalid fix is dropped,
   never thrown and never emitted.
-- **Forward the options** you can honour: accuracy, minimum distance and interval, the seed age, the
-  timeout. Emit `LocationReading`, and follow the stream lifecycle: seed at once, stay open through
-  `SERVICE_DISABLED` and `NO_FIX`, complete after `PERMISSION_MISSING` and `UNSUPPORTED`.
+- **Forward the options** you can honour: accuracy, maximum age and timeout of the one-shot, minimum distance
+  and interval and the seed age of the stream. Emit `LocationReading`, and follow the stream lifecycle: stay
+  open through `SERVICE_DISABLED` and `NO_FIX`, complete after `PERMISSION_MISSING` and `UNSUPPORTED`.
+- **Seed first, register second.** Send the seed before the update callback is registered, so a live fix
+  always arrives after it and a conflated collector never ends on an older position. The seed carries the
+  service state: `SERVICE_DISABLED` when location is off at the start, else a cached fix young enough, else
+  `NO_FIX`. After that, report only a change of the state (compare it with the last one shown), not its first
+  value.
 - **Cancellation stops the platform work:** pass a `CancellationTokenSource` to the one-shot request and
   cancel it, remove the callback in `awaitClose`, and cancel the child collection.
 - **Implement `observeLocationEnabled()`**, and delegate what Fused does not improve
@@ -583,7 +614,9 @@ class FusedLocationProvider(
 - **`promptToEnableService()` never waits for the dialog's answer.** It arrives in the activity's
   `onActivityResult`, which a provider has no seam into. Return `PROMPTED` once it is up and re-check when
   the screen resumes. `NOT_NOW` when there is no resumed activity (this is what `ActivityAccess` is for:
-  never hold an `Activity` in the provider).
+  never hold an `Activity` in the provider). `withActivity` has no getter and runs its block on the calling
+  thread, so the recipe checks the settings on the application context, switches to the main thread, and
+  touches the `Activity` only inside the block.
 
 Bind it where the rest of your app is assembled, and keep the factory-built provider for iOS:
 
