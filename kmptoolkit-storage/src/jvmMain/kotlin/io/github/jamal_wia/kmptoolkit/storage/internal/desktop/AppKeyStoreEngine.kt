@@ -9,7 +9,6 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import java.nio.CharBuffer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.withContext
 
 /** The key-encryption key derived off the lock, and what it was derived for. */
 private class KekCarry(
@@ -284,7 +283,7 @@ internal class AppKeyStoreEngine(
      * replaces the file atomically; this instance is bound to [newKey] afterwards. An absent file has nothing to re-encrypt:
      * the instance is simply bound to [newKey] and the new provider is asked on the first write.
      */
-    suspend fun changeKey(newKey: AppEncryptionKey): StorageResult<Unit> = withContext(dispatcher) {
+    suspend fun changeKey(newKey: AppEncryptionKey): StorageResult<Unit> = withStoreContext(dispatcher) {
         val currentScope = SecretScope()
         // Re-keying with the key object this instance already uses (a new salt under the same passphrase) is one operation
         // with one provider: both derivations share the scope, so the provider is asked once (plan 4.8).
@@ -294,15 +293,15 @@ internal class AppKeyStoreEngine(
         try {
             repeat(MAX_ROUNDS) {
                 when (val locked: StorageResult<ChangeStep> = guard.locked(StorageOperation.CHANGE_KEY, null) { store: EncryptedFileGuard.StoreFile -> changeRound(store, newKey, currentCarry, newCarry) }) {
-                    is StorageResult.Failure -> return@withContext locked
+                    is StorageResult.Failure -> return@withStoreContext locked
                     is StorageResult.Success -> when (val step: ChangeStep = locked.value) {
-                        is ChangeStep.Done -> return@withContext step.result
+                        is ChangeStep.Done -> return@withStoreContext step.result
                         is ChangeStep.NeedCurrent -> {
                             currentCarry?.wipe()
                             currentCarry = null
                             when (val prepared: Prepared = derive(step.request, currentScope, key, StorageOperation.CHANGE_KEY, null)) {
                                 is Prepared.Ready -> currentCarry = prepared.carry
-                                is Prepared.Failed -> return@withContext StorageResult.Failure(prepared.error)
+                                is Prepared.Failed -> return@withStoreContext StorageResult.Failure(prepared.error)
                             }
                         }
                         ChangeStep.NeedNew -> {
@@ -311,7 +310,7 @@ internal class AppKeyStoreEngine(
                             when (val prepared: Prepared = derive(Request.Fresh, newScope, newKey, StorageOperation.CHANGE_KEY, null)) {
                                 is Prepared.Ready -> newCarry = prepared.carry
                                 // The current key verified; the NEW key is what cannot work.
-                                is Prepared.Failed -> return@withContext StorageResult.Failure(prepared.error)
+                                is Prepared.Failed -> return@withStoreContext StorageResult.Failure(prepared.error)
                             }
                         }
                     }

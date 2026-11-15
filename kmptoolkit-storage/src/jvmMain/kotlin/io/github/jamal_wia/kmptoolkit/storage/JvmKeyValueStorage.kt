@@ -16,6 +16,7 @@ import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.Jca
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.JcaFailure
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.LockAcquisition
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.refuseUnlessRegularOrAbsent
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.withStoreContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -31,7 +32,6 @@ import kotlin.time.ComparableTimeMark
 import kotlin.time.Duration
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.withContext
 
 /**
  * [KeyValueStorage] over a single properties file.
@@ -123,7 +123,7 @@ internal class JvmKeyValueStorage(
 
     override suspend fun clear(): StorageResult<Unit> {
         // A store whose directory does not exist holds nothing: clearing it must not create the directory and a lock file.
-        val nothingThere: Boolean = withContext(dispatcher) { file.absoluteFile.parentFile?.isDirectory == false }
+        val nothingThere: Boolean = withStoreContext(dispatcher) { file.absoluteFile.parentFile?.isDirectory == false }
         if (nothingThere) return StorageResult.Success(Unit)
         return guardedWrite(StorageOperation.CLEAR, key = null) {
             Files.deleteIfExists(file.toPath())
@@ -144,7 +144,7 @@ internal class JvmKeyValueStorage(
         operation: StorageOperation,
         key: String?,
         crossinline block: () -> T,
-    ): StorageResult<T> = withContext(dispatcher) { outcome(operation, key, block) }
+    ): StorageResult<T> = withStoreContext(dispatcher) { outcome(operation, key, block) }
 
     /**
      * A write: the in-process lock first, then the cross-process lock on `<file>.lock`, always in that order and
@@ -158,12 +158,12 @@ internal class JvmKeyValueStorage(
         operation: StorageOperation,
         key: String?,
         crossinline block: () -> T,
-    ): StorageResult<T> = withContext(dispatcher) {
+    ): StorageResult<T> = withStoreContext(dispatcher) {
         // The names a write needs (see Names): a provider failure here is this write's OperationFailed, before any lock is taken.
         try {
             names()
         } catch (failure: JcaFailure) {
-            return@withContext StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = failure))
+            return@withStoreContext StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = failure))
         }
         val budget: Duration = crossProcessLock.deadline
         val started: ComparableTimeMark = timeSource.markNow()

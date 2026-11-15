@@ -8,7 +8,6 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import io.github.jamal_wia.kmptoolkit.storage.UnsupportedReason
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * Which OS key store a desktop secure store would use now, or why none can (plan 3.4, 4.5-4.7 "Probe"). It never reads,
@@ -24,10 +23,10 @@ internal class DesktopKeyStoreProbe(
     private val environment: SecureStoreEnvironment,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    suspend fun probe(options: DesktopSecureStorageOptions): StorageResult<DesktopKeyStore> = withContext(dispatcher) {
+    suspend fun probe(options: DesktopSecureStorageOptions): StorageResult<DesktopKeyStore> = withStoreContext(dispatcher) {
         // Blocking: class loading of the binding happens here, once per process, off the caller's thread.
         val selection: BindingSelection = source.select()
-        if (selection is BindingSelection.Unsupported) return@withContext StorageResult.Failure(selection.error)
+        if (selection is BindingSelection.Unsupported) return@withStoreContext StorageResult.Failure(selection.error)
         selection as BindingSelection.Selected
         val caller = NativeCaller(executor, allowUi = false)
         val verdict: Verdict<DesktopKeyStore> = when (selection.os) {

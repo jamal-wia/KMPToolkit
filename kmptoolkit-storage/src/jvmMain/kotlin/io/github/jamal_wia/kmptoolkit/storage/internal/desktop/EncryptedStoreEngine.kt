@@ -7,7 +7,6 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import io.github.jamal_wia.kmptoolkit.storage.unpairedSurrogateFailure
 import java.io.IOException
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.withContext
 
 /** One operation of a store, as the engine runs it. */
 internal sealed class Op(val operation: StorageOperation, val key: String?) {
@@ -148,41 +147,41 @@ internal abstract class EncryptedStoreEngine(
     }
 
     /** Runs [op]. A `put` or `remove` answers `Success(null)`; only `get` carries a value. */
-    suspend fun execute(op: Op): StorageResult<String?> = withContext(dispatcher) {
+    suspend fun execute(op: Op): StorageResult<String?> = withStoreContext(dispatcher) {
         if (op is Op.Put) {
-            unpairedSurrogateFailure(op.key!!, op.value)?.let { return@withContext it }
+            unpairedSurrogateFailure(op.key!!, op.value)?.let { return@withStoreContext it }
             // Counted, not encoded: a key of 90 million characters must be refused without allocating its encoded copies, like a value.
             if (op.key.strictUtf8Length() > SecureFileFormat.MAX_ENTRY_KEY_BYTES) {
-                return@withContext StorageResult.Failure(
+                return@withStoreContext StorageResult.Failure(
                     StorageError.InvalidValue(op.key, IllegalArgumentException("The key is longer than 65535 UTF-8 bytes")),
                 )
             }
             // Bound before any lock and before anything is encoded: an entry of this size alone passes the limit, so no file
             // holding it can be read back. Counted, not encoded: a value of 90 million three-byte characters never allocates.
             if (SecureFileFormat.entrySize(op.key, op.value.strictUtf8Length()) > guard.maxStoreBytes) {
-                return@withContext StorageResult.Failure(tooLarge(op.key))
+                return@withStoreContext StorageResult.Failure(tooLarge(op.key))
             }
         }
-        unavailableReason()?.let { return@withContext StorageResult.Failure(it) }
+        unavailableReason()?.let { return@withStoreContext StorageResult.Failure(it) }
         // A store whose directory does not exist holds nothing: reading, removing or clearing it creates no directory and no lock file.
         if ((op is Op.Get || op is Op.Remove || op is Op.Clear) && guard.directoryMissing()) {
-            return@withContext StorageResult.Success(null)
+            return@withStoreContext StorageResult.Success(null)
         }
         val scope: OpScope = newScope()
         var carry: Carry? = null
         try {
             repeat(MAX_ROUNDS) {
                 when (val locked: StorageResult<Step> = guard.locked(op.operation, op.key) { store: EncryptedFileGuard.StoreFile -> round(store, op, carry) }) {
-                    is StorageResult.Failure -> return@withContext locked
+                    is StorageResult.Failure -> return@withStoreContext locked
                     is StorageResult.Success -> when (val step: Step = locked.value) {
-                        is Step.Done -> return@withContext step.result
+                        is Step.Done -> return@withStoreContext step.result
                         Step.Again -> Unit
                         is Step.Need -> {
                             carry?.wipe()
                             carry = null
                             when (val prepared: Prepared = prepare(step.request, op, scope)) {
                                 is Prepared.Ready -> carry = prepared.carry
-                                is Prepared.Failed -> return@withContext StorageResult.Failure(prepared.error)
+                                is Prepared.Failed -> return@withStoreContext StorageResult.Failure(prepared.error)
                             }
                         }
                     }

@@ -857,7 +857,10 @@ class OsKeyStoreRecoveryBreakerR10B9Test {
                             assertEquals(1, B9ScriptGcmSpi.interrupted.get(), "control: the provider was interrupted")
                             B9ScriptGcmSpi.arm()
                             if (answer != StorageResult.Success("v")) assertFailedWith(answer, StorageOperation.GET, "the interrupted get")
-                            assertTrue(endedInterrupted.get() >= 1, "05: the interrupt status is put back; the dispatch that ran the provider ended without it")
+                            // Round 17 (advisor-confirmed contract, lead ruling): a store call never leaves an interrupt status on a thread it found
+                            // clear. The boundary still puts the status back for the work that follows on that thread, and InterruptHygiene clears it
+                            // when the call's slice on the thread ends, so no dispatch ends interrupted; the interrupt stays visible as the cause.
+                            assertEquals(0, endedInterrupted.get(), "05: a dispatch that ran an interrupted provider ended with the interrupt status still set (it reaches the next coroutine on that thread)")
                             val second: StorageResult<String?> = store.get("k")
                             if (second != StorageResult.Success("v")) assertFailedWith(second, StorageOperation.GET, "the next call")
                             assertContentEquals(before, rig.dataFile().readBytes(), "the file changed")

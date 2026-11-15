@@ -535,9 +535,15 @@ engine throws into one typed failure, so no provider failure is a thrown excepti
 token error under a FIPS-configured JDK, or the entropy-source failure of NativePRNG, the default `SecureRandom` on macOS and Linux), an AES-GCM
 engine without support for additional authenticated data, a failing SHA-256, plain noise from a broken engine, or a `Throwable` that is neither
 an `Exception` nor an `Error` (legal in Kotlin, which has no checked exceptions). An `InterruptedException` from a provider is typed too and the
-thread's interrupt status is put back, so the code that runs on that thread (the thread of the caller's dispatcher: the caller's own
-thread under `Dispatchers.Unconfined`, a pool thread under `Dispatchers.IO`, where the pool clears the status before its next task) still
-sees the interrupt; a caller resumed on another thread does not. Only an `InterruptedException` that the provider call throws itself counts: one
+thread's interrupt status is put back, so the work that follows on that thread inside the store call (the thread of the caller's
+dispatcher: the caller's own thread under `Dispatchers.Unconfined`, a pool thread under `Dispatchers.IO`) still sees the interrupt; a caller
+resumed on another thread does not. A store call never leaves an interrupt status on a thread that it found clear: when the call's work on a
+thread ends (at the end of the call, or at a suspension, so a call that resumes on another thread is covered on both), the status that the
+boundary put back is cleared, because the dispatcher's thread is not the library's and kotlinx.coroutines does not clear a worker's status
+between two tasks (`Dispatchers.IO` does it only when a worker parks), so a status left behind would refuse the file I/O of the next, unrelated
+coroutine on that worker. The interrupt stays visible as the cause (`InterruptedException`) of the typed failure. A status that was already set
+when the call reached the thread (an interrupted caller), or that appeared without a provider (another thread interrupted this one), is never
+cleared. Only an `InterruptedException` that the provider call throws itself counts: one
 that the JDK wraps (an SPI constructor that throws while `getInstance` makes the engine leaves as a `NoSuchAlgorithmException` with it as
 the cause) or that another exception carries as its cause is typed like any other failure and leaves the status alone, because a cause can
 be an exception that came from another thread and inventing an interrupt is worse than missing one that a provider constructor hid. Whatever the random source had written when it failed is wiped. Two scans
@@ -586,7 +592,8 @@ see "A forgotten passphrase" (delete the store's files).
 `Dispatchers.Unconfined` called from an interrupted thread), the JDK refuses the file I/O: the call answers `OperationFailed` (cause: an
 `IOException` that wraps `ClosedByInterruptException`), writes nothing, leaves no temporary file or lock, keeps the status, and can be
 repeated once the status is cleared. With the default `Dispatchers.IO` the I/O runs on a pool thread and an interrupted caller is served
-normally. (`runBlocking` on an interrupted thread throws `InterruptedException` before the store answers; that is kotlinx.coroutines
+normally; a store call never leaves an interrupt status on that pool thread, so a later call there is not affected by an earlier one whose
+provider was interrupted. (`runBlocking` on an interrupted thread throws `InterruptedException` before the store answers; that is kotlinx.coroutines
 behaviour. A `get`, `remove` or `clear()` of a store whose directory does not exist answers `Success` without any I/O, and a `put` over
 the size bound answers `InvalidValue`, whatever the thread's status.)
 

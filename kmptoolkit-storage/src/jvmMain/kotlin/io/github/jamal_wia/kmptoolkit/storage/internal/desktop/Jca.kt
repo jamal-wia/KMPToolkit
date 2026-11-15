@@ -37,8 +37,12 @@ internal typealias JcaRandom = SecureRandom
  *    original as the cause. The JCA specifies different exceptions for different engines and every audit round of 6.0.0 found one
  *    more shape; catching every `Throwable` of the provider call but an `Error` closes the class. Only the provider call itself is
  *    inside the catch: the callers' own argument checks stay outside and keep their types. An `InterruptedException` is typed like
- *    the rest and the thread's interrupt status is restored, so the code that runs on that thread sees it (a pooled dispatcher
- *    thread clears it before its next task; a caller resumed on another thread never sees it). Only an `InterruptedException` that
+ *    the rest and the thread's interrupt status is restored, so the code that runs on that thread sees it: a direct caller keeps the
+ *    status. Inside a store call it lasts only until the call's work on that thread ends: `InterruptHygiene` clears a status that
+ *    this boundary put back (never one that was set when the call reached the thread, never one that appeared otherwise), because
+ *    the dispatcher's thread is not the library's and kotlinx.coroutines does not clear a worker's status between two tasks, so a
+ *    status left behind would refuse the file I/O of the next, unrelated coroutine on that worker. The interrupt stays visible as
+ *    the cause of the typed failure, and a caller resumed on another thread never sees the status. Only an `InterruptedException` that
  *    the provider call throws itself is an interrupt: one the JDK wraps (an SPI constructor that throws during `getInstance` leaves
  *    as a `NoSuchAlgorithmException` with it as the cause) or that another exception carries as its cause is NOT looked for, because
  *    a cause may come from another thread and an invented interrupt does more harm than one hidden by a provider constructor that
@@ -73,7 +77,11 @@ internal object Jca {
             if (error is Error) throw error
             // A provider that was interrupted (a PKCS#11 token call, a blocking entropy read) says so by throwing InterruptedException,
             // which clears the thread's status: the status is put back, so a caller that polls it still sees the interrupt.
-            if (error is InterruptedException) Thread.currentThread().interrupt()
+            if (error is InterruptedException) {
+                Thread.currentThread().interrupt()
+                // Inside a store call the status lasts only until the call's work on this thread ends (InterruptHygiene).
+                InterruptHygiene.noteRestored()
+            }
             throw JcaFailure("The $what provider failed", error)
         }
 
