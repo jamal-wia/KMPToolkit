@@ -12,22 +12,23 @@ package io.github.jamal_wia.kmptoolkit.storage
  * - `Boolean` as `"true"` or `"false"`, exactly.
  *
  * A stored value that does not parse as the requested type is reported as
- * [StorageError.OperationFailed] for [StorageOperation.GET], with the parse exception as its cause,
- * rather than silently read as absent: it means two callers disagree about a key's type, which is a
- * bug worth seeing. The `...Or` variants collapse that, like an absent key or an unreadable store,
- * into the default you pass — use them where a sensible default exists and a wrong value is not worth
- * handling separately.
+ * [StorageError.InvalidValue] naming the key, with the parse exception as its cause, rather than
+ * silently read as absent: it means two callers disagree about a key's type, which is a bug worth
+ * seeing. It is not [StorageError.OperationFailed], which is the case for retryable I/O, so a caller
+ * that retries I/O failures never retries an unparsable value forever. The `...Or` variants collapse
+ * that, like an absent key or an unreadable store, into the default you pass — use them where a
+ * sensible default exists and a wrong value is not worth handling separately.
  */
 
-/** The `Int` stored under [key], `Success(null)` when absent. A non-integer value is a failure. */
+/** The `Int` stored under [key], `Success(null)` when absent. A non-integer value is [StorageError.InvalidValue]. */
 public suspend fun KeyValueStorage.getInt(key: String): StorageResult<Int?> = getParsed(key) { requireDecimal(it).toInt() }
 
-/** The `Long` stored under [key], `Success(null)` when absent. A non-integer value is a failure. */
+/** The `Long` stored under [key], `Success(null)` when absent. A non-integer value is [StorageError.InvalidValue]. */
 public suspend fun KeyValueStorage.getLong(key: String): StorageResult<Long?> = getParsed(key) { requireDecimal(it).toLong() }
 
 /**
  * The `Boolean` stored under [key], `Success(null)` when absent. Anything other than exactly `"true"`
- * or `"false"` is a failure.
+ * or `"false"` is [StorageError.InvalidValue].
  */
 public suspend fun KeyValueStorage.getBoolean(key: String): StorageResult<Boolean?> =
     getParsed(key) { value ->
@@ -82,7 +83,7 @@ private suspend inline fun <T : Any> KeyValueStorage.getParsed(
                 StorageResult.Success(parse(raw))
             } catch (error: IllegalArgumentException) {
                 // NumberFormatException is an IllegalArgumentException on every Kotlin target.
-                StorageResult.Failure(StorageError.OperationFailed(StorageOperation.GET, key = key, cause = error))
+                StorageResult.Failure(StorageError.InvalidValue(key, error))
             }
         }
     }

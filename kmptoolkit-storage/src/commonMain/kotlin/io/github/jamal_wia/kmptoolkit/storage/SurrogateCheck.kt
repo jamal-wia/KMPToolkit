@@ -23,15 +23,16 @@ internal fun String.hasUnpairedSurrogate(): Boolean {
 
 /**
  * The failure every shipped store answers a `put` with when the key or the value holds an unpaired
- * surrogate, or null when both are fine. Returned before any I/O, so nothing is changed.
+ * surrogate, or null when both are fine: [StorageError.InvalidValue] naming [key] — the value can
+ * never be stored, so a caller that retries `OperationFailed` must not retry it. Returned before any
+ * I/O, so nothing is changed.
  */
 internal fun unpairedSurrogateFailure(key: String, value: String): StorageResult.Failure? =
     if (key.hasUnpairedSurrogate() || value.hasUnpairedSurrogate()) {
         StorageResult.Failure(
-            StorageError.OperationFailed(
-                StorageOperation.PUT,
-                key = key,
-                cause = IllegalArgumentException("Unpaired UTF-16 surrogate in the key or value"),
+            StorageError.InvalidValue(
+                key,
+                IllegalArgumentException("Unpaired UTF-16 surrogate in the key or value"),
             ),
         )
     } else {

@@ -231,13 +231,13 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `a put with an unpaired surrogate fails with OperationFailed and changes nothing`() = runTest {
+    fun `a put with an unpaired surrogate fails with InvalidValue and changes nothing`() = runTest {
         storage.put("k", "old")
 
         for ((key: String, value: String) in listOf("k" to "a\uD800b", "k" to "a\uDC00b", "\uD800" to "v", "a\uDC00" to "v")) {
             val error: StorageError? = storage.put(key, value).errorOrNull()
             assertTrue(
-                error is StorageError.OperationFailed && error.operation == StorageOperation.PUT && error.key == key,
+                error is StorageError.InvalidValue && error.key == key,
                 "put of a key/value with an unpaired surrogate answered $error",
             )
         }

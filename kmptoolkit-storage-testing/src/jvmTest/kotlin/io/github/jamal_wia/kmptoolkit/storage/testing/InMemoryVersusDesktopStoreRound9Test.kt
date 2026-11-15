@@ -19,7 +19,7 @@ import kotlinx.coroutines.withTimeout
  * B round 9, Q4: the same scenario script over [InMemoryKeyValueStorage] and the real desktop store
  * (`createKeyValueStorage(directory, config)`), identical observable results required. Contract (docs 06-testing): absent
  * reads back as null, "" as "", put overwrites, remove of an absent key succeeds, clear empties the store, a put of an unpaired
- * surrogate is OperationFailed and changes nothing, and what a real store accepts the fake accepts.
+ * surrogate is InvalidValue and changes nothing, and what a real store accepts the fake accepts.
  */
 class InMemoryVersusDesktopStoreRound9Test {
     private val directory: File = Files.createTempDirectory("kmptoolkit-storage-testing-r9").toFile()
@@ -53,7 +53,11 @@ class InMemoryVersusDesktopStoreRound9Test {
         val log: MutableList<String> = mutableListOf()
         fun describe(result: StorageResult<*>): String = when (result) {
             is StorageResult.Success -> "ok:" + (result.value as? String)?.let { "${it.length}:${it.hashCode()}" }
-            is StorageResult.Failure -> "fail:" + (result.error as? StorageError.OperationFailed)?.let { "${it.operation}/${it.key}" }
+            is StorageResult.Failure -> "fail:" + when (val error: StorageError = result.error) {
+                is StorageError.OperationFailed -> "${error.operation}/${error.key}"
+                is StorageError.InvalidValue -> "invalid/${error.key}"
+                else -> error.toString()
+            }
         }
         for ((key: String, value: String) in values) {
             log += "put $key " + describe(store.put(key, value))

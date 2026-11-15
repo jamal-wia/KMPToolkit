@@ -3,7 +3,6 @@ package io.github.jamal_wia.kmptoolkit.storage.testing
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.SecureKeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.StorageError
-import io.github.jamal_wia.kmptoolkit.storage.StorageOperation
 import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 
 /**
@@ -15,7 +14,7 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
  *
  * It keeps the documented contract — absent reads back as `null`, `""` reads back as `""`, [put]
  * overwrites, [remove] of an absent key succeeds, [clear] empties only this instance, and [put] of a
- * key or value with an unpaired UTF-16 surrogate fails with [StorageError.OperationFailed] — so a test
+ * key or value with an unpaired UTF-16 surrogate fails with [StorageError.InvalidValue] — so a test
  * that passes against it is testing behavior the real stores also have.
  *
  * What it adds is control over failure, which no real store gives you on demand:
@@ -71,14 +70,13 @@ public class InMemoryKeyValueStorage : SecureKeyValueStorage {
 
     override suspend fun put(key: String, value: String): StorageResult<Unit> {
         // Like the real stores, before anything else: a key or value with an unpaired surrogate cannot
-        // be stored by any backend, so it fails with OperationFailed, changes nothing and does not
+        // be stored by any backend, so it fails with InvalidValue, changes nothing and does not
         // consume an armed failNextOperationWith.
         if (hasUnpairedSurrogate(key) || hasUnpairedSurrogate(value)) {
             return StorageResult.Failure(
-                StorageError.OperationFailed(
-                    StorageOperation.PUT,
-                    key = key,
-                    cause = IllegalArgumentException("Unpaired UTF-16 surrogate in the key or value"),
+                StorageError.InvalidValue(
+                    key,
+                    IllegalArgumentException("Unpaired UTF-16 surrogate in the key or value"),
                 ),
             )
         }

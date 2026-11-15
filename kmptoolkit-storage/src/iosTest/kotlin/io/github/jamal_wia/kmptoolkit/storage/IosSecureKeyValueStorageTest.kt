@@ -41,7 +41,7 @@ class IosSecureKeyValueStorageTest {
         for ((key: String, value: String) in listOf("k" to "a\uD800b", "\uDC00" to "v")) {
             val error: StorageError? = storage.put(key, value).errorOrNull()
             assertTrue(
-                error is StorageError.OperationFailed && error.operation == StorageOperation.PUT,
+                error is StorageError.InvalidValue && error.key == key,
                 "put answered $error",
             )
         }

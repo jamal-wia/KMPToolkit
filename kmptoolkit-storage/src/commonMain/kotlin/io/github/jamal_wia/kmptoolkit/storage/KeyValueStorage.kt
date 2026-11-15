@@ -53,7 +53,8 @@ public interface KeyValueStorage {
      * The value is readable by any other instance over the same [StorageConfig] once this returns.
      *
      * A key or value containing an unpaired UTF-16 surrogate cannot be stored by any backend; put
-     * answers [StorageError.OperationFailed] and changes nothing.
+     * answers [StorageError.InvalidValue] naming [key] and changes nothing. It is not retryable:
+     * the same value fails the same way.
      */
     public suspend fun put(key: String, value: String): StorageResult<Unit>
 
