@@ -304,7 +304,7 @@ Why each flag, the two-pane hand-off and lock-task mode in full:
 | `IosCurrentLocationOptions.desiredAccuracyOverride` | an exact CoreLocation accuracy for the one-shot call, replacing the mapping of `LocationAccuracy` (`requestLocation` honours `desiredAccuracy`) |
 | `IosLocationUpdatesOptions.allowsBackgroundLocationUpdates` | `allowsBackgroundLocationUpdates` of the manager; needs `location` in `UIBackgroundModes`. Without it the stream fails with `IllegalStateException` naming the key. The check runs **when collection starts, before any authorization read**, so it fails in every authorization state |
 | `showsBackgroundLocationIndicator` | the blue status-bar indicator while the app updates in the background (default `false`, Apple's default) |
-| `pausesLocationUpdatesAutomatically` | default `false`, unlike Apple's `true`. Opt in and the stream emits `NO_FIX` while updates are paused, and the provider restarts updates on the next `UIApplicationDidBecomeActiveNotification`, so a pause that began in the background lasts until the app is next active |
+| `pausesLocationUpdatesAutomatically` | default `false`, unlike Apple's `true`, which the 5.x stream ran with (a change from 5.x: see [the migration](07-migrating-to-6.md#step-8-defaults-that-changed-at-runtime)). Opt in and the stream emits `NO_FIX` while updates are paused, and the provider restarts updates on the next `UIApplicationDidBecomeActiveNotification`, so a pause that began in the background lasts until the app is next active |
 | `activityType` | `CLActivityType`: steers Apple's pause heuristics and map matching |
 | `desiredAccuracyOverride` | an exact accuracy for the stream |
 
@@ -367,8 +367,10 @@ goes quiet without a signal. Background updates need `UIBackgroundModes` contain
 `allowsBackgroundLocationUpdates = true`, which the stream options carry; the library checks the key before it
 reads any authorization and fails with `IllegalStateException` naming it, never silently ignoring the option
 (CoreLocation would otherwise raise an exception and crash the app). Holding "always" authorization
-(`CommonPermission.LocationBackground`) does not change that on its own. With `pausesLocationUpdatesAutomatically`
-the pause is reported as `NO_FIX` and a pause that began in the background lasts until the app is next active.
+(`CommonPermission.LocationBackground`) does not change that on its own. `pausesLocationUpdatesAutomatically`
+is `false` by default, so CoreLocation never pauses the stream by itself (the 5.x stream ran with Apple's
+default, `true`). With it set to `true` the pause is reported as `NO_FIX` and a pause that began in the
+background lasts until the app is next active.
 Android background tracking is the app's own foreground service; Android also throttles fixes delivered to a
 background app to a few per hour.
 

@@ -136,6 +136,13 @@ If the last grep of step 1 finds imports in a module that does not declare `kmpt
   `accuracy = LocationAccuracy.HIGH_ACCURACY` to keep GNSS-grade fixes. iOS is unchanged.
 - **iOS.** `kCLErrorLocationUnknown` no longer becomes a value, and a missing authorization answers at once
   instead of after the timeout. The documented minimum is iOS 15.
+- **iOS automatic pause.** The 5.x stream never set `pausesLocationUpdatesAutomatically` on the
+  `CLLocationManager`, so it ran with Apple's default, `true`, and the system could pause a stationary stream.
+  6.0.0 sets `false` by default: updates, and the GPS with them, keep running while the stream is collected, which
+  costs battery and is a runtime change the compiler cannot show. To keep the old behaviour pass
+  `platform = IosLocationUpdatesOptions(pausesLocationUpdatesAutomatically = true)` in `LocationUpdatesOptions`;
+  the stream then reports a pause as `Unavailable(NO_FIX)` and restarts the updates when the app becomes active
+  ([`05-platform-notes.md`](05-platform-notes.md#ios-background-and-auto-pause)).
 
 ## Related changes in other modules
 
