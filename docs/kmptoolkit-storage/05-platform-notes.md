@@ -463,7 +463,7 @@ next `put`). The size is worked out by counting, before the value or the entry n
 key runs with no lock held, and the next round re-reads the file and uses the key only if the header and key-check are the
 ones it was fetched for (at most four such rounds, then `Unavailable`).
 
-**A call on an interrupted thread is not served.** A store call (and `probeDesktopKeyStore()`) made on a thread whose interrupt status is already set never throws and keeps that status, but it does not do its work: the JDK refuses file I/O on an interrupted thread, so every operation of an encrypted store, a `get` included, answers `OperationFailed` with a `ClosedByInterruptException` as its cause. Nothing is written, no temporary file or lock is left behind, and the call can be repeated once the status is cleared.
+**A call on an interrupted thread is not served.** A store call made on a thread whose interrupt status is already set never throws and keeps that status, but it does not do its work: the JDK refuses file I/O on an interrupted thread, so every operation of an encrypted store, a `get` included, answers `OperationFailed` with a `ClosedByInterruptException` as its cause. Nothing is written, no temporary file or lock is left behind, and the call can be repeated once the status is cleared.
 
 **Open verification items (macOS, not yet run on a real keychain).** Whether `kSecUseAuthenticationUIFail` applies to
 `SecItemAdd` and `SecItemDelete` on the file keychain; whether a locked keychain and an item of another code identity both
