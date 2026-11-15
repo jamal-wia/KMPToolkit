@@ -61,6 +61,11 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/storage/KeyValueS
 	public abstract fun remove (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/storage/ProbeDesktopKeyStoreKt {
+	public static final fun probeDesktopKeyStore (Lio/github/jamal_wia/kmptoolkit/storage/DesktopSecureStorageOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun probeDesktopKeyStore$default (Lio/github/jamal_wia/kmptoolkit/storage/DesktopSecureStorageOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
 public abstract interface class io/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage : io/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage {
 }
 
@@ -180,7 +185,10 @@ public final class io/github/jamal_wia/kmptoolkit/storage/StorageError$Unsupport
 }
 
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageFactory_jvmKt {
+	public static final fun createAppKeyEncryptedKeyValueStorage (Ljava/io/File;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;Lio/github/jamal_wia/kmptoolkit/storage/AppEncryptionKey;)Lio/github/jamal_wia/kmptoolkit/storage/AppKeyEncryptedKeyValueStorage;
 	public static final fun createKeyValueStorage (Ljava/io/File;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;)Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;
+	public static final fun createSecureKeyValueStorage (Ljava/io/File;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;Lio/github/jamal_wia/kmptoolkit/storage/DesktopSecureStorageOptions;)Lio/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage;
+	public static synthetic fun createSecureKeyValueStorage$default (Ljava/io/File;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;Lio/github/jamal_wia/kmptoolkit/storage/DesktopSecureStorageOptions;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageOperation : java/lang/Enum {

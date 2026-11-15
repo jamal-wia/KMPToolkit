@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import io.github.jamal_wia.kmptoolkit.files.FileAccess
+import io.github.jamal_wia.kmptoolkit.files.createFileAccess
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.BindingSelector
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.BindingSource
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
@@ -39,12 +41,14 @@ internal class JvmSecureKeyValueStorage(
     crossProcessLock: CrossProcessLock = CrossProcessLock(),
     timeSource: TimeSource.WithComparableMarks = TimeSource.Monotonic,
     clock: () -> Instant = Instant::now,
+    files: FileAccess = createFileAccess(),
     cipher: EnvelopeCipher = EnvelopeCipher(),
 ) : SecureKeyValueStorage {
 
     private val engine: OsKeyStoreEngine = OsKeyStoreEngine(
         guard = EncryptedFileGuard(
             file = File(directory, "${secureStoreId(name)}.bin"),
+            files = files,
             crossProcessLock = crossProcessLock,
             timeSource = timeSource,
             clock = clock,

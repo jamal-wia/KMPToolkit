@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
 
+import io.github.jamal_wia.kmptoolkit.files.FileAccess
+import io.github.jamal_wia.kmptoolkit.files.createFileAccess
 import io.github.jamal_wia.kmptoolkit.storage.DesktopSecureStorageOptions
 import io.github.jamal_wia.kmptoolkit.storage.JvmSecureKeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.secureStoreId
@@ -20,7 +22,8 @@ internal class SecureTestRig(
     val fake: FakeNativeKeyStoreBinding = FakeNativeKeyStoreBinding(),
     val dispatcher: CoroutineDispatcher = Dispatchers.IO,
     val clock: () -> Instant = { FIXED_NOW },
-    val timeSource: TimeSource.WithComparableMarks = TimeSource.Monotonic,
+    /** A virtual time source for lock-budget tests; `null` leaves the store's own (the real clock is the production default). */
+    val timeSource: TimeSource.WithComparableMarks? = null,
 ) : AutoCloseable {
     val directory: File = Files.createTempDirectory("kmptoolkit-secure").toFile()
     val executor: NativeExecutor = NativeExecutor()
@@ -41,19 +44,21 @@ internal class SecureTestRig(
         cache: OsKeyCache = this.cache,
         executor: NativeExecutor = this.executor,
         lock: CrossProcessLock = CrossProcessLock(),
-    ): JvmSecureKeyValueStorage = JvmSecureKeyValueStorage(
-        name = name,
-        directory = dir,
-        options = options,
-        dispatcher = dispatcher,
-        source = source,
-        executor = executor,
-        cache = cache,
-        environment = environment,
-        crossProcessLock = lock,
-        clock = clock,
-        timeSource = timeSource,
-    )
+        files: FileAccess = createFileAccess(),
+    ): JvmSecureKeyValueStorage {
+        val virtual: TimeSource.WithComparableMarks? = timeSource
+        return if (virtual == null) {
+            JvmSecureKeyValueStorage(
+                name = name, directory = dir, options = options, dispatcher = dispatcher, source = source, executor = executor,
+                cache = cache, environment = environment, crossProcessLock = lock, clock = clock, files = files,
+            )
+        } else {
+            JvmSecureKeyValueStorage(
+                name = name, directory = dir, options = options, dispatcher = dispatcher, source = source, executor = executor,
+                cache = cache, environment = environment, crossProcessLock = lock, timeSource = virtual, clock = clock, files = files,
+            )
+        }
+    }
 
     fun dataFile(name: String = NAME, dir: File = directory): File = File(dir, "${secureStoreId(name)}.bin")
 

@@ -100,7 +100,7 @@ internal sealed interface CreatePlan {
  */
 internal abstract class EncryptedStoreEngine(
     protected val guard: EncryptedFileGuard,
-    private val dispatcher: CoroutineDispatcher,
+    protected val dispatcher: CoroutineDispatcher,
     protected val cipher: EnvelopeCipher,
 ) {
     /** The kinds of file this store type may hold; any other kind is unparsable for it. */
