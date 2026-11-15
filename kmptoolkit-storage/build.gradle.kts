@@ -80,6 +80,9 @@ kotlin {
         // The seam is public + @ToolkitInternalApi so another artifact can implement it; this module uses it freely.
         jvmMain { languageSettings { optIn("io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi") } }
         jvmTest { languageSettings { optIn("io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi") } }
+        // The documentation samples of docs/kmptoolkit-storage, compiled a second time here (the first time is `:docs-samples`, as a consumer),
+        // so that DocsSamplesDesktopRunTest runs them above the internal fake binding of the desktop key store (plan 6.7 (b)).
+        jvmTest { kotlin.srcDir("../docs-samples/src/jvmMain/kotlin") }
         // The tests that call java.lang.foreign themselves (src/jvmFfmTest, run by jvmTestFfm on a JDK 25 launcher).
         getByName("jvmFfmTest").dependencies {
             // This is not a KGP test compilation, so kotlin-test is not mapped to its JUnit variant on its own.
