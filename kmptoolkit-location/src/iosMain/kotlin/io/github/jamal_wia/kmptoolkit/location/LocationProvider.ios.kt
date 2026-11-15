@@ -3,7 +3,6 @@ package io.github.jamal_wia.kmptoolkit.location
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
-import kotlin.concurrent.Volatile
 import kotlin.time.Duration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
@@ -13,8 +12,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -67,16 +64,14 @@ internal class IosLocationProvider(
         }
     }
 
-    override fun observeLocation(options: LocationUpdatesOptions): Flow<LocationReading> = flow {
-        val seeds = SeedMarker()
+    override fun observeLocation(options: LocationUpdatesOptions): Flow<LocationReading> =
         // The throttle sits on the final stream, after the platform flow, and the completion after
         // the throttle: a terminal reason is never delayed and the registration is released at once.
-        emitAll(
-            updates(options, seeds)
-                .throttledBy(options, env.timeSource) { reading: LocationReading -> seeds.isSeed(reading) }
-                .completingAfterTerminalReading(),
-        )
-    }
+        // Every element of the platform flow carries its own seed mark (D-21), so no reseed can be
+        // forgotten and nothing is shared between the session and the throttle.
+        updates(options)
+            .throttledByMarks(options, env.timeSource)
+            .completingAfterTerminalReading()
 
     // Off the main thread: locationServicesEnabled() logs a runtime warning when called there.
     override suspend fun isLocationEnabled(): Boolean = servicesEnabled()
@@ -118,7 +113,7 @@ internal class IosLocationProvider(
      * the services switch is read off it by a single loop fed by a conflated signal, so two quick
      * authorization changes can never apply an older read after a newer one.
      */
-    private fun updates(options: LocationUpdatesOptions, seeds: SeedMarker): Flow<LocationReading> = channelFlow {
+    private fun updates(options: LocationUpdatesOptions): Flow<StreamReading> = channelFlow {
         val platform: IosLocationUpdatesOptions? = options.platform as? IosLocationUpdatesOptions
         // Before any authorization read: a missing background mode fails in every authorization state.
         if (platform?.allowsBackgroundLocationUpdates == true) {
@@ -129,7 +124,7 @@ internal class IosLocationProvider(
         val initialReason: LocationUnavailability? = blockingReason()
         if (initialReason == LocationUnavailability.PERMISSION_MISSING) {
             // Answered at once and without a manager: nothing to register, nothing to release.
-            trySend(LocationReading.Unavailable(LocationUnavailability.PERMISSION_MISSING))
+            trySend(StreamReading.live(LocationReading.Unavailable(LocationUnavailability.PERMISSION_MISSING)))
             return@channelFlow
         }
         val recheck: Channel<Unit> = Channel(Channel.CONFLATED)
@@ -138,8 +133,7 @@ internal class IosLocationProvider(
             logger = logger,
             options = options,
             platform = platform,
-            seeds = seeds,
-            out = { reading: LocationReading -> trySend(reading) },
+            out = { reading: StreamReading -> trySend(reading) },
             onChange = { recheck.trySend(Unit) },
         )
         try {
@@ -164,31 +158,6 @@ internal class IosLocationProvider(
 /** `locationManagerDidChangeAuthorization` and nothing else: the services switch observer. */
 private class AuthorizationChanges(private val onChange: () -> Unit) : IosLocationEvents {
     override fun onAuthorizationChanged() = onChange()
-}
-
-/**
- * Remembers every seed emission of the stream (the first one and each reseed after a service flap)
- * so the common throttle can tell it from a live fix (decision D-21: a cached seed sets the distance
- * reference but starts no interval; correction round 1: this holds for every reseed, not only the
- * first). A seed is recorded before it is sent and judged after it is received, so the channel
- * orders the two. Only the last [MAX_REMEMBERED] seeds are kept: the stream is conflated and
- * throttled through a bounded channel, so a seed that is eight reseeds old can no longer be in
- * flight, and the list never grows. Single writer (the main queue); the immutable list in a volatile
- * field is what the throttle reads.
- */
-private class SeedMarker {
-    @Volatile
-    private var recent: List<LocationReading> = emptyList()
-
-    fun mark(reading: LocationReading) {
-        recent = (recent + reading).takeLast(MAX_REMEMBERED)
-    }
-
-    fun isSeed(reading: LocationReading): Boolean = recent.any { seed: LocationReading -> seed === reading }
-
-    private companion object {
-        const val MAX_REMEMBERED: Int = 8
-    }
 }
 
 private sealed interface OneShotOutcome {
@@ -311,8 +280,7 @@ private class StreamSession(
     private val logger: Logger,
     private val options: LocationUpdatesOptions,
     private val platform: IosLocationUpdatesOptions?,
-    private val seeds: SeedMarker,
-    private val out: (LocationReading) -> Unit,
+    private val out: (StreamReading) -> Unit,
     private val onChange: () -> Unit,
 ) : IosLocationEvents {
 
@@ -369,6 +337,9 @@ private class StreamSession(
 
     private fun enter(reason: LocationUnavailability?) {
         val current: IosLocationManager = manager ?: return
+        // Terminal stays terminal: once PERMISSION_MISSING was emitted nothing may follow it, whatever
+        // the authorization does afterwards (the stream is about to complete).
+        if (state == StreamState.TERMINAL) return
         when (reason) {
             null -> {
                 if (state == StreamState.READY) return
@@ -381,13 +352,12 @@ private class StreamSession(
                 if (state == StreamState.SERVICE_DISABLED) return
                 state = StreamState.SERVICE_DISABLED
                 current.stopUpdatingLocation()
-                out(LocationReading.Unavailable(LocationUnavailability.SERVICE_DISABLED))
+                out(StreamReading.live(LocationReading.Unavailable(LocationUnavailability.SERVICE_DISABLED)))
             }
             LocationUnavailability.PERMISSION_MISSING -> {
-                if (state == StreamState.TERMINAL) return
                 state = StreamState.TERMINAL
                 current.stopUpdatingLocation()
-                out(LocationReading.Unavailable(LocationUnavailability.PERMISSION_MISSING))
+                out(StreamReading.live(LocationReading.Unavailable(LocationUnavailability.PERMISSION_MISSING)))
             }
             else -> Unit
         }
@@ -408,8 +378,8 @@ private class StreamSession(
         if (cachedRaw != null && cached != null) candidates += AgedFix(cached, env.clock.wallAgeOf(cachedRaw))
         lastDelivery?.let { received: IosDelivery -> candidates += AgedFix(received.fix, received.ageAt(env.clock.uptime())) }
         val seed: LocationReading = seedReading(candidates, options.maxSeedAge, LocationUnavailability.NO_FIX)
-        if (seed is LocationReading.Available) seeds.mark(seed)
-        out(seed)
+        // The seed is a position the platform already held (or the NO_FIX standing for none): marked in the element.
+        out(StreamReading.seed(seed))
     }
 
     override fun onLocations(fixes: List<IosRawFix>) {
@@ -425,7 +395,7 @@ private class StreamSession(
                 freshSeen = true
             }
             lastDelivery = delivery
-            out(LocationReading.Available(fix))
+            out(StreamReading.live(LocationReading.Available(fix)))
         }
     }
 
@@ -434,9 +404,14 @@ private class StreamSession(
         when (kind) {
             IosFailureKind.LOCATION_UNKNOWN -> Unit
             IosFailureKind.DENIED -> {
-                // Apple: on a denial, stop the service. The state is read again; whatever it says is emitted.
-                manager?.stopUpdatingLocation()
-                state = StreamState.IDLE
+                // Apple: on a denial, stop the service. Only a running stream (READY) goes back to IDLE so the
+                // re-read decides what to emit; SERVICE_DISABLED and TERMINAL already said it and stay as they
+                // are, so the same state is never emitted twice (iOS reports a switch-off through the
+                // authorization callback AND through this error, in either order).
+                if (state == StreamState.READY) {
+                    manager?.stopUpdatingLocation()
+                    state = StreamState.IDLE
+                }
                 onChange()
             }
             IosFailureKind.OTHER -> logger.w { "observeLocation failed: $description" }
@@ -453,7 +428,7 @@ private class StreamSession(
     override fun onPaused() {
         if (released || !config.pausesLocationUpdatesAutomatically || state != StreamState.READY || paused) return
         paused = true
-        out(LocationReading.Unavailable(LocationUnavailability.NO_FIX))
+        out(StreamReading.live(LocationReading.Unavailable(LocationUnavailability.NO_FIX)))
     }
 
     override fun onResumed() {
