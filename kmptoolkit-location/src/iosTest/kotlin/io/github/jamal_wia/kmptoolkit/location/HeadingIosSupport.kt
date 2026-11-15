@@ -81,6 +81,18 @@ internal class FakeHeadingDevice(override val isHeadingAvailable: Boolean = true
     @Volatile
     var afterStartLocation: (FakeManager) -> Unit = { }
 
+    /** Runs inside every manager's `stopLocation`, after it took effect: a manager that delivers in place. */
+    @Volatile
+    var afterStopLocation: (FakeManager) -> Unit = { }
+
+    /** Thrown by `startLocation` of every manager, before it takes effect, while set. */
+    @Volatile
+    var startLocationFailure: Throwable? = null
+
+    /** Thrown by `stopLocation` of every manager, before it takes effect, while set. */
+    @Volatile
+    var stopLocationFailure: Throwable? = null
+
     /** Runs after a manager was recorded (1-based count), on the opening thread. */
     @Volatile
     var afterOpen: (count: Int) -> Unit = { }
@@ -167,6 +179,7 @@ internal class FakeHeadingDevice(override val isHeadingAvailable: Boolean = true
         override fun startLocation() {
             if (!authorizedFlag.load()) report("startLocation while unauthorized")
             if (delegateNil.load()) report("startLocation after release")
+            startLocationFailure?.let { failure: Throwable -> throw failure }
             locationStarts.incrementAndFetch()
             locationFlag.store(true)
             afterStartLocation(this)
@@ -174,8 +187,10 @@ internal class FakeHeadingDevice(override val isHeadingAvailable: Boolean = true
 
         override fun stopLocation() {
             if (delegateNil.load()) report("stopLocation after release")
+            stopLocationFailure?.let { failure: Throwable -> throw failure }
             locationStops.incrementAndFetch()
             locationFlag.store(false)
+            afterStopLocation(this)
         }
 
         override fun release() {

@@ -159,7 +159,9 @@ internal class IosHeadingProvider(
      * collection and [close], which releases the manager before `update` returns. So every publish is either
      * the last statement of its path or followed by [owns], and no call on the manager follows an unchecked
      * publish. A call into the manager is never followed by anything but bookkeeping, so a manager that delivers
-     * in place from inside such a call (a fake does, CoreLocation does not) gets no further call after its release.
+     * in place from inside such a call (a fake does, CoreLocation does not) gets no further call after its release,
+     * and the bookkeeping of that call ([locationRunning]) is written before the call, so a delivery inside it is
+     * decided on what the call is doing.
      */
     private inner class Session(
         private val inputs: HeadingInputs<IosHeadingState>,
@@ -194,7 +196,8 @@ internal class IosHeadingProvider(
                     setAuthorized(authorized)
                     // Publishing can run an inline collector to its end and release this manager.
                     if (!owns(opened)) return@confine
-                    if (authorized) startLocation(opened)
+                    // A manager that reported an authorization inside startHeading may have started location already.
+                    if (authorized && !locationRunning) startLocation(opened)
                 } catch (failure: Throwable) {
                     // Release first, report after: whatever the logger does, no manager stays running, and an
                     // Error (not absorbed, like the logger's) leaves only once the manager is released: with an
@@ -284,14 +287,30 @@ internal class IosHeadingProvider(
          */
         private fun owns(current: IosHeadingManager): Boolean = !closed.load() && manager === current
 
+        /**
+         * Inside the confine only. The flag is claimed before the call and given back if the call throws: a manager
+         * that delivers an authorization change inside the call (a fake does, CoreLocation does not) is decided by a
+         * flag that already says what the call is doing, and a failed call is retried on the next report.
+         */
         private fun startLocation(current: IosHeadingManager) {
-            current.startLocation()
             locationRunning = true
+            try {
+                current.startLocation()
+            } catch (failure: Throwable) {
+                locationRunning = false
+                throw failure
+            }
         }
 
+        /** The mirror of [startLocation]: claimed before the call, given back when it throws. */
         private fun stopLocation(current: IosHeadingManager) {
-            current.stopLocation()
             locationRunning = false
+            try {
+                current.stopLocation()
+            } catch (failure: Throwable) {
+                locationRunning = true
+                throw failure
+            }
         }
 
         /** Inside the confine only. The reference is dropped first so a failing release cannot be repeated. */
