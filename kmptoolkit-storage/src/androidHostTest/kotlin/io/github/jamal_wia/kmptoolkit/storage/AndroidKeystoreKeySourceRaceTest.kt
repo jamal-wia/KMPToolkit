@@ -117,6 +117,8 @@ class AndroidKeystoreKeySourceRaceTest {
             }
         }
 
+        override fun deleteKey(alias: String): Unit = error("only a permanent rejection deletes a key")
+
         override fun generateKey(alias: String): SecretKey {
             val bytes = ByteArray(KEY_BYTES).also(SecureRandom()::nextBytes)
             val key: SecretKey = SecretKeySpec(bytes, "AES")

@@ -58,14 +58,15 @@ class KeystoreValueCipherTest {
     }
 
     @Test
-    fun `the output carries a twelve byte IV ahead of the ciphertext`() = runTest {
+    fun `the output carries a version byte and a twelve byte IV ahead of the ciphertext`() = runTest {
         // The framing is a compatibility surface: anything written by an older build has to stay
         // readable by a newer one, so the layout is asserted rather than assumed.
         val encoded: String = cipher.encrypt("")
         val bytes: ByteArray = Base64.decode(encoded, Base64.NO_WRAP)
 
-        // 12-byte IV + empty plaintext + 16-byte GCM tag.
-        assertEquals(KeystoreValueCipher.IV_LENGTH_BYTES + 16, bytes.size)
+        assertEquals(KeystoreValueCipher.FORMAT_VERSION, bytes[0], "the first byte is the envelope version")
+        // Version byte + 12-byte IV + empty plaintext + 16-byte GCM tag.
+        assertEquals(1 + KeystoreValueCipher.IV_LENGTH_BYTES + 16, bytes.size)
     }
 
     @Test
@@ -154,11 +155,44 @@ class KeystoreValueCipherTest {
         assertTrue(cipher.encrypt("x".repeat(1_000)).none { it == '\n' })
     }
 
+    /** The 4.0.0 writer: `Base64(iv || ciphertext || tag)`, no version byte, no associated data. */
+    private fun legacyEncrypt(plaintext: String, aad: ByteArray? = null): String {
+        val jce: javax.crypto.Cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        jce.init(javax.crypto.Cipher.ENCRYPT_MODE, key)
+        if (aad != null) jce.updateAAD(aad)
+        return Base64.encodeToString(jce.iv + jce.doFinal(plaintext.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+    }
+
     @Test
-    fun `an entry written without a key binding is still read for any key`() = runTest {
-        // What 4.0.0 and earlier wrote: no associated data.
-        val legacy: String = cipher.encrypt("old value")
-        assertEquals("old value", cipher.decryptFor("access_token", legacy))
+    fun `an entry written without a version byte is read only through the legacy reader`() = runTest {
+        val unbound: String = legacyEncrypt("old value")
+        val bound: String =
+            legacyEncrypt("bound value", "kmptoolkit-storage-key:access_token".toByteArray(Charsets.UTF_8))
+
+        // 4.0.0 entries open for any key, 5.0.0 entries for their own key, through the legacy reader only.
+        assertEquals("old value", cipher.decryptLegacyFor("access_token", unbound))
+        assertEquals("old value", cipher.decryptLegacyFor("other", unbound))
+        assertEquals("bound value", cipher.decryptLegacyFor("access_token", bound))
+        // The fallback that accepted unversioned entries for ever is closed in the ordinary reader.
+        assertFailsWith<javax.crypto.BadPaddingException> { cipher.decryptFor("access_token", unbound) }
+        assertFailsWith<javax.crypto.BadPaddingException> { cipher.decryptFor("access_token", bound) }
+        assertFailsWith<javax.crypto.BadPaddingException> { cipher.decrypt(unbound) }
+    }
+
+    @Test
+    fun `a versioned entry that is changed in its version byte or moved to another key fails its tag`() = runTest {
+        val bytes: ByteArray = Base64.decode(cipher.encryptFor("k", "v"), Base64.NO_WRAP)
+        for (version: Int in listOf(0, 2, 0x7F, 0xFF)) {
+            val changed: ByteArray = bytes.copyOf().also { it[0] = version.toByte() }
+            assertFailsWith<javax.crypto.BadPaddingException>("version $version") {
+                cipher.decryptFor("k", Base64.encodeToString(changed, Base64.NO_WRAP))
+            }
+        }
+        // A version byte stripped, as a downgrading writer would leave it, is no entry of either format.
+        val stripped: String = Base64.encodeToString(bytes.copyOfRange(1, bytes.size), Base64.NO_WRAP)
+        assertFailsWith<javax.crypto.BadPaddingException> { cipher.decryptFor("k", stripped) }
+        assertFailsWith<javax.crypto.BadPaddingException> { cipher.decryptLegacyFor("k", stripped) }
+        assertFailsWith<javax.crypto.BadPaddingException> { cipher.decryptLegacyFor("k", cipher.encryptFor("k", "v")) }
     }
 
     @Test

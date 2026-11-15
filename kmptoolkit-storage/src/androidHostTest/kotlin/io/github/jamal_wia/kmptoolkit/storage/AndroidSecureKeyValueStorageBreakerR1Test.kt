@@ -174,7 +174,14 @@ class AndroidSecureKeyValueStorageBreakerR1Test {
         for ((key: String, value: String) in written) {
             assertEquals(StorageResult.Success(value), reader.get(key), "seed=$seed: $key")
         }
-        assertEquals(written.keys.toSet(), preferences().all.keys, "seed=$seed: ensureKey must not add entries")
+        // The reserved format record (plan 4.9) is the file's format, not an entry: the first write of a fresh store
+        // stamps it. Excluded here (sto-android breaker round 2, lead decision on S1); a lone ensureKey writing nothing
+        // at all, the stamp included, is checked by the other tests of this class.
+        assertEquals(
+            written.keys.toSet(),
+            preferences().all.keys - AndroidSecureKeyValueStorage.FORMAT_KEY,
+            "seed=$seed: ensureKey must not add entries",
+        )
     }
 
     @Test

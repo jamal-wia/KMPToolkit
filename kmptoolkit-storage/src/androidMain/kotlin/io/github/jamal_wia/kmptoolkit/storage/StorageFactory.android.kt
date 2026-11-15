@@ -45,27 +45,34 @@ public fun createKeyValueStorage(
  * so two stores with different names cannot read each other's values even though both keys live in
  * the same key store. Neither the key nor the alias is hardcoded by this library.
  *
- * No hardware backing is required or checked: on a device with a StrongBox or a TEE the platform
- * uses it, and on one without, the same API falls back to a software-isolated key. The library does
- * not fail on the weaker device, because refusing to store a token there would only push the
- * consumer into storing it somewhere worse.
+ * By default no hardware backing is required or checked: on a device with a StrongBox or a TEE the
+ * platform uses it, and on one without, the same API falls back to a software-isolated key. The
+ * library does not fail on the weaker device, because refusing to store a token there would only
+ * push the consumer into storing it somewhere worse. [AndroidSecureStorageOptions] lets an app ask
+ * for a StrongBox ([AndroidKeyBacking.PREFER_STRONGBOX] to prefer it and read the outcome with
+ * [androidKeySecurityLevel], [AndroidKeyBacking.REQUIRE_STRONGBOX] to refuse to run without one) or
+ * for a key that works only while the device is unlocked. The options apply when a key is
+ * generated; an existing key keeps its properties.
  *
  * A value can become permanently unreadable — see [SecureKeyValueStorage] and
- * [StorageError.Undecryptable]. Handle that case; it is reachable on ordinary devices whose owner
- * changes the screen lock.
+ * [StorageError.Undecryptable]. Handle that case; it is reachable on ordinary devices, for example
+ * when an app is restored to a new device from a backup. A key the platform invalidates for good is
+ * replaced by a new one, so writes keep working; the old values are then `Undecryptable`.
  *
  * @param context any `Context`. Only its application context is retained.
  * @param config which store to open, and the alias its key is filed under — see [StorageConfig].
+ * @param options the properties a new key gets, see [AndroidSecureStorageOptions].
  */
 public fun createSecureKeyValueStorage(
     context: Context,
     config: StorageConfig = StorageConfig(),
+    options: AndroidSecureStorageOptions = AndroidSecureStorageOptions(),
 ): SecureKeyValueStorage {
     val applicationContext: Context = context.applicationContext
     val name: String = config.name ?: applicationContext.packageName
     return AndroidSecureKeyValueStorage(
         preferences = applicationContext.preferences(secureStoreId(name)),
-        cipher = KeystoreValueCipher(AndroidKeystoreKeySource(secureKeyAlias(name))),
+        cipher = KeystoreValueCipher(AndroidKeystoreKeySource(secureKeyAlias(name), options = options)),
         dispatcher = Dispatchers.IO,
     )
 }

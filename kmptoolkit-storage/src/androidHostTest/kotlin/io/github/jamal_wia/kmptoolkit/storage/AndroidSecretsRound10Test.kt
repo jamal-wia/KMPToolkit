@@ -81,12 +81,18 @@ class AndroidSecretsRound10Test {
             val store: SecureKeyValueStorage = secure(name)
             values.forEach { (k: String, v: String) -> assertEquals(StorageResult.Success<String?>(v), store.get(k), "3.0.0 entry $k") }
 
-            // What is written now is bound to its key: it opens with the documented associated data and not without, which is
-            // exactly why a downgrade to 4.0.0 (no associated data) reads it as Undecryptable.
+            // What is written now is a versioned envelope bound to its key: the version byte comes first, and the entry opens with
+            // the version byte and the key name as associated data, not without them, which is exactly why a downgrade to 5.0.0
+            // or 4.0.0 reads it as Undecryptable.
             assertEquals(StorageResult.Success(Unit), store.put("refresh_token", "r-2"))
             val raw: String = requireNotNull(securePreferences(name).getString("refresh_token", null))
-            assertEquals("r-2", jceDecrypt(key, raw, "kmptoolkit-storage-key:refresh_token".toByteArray(Charsets.UTF_8)))
-            assertFailsWith<javax.crypto.AEADBadTagException> { jceDecrypt(key, raw, null) }
+            val versioned: ByteArray = Base64.decode(raw, Base64.NO_WRAP)
+            assertEquals(1, versioned[0].toInt(), "the first byte is the format version")
+            val unversioned: String = Base64.encodeToString(versioned.copyOfRange(1, versioned.size), Base64.NO_WRAP)
+            val aad: ByteArray = byteArrayOf(1) + "kmptoolkit-storage-key:refresh_token".toByteArray(Charsets.UTF_8)
+            assertEquals("r-2", jceDecrypt(key, unversioned, aad))
+            assertFailsWith<javax.crypto.AEADBadTagException> { jceDecrypt(key, unversioned, null) }
+            assertFailsWith<javax.crypto.AEADBadTagException> { jceDecrypt(key, unversioned, "kmptoolkit-storage-key:refresh_token".toByteArray(Charsets.UTF_8)) }
             // The entries not written again keep reading, whatever the neighbour did.
             assertEquals(StorageResult.Success<String?>("жук 😀"), store.get("unicode"))
         }

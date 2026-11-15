@@ -51,7 +51,7 @@ The code this module was ported from used **Tink** (`com.google.crypto.tink:tink
 `AndroidKeysetManager`: a keyset stored in its own preferences file, wrapped by an Android Keystore
 master key, encrypting values with AES-256-GCM. This module instead calls the Android Keystore
 directly — `KeyGenParameterSpec` for an AES-256 key, `Cipher("AES/GCM/NoPadding")` for the values,
-`Base64(iv ‖ ciphertext‖tag)` on disk.
+`Base64(version ‖ iv ‖ ciphertext ‖ tag)` on disk.
 
 The three candidates and what decided it:
 
@@ -78,10 +78,11 @@ The reasoning, stated plainly because a consumer deserves to know why their APK 
 
 What this trade costs, honestly:
 
-- **No key rotation and no versioned envelope.** Changing the algorithm later means every existing
-  entry reads back as `Undecryptable`. Acceptable because that is already a reachable state (see
-  below) and every consumer must handle it; not acceptable for data a user cannot re-acquire, which
-  this store is not for.
+- **No key rotation.** The envelope carries a version byte, so the format can evolve, but nothing
+  rotates the key. Changing the algorithm without a migration means every existing entry reads back
+  as `Undecryptable`. Acceptable because that is already a reachable state (see below) and every
+  consumer must handle it; not acceptable for data a user cannot re-acquire, which this store is
+  not for.
 - **No FIPS story, no key-hierarchy features.** If you need those, you need Tink, and you should
   build on it directly rather than through this module.
 - **We own the framing.** IV length, tag length and Base64 flags are ours to get right, and are
@@ -89,28 +90,49 @@ What this trade costs, honestly:
 
 Two further choices inside that implementation:
 
-- **`setUserAuthenticationRequired` is deliberately left off.** An auth-bound key would make every
-  read fail outside a recent unlock, which breaks a cold start and a background sync. Biometric
-  gating is a different feature with a different key, bound to your own auth flow.
+- **`setUserAuthenticationRequired` is off by default.** An auth-bound key would make every read fail
+  outside a recent unlock, which breaks a cold start and a background sync. Opt in with
+  `AndroidUserAuthentication` (see "User authentication" below, with the cost described there); the
+  library never shows the prompt, your own `BiometricPrompt` flow opens the window.
 - **Hardware backing is neither required nor checked.** On a device with a TEE or StrongBox the
   platform uses it; on one without, the same API gives a software-isolated key. Refusing to store a
   token on the weaker device would only push you into storing it somewhere worse.
 
 ### The Android failure you must handle
 
-Since 5.0.0 a secure value is also bound to the key name it is stored under: the key name is authenticated
-associated data of the AES-GCM encryption, so a ciphertext copied from one key to another in the preferences file
-(for example the access token over the password) fails its tag and reads as `Undecryptable`. Nothing written earlier
-becomes unreadable: an entry that fails the bound check is read once more as an unbound one, which is what 4.0.0 and
-earlier wrote. Such an old entry stays movable between keys until it is written again. The format on disk is unchanged
-(`Base64(iv ‖ ciphertext‖tag)`), but a downgrade to 4.0.0 cannot read entries written by 5.0.0.
+**The envelope.** Every secure value is `Base64(version ‖ iv ‖ ciphertext ‖ tag)`: a version byte (currently `1`), the
+12-byte IV, and the AES-GCM ciphertext with its 16-byte tag. The version byte and the key name the value is stored
+under are authenticated associated data, so a ciphertext copied from one key to another in the preferences file (for
+example the access token over the password), or one whose version byte was changed, fails its tag and reads as
+`Undecryptable`. The version byte lets the format evolve and makes a downgrade detectable.
 
-The Keystore entry is destroyed when the user **adds, changes, or removes the device lock**, and an
-app restored to a new device from a backup carries the ciphertext without the key. In both cases the
-value is gone while the entry remains, and reads return `StorageError.Undecryptable`. The module
-recovers as far as it can — an alias whose key has become unrecoverable is dropped and a new key
-generated, so *new* writes work again instead of the store being bricked for the life of the install
-— but the old values are not recoverable by anyone.
+**Entries written before the version byte** (4.0.0 and 5.0.0: `Base64(iv ‖ ciphertext ‖ tag)`, the 5.0.0 ones bound to
+their key name, the 4.0.0 ones bound to nothing) are read while the store has not been migrated. The first call that
+can reach the Keystore key (a `get` of an existing entry, or a `put`) runs a one-time pass that re-encrypts every
+readable old entry into the versioned format and then records, in the same preferences file under a reserved name
+(`.kmptoolkit.envelope-format`; a key of that exact name is refused with `InvalidValue`), that the store is migrated.
+The pass writes each entry with compare-and-set: an entry that was written or removed meanwhile, such as a background
+token refresh, is never overwritten with the old value or brought back. A pass that cannot finish (the Keystore is
+unavailable, a fault that may pass) changes nothing it did not rewrite and is retried by the next call. **After the
+pass an entry without the version byte is `Undecryptable(key)`**: the old fallback that accepted unbound entries for
+ever is closed. `clear()` keeps the record; a fresh store is recorded by its first write. An entry too short to hold
+its IV and tag (a truncated or hand-edited value) is skipped as malformed: it stays `Undecryptable(key)` and never
+keeps the pass from finishing. Length is checked before any decryption, because the AndroidKeyStore answers a too-short
+input with an exception other than a bad tag. The pass runs under a per-file migration lock taken with `tryLock` (an
+operation that finds a pass running does not wait for it), not under the alias lock: the alias lock only orders key
+resolution, the pass is a per-file read-modify-write.
+
+**Downgrading** the library after upgrading to this format loses the secure values: an older version cannot read a
+versioned entry and reports it `Undecryptable`.
+
+The Keystore key can be lost: an app restored to a new device from a backup carries the ciphertext without the key,
+and the platform can invalidate a key permanently (`KeyPermanentlyInvalidatedException`). Reads of the affected values
+return `StorageError.Undecryptable`. The module recovers as far as it can, so a store is never bricked for the life of
+the install: a key the platform reports as permanently invalidated (at the lookup, the provider's
+`UnrecoverableKeyException("User changed or deleted their auth credentials")` with no cause; when the key is first used, a
+`KeyPermanentlyInvalidatedException`) is deleted and replaced by a new one under the alias lock (compare-and-delete: only the
+dead key itself, never a newer one another caller made). *New* writes succeed again, old values are
+`Undecryptable(key)`, and nothing can recover them.
 
 A decrypt that fails for a *transient* keystore reason is the exception: when anything in the
 failure's cause chain is an `android.security.KeyStoreException` whose `isTransientFailure()` is
@@ -123,11 +145,41 @@ still `Undecryptable`, as before. A failure the platform does not call transient
 
 The same rule protects the key itself: a transient fault never makes the module drop its cached key
 and look the alias up again, and a transient `UnrecoverableKeyException` during that lookup never
-deletes the alias. The unrecoverable-alias recovery (delete and generate) runs only on the first key
-resolution in a process. A key the platform rejects later is forgotten and looked up again once, but
+deletes the alias. An alias is deleted only on proof, and an `UnrecoverableKeyException` alone is not proof (a keystore
+fault and a locked device look the same on API 24-32). The proof is the platform's own verdict in the form it has at a
+lookup: the provider's lookup (`KeyStore.getKey`, `engineGetKey`; API 30, 31, 34 and 36.1, read from the framework
+bytecode) turns the daemon's `KeyPermanentlyInvalidatedException` into an `UnrecoverableKeyException` with **no cause** and
+exactly the message `User changed or deleted their auth credentials`; that form, or a `KeyPermanentlyInvalidatedException` in the cause chain,
+deletes the alias. Every other lookup failure, notably `UnrecoverableKeyException("Failed to obtain information about key")`
+with the daemon's `KeyStoreException` as its cause, a locked device and every unknown failure, deletes nothing and answers
+`Unavailable`. Such a store stays `Unavailable` until the lookup succeeds (the cipher never gets a key handle to repair
+it), and a key that stays unreachable can be recovered only by clearing the app data: the deliberate price of never
+destroying values over a fault that passes. API 28 never reports the invalidation at the lookup, only when the key is
+first used, where the cipher's own handling replaces it.
+
+The key is looked up with `KeyStore.getKey`, never `KeyStore.getEntry`. On API 31+ (keystore 2) `getEntry` does not reach
+`engineGetKey`: the provider does not override `engineGetEntry`, and the libcore default asks `engineIsKeyEntry` and
+`engineContainsAlias` first, which swallow every failure of the keystore daemon and answer "no such alias". With
+`getEntry` a busy or restarting daemon at the lookup would look like an empty alias, a new key would be generated over
+the live one, and every stored value would be lost. `getKey` answers `null` only for "key not found" and reports every
+other failure as an exception, so the rules above (delete only on proof, otherwise `Unavailable`) apply to a real device.
+(Found by reading the framework bytecode of API 31, 34 and 36.1, not observed on a device.)
+
+An alias that holds a key which is **not a secret key** (for example an asymmetric key another component filed under the
+library's alias, `<name>.kmptoolkit.securestorage.key`) is not taken for an empty alias: it is an
+`UnrecoverableKeyException` that is no proof, so nothing is generated over it, nothing is deleted, and the store answers
+`Unavailable`.
+
+**A loss no code can prevent.** On API 24-30 (keystore 1) the provider's `engineGetKey` itself starts with
+`KeyStore.contains()`, which turns a lost connection to the keystore daemon into `false`. If the daemon dies at exactly
+that moment the alias looks empty with `getKey` as with `getEntry`, and the store generates a new key over the existing
+one: the stored values become `Undecryptable`. The window is the length of one call and needs the daemon to die inside
+it; the library cannot close it, and the same holds for the two-process case below. Not observed on a device.
+
+The lookup-time deletion runs only on the first key resolution in a process. A key the platform rejects later is forgotten and looked up again once, but
 that lookup never deletes: if it hits an unrecoverable entry — which on API 24-32 a keystore fault
 also looks like, since nothing there can name a transient failure — the call fails with
-`StorageError.Unavailable` and the next process start recovers a key that really died. A read that
+`StorageError.Unavailable` and the next process start recovers a key that was proven dead. A read that
 hits a transient fault reports `Unavailable`; a write reports `OperationFailed`. The key and the
 stored values are kept either way, so a momentary outage costs a retry, never the stored values.
 
@@ -141,14 +193,112 @@ one won the alias, and every value encrypted under the earlier one became `Undec
 gap existed in the recovery from a changed device lock, where a late caller could delete the
 replacement key another caller had just made.
 
-The lookup now runs under one lock for the whole process, shared by every store instance, and asks
-the Keystore again once it holds the lock — so the second caller finds the first caller's key. The
-lock is held only while a key is resolved, once per store instance.
+The lookup now runs under one lock **per alias** for the whole process, shared by every store
+instance over that alias, and asks the Keystore again once it holds the lock — so the second caller
+finds the first caller's key. A slow Keystore call for one alias never stalls the stores of another
+alias, and a key that is already resolved is answered from a process-wide per-alias cache without
+taking any lock. The lock is held only while a key is resolved, dropped or deleted.
 
 **One process per store.** An in-process lock cannot order two *processes*, and the AndroidKeyStore
 has no atomic create-if-absent. If your app runs components in a second process
 (`android:process`), do not give that process the same secure store, or make sure the main process
 has written to it at least once before the other one can start.
+
+### Key options: StrongBox and an unlocked device
+
+`createSecureKeyValueStorage(context, config, options)` takes an `AndroidSecureStorageOptions` (a plain class, not a
+data class) with three properties (the third, `userAuthentication`, has its own section below). They apply **when a key is generated**; a key that already exists keeps the
+properties it was generated with, and the library has no call that regenerates it (that would make every stored value
+`Undecryptable`). To get a key with new properties, open the store under another `StorageConfig.name` and move the
+values you want to keep, or clear the app's data.
+
+- `keyBacking`: `DEFAULT` (the platform default, TEE or software; never fails for lack of hardware),
+  `PREFER_STRONGBOX` (a StrongBox when the device has one, otherwise the default key; read what you got with
+  `storage.androidKeySecurityLevel()`), `REQUIRE_STRONGBOX` (a StrongBox or nothing *when the key is generated*: on a device without one, and on
+  every device below API 28, the first use answers `Unsupported(HARDWARE_UNAVAILABLE)`, no key is generated and nothing
+  is cached, so a later call tries again. An alias that already holds a key keeps it, StrongBox or not, and answers
+  no `Unsupported`: that happens when an app switches from `DEFAULT`, or when another store with the same
+  `StorageConfig.name` was opened with other options earlier in the process. Check `androidKeySecurityLevel()`).
+- `unlockedDeviceRequired` (`setUnlockedDeviceRequired`, API 28 and newer, ignored below): the key works only while the
+  device is unlocked. While it is locked, calls that need the key answer `Unavailable`; the key is kept, is never
+  looked up again, and the same call succeeds after the user unlocks. Do not enable it for a store that a background sync
+  must read while the device is locked. The platform reports a locked device in a different form per level, and the
+  library recognises each one: API 28-30 as `UserNotAuthenticatedException`; API 31 and later (keystore 2, KeyMint
+  `DEVICE_LOCKED`, -72) as a plain `InvalidKeyException("Keystore operation failed")` around an
+  `android.security.KeyStoreException`, with no `UserNotAuthenticatedException` in the chain. From API 33 the library asks
+  the platform (`KeyStoreException.requiresUserAuthentication()`). On **API 31 and 32** nothing public reads the code, and
+  the library does not read the hidden method (a non-SDK interface a consumer's StrictMode or store review would flag),
+  so it recognises the exact shape (an `InvalidKeyException` that is not one of the platform's named subclasses, that
+  message, a `KeyStoreException` as its cause) and only for a store opened with `unlockedDeviceRequired`. The price there:
+  another refusal of the same shape for such a store (a rate limit, a system error) also answers `Unavailable` and keeps
+  the key, which is a "retry later" answer, never a lost-value one. A store without `unlockedDeviceRequired` takes
+  nothing for a locked device on 31 and 32. The API 31+ form comes from the platform source and the framework bytecode
+  and is not observed on a device.
+
+### User authentication
+
+`AndroidSecureStorageOptions(userAuthentication = AndroidUserAuthentication(validitySeconds = 30))` binds the key to the
+user: after the user has authenticated, the key can be used for `validitySeconds`; outside that window every call that needs
+the key answers `AccessDenied` (retry only after the user has authenticated, never in a loop, never delete anything in
+reaction to it). It is a plain-class option like the other two and applies **when the key is generated**: an existing key
+keeps the properties it has.
+
+- **The library never shows a prompt.** It has no UI and no `Activity`. The app authenticates the user with its own
+  `BiometricPrompt` (or the confirm-credential screen); the platform then opens the window for the key. `ensureKey()` is the
+  probe: `Success` inside the window, `AccessDenied` outside it.
+- **Which calls need it.** Those that use the key: `put`, `get` of an existing entry, `ensureKey()`. Reading an absent key,
+  `remove`, `clear()` and `androidKeySecurityLevel()` use no key operation and answer without authentication. A migration
+  pass (see above) that meets a closed window stops without recording the migration and finishes in a later call.
+- **`allowDeviceCredential`** (default `true`): a strong biometric or the device credential (PIN, pattern, password)
+  authenticates. `false` accepts a strong biometric only, which needs API 30 (`setUserAuthenticationParameters`); below it
+  the platform cannot tell the two apart for a time-bound key, so the store refuses to generate the key and answers
+  `Unsupported(HARDWARE_UNAVAILABLE)` rather than silently accepting the credential too. Below API 30 the window is
+  `setUserAuthenticationValidityDurationSeconds`.
+- **`validitySeconds`** is at least 1 (`IllegalArgumentException` otherwise). Per-use authentication (a `BiometricPrompt`
+  crypto object for every operation) is not offered: it cannot work without a UI of the library's.
+- **A secure lock screen is required** to generate a key bound to authentication. Without one the call answers
+  `Unavailable` and nothing is generated or cached; the same call succeeds once the user has set one.
+- **Invalidation.** The platform invalidates such a key for good when the lock screen is removed
+  (`KeyPermanentlyInvalidatedException`). A change of the enrolled biometrics invalidates it only for a biometric-only key
+  (`allowDeviceCredential = false`, with the platform default `setInvalidatedByBiometricEnrollment(true)`): the default
+  key, which also accepts the device credential, is bound to the device credential and survives an enrolment change
+  (by reading the framework's `KeyStore2ParameterUtils.addSids`, API 34). A biometric-only key also needs an enrolled
+  biometric to be generated: without one the platform refuses (`IllegalStateException`) and the store answers
+  `Unavailable` until a biometric is enrolled, as it does without a lock screen. The store handles it as it handles any permanently invalidated
+  key (see above): the dead key is deleted, a new one is generated with the same options, writes succeed again and the old
+  values are `Undecryptable(key)`. Generating the new key needs a lock screen (`Unavailable` until there is one).
+- **With `unlockedDeviceRequired` as well**, the library cannot tell a locked device from an unauthenticated user (on every
+  level both are recognised as one state, see "Key options"), so such a store answers `AccessDenied` for either. Without `userAuthentication` that refusal is a locked device and
+  answers `Unavailable`.
+
+Not observed on a device: the validity window, the invalidation by a lock-screen removal or an enrolment change, the
+missing-lock-screen and missing-biometric failures, the exact exception `KeyStore.getKey` throws for an invalidated key (also on API 31+, where it may instead answer `null` if the keystore already deleted the key when the lock screen was removed) and the prompt flow need a real Keystore and a lock screen. The host tests cover the key parameters per API level, the
+mapping, the lifecycle (cancellation, a dismissed prompt, a seeded storm over a window that opens and closes) and the
+replacement of an invalidated key through a fake Keystore whose key handle refuses as the platform does.
+
+`androidKeySecurityLevel()` resolves the key if needed and returns `SOFTWARE`, `TRUSTED_ENVIRONMENT`, `STRONGBOX` or
+`UNKNOWN`. From API 31 the platform names the level; below it only "inside secure hardware" is known, which cannot tell a
+trusted environment from a StrongBox, so a hardware key there is `UNKNOWN` and a software key `SOFTWARE`. A store this
+factory did not create (a test double, a decorator) answers `Success(UNKNOWN)`.
+
+`ensureKey()` resolves the key through the same path a `get` takes, creating it on a first run, runs one cipher
+initialisation, and writes no entry. It answers what the other calls answer, with no effect on stored values:
+
+| Situation | Result |
+|---|---|
+| `REQUIRE_STRONGBOX` on a device without a StrongBox | `Unsupported(HARDWARE_UNAVAILABLE)` |
+| `PREFER_STRONGBOX` without a StrongBox | key generated with the default backing; `androidKeySecurityLevel()` reports it |
+| `unlockedDeviceRequired` while the device is locked (every level, see "Key options") | `Unavailable` |
+| `userAuthentication` outside the validity window (`UserNotAuthenticatedException`) | `AccessDenied(cause)`; the key is kept |
+| `userAuthentication` on a device without a secure lock screen, or while the dead key cannot be replaced | `Unavailable` |
+| `userAuthentication` with `allowDeviceCredential = false` below API 30 | `Unsupported(HARDWARE_UNAVAILABLE)` |
+| the platform reports the key permanently invalidated | the dead key is deleted and a new one generated under the alias lock; old entries `Undecryptable(key)`; writes and `ensureKey()` succeed |
+| a tag that fails on an entry | `Undecryptable(key)` |
+| the Keystore will not open, or a fault the platform calls transient (API 33+) | `Unavailable` (a transient fault on a write is `OperationFailed`, as before) |
+| any other failure of `ensureKey()` | `OperationFailed(ENSURE_KEY)` with no key |
+
+Not observed on a device: a real StrongBox, the `Unsupported` answer on an emulator without one, and a locked
+emulator (the exception chain of a locked device on API 31 and later is read from the platform source and bytecode). The StrongBox fallback and every mapping above are covered on the host through seams.
 
 ### Writes use `commit()`, not `apply()`
 
