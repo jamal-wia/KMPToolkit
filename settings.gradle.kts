@@ -87,3 +87,13 @@ include(":storage-ios-harness")
 
 // Not published — Android Compose demo, smoke-tests the released artifacts by coordinate.
 include(":sample")
+
+// Not published — packaging smoke of the desktop storage (storage plan 6.7 P): a Compose Desktop release distribution
+// with ProGuard that runs one secure and one plain round trip, in two variants (JDK 25 + FFM, JDK 21 + kmptoolkit-storage-jna).
+// Deliberately not named kmptoolkit-*, so the BOM does not list it. The two variant projects share ONE build script.
+include(":smoke-storage-desktop")
+include(":smoke-storage-desktop:ffm")
+include(":smoke-storage-desktop:jna")
+project(":smoke-storage-desktop:ffm").buildFileName = "../variant.gradle.kts"
+project(":smoke-storage-desktop:jna").buildFileName = "../variant.gradle.kts"
+

@@ -1,0 +1,2 @@
+# The root .gitignore anchors build/ to one level below the repository root; the variant projects are one level deeper.
+/*/build/
