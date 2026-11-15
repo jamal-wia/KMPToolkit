@@ -76,8 +76,10 @@ public interface KeyValueStorage {
  * Keystore, the iOS Keychain, or a desktop OS's key store. [protection] is one of the
  * `OS_KEY_STORE_*` values (a test double may report [SecureStorageProtection.NONE]).
  *
- * The interface adds nothing to [EncryptedKeyValueStorage]: the difference from [KeyValueStorage] is a
- * guarantee, not a shape, so shared code can take either and a test can substitute one for the other.
+ * The interface adds nothing to [EncryptedKeyValueStorage]: the difference from
+ * [EncryptedKeyValueStorage] is a guarantee (who holds the key), not a shape. A plain [KeyValueStorage]
+ * can no longer stand in for it, because its parent adds [EncryptedKeyValueStorage.protection] and
+ * [EncryptedKeyValueStorage.ensureKey].
  * What the guarantee covers, and equally what it does not, is stated in
  * `docs/kmptoolkit-storage/05-platform-notes.md`; the short version:
  *

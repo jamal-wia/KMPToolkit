@@ -36,6 +36,7 @@ final enum class io.github.jamal_wia.kmptoolkit.storage/SecureStorageProtection 
 
 final enum class io.github.jamal_wia.kmptoolkit.storage/StorageOperation : kotlin/Enum<io.github.jamal_wia.kmptoolkit.storage/StorageOperation> { // io.github.jamal_wia.kmptoolkit.storage/StorageOperation|null[0]
     enum entry CLEAR // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.CLEAR|null[0]
+    enum entry ENSURE_KEY // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.ENSURE_KEY|null[0]
     enum entry GET // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.GET|null[0]
     enum entry PUT // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.PUT|null[0]
     enum entry REMOVE // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.REMOVE|null[0]

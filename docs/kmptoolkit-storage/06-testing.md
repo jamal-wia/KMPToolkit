@@ -27,16 +27,29 @@ on `kmptoolkit-storage` with `api`, so one line gets you both.
 
 ## Why you need a double
 
-The real stores need a `Context` and a preferences file on Android, and a Keychain on iOS. Neither
-exists in a plain unit test, and neither can be made to fail on demand — which is the interesting
+The real stores need a `Context` and a preferences file on Android, a Keychain on iOS and a
+directory on desktop. The first two do not exist in a plain unit test, and none of them can be made
+to fail on demand — which is the interesting
 half, since the branches worth testing are the ones where the store *does not* behave.
 
 ## `InMemoryKeyValueStorage`
 
 It implements `SecureKeyValueStorage`, and therefore `KeyValueStorage`, so it substitutes for
 either. It keeps the same contract as the real stores — absent reads back as `null`, `""` reads back
-as `""`, `put` overwrites (and fails with `OperationFailed` for a key or value with an unpaired surrogate, as the real stores do), `remove` of an absent key succeeds, `clear` empties only this instance.
-Nothing is encrypted; a double that encrypted would need the very key store that is missing.
+as `""`, `put` overwrites (and fails with `InvalidValue` for a key or value with an unpaired surrogate, as the real stores do), `remove` of an absent key succeeds, `clear` empties the instance's `Backing` (its own, unless you share one).
+Nothing is encrypted; a double that encrypted would need the very key store that is missing. What it
+claims about that is its `protection`: `SecureStorageProtection.NONE`, the truth about a map, unless
+a test passes another value (`InMemoryKeyValueStorage(SecureStorageProtection.OS_KEY_STORE_USER_SCOPED)`)
+to feed code that branches on it. It implements `ensureKey()` too: it succeeds, prompts for nothing
+and changes nothing, unless a failure knob is set.
+
+**Using it as a plain store.** Because the fixture is a `SecureKeyValueStorage`, an expression whose
+static type is the fixture (or any `EncryptedKeyValueStorage`) resolves `getStringOrNull`,
+`getStringOr`, `getIntOr`, `getLongOr` and `getBooleanOr` to the deprecated overloads for encrypted
+stores, so a test that uses the fixture as a plain store gets a deprecation warning at each such
+call. The warning is intended for production code and is harmless here; to avoid it, declare the
+variable as the plain type (`val storage: KeyValueStorage = InMemoryKeyValueStorage()`) or read with
+`get(...).getOrNull()`.
 
 ```kotlin
 @Test
@@ -54,17 +67,47 @@ What it adds is control:
 
 | Knob | Effect |
 |---|---|
-| `failNextOperationWith = error` | the next operation — any of the four — fails with that `StorageError` and has no effect, then the knob clears |
+| `failNextOperationWith = error` | the next operation — `get`, `put`, `remove`, `clear` or `ensureKey` — fails with that `StorageError` and has no effect, then the knob clears |
+| `failEveryOperationWith = error` | every operation fails with that `StorageError`, with no effect, until you set it back to `null`; for a store that stays broken (a keyring that stays locked, `Unsupported`) |
+
+`failNextOperationWith` is checked first: while both are set, the next operation gets the one-shot
+error and the one after it the sticky one. A `put` of an unpaired surrogate is rejected with
+`InvalidValue` before either knob and consumes neither.
 
 and observation:
 
 | Property | Records |
 |---|---|
-| `contents` | a snapshot of the current entries |
-| `writes` | every key ever written, in order, including overwrites and keys later removed |
+| `contents` | a snapshot of the current entries of the shared `Backing` |
+| `writes` | every key this instance was asked to write, in order, including overwrites and keys later removed |
 
 `writes` is the one that reading `contents` cannot replace: it tells a value written once apart from
-one written, removed, and written again.
+one written, removed, and written again. It belongs to the instance, like the knobs and `protection`.
+
+### Modelling a restart or a second process
+
+Two instances built with one `InMemoryKeyValueStorage.Backing` read and write the same entries:
+
+```kotlin
+@Test
+fun `the session survives a process restart`() = runTest {
+    val backing = InMemoryKeyValueStorage.Backing()
+    InMemoryKeyValueStorage(backing = backing).put("refresh_token", "abc")
+
+    // "Restart": a new instance over the same backing. Knobs and write logs do not follow it.
+    val restarted = InMemoryKeyValueStorage(backing = backing)
+
+    assertEquals(Session.Resumed("abc"), SessionLoader(restarted).load())
+}
+
+@Test
+fun `a keyring that stays locked is reported as unsupported, not as signed out`() = runTest {
+    val storage = InMemoryKeyValueStorage()
+    storage.failEveryOperationWith = StorageError.Unsupported(UnsupportedReason.NO_KEY_STORE)
+
+    assertEquals(Session.Unsupported, SessionLoader(storage).load())
+}
+```
 
 ### Testing the error paths
 
@@ -91,17 +134,24 @@ Those two are the tests worth writing for any code that reads a token. Distingui
 whole reason the API returns a `StorageResult` instead of a `String?`, and code that gets it wrong
 signs users out for a reason they will never be able to describe to support.
 
-The knob applies to whichever call comes next, whatever it is — scripting a failure and then writing
-means the *write* fails. Set it again to fail more than one call.
+The one-shot knob applies to whichever call comes next, whatever it is — scripting a failure and then
+writing means the *write* fails. Set it again to fail more than one call, or use
+`failEveryOperationWith` for a failure that does not clear.
 
 ### What the fake does not do
 
 - **No encryption.** `Undecryptable` never occurs on its own; script it.
-- **No persistence.** A second instance is an empty, independent store.
-- **No platform failures.** `Unavailable` and `OperationFailed` likewise only happen when scripted.
-- **Not synchronized for parallel threads.** No operation suspends, so on `runTest`'s single thread
-  every call is atomic however many coroutines interleave — which is what a test of your own code
-  needs. What the real stores do under parallel threads is pinned by this module's own suite.
+- **No persistence beyond the `Backing`.** A second instance is an empty, independent store unless you
+  hand it the first one's `Backing`.
+- **No platform failures.** `Unavailable`, `AccessDenied`, `Unsupported` and `OperationFailed`
+  likewise only happen when scripted.
+- **No key and no prompt.** `ensureKey()` never creates or verifies anything; use the knobs to script
+  what the real call can answer.
+
+It is safe from any number of threads: the contents and the knobs are immutable snapshots changed
+with compare-and-set, so no write is lost and an armed one-shot failure fails exactly one of any
+number of concurrent operations. Operations on different keys have no defined order, and no operation
+suspends, so a cancelled caller never leaves one half done.
 
 ## Testing the module itself
 
@@ -163,4 +213,6 @@ it is worth repeating whenever this module's platform code changes.
 rather than extending `KeyValueStorageContractTest`: Kotlin's `internal` does not cross a module
 boundary and a test source set cannot be published for another module to subclass. The cost is that
 the two could drift, so both are derived from the same documented contract, and a change to it has
-to be made in both places.
+to be made in both places. The fixture's suite also carries what only a fixture has: the shared
+`Backing`, the two failure knobs and their order, `ensureKey`, and seeded storms from 64 coroutines on
+`Dispatchers.Default`.

@@ -78,7 +78,7 @@ internal class IosSecureKeyValueStorage(
         if (status == errSecSuccess || status == errSecItemNotFound) {
             StorageResult.Success(Unit)
         } else {
-            StorageResult.Failure(status.toStorageError(StorageOperation.GET, key = null))
+            StorageResult.Failure(status.toStorageError(StorageOperation.ENSURE_KEY, key = null))
         }
     }
 
