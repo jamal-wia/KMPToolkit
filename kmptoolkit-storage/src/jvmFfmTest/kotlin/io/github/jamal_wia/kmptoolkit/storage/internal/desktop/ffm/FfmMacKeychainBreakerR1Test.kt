@@ -22,13 +22,16 @@ import kotlin.test.assertTrue
  * Breaker round 1 of group sto-ffm (STO-7): what the macOS FFM binding leaves in native memory, and its boundaries.
  *
  * Contract (plan 3.5, seam KDoc): "every raw call frees every operating-system-allocated output before returning ... and
- * zeroes its native copy of the key". In `copyGenericPassword` the only native copy of the key the call holds is the `CFData`
- * that `SecItemCopyMatching` returned to it (+1, the caller owns it); the Windows binding zeroes the analogous DPAPI output
- * before `LocalFree`, and libsecret wipes its `SecretValue`. The fake answers `CFGetRetainCount` = 1 (the binding is the only
- * owner, so a fix may zero only a buffer nobody else holds). Runs against [FakeSecurityFramework], on any JDK 25 machine.
+ * zeroes its native copy of the key", read with the accepted deviation P-1 (breaker round 2 upheld the executor's dispute; the
+ * lead records it in decisions.md): the `CFData` that `SecItemCopyMatching` returns belongs to the Security framework and is
+ * copied out and released, never written to. `CFDataGetBytePtr` is a read-only pointer by its API contract, the retain count
+ * cannot prove who owns the bytes, and on macOS 27.2 (measured in round 2) libmalloc already zeroes the freed 96-112 byte block
+ * that holds a key-sized `CFData` inline, so a write would add risk and no protection. The native copies the binding makes itself
+ * (the add buffer behind `CFDataCreateWithBytesNoCopy`) are wiped by [NativeScope] (pinned in FfmLoadAndScopeTest).
+ * Runs against [FakeSecurityFramework], on any JDK 25 machine.
  *
- * Mutation by reading: removing a wipe of the returned `CFData` before its `CFRelease` turns the first test red (it is red on
- * df9b50ac, where the bytes are copied out and released unchanged).
+ * Mutation by reading: zeroing (or otherwise writing into) the returned `CFData` before its `CFRelease` turns the first test red;
+ * returning a view of the native bytes instead of a copy turns it red too (the release overwrites them).
  */
 class FfmMacKeychainBreakerR1Test {
 
@@ -45,18 +48,10 @@ class FfmMacKeychainBreakerR1Test {
         ).bindTo(this),
         FunctionDescriptor.ofVoid(ValueLayout.ADDRESS), stubs,
     )
-    private val retainCountStub: MemorySegment = Linker.nativeLinker().upcallStub(
-        MethodHandles.lookup().findVirtual(
-            FfmMacKeychainBreakerR1Test::class.java, "soleOwner",
-            MethodType.methodType(Long::class.java, MemorySegment::class.java),
-        ).bindTo(this),
-        FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS), stubs,
-    )
 
     private val lookup: SymbolLookup = SymbolLookup { name: String ->
         when (name) {
             "CFRelease" -> Optional.of(releaseStub)
-            "CFGetRetainCount" -> Optional.of(retainCountStub)
             else -> fake.lookup.find(name)
         }
     }
@@ -72,12 +67,14 @@ class FfmMacKeychainBreakerR1Test {
     @Suppress("unused")
     fun recordingRelease(cf: MemorySegment) {
         val length: Long = fake.cfDataGetLength(cf)
-        if (length > 0L) bytesAtRelease.add(fake.cfDataGetBytePtr(cf).reinterpret(length).toArray(ValueLayout.JAVA_BYTE))
+        if (length > 0L) {
+            val bytes: MemorySegment = fake.cfDataGetBytePtr(cf).reinterpret(length)
+            bytesAtRelease.add(bytes.toArray(ValueLayout.JAVA_BYTE))
+            // What a freed block may hold next (libmalloc zero-on-free or a reuse): a key the caller got must not depend on it.
+            bytes.fill(FREED_PATTERN)
+        }
         fake.cfRelease(cf)
     }
-
-    @Suppress("unused")
-    fun soleOwner(cf: MemorySegment): Long = 1L
 
     private fun assertNothingHeld(message: String) {
         assertEquals(emptyMap(), fake.live, "$message: the OS still holds CF objects")
@@ -86,15 +83,15 @@ class FfmMacKeychainBreakerR1Test {
     }
 
     @Test
-    fun `the CFData holding the key that SecItemCopyMatching returned is zero when the binding releases it`() {
+    fun `the CFData that SecItemCopyMatching returned is released once, never written to, and the caller's key is an independent copy`() {
         val key = ByteArray(32) { (it * 7 + 1).toByte() }
         fake.storedSecret = key
 
         val read: RawResult<ByteArray?> = calls.copyGenericPassword("svc", "acct", allowUi = false)
 
-        assertContentEquals(key, assertIs<RawResult.Success<ByteArray?>>(read).value, "control: the caller got the key")
-        assertEquals(1, bytesAtRelease.size, "control: the returned CFData was released once, with its bytes observed")
-        assertContentEquals(ByteArray(32), bytesAtRelease.single(), "the native copy of the key must be zeroed before CFRelease")
+        assertEquals(1, bytesAtRelease.size, "control: the returned CFData was released exactly once, with its bytes observed")
+        assertContentEquals(key, bytesAtRelease.single(), "P-1: the binding never writes into the CFData the Security framework returned")
+        assertContentEquals(key, assertIs<RawResult.Success<ByteArray?>>(read).value, "the caller's key must not alias the released native bytes")
         assertNothingHeld("copy")
     }
 
@@ -119,5 +116,9 @@ class FfmMacKeychainBreakerR1Test {
 
         assertContentEquals(ByteArray(0), assertIs<RawResult.Success<ByteArray?>>(read).value)
         assertNothingHeld("empty")
+    }
+
+    private companion object {
+        const val FREED_PATTERN: Byte = 0x55
     }
 }
