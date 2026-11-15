@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.logging
 
+import java.io.PrintStream
+
 /**
  * Writes to standard error as `"<L>/<tag>: <message>"` — where `<L>` is the level's initial, as logcat
  * prints it — followed by the throwable's stack trace, cause chain included, on its own lines when there
@@ -13,11 +15,15 @@ package io.github.jamal_wia.kmptoolkit.logging
  * writes a five-line [LogSink] over it and installs that instead.
  *
  * Each event, its line and its stack trace, is written to standard error with one `print(String)` call, the
- * line terminator included, so events logged from several threads never interleave: that call is one write
- * under the stream's own lock. The sink takes no lock of its own on purpose. `Throwable.printStackTrace` holds
- * the lock of standard error while it calls the throwable's `getMessage` and `toString`, so a second lock taken
- * before the stream's would deadlock against a throwable whose getter logs. Output written to standard error
- * by anything else (`System.err` elsewhere, a logging framework) is not ordered against the sink's events.
+ * line terminator included, so events logged from several threads never interleave. When standard error is the
+ * JDK's own `PrintStream` that call is one write under the stream's own lock and the sink adds nothing. When an
+ * app has replaced it with a subclass, which may hand a text on line by line (a line-buffering or capturing stream,
+ * the kind Gradle's test worker installs), the sink holds the stream's own monitor for the call, so the lines of
+ * two events cannot interleave there either. The monitor taken is the one `Throwable.printStackTrace` takes on
+ * such a stream while it calls the throwable's `getMessage` and `toString`, so there is a single lock and no
+ * order to invert: a throwable whose getter logs does not deadlock. The sink never takes a lock of its own, which
+ * would. Output written to standard error by anything else (`System.err` elsewhere, a logging framework) is not
+ * ordered against the sink's events.
  */
 public actual fun platformLogSink(): LogSink = LogSink { level, tag, message, throwable ->
     val header: String = "${level.name.first()}/$tag: $message"
@@ -26,5 +32,13 @@ public actual fun platformLogSink(): LogSink = LogSink { level, tag, message, th
     // print(String) writes the whole event.
     val text: String =
         if (throwable == null) header else header + System.lineSeparator() + throwable.stackTraceToString().trimEnd()
-    System.err.print(text + System.lineSeparator())
+    val err: PrintStream = System.err
+    val event: String = text + System.lineSeparator()
+    if (err.javaClass == PrintStream::class.java) {
+        // The JDK's own class writes a whole String under its own lock, with no monitor visible to us.
+        err.print(event)
+    } else {
+        // A subclass may split the text; its own monitor is the lock printStackTrace takes, so this adds no order.
+        synchronized(err) { err.print(event) }
+    }
 }
