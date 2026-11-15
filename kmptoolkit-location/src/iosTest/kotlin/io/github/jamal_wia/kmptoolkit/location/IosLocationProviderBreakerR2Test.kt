@@ -309,6 +309,11 @@ class IosLocationProviderBreakerR2Test {
      * switch off the last reading is SERVICE_DISABLED and updates are stopped, and with it on the
      * updates run and the last reading is not SERVICE_DISABLED; SERVICE_DISABLED never follows itself;
      * no manager is touched off main; the status is read on main.
+     * One exception, revised in breaker round 3: after a LONE kCLErrorDenied (action 6) with no
+     * authorization callback since, the stream may hold its updates stopped behind a NO_FIX instead of
+     * restarting them. The round-2 oracle demanded a restart there, which is exactly the restart loop M2
+     * forbids; it forced a restart bound fitted to these seeds (longest lone-denial run 3) instead of
+     * allowing the simple hold "stop after a denial until the next authorization callback".
      * Mutation by reading: dropping the TERMINAL guard of enter(), resetting SERVICE_DISABLED to IDLE
      * on a denial, or skipping the re-read after a denial each turn a seed red.
      */
@@ -325,8 +330,11 @@ class IosLocationProviderBreakerR2Test {
         var probe: Probe? = null
         var probeManagers: List<FakeIosLocationManager> = emptyList()
         var collections = 0
+        // A lone kCLErrorDenied since the last authorization callback (see the KDoc: the stream may hold).
+        var loneDenialSinceCallback = false
 
         fun begin() {
+            loneDenialSinceCallback = false
             fake.status = kCLAuthorizationStatusAuthorizedWhenInUse
             val before: Int = fake.managers.size
             val options = LocationUpdatesOptions(
@@ -354,6 +362,8 @@ class IosLocationProviderBreakerR2Test {
         for (step: Int in 1..200) {
             val manager: FakeIosLocationManager? = fake.liveManagers.lastOrNull()
             val action: Int = random.nextInt(11)
+            if (action in setOf(2, 3, 4, 5, 7)) loneDenialSinceCallback = false
+            if (action == 6) loneDenialSinceCallback = true
             when (action) {
                 0, 1 -> onMain(fake) { manager?.deliver(rawFix(fake.clock, age = random.nextInt(0, 3).seconds, latitude = random.nextDouble(-80.0, 80.0))) }
                 2 -> {
@@ -424,7 +434,10 @@ class IosLocationProviderBreakerR2Test {
                     if (own.updating) problems += "$where: switch off but the updates run"
                 }
                 null -> {
-                    if (!own.updating) problems += "$where: authorized and on but the updates are stopped: $labels"
+                    // After a lone denial with no authorization callback since, holding the updates stopped behind
+                    // one NO_FIX is as correct as restarting them (M2 of round 2: a restart is what loops).
+                    val holding: Boolean = loneDenialSinceCallback && labels.lastOrNull() == LocationUnavailability.NO_FIX.name
+                    if (!own.updating && !holding) problems += "$where: authorized and on but the updates are stopped: $labels"
                     if (labels.lastOrNull() == LocationUnavailability.SERVICE_DISABLED.name) problems += "$where: switch on but still SERVICE_DISABLED: $labels"
                 }
                 else -> problems += "$where: unexpected reason $reason"
