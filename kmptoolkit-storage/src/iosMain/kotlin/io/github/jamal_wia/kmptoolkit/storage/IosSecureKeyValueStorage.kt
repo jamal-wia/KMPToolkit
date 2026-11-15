@@ -110,25 +110,30 @@ internal class IosSecureKeyValueStorage(
         try {
             // Update first, add on miss: SecItemAdd on an existing item fails with errSecDuplicateItem
             // rather than replacing it, so an unconditional add would make put() non-overwriting.
-            val updateStatus: Int = update(key, data, session)
-            if (updateStatus == errSecSuccess) return StorageResult.Success(Unit)
-            if (updateStatus != errSecItemNotFound) {
-                return StorageResult.Failure(updateStatus.toStorageError(StorageOperation.PUT, key))
-            }
+            //
+            // Another writer or remover (a second coroutine, a second store over the same service, an app
+            // extension sharing the access group) can change the item between any two of our calls, and no lock
+            // could stop it, since it may not be in this process at all. A miss of the update followed by a
+            // duplicate on the add means somebody added the item in between; the update that follows may then
+            // miss again because somebody removed it. Each such lost round is another party's progress, so the
+            // loop is lock-free, and it is bounded by MAX_WRITE_ATTEMPTS: a store that keeps losing is reported
+            // as the duplicate it keeps hitting, never retried forever and never answered with a Success whose
+            // value is not there. The contract leaves the winner of racing writes undefined, not one of the
+            // writers failing.
+            repeat(MAX_WRITE_ATTEMPTS) {
+                val updateStatus: Int = update(key, data, session)
+                if (updateStatus == errSecSuccess) return StorageResult.Success(Unit)
+                if (updateStatus != errSecItemNotFound) {
+                    return StorageResult.Failure(updateStatus.toStorageError(StorageOperation.PUT, key))
+                }
 
-            val addStatus: Int = queries.add(key, data).use { keychain.add(it) }
-            // errSecDuplicateItem here means another writer — a second coroutine, a second store over
-            // the same service, an app extension sharing the access group — added the item between
-            // the miss and the add. The item now exists, so the update that missed would succeed: run
-            // it again rather than report a failure for a write that merely raced another one — the
-            // contract leaves the winner undefined, not one of the writers failing. No lock could do
-            // this job, since the other writer may not be in this process at all.
-            val finalStatus: Int = if (addStatus == errSecDuplicateItem) update(key, data, session) else addStatus
-            return if (finalStatus == errSecSuccess) {
-                StorageResult.Success(Unit)
-            } else {
-                StorageResult.Failure(finalStatus.toStorageError(StorageOperation.PUT, key))
+                val addStatus: Int = queries.add(key, data).use { keychain.add(it) }
+                if (addStatus == errSecSuccess) return StorageResult.Success(Unit)
+                if (addStatus != errSecDuplicateItem) {
+                    return StorageResult.Failure(addStatus.toStorageError(StorageOperation.PUT, key))
+                }
             }
+            return StorageResult.Failure(errSecDuplicateItem.toStorageError(StorageOperation.PUT, key))
         } catch (unavailable: AccessControlUnavailable) {
             return StorageResult.Failure(
                 StorageError.OperationFailed(
@@ -202,6 +207,13 @@ internal class IosSecureKeyValueStorage(
         }
     }
 }
+
+/**
+ * Rounds of "update, then add on a miss" one `put` makes before it gives up on an item that other writers and removers
+ * keep changing under it (see `write`). A round is lost only when another party made progress, so the bound is generous
+ * and is never reached without a storm; reaching it answers `OperationFailed(PUT, key, errSecDuplicateItem)`.
+ */
+internal const val MAX_WRITE_ATTEMPTS: Int = 8
 
 /**
  * Maps an `OSStatus` onto this module's error taxonomy.

@@ -168,6 +168,70 @@ class IosSecureStoreModelTest {
         assertEquals(2, updates)
     }
 
+    @Test
+    fun `a put that loses the last allowed round still succeeds on it`() = runTest {
+        // Every update misses and the first MAX_WRITE_ATTEMPTS - 1 adds find a duplicate (other writers keep
+        // adding and removing): the put is retried to its last round, where the add finally lands.
+        val keychain = InMemoryKeychainPort()
+        var adds = 0
+        keychain.script = { operation: String, _: Map<String, String> ->
+            when (operation) {
+                "update" -> errSecItemNotFound
+                "add" -> if (++adds < MAX_WRITE_ATTEMPTS) platform.Security.errSecDuplicateItem else null
+                else -> null
+            }
+        }
+        val store: IosSecureKeyValueStorage = storeOver(keychain)
+
+        assertEquals(StorageResult.Success(Unit), store.put("k", "v"))
+
+        assertEquals(MAX_WRITE_ATTEMPTS * 2, keychain.operations().size, "one update and one add per round")
+        assertEquals(1, keychain.items.size)
+    }
+
+    @Test
+    fun `a put that loses every allowed round gives up with the duplicate status and never reports a success`() = runTest {
+        val keychain = InMemoryKeychainPort()
+        keychain.script = { operation: String, _: Map<String, String> ->
+            when (operation) {
+                "update" -> errSecItemNotFound
+                "add" -> platform.Security.errSecDuplicateItem
+                else -> null
+            }
+        }
+        val store: IosSecureKeyValueStorage = storeOver(keychain)
+
+        val result: StorageResult<Unit> = store.put("k", "v")
+
+        assertEquals(
+            StorageError.OperationFailed(StorageOperation.PUT, key = "k", platformCode = platform.Security.errSecDuplicateItem),
+            result.error(),
+        )
+        assertEquals(
+            List(MAX_WRITE_ATTEMPTS) { listOf("update", "add") }.flatten(),
+            keychain.operations(),
+            "exactly MAX_WRITE_ATTEMPTS rounds, then it stops",
+        )
+        assertTrue(keychain.items.isEmpty(), "nothing was written")
+    }
+
+    @Test
+    fun `an add that fails with another status ends the retry loop at once`() = runTest {
+        val keychain = InMemoryKeychainPort()
+        var adds = 0
+        keychain.script = { operation: String, _: Map<String, String> ->
+            when (operation) {
+                "update" -> errSecItemNotFound
+                "add" -> if (++adds == 1) platform.Security.errSecDuplicateItem else ERR_SEC_INTERACTION_NOT_ALLOWED
+                else -> null
+            }
+        }
+        val store: IosSecureKeyValueStorage = storeOver(keychain)
+
+        assertEquals(StorageError.Unavailable(), store.put("k", "v").error())
+        assertEquals(listOf("update", "add", "update", "add"), keychain.operations())
+    }
+
     // --- the error table (4.10), through the store ----------------------------------------------------------
 
     @Test
