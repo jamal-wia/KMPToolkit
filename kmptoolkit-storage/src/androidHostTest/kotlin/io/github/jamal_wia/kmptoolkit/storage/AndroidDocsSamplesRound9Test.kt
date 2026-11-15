@@ -95,6 +95,9 @@ class AndroidDocsSamplesRound9Test {
                     is StorageError.Undecryptable -> "signIn(undecryptable)"
                     is StorageError.Unavailable -> "retryLater"
                     is StorageError.OperationFailed -> "report"
+                    is StorageError.AccessDenied -> "askAgainOnUserAction"
+                    is StorageError.Unsupported -> "fallBackExplicitly"
+                    is StorageError.InvalidValue -> "dropValue"
                 }
             }
 
