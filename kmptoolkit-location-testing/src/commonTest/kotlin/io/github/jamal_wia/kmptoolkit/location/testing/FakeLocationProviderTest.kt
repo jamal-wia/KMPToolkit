@@ -6,6 +6,7 @@ import io.github.jamal_wia.kmptoolkit.location.LocationReading
 import io.github.jamal_wia.kmptoolkit.location.LocationServicePrompt
 import io.github.jamal_wia.kmptoolkit.location.LocationUnavailability
 import io.github.jamal_wia.kmptoolkit.location.LocationUpdatesOptions
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -205,6 +206,70 @@ class FakeLocationProviderTest {
         assertEquals(0, provider.activeObservers.value)
         assertTrue(provider.activeUpdatesOptions.isEmpty())
         seen.forEach { assertEquals(unsupported, it.last()) }
+    }
+
+    @Test
+    fun `a terminal reading is never delivered to a collection that started after the emit that followed it`() = runTest {
+        val provider = FakeLocationProvider()
+        val early: MutableList<LocationReading> = mutableListOf()
+        val late: MutableList<LocationReading> = mutableListOf()
+        val earlyJob: Job = backgroundScope.launch { provider.observeLocation().toList(early) }
+        testScheduler.runCurrent()
+        assertEquals(1, provider.activeObservers.value, "control: the early collector is live")
+
+        provider.emit(permissionMissing)
+        provider.emit(here) // before the early collector has read the terminal reading
+        val lateJob: Job = backgroundScope.launch { provider.observeLocation().toList(late) }
+        testScheduler.runCurrent()
+
+        assertEquals(listOf(noFix, permissionMissing), early, "the live collection ends on the terminal reading")
+        assertTrue(earlyJob.isCompleted)
+        assertEquals(listOf(here), late, "a collection that starts later starts from the newer reading, not the old terminal one")
+        assertTrue(lateJob.isActive, "and stays open")
+        assertEquals(1, provider.activeObservers.value, "only the late collector is left")
+        lateJob.cancelAndJoin()
+        assertEquals(0, provider.activeObservers.value)
+    }
+
+    @Test
+    fun `a live collection ends on a terminal reading however many readings follow it before the collector runs`() = runTest {
+        val random = Random(FAKE_TEST_SEED)
+        val others: List<LocationReading> = listOf(noFix, serviceDisabled, here, there)
+        repeat(20) { round ->
+            val provider = FakeLocationProvider()
+            val seen: MutableList<LocationReading> = mutableListOf()
+            val job: Job = backgroundScope.launch { provider.observeLocation().toList(seen) }
+            testScheduler.runCurrent()
+            val before: Int = random.nextInt(0, 5)
+            repeat(before) { provider.emit(others[random.nextInt(others.size)]) }
+            val terminal: LocationReading = if (random.nextBoolean()) permissionMissing else unsupported
+            provider.emit(terminal)
+            val after: Int = random.nextInt(1, 200)
+            repeat(after) { provider.emit(others[random.nextInt(others.size)]) }
+            testScheduler.runCurrent()
+
+            val context = "seed=$FAKE_TEST_SEED round=$round before=$before after=$after terminal=$terminal seen=$seen"
+            assertEquals(terminal, seen.last(), context)
+            assertTrue(job.isCompleted, context)
+            assertEquals(0, provider.activeObservers.value, context)
+        }
+    }
+
+    @Test
+    fun `two terminal readings in a row end a live collection on the newest one and nothing after it`() = runTest {
+        val provider = FakeLocationProvider()
+        val seen: MutableList<LocationReading> = mutableListOf()
+        val job: Job = backgroundScope.launch { provider.observeLocation().toList(seen) }
+        testScheduler.runCurrent()
+
+        provider.emit(permissionMissing)
+        provider.emit(unsupported)
+        provider.emit(here)
+        testScheduler.runCurrent()
+
+        assertEquals(unsupported, seen.last(), "seen=$seen")
+        assertTrue(job.isCompleted)
+        assertEquals(0, provider.activeObservers.value)
     }
 
     // ---- the hold ------------------------------------------------------------------------------

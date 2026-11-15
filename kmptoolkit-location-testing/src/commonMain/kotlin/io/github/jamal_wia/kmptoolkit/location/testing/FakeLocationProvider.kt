@@ -7,9 +7,7 @@ import io.github.jamal_wia.kmptoolkit.location.LocationServicePrompt
 import io.github.jamal_wia.kmptoolkit.location.LocationUnavailability
 import io.github.jamal_wia.kmptoolkit.location.LocationUpdatesOptions
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,9 +44,12 @@ import kotlinx.coroutines.flow.update
  * readings and ends on the newest. An equal reading emitted twice is delivered twice, as a real
  * provider delivers every update. A terminal reading stays the latest one until the next [emit], so
  * collecting again after it completes again, and an [emit] of anything else serves the next
- * collection (re-initialisation after release). Conflation applies to a terminal reading too: a
- * collector that is still busy with an older reading when a terminal reading and then an
- * [LocationReading.Available] are emitted sees only the newest.
+ * collection (re-initialisation after release). A terminal reading is never conflated away: a
+ * collection that is live when one is emitted ends on it even if a later [emit] arrives before the
+ * collector has read it (the readings in between are skipped, the later ones are never delivered to
+ * that collection), as a real provider releases its platform registration at the terminal reading
+ * and delivers nothing after it. If several terminal readings are emitted before the collector runs, it
+ * ends on the newest of them.
  *
  * ### One-shot calls
  * [getCurrentLocation] answers [currentLocationAnswer], or, between [holdCurrentLocation] and
@@ -70,13 +71,14 @@ public class FakeLocationProvider(
     streamSeed: LocationReading = LocationReading.Unavailable(LocationUnavailability.NO_FIX),
 ) : LocationProvider {
 
-    // Replay 1 + DROP_OLDEST: a new collector starts on the latest reading, a busy one ends on the newest
-    // (the documented conflation), and unlike a StateFlow an equal reading is delivered again, as a real
-    // provider delivers every update. tryEmit always succeeds with DROP_OLDEST and is thread-safe.
-    private val stream: MutableSharedFlow<LocationReading> = MutableSharedFlow<LocationReading>(
-        replay = 1,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    ).also { flow -> flow.tryEmit(streamSeed) }
+    // One atomic cell holds the latest reading, its sequence number and the latest terminal reading, so
+    // `emit` is a single compare-and-set (`update {}`: thread-safe, no lock, nothing resumed from inside
+    // it) and the three can never disagree. Being a StateFlow it replays the latest value to a new
+    // collector and conflates for a busy one; a snapshot is a plain object (compared by identity), so an
+    // equal reading emitted twice is still a new value, as a real provider delivers every update. The
+    // terminal reading rides along in every later snapshot, which is how a collection that conflation
+    // skipped past it still finds it and ends on it (see observeLocation).
+    private val stream: MutableStateFlow<Snapshot> = MutableStateFlow(seedSnapshot(streamSeed))
 
     private val enabled: MutableStateFlow<Boolean> = MutableStateFlow(locationEnabled)
     private val answer: MutableStateFlow<LocationReading> =
@@ -97,13 +99,21 @@ public class FakeLocationProvider(
     /**
      * Makes [reading] the latest stream value: every live collector receives it (conflated) and
      * every later collector starts from it. [LocationUnavailability.PERMISSION_MISSING] and
-     * [LocationUnavailability.UNSUPPORTED] complete the collectors, and stay the latest value until
-     * the next `emit`, so collecting again after a terminal reading completes again.
+     * [LocationUnavailability.UNSUPPORTED] complete the live collectors (even one that has not yet
+     * read the reading when the next `emit` arrives), and stay the latest value until the next
+     * `emit`, so collecting again after a terminal reading completes again.
      *
      * Does not change what [getCurrentLocation] answers (set [currentLocationAnswer] for that).
      */
     public fun emit(reading: LocationReading) {
-        stream.tryEmit(reading)
+        stream.update { previous: Snapshot ->
+            val sequence: Long = previous.sequence + 1
+            Snapshot(
+                sequence = sequence,
+                reading = reading,
+                terminal = if (reading.completesTheStream()) Terminal(sequence, reading) else previous.terminal,
+            )
+        }
     }
 
     /**
@@ -203,10 +213,23 @@ public class FakeLocationProvider(
         // between collections.
         val registration: FakeRecorder.Entry<LocationUpdatesOptions> = observers.add(options)
         try {
+            // The sequence number of the last reading this collection has delivered; before the first
+            // one, the one that precedes the reading the collection starts from, so a terminal reading
+            // that is already the latest one still counts as not yet delivered, and an older one does not.
+            var delivered: Long = stream.value.sequence - 1
             emitAll(
-                stream.transformWhile { reading: LocationReading ->
-                    emit(reading)
-                    !reading.completesTheStream()
+                stream.transformWhile { snapshot: Snapshot ->
+                    val undelivered: Terminal? = snapshot.terminal?.takeIf { it.sequence > delivered }
+                    if (undelivered != null) {
+                        // A terminal reading is newer than anything this collection delivered: end on it,
+                        // even when conflation made the collector skip past it to a later reading.
+                        emit(undelivered.reading)
+                        false
+                    } else {
+                        emit(snapshot.reading)
+                        delivered = snapshot.sequence
+                        true
+                    }
                 },
             )
         } finally {
@@ -234,3 +257,12 @@ public class FakeLocationProvider(
 private fun LocationReading.completesTheStream(): Boolean =
     this is LocationReading.Unavailable &&
         (reason == LocationUnavailability.PERMISSION_MISSING || reason == LocationUnavailability.UNSUPPORTED)
+
+/** The latest reading with its sequence number (the n-th `emit`; the seed is 0) and the latest terminal one. */
+private class Snapshot(val sequence: Long, val reading: LocationReading, val terminal: Terminal?)
+
+/** A terminal reading and the sequence number of the `emit` that made it. */
+private class Terminal(val sequence: Long, val reading: LocationReading)
+
+private fun seedSnapshot(seed: LocationReading): Snapshot =
+    Snapshot(sequence = 0, reading = seed, terminal = if (seed.completesTheStream()) Terminal(0, seed) else null)
