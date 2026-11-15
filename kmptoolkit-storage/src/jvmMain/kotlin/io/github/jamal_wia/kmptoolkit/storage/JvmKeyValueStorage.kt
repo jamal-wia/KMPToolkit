@@ -45,6 +45,10 @@ import kotlinx.coroutines.withContext
  *
  * The file I/O runs on [dispatcher], never on the caller's thread.
  *
+ * The file, its temporary siblings and the lock file are readable and writable by their owner only (POSIX 0600; on
+ * Windows an ACL for the owner and SYSTEM), from the moment they exist; a directory this store creates is 0700 and an
+ * existing directory is never changed. A volume without permissions (FAT, exFAT) ignores the request.
+ *
  * Writes are serialized across processes too: after the in-process lock, a write takes `FileChannel.tryLock` on the
  * separate `<file>.lock` ([CrossProcessLock]), so two app instances or two parallel tools never lose each other's
  * updates. A write that cannot get the lock within the deadline fails with [StorageError.Unavailable] and changes
@@ -180,7 +184,7 @@ internal class JvmKeyValueStorage(
         val result: FileResult<Unit> = files.writeAtomically(
             file.absolutePath,
             buffer.toByteArray(),
-            WriteOptions(Durability.Synced, createParentDirectories = true, tempPrefix = tempPrefix),
+            WriteOptions(Durability.Synced, createParentDirectories = true, tempPrefix = tempPrefix, ownerOnly = true),
         )
         if (result is FileResult.Failure) {
             val error: FileError = result.error

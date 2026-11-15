@@ -243,6 +243,13 @@ app sharing that code with desktop could not compile it for desktop without the 
   name. A name that is a valid file name but longer than 232 bytes in all is still written: its temporary file
   uses a shortened, hashed prefix.
   The store is meant for a handful of small values; it is not a database.
+- **Permissions.** The store file, its temporary siblings and the lock file are readable and writable by their owner only,
+  from the moment they exist: POSIX mode 0600, or on Windows an ACL that grants only the current user and SYSTEM. A directory
+  the store creates is 0700 (Windows: the same ACL, inheritable); a directory that already exists is never changed, so
+  keep the directory you choose owner-only too (anyone who can write it can roll the file back or delete it). A volume that
+  stores no permissions (FAT, exFAT) ignores the request, and the write still succeeds. An external `chmod` of the data file
+  is undone by the next write, which replaces the file. **This is a behaviour change:** an app that shared the file with another
+  OS user stops working.
 - **Concurrency.** Instances over the same file in one process share a lock (a `KeyedMutex` keyed by the
   case- and Unicode-folded canonical path). Writes are also coordinated **across processes**: after the in-process
   lock, a `put`, `remove` or `clear()` takes `FileChannel.tryLock` on a separate sibling,

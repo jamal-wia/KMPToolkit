@@ -29,6 +29,10 @@ import kotlinx.coroutines.Dispatchers
  * 10 seconds fails with [StorageError.Unavailable] and changes nothing, so two app instances or two tools never lose each
  * other's updates. The lock is advisory and unreliable on network file systems; keep the store on a local volume.
  *
+ * The file, its temporary siblings and the lock file are owner-only (POSIX 0600; on Windows an ACL for the owner and
+ * SYSTEM), and a directory this function's writes create is 0700; an existing directory is never changed, and a volume
+ * without permissions (FAT, exFAT) ignores the request. Another OS user who could read the file before now cannot.
+ *
  * This store is plain text: it protects nothing at rest, so do not keep secrets in it. See
  * `docs/kmptoolkit-storage/05-platform-notes.md` for how secrets are stored on desktop.
  *

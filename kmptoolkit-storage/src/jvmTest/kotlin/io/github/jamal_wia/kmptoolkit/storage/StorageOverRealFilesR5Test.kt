@@ -64,6 +64,7 @@ class StorageOverRealFilesR5Test {
             assertEquals(file.absolutePath, path)
             assertEquals(Durability.Synced, options.durability, "docs: Durability.Synced")
             assertEquals(ExistingFile.Replace, options.existing)
+            assertTrue(options.ownerOnly, "the store's file is owner-only from the moment it exists")
             val prefix: String = options.tempPrefix ?: error("the store passes its own temp prefix")
             // docs: the temporary sibling is `<file name><digits>.tmp` (4.x shape): the prefix is the file name here.
             assertEquals("r5.properties", prefix)
