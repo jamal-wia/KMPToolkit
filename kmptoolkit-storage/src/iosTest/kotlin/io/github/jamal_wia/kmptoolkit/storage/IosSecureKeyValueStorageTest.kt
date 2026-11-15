@@ -41,10 +41,20 @@ class IosSecureKeyValueStorageTest {
         for ((key: String, value: String) in listOf("k" to "a\uD800b", "\uDC00" to "v")) {
             val error: StorageError? = storage.put(key, value).errorOrNull()
             assertTrue(
-                error is StorageError.OperationFailed && error.operation == StorageOperation.PUT,
+                error is StorageError.InvalidValue && error.key == key,
                 "put answered $error",
             )
         }
+    }
+
+    @Test
+    fun `the store reports the app-isolated OS key store protection without touching the Keychain`() {
+        assertEquals(SecureStorageProtection.OS_KEY_STORE_APP_ISOLATED, storage.protection)
+    }
+
+    @Test
+    fun `ensureKey without a Keychain is a typed failure rather than a crash`() = runTest {
+        assertEquals(StorageError.Unavailable(), storage.ensureKey().errorOrNull())
     }
 
     @Test

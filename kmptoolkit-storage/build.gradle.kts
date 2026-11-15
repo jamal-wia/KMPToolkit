@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
+
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
@@ -19,6 +21,18 @@ kmptoolkitPublish {
             "process restart, with failures arriving as typed StorageError values rather than " +
             "platform exceptions."
     )
+}
+
+// @MustUseReturnValues (on KeyValueStorage and the helper files) cannot be declared at all while the compiler's
+// return-value checker is disabled: "Ignorability-related annotations are experimental and cannot be used with
+// -Xreturn-value-checker in disabled state". `check` reports only the declarations that carry the annotation, so the
+// module's own sources are warned about an ignored StorageResult. Tests are left out on purpose: they drop results
+// deliberately (a failing put whose effect is the thing under test), and the annotation reaches consumers through the
+// published metadata, so no consumer needs the flag.
+tasks.withType<KotlinCompilationTask<*>>().configureEach {
+    if (!name.contains("Test")) {
+        compilerOptions.freeCompilerArgs.add("-Xreturn-value-checker=check")
+    }
 }
 
 kotlin {

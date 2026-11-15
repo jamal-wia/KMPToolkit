@@ -7,7 +7,7 @@ import kotlinx.coroutines.test.runTest
 
 /**
  * The typed extensions' encoding and failure rules, from the KDoc in `TypedAccess.kt`: one encoding
- * per type, a value that does not parse is a GET failure rather than an absent key, and the `...Or`
+ * per type, a value that does not parse is an InvalidValue failure rather than an absent key, and the `...Or`
  * variants fall back to the default on absent, unreadable and unparseable alike.
  */
 class TypedAccessTest {
@@ -44,7 +44,7 @@ class TypedAccessTest {
     }
 
     @Test
-    fun `a value that does not parse is a get failure naming the key`() = runTest {
+    fun `a value that does not parse is InvalidValue naming the key never OperationFailed`() = runTest {
         storage.entries["i"] = "forty-two"
         storage.entries["l"] = "12.5"
         storage.entries["b"] = "TRUE"
@@ -54,18 +54,17 @@ class TypedAccessTest {
         listOf(storage.getInt("i"), storage.getLong("l"), storage.getBoolean("b"), storage.getInt("plus"), storage.getLong("space"))
             .zip(listOf("i", "l", "b", "plus", "space"))
             .forEach { (result, key) ->
-                val error = assertIs<StorageError.OperationFailed>(result.errorOrNull())
-                assertEquals(StorageOperation.GET, error.operation)
+                val error = assertIs<StorageError.InvalidValue>(result.errorOrNull())
                 assertEquals(key, error.key)
                 assertIs<IllegalArgumentException>(error.cause)
             }
     }
 
     @Test
-    fun `an int read of a value beyond the int range is a failure`() = runTest {
+    fun `an int read of a value beyond the int range is InvalidValue`() = runTest {
         storage.putLong("big", Int.MAX_VALUE.toLong() + 1)
 
-        assertIs<StorageResult.Failure>(storage.getInt("big"))
+        assertEquals("big", assertIs<StorageError.InvalidValue>(storage.getInt("big").errorOrNull()).key)
     }
 
     @Test

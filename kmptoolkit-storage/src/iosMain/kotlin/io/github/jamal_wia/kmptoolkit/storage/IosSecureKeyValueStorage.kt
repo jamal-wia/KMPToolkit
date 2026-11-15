@@ -57,6 +57,31 @@ internal class IosSecureKeyValueStorage(
     private val dispatcher: CoroutineDispatcher,
 ) : SecureKeyValueStorage {
 
+    /** The Keychain holds every value; other apps are kept out (except members of the access group). */
+    override val protection: SecureStorageProtection = SecureStorageProtection.OS_KEY_STORE_APP_ISOLATED
+
+    /**
+     * Provisional: there is no key to create on iOS, so this only asks the Keychain whether it can be
+     * reached, with an attribute-only `SecItemCopyMatching` for the service (no data returned), and
+     * changes nothing. The query is built and released through [KeychainQuery.use] like every other
+     * one here; the full contract of this call on iOS is defined by the iOS platform group.
+     */
+    override suspend fun ensureKey(): StorageResult<Unit> = withContext(dispatcher) {
+        val status: Int = KeychainQuery()
+            .apply {
+                putConstant(kSecClass, kSecClassGenericPassword)
+                putString(kSecAttrService, service)
+                accessGroup?.let { putString(kSecAttrAccessGroup, it) }
+                putConstant(kSecMatchLimit, kSecMatchLimitOne)
+            }
+            .use { SecItemCopyMatching(it, null) }
+        if (status == errSecSuccess || status == errSecItemNotFound) {
+            StorageResult.Success(Unit)
+        } else {
+            StorageResult.Failure(status.toStorageError(StorageOperation.ENSURE_KEY, key = null))
+        }
+    }
+
     override suspend fun get(key: String): StorageResult<String?> = withContext(dispatcher) {
         memScoped {
             val result = alloc<CFTypeRefVar>()

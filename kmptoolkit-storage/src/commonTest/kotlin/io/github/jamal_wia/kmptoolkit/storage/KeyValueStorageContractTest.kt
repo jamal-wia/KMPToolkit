@@ -172,8 +172,8 @@ abstract class KeyValueStorageContractTest {
     private fun assertPutRejected(result: StorageResult<Unit>, key: String) {
         val error: StorageError? = result.errorOrNull()
         assertTrue(
-            error is StorageError.OperationFailed && error.operation == StorageOperation.PUT && error.key == key,
-            "expected OperationFailed(PUT, $key), was $result",
+            error is StorageError.InvalidValue && error.key == key,
+            "expected InvalidValue($key), was $result",
         )
     }
 
@@ -199,6 +199,29 @@ abstract class KeyValueStorageContractTest {
         assertPutRejected(storage.put("a\uDC00", "v"), "a\uDC00")
 
         assertEquals(StorageResult.Success("old"), create().get("k"))
+    }
+
+    @Test
+    fun `a typed read of a stored value of another type is InvalidValue naming the key and leaves the value alone`() = runTest {
+        val storage: KeyValueStorage = create()
+        storage.write("k", "forty-two")
+
+        val results: List<StorageResult<Any?>> = listOf(storage.getInt("k"), storage.getLong("k"), storage.getBoolean("k"))
+
+        for (result: StorageResult<Any?> in results) {
+            val error: StorageError? = result.errorOrNull()
+            assertTrue(error is StorageError.InvalidValue && error.key == "k", "expected InvalidValue(k), was $result")
+        }
+        assertEquals(StorageResult.Success("forty-two"), storage.get("k"))
+    }
+
+    @Test
+    fun `a typed read of an absent key is Success null rather than InvalidValue`() = runTest {
+        val storage: KeyValueStorage = create()
+
+        assertEquals(StorageResult.Success(null), storage.getInt("missing"))
+        assertEquals(StorageResult.Success(null), storage.getLong("missing"))
+        assertEquals(StorageResult.Success(null), storage.getBoolean("missing"))
     }
 
     @Test

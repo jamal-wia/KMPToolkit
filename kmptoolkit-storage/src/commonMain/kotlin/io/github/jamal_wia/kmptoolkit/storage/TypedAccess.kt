@@ -1,3 +1,5 @@
+@file:MustUseReturnValues
+
 package io.github.jamal_wia.kmptoolkit.storage
 
 /*
@@ -12,22 +14,23 @@ package io.github.jamal_wia.kmptoolkit.storage
  * - `Boolean` as `"true"` or `"false"`, exactly.
  *
  * A stored value that does not parse as the requested type is reported as
- * [StorageError.OperationFailed] for [StorageOperation.GET], with the parse exception as its cause,
- * rather than silently read as absent: it means two callers disagree about a key's type, which is a
- * bug worth seeing. The `...Or` variants collapse that, like an absent key or an unreadable store,
- * into the default you pass — use them where a sensible default exists and a wrong value is not worth
- * handling separately.
+ * [StorageError.InvalidValue] naming the key, with the parse exception as its cause, rather than
+ * silently read as absent: it means two callers disagree about a key's type, which is a bug worth
+ * seeing. It is not [StorageError.OperationFailed], which is the case for retryable I/O, so a caller
+ * that retries I/O failures never retries an unparsable value forever. The `...Or` variants collapse
+ * that, like an absent key or an unreadable store, into the default you pass — use them where a
+ * sensible default exists and a wrong value is not worth handling separately.
  */
 
-/** The `Int` stored under [key], `Success(null)` when absent. A non-integer value is a failure. */
+/** The `Int` stored under [key], `Success(null)` when absent. A non-integer value is [StorageError.InvalidValue]. */
 public suspend fun KeyValueStorage.getInt(key: String): StorageResult<Int?> = getParsed(key) { requireDecimal(it).toInt() }
 
-/** The `Long` stored under [key], `Success(null)` when absent. A non-integer value is a failure. */
+/** The `Long` stored under [key], `Success(null)` when absent. A non-integer value is [StorageError.InvalidValue]. */
 public suspend fun KeyValueStorage.getLong(key: String): StorageResult<Long?> = getParsed(key) { requireDecimal(it).toLong() }
 
 /**
  * The `Boolean` stored under [key], `Success(null)` when absent. Anything other than exactly `"true"`
- * or `"false"` is a failure.
+ * or `"false"` is [StorageError.InvalidValue].
  */
 public suspend fun KeyValueStorage.getBoolean(key: String): StorageResult<Boolean?> =
     getParsed(key) { value ->
@@ -58,6 +61,49 @@ public suspend fun KeyValueStorage.getBooleanOr(key: String, default: Boolean): 
     getBoolean(key).getOrNull() ?: default
 
 /**
+ * Deprecated on encrypted stores, as [getStringOrNull]: [default] replaces an unreadable store as well
+ * as an absent key. Use [KeyValueStorage.get] and handle [StorageResult.Failure].
+ */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getStringOr(key: String, default: String): String {
+    val plain: KeyValueStorage = this
+    return plain.getStringOr(key, default)
+}
+
+/** Deprecated on encrypted stores, as [getStringOrNull]. Use [getInt] and handle [StorageResult.Failure]. */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getIntOr(key: String, default: Int): Int {
+    val plain: KeyValueStorage = this
+    return plain.getIntOr(key, default)
+}
+
+/** Deprecated on encrypted stores, as [getStringOrNull]. Use [getLong] and handle [StorageResult.Failure]. */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getLongOr(key: String, default: Long): Long {
+    val plain: KeyValueStorage = this
+    return plain.getLongOr(key, default)
+}
+
+/** Deprecated on encrypted stores, as [getStringOrNull]. Use [getBoolean] and handle [StorageResult.Failure]. */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getBooleanOr(key: String, default: Boolean): Boolean {
+    val plain: KeyValueStorage = this
+    return plain.getBooleanOr(key, default)
+}
+
+/**
  * Exactly the form the `put` side writes — an optional minus and ASCII digits. `String.toInt` alone would
  * also take a leading `+` and, on the JVM, non-ASCII digits.
  */
@@ -82,7 +128,7 @@ private suspend inline fun <T : Any> KeyValueStorage.getParsed(
                 StorageResult.Success(parse(raw))
             } catch (error: IllegalArgumentException) {
                 // NumberFormatException is an IllegalArgumentException on every Kotlin target.
-                StorageResult.Failure(StorageError.OperationFailed(StorageOperation.GET, key = key, cause = error))
+                StorageResult.Failure(StorageError.InvalidValue(key, error))
             }
         }
     }

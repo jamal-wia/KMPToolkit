@@ -22,6 +22,32 @@ internal class AndroidSecureKeyValueStorage(
     private val dispatcher: CoroutineDispatcher,
 ) : SecureKeyValueStorage {
 
+    /** The Android Keystore holds the key and the app's UID sandbox keeps everything else out. */
+    override val protection: SecureStorageProtection = SecureStorageProtection.OS_KEY_STORE_APP_ISOLATED
+
+    /**
+     * Provisional: resolves (on a first run, creates) the Keystore key and runs one cipher round, which
+     * is what the first `put` would do, without touching the stored entries. Same cancellation and error
+     * idiom as [get] and [put]; the full contract of this call on Android is defined by the Android
+     * platform group.
+     */
+    override suspend fun ensureKey(): StorageResult<Unit> = withContext(dispatcher) {
+        try {
+            cipher.encrypt("")
+            StorageResult.Success(Unit)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: StorageKeyUnavailableException) {
+            StorageResult.Failure(StorageError.Unavailable(error.cause ?: error))
+        } catch (error: Exception) {
+            if (isTransientKeystoreFailure(error)) {
+                StorageResult.Failure(StorageError.Unavailable(error))
+            } else {
+                StorageResult.Failure(StorageError.OperationFailed(StorageOperation.ENSURE_KEY, cause = error))
+            }
+        }
+    }
+
     override suspend fun get(key: String): StorageResult<String?> = withContext(dispatcher) {
         val stored: String = try {
             preferences.getString(key, null)

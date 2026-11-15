@@ -9,6 +9,11 @@ public final class io/github/jamal_wia/kmptoolkit/storage/DeviceIdProvider {
 public final class io/github/jamal_wia/kmptoolkit/storage/DeviceIdProvider$Companion {
 }
 
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage : io/github/jamal_wia/kmptoolkit/storage/KeyValueStorage {
+	public abstract fun ensureKey (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getProtection ()Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;
+}
+
 public abstract interface class io/github/jamal_wia/kmptoolkit/storage/KeyValueStorage {
 	public abstract fun clear (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -16,7 +21,18 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/storage/KeyValueS
 	public abstract fun remove (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
-public abstract interface class io/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage : io/github/jamal_wia/kmptoolkit/storage/KeyValueStorage {
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage : io/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection : java/lang/Enum {
+	public static final field APP_PROVIDED_KEY Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;
+	public static final field NONE Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;
+	public static final field OS_KEY_STORE_APP_ISOLATED Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;
+	public static final field OS_KEY_STORE_USER_SCOPED Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;
+	public static final field PASSPHRASE Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageConfig {
@@ -33,6 +49,35 @@ public final class io/github/jamal_wia/kmptoolkit/storage/StorageConfig {
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/storage/StorageError {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/StorageError$AccessDenied : io/github/jamal_wia/kmptoolkit/storage/StorageError {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Integer;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/Integer;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Integer;
+	public final fun component2 ()Ljava/lang/Throwable;
+	public final fun copy (Ljava/lang/Integer;Ljava/lang/Throwable;)Lio/github/jamal_wia/kmptoolkit/storage/StorageError$AccessDenied;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/storage/StorageError$AccessDenied;Ljava/lang/Integer;Ljava/lang/Throwable;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/storage/StorageError$AccessDenied;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public final fun getPlatformCode ()Ljava/lang/Integer;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/StorageError$InvalidValue : io/github/jamal_wia/kmptoolkit/storage/StorageError {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/Throwable;
+	public final fun copy (Ljava/lang/String;Ljava/lang/Throwable;)Lio/github/jamal_wia/kmptoolkit/storage/StorageError$InvalidValue;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/storage/StorageError$InvalidValue;Ljava/lang/String;Ljava/lang/Throwable;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/storage/StorageError$InvalidValue;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public final fun getKey ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageError$OperationFailed : io/github/jamal_wia/kmptoolkit/storage/StorageError {
@@ -80,6 +125,20 @@ public final class io/github/jamal_wia/kmptoolkit/storage/StorageError$Undecrypt
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/storage/StorageError$Unsupported : io/github/jamal_wia/kmptoolkit/storage/StorageError {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
+	public final fun component2 ()Ljava/lang/Throwable;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;Ljava/lang/Throwable;)Lio/github/jamal_wia/kmptoolkit/storage/StorageError$Unsupported;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/storage/StorageError$Unsupported;Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;Ljava/lang/Throwable;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/storage/StorageError$Unsupported;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public final fun getReason ()Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageFactory_androidKt {
 	public static final fun createKeyValueStorage (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;)Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;
 	public static synthetic fun createKeyValueStorage$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;
@@ -88,7 +147,9 @@ public final class io/github/jamal_wia/kmptoolkit/storage/StorageFactory_android
 }
 
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageOperation : java/lang/Enum {
+	public static final field CHANGE_KEY Lio/github/jamal_wia/kmptoolkit/storage/StorageOperation;
 	public static final field CLEAR Lio/github/jamal_wia/kmptoolkit/storage/StorageOperation;
+	public static final field ENSURE_KEY Lio/github/jamal_wia/kmptoolkit/storage/StorageOperation;
 	public static final field GET Lio/github/jamal_wia/kmptoolkit/storage/StorageOperation;
 	public static final field PUT Lio/github/jamal_wia/kmptoolkit/storage/StorageOperation;
 	public static final field REMOVE Lio/github/jamal_wia/kmptoolkit/storage/StorageOperation;
@@ -125,20 +186,38 @@ public final class io/github/jamal_wia/kmptoolkit/storage/StorageResult$Success 
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageResultKt {
 	public static final fun errorOrNull (Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;)Lio/github/jamal_wia/kmptoolkit/storage/StorageError;
 	public static final fun getOrNull (Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;)Ljava/lang/Object;
+	public static final fun getStringOrNull (Lio/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getStringOrNull (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun isSuccess (Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;)Z
 }
 
 public final class io/github/jamal_wia/kmptoolkit/storage/TypedAccessKt {
 	public static final fun getBoolean (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun getBooleanOr (Lio/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage;Ljava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getBooleanOr (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getInt (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun getIntOr (Lio/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage;Ljava/lang/String;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getIntOr (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getLong (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun getLongOr (Lio/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getLongOr (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun getStringOr (Lio/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getStringOr (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun putBoolean (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun putInt (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun putLong (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/UnsupportedReason : java/lang/Enum {
+	public static final field HARDWARE_UNAVAILABLE Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
+	public static final field MISSING_ENTITLEMENT Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
+	public static final field NATIVE_ACCESS_UNAVAILABLE Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
+	public static final field NO_KEY_STORE Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
+	public static final field NO_USER_SESSION Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
+	public static final field UNSUPPORTED_OS Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
+	public static final field UNSUPPORTED_RUNTIME Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
 }
 
