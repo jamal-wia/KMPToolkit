@@ -62,12 +62,16 @@ class DesktopBindingPackagingTest {
             val rules: String = jar.getInputStream(entry).use { String(it.readBytes(), Charsets.UTF_8) }
             assertTrue(rules.contains("-keep class io.github.jamal_wia.kmptoolkit.storage.internal.desktop.ffm.FfmNativeKeyStoreBinding"), rules)
             assertTrue(rules.contains("-dontwarn java.lang.foreign.**"), rules)
+            // The upcall target of the libsecret backend question is looked up by name: the rule must name the class that exists.
+            assertTrue(rules.contains("-keep class io.github.jamal_wia.kmptoolkit.storage.internal.desktop.ffm.FfmSecretService\$BackendWait"), rules)
+            val classes: List<String> = jar.entries().asSequence().map { it.name }.toList()
+            assertTrue("io/github/jamal_wia/kmptoolkit/storage/internal/desktop/ffm/FfmSecretService\$BackendWait.class" in classes, "control: the kept class exists in the jar")
         }
     }
 
     private class Child(val exit: Int, val output: String, val classLog: String)
 
-    private fun fork(java: String, jvmArgs: List<String>, args: List<String>): Child {
+    private fun fork(java: String, jvmArgs: List<String>, args: List<String>, hangBoundSeconds: Long = 120): Child {
         val work: File = Files.createTempDirectory("kmptoolkit-storage-fork").toFile()
         try {
             val log = File(work, "classes.log")
@@ -75,14 +79,29 @@ class DesktopBindingPackagingTest {
                 "-Xlog:class+load:file=${log.path}", "-Djna.tmpdir=${File(work, "jna").also { it.mkdirs() }.path}",
                 "-cp", System.getProperty("java.class.path"), DesktopBindingProbeMain::class.java.name,
             ) + args.map { if (it == "<dir>") work.path else it }
-            val process: Process = ProcessBuilder(command).redirectErrorStream(true).start()
-            val output: String = process.inputStream.bufferedReader().readText()
-            check(process.waitFor(120, TimeUnit.SECONDS)) { "the child JVM did not finish: $command" }
+            // Output goes to a file, never read from a pipe: reading a pipe until EOF would block for ever on a hung child, before any
+            // wait with a bound could run. The bound below is a hang bound only; a hung child is killed and reported.
+            val output = File(work, "output.log")
+            val process: Process = ProcessBuilder(command).redirectErrorStream(true).redirectOutput(output).start()
+            if (!process.waitFor(hangBoundSeconds, TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                process.waitFor(10, TimeUnit.SECONDS)
+                throw AssertionError("the child JVM did not finish within $hangBoundSeconds s and was killed: $command; output so far: ${output.readText()}")
+            }
             assertEquals(0, File(work, "jna").list()?.size ?: 0, "jna.tmpdir must stay empty")
-            return Child(process.exitValue(), output, if (log.exists()) log.readText() else "")
+            return Child(process.exitValue(), output.readText(), if (log.exists()) log.readText() else "")
         } finally {
             work.deleteRecursively()
         }
+    }
+
+    @Test
+    fun `a child JVM that hangs is killed at the hang bound and reported, not waited for for ever`() {
+        val failure: AssertionError = kotlin.test.assertFailsWith {
+            fork(javaOf("kmptoolkit.test.javaHome21"), emptyList(), listOf("hang"), hangBoundSeconds = 3)
+        }
+
+        assertTrue(failure.message.orEmpty().contains("was killed"), failure.message)
     }
 
     @Test
