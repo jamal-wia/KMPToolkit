@@ -282,9 +282,8 @@ in **shared** code:
   gate).
 - **Logging.** `Logger` is the seam a consumer's shared code logs through: a repository, a controller or a
   provider takes one as a parameter. The JVM sink is real: `platformLogSink()` writes `<L>/<tag>: <message>`
-  and the stack trace to standard error, one event at a time under a process-wide lock held only around the
-  write of the already rendered text, so concurrent events never interleave and no caller code (a `toString`
-  or `cause` override) runs while the lock is held.
+  and the stack trace to standard error, each event in one step so that concurrent events never interleave
+  (the logging module's `05-platform-notes.md` has the locking details).
 - **Location.** The geo math and `GeoCoordinates` / `LocationReading` are threaded through shared code: a
   catalogue of places, a distance filter, a repository that stores positions, a presenter that takes a
   `LocationProvider`. The geo half is real, like hijri's: the same pure Kotlin answers on the phone and in a
