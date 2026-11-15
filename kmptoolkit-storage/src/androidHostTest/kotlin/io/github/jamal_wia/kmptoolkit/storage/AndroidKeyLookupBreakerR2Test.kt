@@ -35,7 +35,8 @@ import org.robolectric.RobolectricTestRunner
  * ("A key the platform has permanently invalidated is replaced here as it is in any other call, so this succeeds on a
  * store whose old values are lost") and the m1 rule that an unproven lookup failure deletes nothing.
  *
- * The platform shape. `KeyStore.getEntry` reaches `AndroidKeyStoreSpi.engineGetKey`. On API 30 (keystore 1,
+ * The platform shape. The production lookup, `KeyStore.getKey` (it was `KeyStore.getEntry` when this class was written;
+ * see AndroidKeyStoreLookupBreakerR3Test for why it changed), reaches `AndroidKeyStoreSpi.engineGetKey`. On API 30 (keystore 1,
  * `android.security.keystore`) and API 31+ (keystore 2, `android.security.keystore2`), the provider's lookup throws
  * `KeyPermanentlyInvalidatedException("User changed or deleted their auth credentials", cause)` when the daemon answers
  * KEY_PERMANENTLY_INVALIDATED, and `engineGetKey` catches it and throws `new UnrecoverableKeyException(e.getMessage())`:
@@ -71,7 +72,7 @@ class AndroidKeyLookupBreakerR2Test {
         UnrecoverableKeyException("Failed to obtain information about key").also { it.initCause(KeyStoreException("system error")) }
 
     /**
-     * A key store whose `existingKey` is the production policy [resolveExistingKey] over a fake `getEntry` that throws
+     * A key store whose `existingKey` is the production policy [resolveExistingKey] over a fake `getKey` that throws
      * [failure] while [failing], and a fake `deleteEntry`; counts every call.
      */
     private class PolicyKeyStore(initial: SecretKey, @Volatile var failing: Boolean, private val failure: () -> Exception) : AliasedKeyStore {
@@ -133,7 +134,7 @@ class AndroidKeyLookupBreakerR2Test {
             StorageResult.Success(Unit),
             result,
             "a key the platform calls permanently invalidated must be replaced, not answer Unavailable until the app data " +
-                "is cleared (plan A-4; ensureKey KDoc). The platform's getEntry carries the proof only as the message of a " +
+                "is cleared (plan A-4; ensureKey KDoc). The platform's lookup carries the proof only as the message of a " +
                 "cause-less UnrecoverableKeyException",
         )
         assertEquals(1, keyStore.deletions.get(), "the dead alias is deleted once")
