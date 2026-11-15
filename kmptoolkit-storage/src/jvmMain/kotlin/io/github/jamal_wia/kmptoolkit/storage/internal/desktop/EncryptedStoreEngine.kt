@@ -147,7 +147,8 @@ internal abstract class EncryptedStoreEngine(
     suspend fun execute(op: Op): StorageResult<String?> = withContext(dispatcher) {
         if (op is Op.Put) {
             unpairedSurrogateFailure(op.key!!, op.value)?.let { return@withContext it }
-            if (op.key.toStrictUtf8().size > SecureFileFormat.MAX_ENTRY_KEY_BYTES) {
+            // Counted, not encoded: a key of 90 million characters must be refused without allocating its encoded copies, like a value.
+            if (op.key.strictUtf8Length() > SecureFileFormat.MAX_ENTRY_KEY_BYTES) {
                 return@withContext StorageResult.Failure(
                     StorageError.InvalidValue(op.key, IllegalArgumentException("The key is longer than 65535 UTF-8 bytes")),
                 )

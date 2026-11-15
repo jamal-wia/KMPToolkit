@@ -459,7 +459,7 @@ a key being created), under one 10 s budget; a call that cannot get them answers
 locks (see Concurrency above) makes every call answer `OperationFailed` and touch nothing: unlike the plain store, an encrypted
 store never degrades. A store file is at most 256 MiB: a `put` whose encoded file would be larger is refused with
 `InvalidValue(key)` before anything is written or created (a larger file would be read back as unparsable and quarantined by the
-next `put`). The size is worked out by counting, before the value is encoded or sealed, so a value that cannot fit never allocates its encoded copies; `changeKey` on a file that the new header would push over the limit answers `OperationFailed(CHANGE_KEY)`. The one thing a call does not wait for under the locks is anything slow: the native fetch of an existing
+next `put`). The size is worked out by counting, before the value or the entry name is encoded or sealed, so a value (or a name over 65,535 UTF-8 bytes) that cannot fit never allocates its encoded copies; `changeKey` on a file that the new header would push over the limit answers `OperationFailed(CHANGE_KEY)`. The one thing a call does not wait for under the locks is anything slow: the native fetch of an existing
 key runs with no lock held, and the next round re-reads the file and uses the key only if the header and key-check are the
 ones it was fetched for (at most four such rounds, then `Unavailable`).
 

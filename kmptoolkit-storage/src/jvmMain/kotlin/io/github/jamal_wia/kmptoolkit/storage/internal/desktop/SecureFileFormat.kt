@@ -259,9 +259,10 @@ internal object SecureFileFormat {
     /**
      * The bytes an entry named [key] whose plaintext is [plainLength] bytes adds to a file (the sealed value is the plaintext
      * plus the tag), computed before anything is sealed. [encodedSize] and the checks that run before a value is encoded
-     * both go through it, so they cannot disagree.
+     * both go through it, so they cannot disagree. The name is counted ([strictUtf8Length]), never encoded, so no measuring path
+     * allocates a copy of a name; a name without a UTF-8 form counts 3 bytes for the character (callers refuse such a name before).
      */
-    fun entrySize(key: String, plainLength: Long): Long = 2 + key.toStrictUtf8().size + NONCE_BYTES + 4 + plainLength + TAG_BYTES
+    fun entrySize(key: String, plainLength: Long): Long = 2 + key.strictUtf8Length() + NONCE_BYTES + 4 + plainLength + TAG_BYTES
 
     /** Parses [bytes]; never throws for any input. */
     fun parse(bytes: ByteArray): ParseResult {
