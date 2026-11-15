@@ -198,7 +198,10 @@ public interface PermissionController {
   running API level (a Bluetooth scan below API 31 is location) are one request with one answer, so
   the user is never asked the same thing twice in a call. A batch waits for an activity at most once
   (when the app is in the background after a refusal), not once per permission. Everything else is
-  requested in order, one at a time.
+  requested in order, one at a time. On iOS every status in the returned map is read after the last
+  prompt of the batch, so an entry that a later prompt changed is answered with its final status (with
+  `temporaryFullAccuracyPurposeKey` set, `request(listOf(LocationBackground, Location))` from "always"
+  with approximate location answers both `Granted` once the user accepts the accuracy prompt).
 - **Requests are serialized.** A request made while another is in flight — through the same
   controller — waits for it, so two prompts never overlap. On Android that includes a request
   cancelled while its system dialog is still up: the dialog cannot be taken back, so the next request

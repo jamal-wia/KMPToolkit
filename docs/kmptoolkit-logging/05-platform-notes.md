@@ -116,12 +116,22 @@ Things to know:
 - **Standard error, not standard output.** A desktop app that pipes its output elsewhere keeps its
   log lines out of that data stream. `System.err` is read at every event, so an app that redirects
   it with `System.setErr` is followed.
-- **One lock per process.** Each event, its line and its stack trace, is written in one step under
-  a lock shared by every instance of the sink, so loggers on several threads never glue lines
-  together or separate a trace from its event. Output written to standard error by anything else
-  (`System.err` elsewhere, a logging framework) does not take that lock, so it is not ordered
-  against the sink's. Only the write of the already rendered text happens under the lock: a
-  `message`, `toString` or `cause` override never runs while it is held.
+- **One write per event, no lock of the sink's own.** Each event, its line and its stack trace, is
+  written with a single `print(String)` call on standard error, so loggers on several threads never
+  glue lines together or separate a trace from its event. When standard error is the JDK's own
+  `PrintStream`, that call is one write under the stream's own lock and the sink adds nothing. When an
+  app has replaced it with a subclass that hands a text on line by line (a line-buffering or capturing
+  stream; Gradle's test worker installs one), the sink holds that stream's own monitor for the call, so
+  the lines of two events do not interleave there either. That monitor is the one
+  `Throwable.printStackTrace` holds on such a stream while it runs the throwable's `getMessage`, so
+  there is only one lock and a throwable whose getter logs does not deadlock against a concurrent
+  event. The sink never takes a lock of its own, because a second lock taken before the stream's
+  would. For a subclass the sink locks exactly as `System.err.println` does (the stream's monitor,
+  then whatever the stream's `print` takes), so it can deadlock only where `System.err.println` on
+  the same stream would: for example a subclass whose `print` forwards to another stream on which a
+  trace whose getter logs is being printed. Output written to standard error by anything else
+  (`System.err` elsewhere, a logging framework) is not ordered against the sink's events. A `message`,
+  `toString` or `cause` override never runs while the sink's own text is being written.
 - **A chain with an `UnknownHostException` is rendered in full**, unlike on Android: the JDK's own
   stack trace rendering has no such rule. A cyclic cause chain prints `CIRCULAR REFERENCE` for the
   repeated throwable and stops.
