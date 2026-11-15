@@ -17,6 +17,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKeyFactory
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -181,14 +182,34 @@ internal class KeystoreValueCipher(
     private fun aadOf(key: String?): ByteArray =
         if (key == null) byteArrayOf(FORMAT_VERSION) else byteArrayOf(FORMAT_VERSION) + legacyAadOf(key)
 
-    private suspend fun encryptVersioned(plaintext: String, key: String?): String {
+    private suspend fun encryptVersioned(plaintext: String, key: String?): String = unauthenticatedAsDenied {
         val cipher: Cipher = initialised { candidate: SecretKey, fresh: Cipher -> fresh.init(Cipher.ENCRYPT_MODE, candidate) }
         cipher.updateAAD(aadOf(key))
         val ciphertext: ByteArray = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
-        return Base64.encodeToString(byteArrayOf(FORMAT_VERSION) + cipher.iv + ciphertext, Base64.NO_WRAP)
+        Base64.encodeToString(byteArrayOf(FORMAT_VERSION) + cipher.iv + ciphertext, Base64.NO_WRAP)
     }
 
-    private suspend fun decryptVersioned(encoded: String, key: String?): String {
+    /**
+     * Runs [block], and when the platform refuses the key for lack of authentication (a `UserNotAuthenticatedException`
+     * anywhere in the failure's cause chain, whether `Cipher.init` or `doFinal` reports it) and the key is bound to user
+     * authentication, rethrows it as [UserAuthenticationRequiredException]. The platform reports an unauthenticated user
+     * and a locked device the same way, so only the key's own options tell which it is; a key without authentication
+     * leaves the failure as it is, which the storage reports as a locked device.
+     */
+    private suspend inline fun <T> unauthenticatedAsDenied(block: () -> T): T = try {
+        block()
+    } catch (error: Exception) {
+        if (error !is CancellationException &&
+            error !is UserAuthenticationRequiredException &&
+            keySource.userAuthenticationRequired &&
+            isDeviceLockedFailure(error)
+        ) {
+            throw UserAuthenticationRequiredException(error)
+        }
+        throw error
+    }
+
+    private suspend fun decryptVersioned(encoded: String, key: String?): String = unauthenticatedAsDenied {
         // The key is resolved before the stored bytes are looked at, so that a key store which will
         // not open is reported as Unavailable (retry later) rather than as Undecryptable (the
         // value is lost). With the checks the other way round, an entry that is also malformed would
@@ -212,11 +233,11 @@ internal class KeystoreValueCipher(
         }
         cipher.updateAAD(aadOf(key))
         val plaintext: ByteArray = cipher.doFinal(bytes, HEADER_LENGTH_BYTES, bytes.size - HEADER_LENGTH_BYTES)
-        return plaintext.toString(Charsets.UTF_8)
+        plaintext.toString(Charsets.UTF_8)
     }
 
     /** The format before the version byte: `iv ‖ ciphertext ‖ tag`, optionally with the 5.0.0 key binding as [aad]. */
-    private suspend fun decryptUnversioned(encoded: String, aad: ByteArray?): String {
+    private suspend fun decryptUnversioned(encoded: String, aad: ByteArray?): String = unauthenticatedAsDenied {
         val first: SecretKey = keySource.key()
         val bytes: ByteArray = Base64.decode(encoded, Base64.NO_WRAP)
         // By length, before any crypto, for the reason given in decryptVersioned: the platform may not report it as a tag
@@ -230,7 +251,7 @@ internal class KeystoreValueCipher(
         }
         if (aad != null) cipher.updateAAD(aad)
         val plaintext: ByteArray = cipher.doFinal(bytes, IV_LENGTH_BYTES, bytes.size - IV_LENGTH_BYTES)
-        return plaintext.toString(Charsets.UTF_8)
+        plaintext.toString(Charsets.UTF_8)
     }
 
     /**
@@ -258,11 +279,8 @@ internal class KeystoreValueCipher(
                 return Cipher.getInstance(TRANSFORMATION).also { init(key, it) }
             } catch (e: InvalidKeyException) {
                 // A locked device (a key that needs it unlocked) and an unauthenticated user are states that pass: never a
-                // reason to drop the key. The platform reports them the same way; the key's own options tell which.
-                if (isDeviceLockedFailure(e)) {
-                    throw if (keySource.userAuthenticationRequired) UserAuthenticationRequiredException(e) else e
-                }
-                if (isTransient(e)) throw e
+                // reason to drop the key (unauthenticatedAsDenied tells them apart for the caller).
+                if (isTransient(e) || isDeviceLockedFailure(e)) throw e
                 val permanent: Boolean = isPermanentlyInvalidated(e)
                 if (retries >= (if (permanent) MAX_PERMANENT_RETRIES else MAX_RETRIES)) throw e
                 retries++
