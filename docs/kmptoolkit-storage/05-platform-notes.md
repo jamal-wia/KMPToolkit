@@ -24,8 +24,8 @@ a name `N`:
 | | Android | iOS | Desktop (`jvm`) |
 |---|---|---|---|
 | Plain store | `SharedPreferences` file `N.kmptoolkit.storage` | `NSUserDefaults` suite `N.kmptoolkit.storage` | file `N.kmptoolkit.storage.properties` in the directory you pass |
-| Secure store | `SharedPreferences` file `N.kmptoolkit.securestorage` | Keychain `kSecAttrService` = `N.kmptoolkit.securestorage` | none — see below |
-| Encryption key | AndroidKeyStore alias `N.kmptoolkit.securestorage.key` | held by `securityd`; no alias of ours | — |
+| Secure store | `SharedPreferences` file `N.kmptoolkit.securestorage` | Keychain `kSecAttrService` = `N.kmptoolkit.securestorage` | file `N.kmptoolkit.securestorage.bin` (OS-key store) or `N.kmptoolkit.appkeystorage.bin` (app-key store) in the directory you pass, see "Desktop secure stores" |
+| Encryption key | AndroidKeyStore alias `N.kmptoolkit.securestorage.key` | held by `securityd`; no alias of ours | the OS key store (macOS keychain item, Windows DPAPI blob in the file, Linux Secret Service item), or the key your app provides |
 
 On desktop `N` has no default — there is no application id to derive it from — so
 `StorageConfig.name` is required there.
@@ -462,12 +462,437 @@ app sharing that code with desktop could not compile it for desktop without the 
   name. A name that is a valid file name but longer than 232 bytes in all is still written: its temporary file
   uses a shortened, hashed prefix.
   The store is meant for a handful of small values; it is not a database.
+- **Permissions.** The store file, its temporary siblings and the lock file are readable and writable by their owner only,
+  from the moment they exist: POSIX mode 0600, or on Windows an ACL that grants only the current user and SYSTEM. A directory
+  the store creates is 0700 (Windows: the same ACL, inheritable); a directory that already exists is never changed, so
+  keep the directory you choose owner-only too (anyone who can write it can roll the file back or delete it). A volume that
+  stores no permissions (FAT, exFAT) ignores the request, and the write still succeeds. An external `chmod` of the data file
+  is undone by the next write, which replaces the file. **This is a behaviour change:** an app that shared the file with another
+  OS user stops working.
 - **Concurrency.** Instances over the same file in one process share a lock (a `KeyedMutex` keyed by the
-  case- and Unicode-folded canonical path). Two *processes* writing
-  the same file are not coordinated — keep one writer per file.
-- **No secure store.** The JVM has no platform key store this module could keep a key in without
-  inventing its own — and a key kept next to the data it encrypts protects nothing. Desktop apps that
-  need a secret at rest should use the operating system's credential store directly.
+  case- and Unicode-folded canonical path). Writes are also coordinated **across processes**: after the in-process
+  lock, a `put`, `remove` or `clear()` takes `FileChannel.tryLock` on a separate sibling,
+  `<file name>.lock`, so two app instances or two parallel tools never lose each other's updates. One budget of 10
+  seconds covers both waits of a write, the in-process one and the file lock (polled every 25 ms): a write that cannot get
+  both within it answers `StorageError.Unavailable` and changes nothing, however many writes queue in front of it, and the
+  file is never touched without the lock. Only the waiting is timed, never the write itself. A lock dies with its process,
+  so a killed holder never wedges the store.
+  - The lock file is empty, is created the first time a write needs it (a read never creates it, and neither does a
+    `clear()` of a store whose directory does not exist) through an atomic create-if-absent, owner-only from the moment
+    it exists (POSIX 0600; the Windows owner-and-SYSTEM ACL), and is never renamed and never deleted by the library.
+    On a volume without hard links (FAT, exFAT, or a mount that refuses links) it is created with `CREATE_NEW` and the
+    same owner-only attributes (mode 0600 where the provider has POSIX modes; on Windows the owner-and-SYSTEM ACL); a file
+    another creator made first is accepted, and if the ACL cannot be built the write answers `OperationFailed` and no lock
+    file is created. Delete it by hand only while no
+    process uses the store. When `<file name>.lock` would exceed 255 bytes, the file name is cut at a character
+    boundary and `~`, 16 hex characters of its SHA-256 and `.lock` follow.
+  - The lock is on the sibling and never on the data file because on Windows a mandatory lock on the data file would block
+    the atomic rename.
+  - Inside one JVM only one thread at a time ever opens a lock file: a process-wide claim per lock file (its folded canonical
+    path) is taken first, and a contender of the same JVM is simply busy without opening anything. This is not
+    cosmetic: POSIX file locks belong to the process, so closing any other channel of the lock file in the same JVM would
+    silently release a lock a thread holds, and the JDK's own table of overlapping locks can lose an entry under that churn.
+    Two names for one lock file that the folded canonical path does not join (a hard link) are outside the claim. The claim
+    is per class loader, so for a **second copy of the library in one JVM** (a plug-in host, an application server) a
+    contender that meets the JDK's JVM-wide overlapping-lock check keeps its lock-file channel open instead of closing it
+    (one descriptor per such lock file for the life of the process, and only in that setup). That setup is **best effort
+    against other processes**, not a guarantee: POSIX drops a process's lock when any descriptor of the file is closed, and
+    the lock can be lost in three ways that no per-class-loader state can close. (1) A contender that found the lock held by
+    another process closes its channel, and if the other copy takes the lock in the nanoseconds before that close, the close
+    drops it. (2) At the hand-over between the copies, the holder releases its lock and only then closes its channel; a
+    parked channel of the other copy polls every 25 ms, and if it locks between those two calls the holder's close drops
+    its lock. (3) When a copy is unloaded, its parked channel is closed by the JDK's cleaner at the next garbage collection,
+    which drops a lock the other copy holds at that moment. In each case two processes can hold the lock at once and an
+    update can be lost. **Load the library once per JVM, in a shared parent class loader, wherever several processes
+    write one store.** With one copy of the library none of this applies.
+  - A lock file the process cannot create or open (a read-only directory, a lock path that is a directory, a lock path that is a
+    symbolic link whose target does not exist) fails the write with `OperationFailed` at once, not after the wait limit. So does
+    a lock path that is not a regular file (a named pipe, a device, a socket, or a link to one): the library never opens it,
+    because opening a named pipe blocks until another program opens its other end, and no time limit or cancellation can end
+    that. The same rule covers the properties file of the plain store: a path that is a named pipe fails every operation except
+    `clear()` with `OperationFailed` and the pipe is never replaced; `clear()` removes it (the way out the class documents for a file
+    that cannot be used, as for one that cannot be parsed), after which the store works again. An interrupted thread takes the lock
+    normally (`FileChannel.tryLock` is not interruptible on any JDK checked, 17 to 25); the JDK then refuses that thread's file I/O,
+    so its write answers `OperationFailed` (cause: an `IOException` that wraps `ClosedByInterruptException`) and writes nothing. The plain store never writes
+    unlocked because of an interrupt: a file system without locks is told apart by the `IOException` of `tryLock` itself, never by
+    an interrupt. Reads are unaffected by a lock path.
+  - **A file system that refuses file locks** (the lock file opens but `FileChannel.tryLock` itself throws an
+    `IOException`: NFS without a reachable lock daemon, some FUSE mounts) does not stop the plain store: such a write is
+    coordinated within this process only, as before 6.0.0, and is still atomic, so a second process can lose an update there.
+    The encrypted stores never degrade this way: they answer `OperationFailed` with the `IOException` as the cause and touch
+    nothing. There is no signal to the caller for the plain store's degrade; keep a store on a local volume.
+  - **Plain reads never wait.** A read takes no lock at all: every write publishes by atomic rename and `clear()` by one
+    unlink, and a read opens the file once, so it sees a whole old or a whole new file, and a read racing a `clear()` sees the
+    file or no file. The read opens the file with share-delete semantics, so on Windows an open reader never makes another
+    process's rename fail. Every write answers within the 10 s budget above.
+  - Network file systems (NFS, SMB) may grant or refuse `tryLock` unreliably; keep a store on a local volume. Writes still
+    never produce a torn file there, because every write is an atomic replace.
+- **Native key-store calls (internal, for the desktop secure store).** The OS key stores are reached through one
+  internal seam of 11 raw calls (macOS Security.framework: copy, add, delete, probe; Windows DPAPI: protect, unprotect;
+  Linux libsecret: lookup, store, clear, default-collection-locked, backend-is-portal). It is `public` and
+  `@ToolkitInternalApi` only because the optional `kmptoolkit-storage-jna` artifact implements it from another module;
+  it can change in any release, and no FFM or JNA type appears in public API. There is deliberately no "update" call:
+  a key item is deleted and created again, never updated.
+  - **Binding selection** happens once per process, at the first secure call or probe, never when the plain store loads:
+    `os.name` that is not macOS, Windows or Linux is `Unsupported(UNSUPPORTED_OS)`; a runtime of JDK 22 or newer uses the
+    FFM binding (a JNA artifact on the classpath is ignored); JDK 21 uses the JNA binding if
+    `io.github.jamal_wia.kmptoolkit.storage.jna.JnaNativeKeyStoreBinding` loads and is otherwise
+    `Unsupported(UNSUPPORTED_RUNTIME)`. The class is found by that one fixed name; there is no `ServiceLoader`, no system
+    property and no environment variable that selects or replaces a binding. A binding that cannot load (an
+    `IllegalCallerException` under `--illegal-native-access=deny`, an `UnsatisfiedLinkError`, a `SecurityException`, any
+    other `LinkageError`) is `Unsupported(NATIVE_ACCESS_UNAVAILABLE)`; so is a `LinkageError` thrown around a later call
+    (for example a `NoSuchMethodError` on a JDK 22-24 runtime); the same holds for a `LinkageError` or any exception thrown by the
+    binding's per-OS accessor itself (`macOs()`, `windows()`, `linux()`), in a secure store and in the probe. The decision,
+    including a failure, is kept for the process.
+  - **One native thread, time limits.** Native calls run on one dedicated daemon thread, started by the first call. A call
+    that cannot show a dialog has a 10 s limit and then answers `Unavailable`; a hung OS call keeps the thread busy, so later
+    calls time out instead of starting more threads. A call that had not started when its limit passed, or whose caller was
+    cancelled, is withdrawn and never runs, so a timed-out write is never applied later. The withdrawal happens at the instant of
+    the cancellation or of the limit, in the thread that cancels, not when the caller's own dispatcher gets round to resuming the
+    caller: a busy dispatcher (a saturated `Dispatchers.IO`, a UI thread) cannot keep a cancelled caller's call queued for the native
+    thread, which has just become free, to run. Every watch is registered before the call is queued (a call with a limit is queued inside the scope of its limit, after the
+    watch on that scope), so neither a cancellation nor a limit is missed, and a limit that cannot be armed leaves the call
+    unqueued. A
+    caller that is already cancelled when it calls gets its `CancellationException` at once and queues nothing. A call that was
+    already running cannot
+    be stopped: its late result is discarded and the key bytes in it are wiped. A call that may show a dialog has no limit but
+    stays cancellable. No store lock is held while a native call that can prompt is awaited. The native thread outlives what a
+    call does to it: the interrupt status a call leaves behind is cleared after every call and does not end the loop, and a
+    thread that cannot be created (a thread limit) answers that one call as failed and is created again by the next call. A native
+    thread that dies with the executor still open (only an `Error` such as an `OutOfMemoryError` can end it) hands the calls
+    queued behind it to a replacement thread, answers the call it was running as failed (unless even that fails: then the caller's own
+    limit or cancellation ends the wait, and an interactive call waits until it is cancelled), and is replaced by the next call too; if
+    no replacement can be made the queued calls answer as failed with that cause. A value a native call returned that does not
+    reach its caller (the caller left first, or the delivery failed) is always handed to the wipe handler first, so a key is never
+    left unwiped by a failed delivery. That holds for a caller whose dispatcher keeps the coroutines contract: a dispatcher whose `dispatch`
+    throws loses the resumption of the awaiting coroutine inside kotlinx.coroutines, so that caller stays suspended and the value is neither
+    delivered nor wiped (the executor cannot tell a dispatch that failed before it queued the resumption from one that queued it first,
+    and wiping a value the caller may still read would hand it a zeroed key); the native thread survives and serves the next call. The same holds for what goes the other way: the copy of the data key that a call hands to the
+    OS (the keychain add, the Secret Service store, the DPAPI protect) is wiped by the native thread when the call returns, and by the
+    caller when the call can no longer start (withdrawn from the queue, executor closed), so a call that never ran leaves no live copy
+    behind. After the executor is closed no thread is made.
+  - **Known limit (Linux, between two processes; documented, not coded).** A `store` call that is already running when its 10 s limit passes
+    cannot be stopped and may still land after another process's successful create of the key: the Secret Service replaces an item that
+    has the same attributes (`secret_password_store`), so the winner's key is overwritten and the winner's file can no longer be read once
+    the winner has to fetch its key again (after a restart). macOS is not affected (`SecItemAdd` refuses a duplicate item), and inside one
+    process the single native thread runs the late write before the next create. It needs a stalled keyring for more than 10 s at the moment
+    two processes race to create the first key of one store, and the D-Bus daemon's order of arrival normally decides it for the first
+    request; no code at this level can force the order, so an application that runs several processes over one store should create its key
+    once (`ensureKey`) before it starts them.
+
+- **Encrypted file format v1 (internal, for the desktop encrypted stores).** The encrypted desktop stores keep one binary
+  file that is rewritten as a whole: magic `KTSS`, format version `1`, a kind byte (1 = an OS item holds the data key,
+  2 = DPAPI-wrapped, 3 = passphrase, 4 = raw app key), a 2-byte header length and the header body, a 28-byte key-check
+  (AES-256-GCM over an empty plaintext, authenticating every header byte before it), a 4-byte entry count, and the entries
+  (name length, the name in UTF-8, a 12-byte nonce, a 4-byte length, the ciphertext with its 16-byte tag). **Entry names and
+  the entry count are plaintext; only values are encrypted.** Every entry is authenticated together with the magic, the
+  version, the kind and its own name, so an entry moved to another name, a downgraded version or a swapped kind fails its
+  tag instead of reading as another value. Changing any header byte breaks the key-check (kinds 1 and 2) or the unwrapping of
+  the data key (kinds 3 and 4, where it is indistinguishable from a wrong key). Whole-file rollback by someone who can write the
+  file is possible and accepted; keep the directory owner-only.
+  - Frozen by v1: the data key is 256 random bits from `SecureRandom`; every AES-GCM encryption (entry, key-check, key
+    wrapping) uses a fresh 96-bit random nonce, never a counter or a derived value; a passphrase is Unicode NFC-normalised and then
+    UTF-8 encoded before PBKDF2-HMAC-SHA256, so the same text typed composed or decomposed opens the same file; the
+    iteration count accepted on open is 600,000 to 10,000,000 and the lower bound never rises within v1 (a raised default
+    applies to newly written or re-keyed files only). A count outside the range is refused before any derivation, because
+    `javax.crypto` PBKDF2 cannot be cancelled.
+  - The parser checks every length against the bytes that remain before it allocates, rejects duplicate or non-UTF-8 entry
+    names and trailing bytes, and never throws for any input. A file that fails to parse is not a store: it is reported as
+    unreadable (`Undecryptable`), never as a wrong value.
+### Desktop secure stores
+
+Two encrypted stores exist on desktop, and both use the file format above. Neither is ever chosen for you.
+
+| | `createSecureKeyValueStorage` | `createAppKeyEncryptedKeyValueStorage` |
+|---|---|---|
+| File | `<name>.kmptoolkit.securestorage.bin` | `<name>.kmptoolkit.appkeystorage.bin` |
+| Lock file | the file name plus `.lock` | the file name plus `.lock` |
+| Data key kept by | the OS key store (below) | wrapped by a key your app provides (passphrase or raw 256-bit key) |
+| `protection` | `OS_KEY_STORE_USER_SCOPED`, known without I/O | `PASSPHRASE` or `APP_PROVIDED_KEY` |
+| Native binding needed | yes (JDK 22+ built in, JDK 21 with `kmptoolkit-storage-jna`) | no, any OS and any JDK 21+ |
+
+`StorageConfig.name` is required for both. A quarantined file is `<file>.undecryptable-<yyyyMMdd'T'HHmmss'Z'>` (UTC; `-1`, `-2`
+after it when two quarantines land in one second); the library never deletes one. To start over after a forgotten passphrase
+or a destroyed key, delete the store file (and, for an OS-key store, the key item).
+
+#### The OS-key store
+
+One 256-bit data key per store, kept in the running OS's key store; every value is AES-256-GCM under it. Nothing touches the
+OS before the first call, and a problem is never answered with a weaker store.
+
+| OS | Where the key is | Who else can read it | Prompts |
+|---|---|---|---|
+| macOS | a generic password in the **login (file) keychain**: service `<name>.kmptoolkit.securestorage`, account `dir-` plus 32 hex characters (the first 128 bits of SHA-256 over the canonical directory path as the volume spells it, never case-folded), label your `itemLabel` or the service | same-user code the user lets through the keychain's access prompt; every `java -jar` tool on one JDK shares one code identity | an access prompt when the code identity differs from the item's creator, the unlock prompt for a locked keychain |
+| Windows | a DPAPI blob (current user, no UI) in the file header; entropy `kmptoolkit-storage:<service>`; there is no OS item, so nothing is ever orphaned | any process of the same user | never |
+| Linux | a libsecret item with attributes `service` and `directory` (both are always passed, so only the own identity is touched), the key as base64, in the default collection (inside Flatpak with libsecret 0.20+ the portal backend, per app) | any same-user process while the collection is unlocked | the collection unlock, once per login session; KWallet may ask once |
+
+The identity of a store is the **real path of its file as the volume spells it**: the canonical directory and the stored file
+name (the service is that name without `.bin`), with no case folding (case folding is only for the in-process lock key, where
+joining two names is harmless). Two directories that a volume keeps apart (`App` and `app` on Linux, `t_ı` and `t_i` on APFS)
+are two stores with two keys, and two spellings of one name on a volume that folds case (macOS, Windows) are one file and
+one identity: the stored spelling is used for the item, the header, the key cache, every read and every write, so a
+`put` through the other spelling neither quarantines the file nor flips its name. The suffix is `.bin`
+byte for byte, or `.bin` in another ASCII case (`.BIN`) when the store's own configured file name is not a link: on a volume that folds case the
+configured `x.bin` and a stored `x.BIN` are one file (a case-only rename, or a file a user put there), and refusing its spelling would lock the
+store's own file out for good; on a volume that tells the two apart the configured name can only resolve to `x.bin`. A store file that resolves
+through a link you made to a name that does not end in exactly `.bin` has no identity, whatever the volume folds: every operation that needs one
+answers `OperationFailed`, because the service is the name without its suffix and `X` and `X.bin` would otherwise share one key item (a create of
+one would delete the other's key). Only ASCII case is folded; a look-alike (a dotless `i`, fullwidth letters, a combining mark) is never the suffix. On macOS the Unicode normalization form
+(NFC or NFD) of the path and name is ignored (APFS and HFS+ ignore it too); elsewhere the stored form is kept. A file moved or
+copied into another directory is a store whose key is lost (below), never one that opens another store's key. So is a
+**case-only rename** of the store file's base name or of a directory on its path, on a volume that folds case (macOS, Windows): the stored
+spelling is the identity, so the renamed file has another identity than the item the key was made for, `get` answers `Undecryptable(null)`,
+and the next `put` moves the file aside (quarantine, never a deletion) and creates a new key; rename it back to get the data back (only the
+`.bin` suffix is exempt from this, above). The identity
+is derived again under the lock in every round and is never remembered: a file system that cannot be asked where the file
+really is (an `IOException` or `SecurityException` while resolving the path) answers `OperationFailed` for that one call,
+touches nothing and makes no OS call, and the next call asks again; there is no fallback path and so never a second identity
+for the same store. **Known limits of the suffix rule (documented, not coded):** (1) NTFS compares names through its own upper-case table, which maps a dotless `ı` to `I`, so a
+stored `x.bın` is the same file as the configured `x.bin` there, and that spelling is still refused as a name without identity (only ASCII case is
+folded); a user would have to create or rename the file with a dotless `i` to meet it. (2) The question "is the configured name a link" is asked in the
+round, a moment after the path was resolved: on a volume that does NOT fold case, a link of the user's own to the `.BIN` file of ANOTHER store that is
+replaced by a regular file inside that window would be accepted with the other store's identity. Both need someone to act inside a window or against
+the user's own files; (2) cannot happen on a volume that folds case.
+**Residual:** on a Linux directory that is case-insensitive (ext4 casefold, vfat) the library lists the
+directory to find the stored spelling, but a volume that hides it from the JDK would still give two spellings two identities.
+
+**The data key is cached** in process memory per identity, shared by every instance over the same file. A cached key is never
+trusted alone: every operation reads the file header under the lock and verifies its key-check with the cached key; a mismatch
+drops (and wipes) the entry and fetches the key again. Under a provider that attaches a cause to its real tag failures (below) a mismatch on
+a file WITH entries cannot be told from a provider failure, and a key that another process replaced (for example by `clear()` then `put`)
+looks the same; the library therefore asks the OS item for its key only when the provider still seals and opens with the cached key (a pure
+round trip, no native call), compares it, and replaces the cache only by a key that opens this very file. A provider that fails for
+everything makes no fetch and keeps the cache; the failure is the answer. The costs: a transient token error on a warm store with entries costs
+one fetch and the call succeeds; a file whose key-check no key opens (tampered) answers `OperationFailed` and costs one fetch per call, and with
+`allowUserInteraction = true` that fetch can show a macOS access prompt; an item that is gone, or a macOS non-interactive not-found, while a key is
+cached keeps the failure (the cached key may be the only copy of the real key). Nothing is ever written, quarantined or created for it, and a
+file that keeps changing under the rounds can end in `Unavailable`, after at most four rounds and four fetches: the fourth round fetches the key
+although no round is left to use it, so with `allowUserInteraction = true` such a file can cost one macOS access prompt that nothing uses (bounded,
+and nothing is lost). One rare path fails a single call without asking the item again: a call that fetched the key in its first round, while
+another call of the same process put a key into the cache in the meantime, meets a transient token error on that cached key in its second round;
+the key it already holds is the one it compares, so it answers `OperationFailed` for that one call, never loses data, and the next call recovers
+by the rule above.
+
+**"The key is lost"** means exactly one of: a definitive not-found at the store's own identity (macOS -25300 from an interactive
+call; Linux: no matching item in any collection, locked or not), a key-check that fails with the fetched key, a header whose
+fingerprint or OS tag names another identity, or (Windows) DPAPI failing to unwrap while a one-byte round trip works. A locked,
+dismissed, denied, hung or missing key store is **never** "lost": it answers `AccessDenied`, `Unavailable` or `Unsupported`, never
+touches the file and never leads to quarantine or key creation. On macOS the verification of what `kSecUseAuthenticationUIFail`
+returns on the file keychain has not been run, so the conservative rule applies: a -25300 from a call made with
+`allowUserInteraction = false` is `Unavailable`, not "lost", **for a file with entries**; for a file with **zero entries** the
+same answer is read as "lost, zero entries", because nothing can be lost there (see the crash state below and "Open
+verification items").
+
+What each call does (decided under the locks; every answer after the key has been verified first):
+
+| Situation | `get` | `remove` | `put` | `clear()` | `ensureKey()` |
+|---|---|---|---|---|---|
+| no file | `Success(null)` | `Success` | create, then write | `Success`, nothing created | create |
+| key fetched and verified | normal | normal | normal | empties the file, header kept | `Success` |
+| key lost, entries present | an entry that exists: `Undecryptable(null)`; one that does not: `Success(null)` | drops that entry, copying the header and the other entries byte for byte | quarantines the file, creates a new key | empties the file, header kept | `Undecryptable(null)` |
+| key lost, zero entries | `Success(null)` | `Success` | replaces the empty file with a new key | `Success` | replaces the empty file with a new key |
+| one entry's tag fails | `Undecryptable(key)` for that key | drops it | overwrites it | as healthy | `Success` |
+| OS locked, denied, hung, missing | the mapped error; the file is never touched | same | same | `Success` (no OS call) | same as `get` |
+| file does not parse (bad magic, truncated, wrong kind, absurd lengths, ...) | `Undecryptable(null)` | `Undecryptable(null)`, untouched | quarantines it, creates a new key | quarantines it, creates nothing | `Undecryptable(null)` |
+| file of a **newer** format version | `Undecryptable(null)` | `Undecryptable(null)` | `Undecryptable(null)`, untouched | quarantines it | `Undecryptable(null)` |
+
+`clear()` never calls the OS: it works while the keychain is locked, which is what makes `remove` and `clear()` the way out of
+an `Undecryptable` store.
+
+**Creating a key** happens inside both locks and in this order: the OS part that can fail without side effects first (Linux:
+the session check, the collection-locked check when no dialog is allowed; Windows: the DPAPI call), then the empty sealed file
+(`ExistingFile.Fail`, so another process that wins is detected and read), then the OS item (delete the item at the own
+identity, then add: never an update), then the cache. A failure at any step undoes the previous ones, a quarantined file is
+renamed back, and the store is byte-identical to before the call; cancellation does the same. A crash between the file and the
+item leaves an empty sealed file with no item, which reads as `Success(null)` and is repaired by the next `put` or `ensureKey()`,
+including a store with `allowUserInteraction = false` on macOS (the delete and add of the repair carry no-UI, so a locked
+keychain or a refused delete still fails closed with the file restored). If a rollback that follows a quarantine cannot
+move the quarantined file back, the call answers `OperationFailed` whose cause names the quarantine file (the user's bytes are
+intact there) and the store reads as empty, a crash state, until the next `put`; it is never reported as the original error.
+**A creation
+can hold the store's locks while an OS dialog is on screen** (the unlock dialog of macOS with `allowUserInteraction = true`):
+other callers answer `Unavailable` after their 10 s wait. With `allowUserInteraction = false` the macOS add and delete carry
+`kSecUseAuthenticationUIFail`, and Linux first reads the collection's `Locked` flag and answers `Unavailable` without a prompt.
+Reading and verifying an existing key never holds a lock while a call that can prompt is awaited.
+
+**Per-OS errors.**
+
+| Situation | Answer |
+|---|---|
+| macOS -25308 interaction not allowed, -25299 duplicate on add, -25291 not available | `Unavailable` |
+| macOS -128 user cancelled, -25293 auth failed (also a refused delete of a planted item: the file stays byte-identical) | `AccessDenied(platformCode)` |
+| macOS -25307 no default keychain, -25294 no such keychain | `Unsupported(NO_KEY_STORE)` |
+| macOS -34018 missing entitlement | `Unsupported(MISSING_ENTITLEMENT)` |
+| Windows: unprotect fails and the one-byte round trip fails with 1312 | `Unsupported(NO_USER_SESSION)` |
+| Windows: unprotect fails and the round trip fails otherwise | `Unavailable` |
+| Windows: unprotect fails and the round trip works | key lost (`Undecryptable(null)` for an entry) |
+| Linux: neither `DBUS_SESSION_BUS_ADDRESS` nor `$XDG_RUNTIME_DIR/bus` | `Unsupported(NO_USER_SESSION)`, before any native call |
+| Linux: no libsecret, libsecret older than 0.19 (no `secret_password_search_sync`), service unknown, D-Bus access denied | `Unsupported(NO_KEY_STORE)` |
+| Linux: activation failed, no reply, timed out, collection locked without UI | `Unavailable` |
+| Linux: prompt dismissed | `AccessDenied`; a match that stays locked is `AccessDenied` after a dismissed prompt and `Unavailable` without UI |
+| a native call past its limit (10 s without UI) | `Unavailable` |
+| the binding cannot run (`LinkageError`, `IllegalCallerException`, `SecurityException`) | `Unsupported(NATIVE_ACCESS_UNAVAILABLE)` |
+| anything else | `OperationFailed(operation, key, platformCode)`; failures of `ensureKey()` carry `ENSURE_KEY` and `key = null` |
+
+**Locks.** Reads and writes of an encrypted store both take the in-process lock and the cross-process lock (a read must not see
+a key being created), under one 10 s budget; a call that cannot get them answers `Unavailable`. A file system that refuses file
+locks (see Concurrency above) makes every call answer `OperationFailed` and touch nothing: unlike the plain store, an encrypted
+store never degrades. A store file is at most 256 MiB: a `put` whose encoded file would be larger is refused with
+`InvalidValue(key)` before any store file, key or item is written or created (the store directory and the lock file may already exist by then, as after any first call that fails; a larger file would be read back as unparsable and quarantined by the
+next `put`). The size is worked out by counting, before the value or the entry name is encoded or sealed, so a value (or a name over 65,535 UTF-8 bytes) that cannot fit never allocates its encoded copies; a first `put` into a store that has no file yet is refused the same way, before any key material is asked for (a Linux preflight, the app's provider, a key derivation), when its entry cannot fit even the smallest file of the store's kind; only on Windows is the exact header (a DPAPI blob of its own length) known after DPAPI has produced it, so a value that fits the smallest header but not the real one asks DPAPI first and a failure of that call answers instead of `InvalidValue`; `changeKey` on a file that the new header would push over the limit answers `OperationFailed(CHANGE_KEY)`. The one thing a call does not wait for under the locks is anything slow: the native fetch of an existing
+key runs with no lock held, and the next round re-reads the file and uses the key only if the header and key-check are the
+ones it was fetched for (at most four such rounds, then `Unavailable`).
+
+**A store file that is a symbolic link whose target does not exist.** A read of such a store finds no file: `get` answers `Success(null)`,
+and `remove` and `clear()` change nothing and keep the link. Nothing can be created at the name of a link, so `put` and `ensureKey` answer
+`OperationFailed` (cause: an `IOException`) at once, before any key is made, any OS call is made or the app's key provider is asked,
+and neither the link nor its missing target is touched. This is a permanent fault of the path, not a retry-later one: re-point or remove
+the link and the same instance works. The check asks the store's own configured name as well as the resolved one, so a link whose
+target is deleted in the instant between the path resolution and the read is refused the same way and never makes the store create the
+target at the far end of the link. (The plain store has no create step, so its first write simply replaces the link by the store
+file; it never creates the target.)
+
+**A JDK without AES-GCM or PBKDF2.** A JDK whose provider set cannot do `AES/GCM/NoPadding` or `PBKDF2WithHmacSHA256` (a FIPS-configured
+or restricted set) never makes a store call throw an exception: a `put`, `get`, `remove`, `clear()`, `ensureKey()` or `changeKey` that needs the missing
+algorithm answers `OperationFailed` (with the provider failure as its cause) and writes, creates and moves nothing; a store with data is never
+read as "key lost", and a passphrase is never called wrong (`AccessDenied`) for it. The same instance works once the algorithm is available.
+The same holds for a provider that is present and fails. Every JCA use of the desktop code (the Android store has its own Keystore code; AES-GCM, PBKDF2, the SHA-256 of a long file name and of an
+OS-key store's identity, the random source that makes every nonce, salt and data key) goes through ONE internal boundary that turns whatever an
+engine throws into one typed failure, so no provider failure is a thrown exception or a verdict about the data: a `ProviderException` (a PKCS#11
+token error under a FIPS-configured JDK, or the entropy-source failure of NativePRNG, the default `SecureRandom` on macOS and Linux), an AES-GCM
+engine without support for additional authenticated data, a failing SHA-256, plain noise from a broken engine, or a `Throwable` that is neither
+an `Exception` nor an `Error` (legal in Kotlin, which has no checked exceptions). An `InterruptedException` from a provider is typed too and the
+thread's interrupt status is put back, so the work that follows on that thread inside the store call (the thread of the store's
+dispatcher: a pool thread under the default `Dispatchers.IO`, the caller's own thread only when the store's dispatcher is `Dispatchers.Unconfined`
+or runs the call inline on it) still sees the interrupt; the
+caller's own code after the call does not, on whichever thread it resumes (unless its thread was already interrupted when the call reached
+it). A store call never leaves an interrupt status on a thread that it found clear: when the call's work on a thread ends (at the end of the
+call's block, before any caller is resumed, which matters for a caller on a dispatcher that needs no dispatch such as `Dispatchers.Unconfined`:
+kotlinx.coroutines resumes it, and every coroutine it wakes, inline on the store's thread; and at a suspension, so a call that resumes on
+another thread is covered on both), the status that the boundary put back is cleared, because the dispatcher's thread is not the library's and kotlinx.coroutines does not clear a worker's status
+between two tasks (`Dispatchers.IO` does it only when a worker parks), so a status left behind would refuse the file I/O of the next, unrelated
+coroutine on that worker. The interrupt stays visible as the cause (`InterruptedException`) of the typed failure. The one cost is an interrupt that another thread sends to the caller's own thread while a store call runs on it inline (`Dispatchers.Unconfined`, or the caller's own dispatcher) and an interruptible provider is working: the provider consumes it, and the call clears it like any status the boundary put back, because nothing tells the two apart (an `InterruptedException` does not say who interrupted, and keeping it would leave the status on borrowed pool threads), so that caller sees the interrupt only as the cause of the `OperationFailed` it gets back. A status that was already set
+when the call reached the thread (an interrupted caller), or that appeared without a provider (another thread interrupted this one), is never
+cleared. Only an `InterruptedException` that the provider call throws itself counts: one
+that the JDK wraps (an SPI constructor that throws while `getInstance` makes the engine leaves as a `NoSuchAlgorithmException` with it as
+the cause) or that another exception carries as its cause is typed like any other failure and leaves the status alone, because a cause can
+be an exception that came from another thread and inventing an interrupt is worse than missing one that a provider constructor hid. Whatever the random source had written when it failed is wiped. Two scans
+of the build enforce that nothing else of the desktop code touches the JCA: one reads the constant pools of EVERY class entry of the built jvm jar (any case of the `.class` extension, with the JDK's case mapping applied to the name (lower, upper, lower), because a class loader over a directory on a case-insensitive file system loads `X.CLASS` too, and APFS reads `X.claſs` (long s), `X.claß` and `X.claẞ` as `X.class`; the one artifact that ships: commonMain and jvmMain, the `jvmFfm`
+output wherever that source set exists, the javac output of Java sources such as `src/jvmMain/java`, and any class packed from the resources or
+from a later `from(...)` of the jar task; the build hands the jar to the test, so no directory is discovered or classified and a new source
+set, language or input cannot hide, and the test fails when it has no jar, an empty jar, a nested archive or a repeated entry name; a second scan of
+the directories the jar is built from backs it for a tree without a jar), so it
+sees a use however the source spells it and a call on the random source the boundary hands out (also through `java.util.Random`,
+`RandomGenerator` or `asKotlinRandom()`, which no main code uses today) and a type that only a signature names (an array, a generic argument,
+a wildcard, the bound of a type parameter: every `Utf8` entry of a class is read for the types it names, which is what a Java class needs, as it has no
+Kotlin metadata that names them a second time). The boundary is exempt by its exact class name and by nothing
+else: the class has no nested class, a class whose name only starts with `Jca$` (a back-quoted name, a renamed file facade) fails the
+scan for that name whatever file it was compiled from (the file name a class carries is only a base name and proves nothing), and a
+second class with the boundary's name anywhere else in the jar fails it too. The other scan reads every `.kt` and `.java` file under every
+`jvm*` source directory of the module that is not a test source set (`jvmMain`, `jvmFfm` where it exists, a set that does not exist yet; found
+by walking `src/`). Neither sees reflection by a string built at run time, or a helper of another module that reaches the JCA
+inside its own code, or class bytes that sit under an entry name that is not a class name and are defined by a custom class loader at run time;
+the bytecode scan does not flag the `toString()` of a provider's random engine that a caller reaches through `Object`.
+The two scans are defence in depth for the maintainers of the module: they stop an accidental direct JCA use and a careless new source set,
+they cannot stop repository code that is written on purpose to evade them, and a further evasion of that kind is a documented limit, not a gap to close
+with another rule. (A Java source under `src/jvmFfm/java` is not a gap: the build refuses it on a branch that has that source set, because the Java and Kotlin
+compile tasks of its compilation disagree on the JVM target, so no such class ships.) The one
+thing it never types is an `Error`: the JDK's DRBG `SecureRandom` (the default on Windows, and on Linux wherever `securerandom.source` is not exactly `/dev/random` or
+`/dev/urandom`, for example with `-Djava.security.egd=file:/dev/./urandom`) reports a seed source it cannot read as an `InternalError`, a
+`VirtualMachineError` that the library does not catch: that call throws it, and nothing is created, moved or held when it does. (The plain store derives its lock-file and temporary-file names from the file name and
+uses SHA-256 only for a file name of 232 bytes or more. A failing SHA-256 provider with such a name never makes the factory throw: the
+names are computed again by every write, which answers `OperationFailed` with the provider failure as its cause and touches nothing, and works
+once the provider does; reads need neither name.)
+
+Only a GCM tag that does not verify means "wrong key or tampered", and only one that carries no provider cause. A PKCS#11 provider reports a
+token error during a decryption as a bad-tag exception that has the token's exception as its cause, so the library reads a bad-tag exception
+with a cause as a provider failure. The cost is deliberate: under such a provider a genuinely wrong key or a tampered file also answers
+`OperationFailed` (never `AccessDenied`, never "key lost", never a quarantine), because the provider attaches a cause to its real tag failures
+too. An environment problem is never allowed to delete data, so a store with entries is never replaced because of it. On such a JDK the
+way out of a truly lost OS key of an **OS-key store** is `clear()` followed by `put` or `ensureKey()`: `clear()` empties the file without
+any key (it keeps the header and the key-check), and a file with no entries has nothing to lose, so a key-check that the provider fails on
+reads as "key lost" for it (the same rule as a not-found item) and the next `put` or `ensureKey()` replaces the empty file and the OS item.
+A transient token error on an empty store therefore costs a key replacement; another process of the app that still holds the old key
+notices (its cached key no longer opens the file), fetches the new key and goes on, as described under "The data key is cached", so the
+replacement costs it one fetch and no lock-out. An **app-key store** has no such way: its
+`clear()` needs the key the app supplies, so under such a provider it answers `OperationFailed` too; for a key that is really lost there,
+see "A forgotten passphrase" (delete the store's files).
+
+**A call on an interrupted thread.** When the store's dispatcher runs a call on a thread whose interrupt status is set (for example
+`Dispatchers.Unconfined` called from an interrupted thread), the JDK refuses the file I/O: the call answers `OperationFailed` (cause: an
+`IOException` that wraps `ClosedByInterruptException`), writes nothing, leaves no temporary file or lock, keeps the status, and can be
+repeated once the status is cleared. With the default `Dispatchers.IO` the I/O runs on a pool thread and an interrupted caller is served
+normally; a store call never leaves an interrupt status on that pool thread, so a later call there, or a caller that is resumed inline there, is
+not affected by an earlier call whose provider was interrupted. (`runBlocking` on an interrupted thread throws `InterruptedException` before the store answers; that is kotlinx.coroutines
+behaviour. A `get`, `remove` or `clear()` of a store whose directory does not exist answers `Success` without any I/O, and a `put` over
+the size bound answers `InvalidValue`, whatever the thread's status.)
+
+**Open verification items (macOS, not yet run on a real keychain).** Whether `kSecUseAuthenticationUIFail` applies to
+`SecItemAdd` and `SecItemDelete` on the file keychain; whether a locked keychain and an item of another code identity both
+return -25308 (never -25300); whether deleting the previous unsigned build's item prompts. Until then a non-interactive -25300 is
+`Unavailable` (for a zero-entry file the repair of the crash state goes ahead without a dialog, as above), and the documented behaviour of `allowUserInteraction = false` is "a needed dialog answers `Unavailable`" for the
+unlock dialog and, if the verification fails, only for it.
+
+#### `probeDesktopKeyStore`
+
+`probeDesktopKeyStore(options)` answers which key store a secure store would use now: `MACOS_FILE_KEYCHAIN`, `WINDOWS_DPAPI`,
+`LINUX_SECRET_SERVICE` or `LINUX_SECRET_PORTAL` (only when libsecret actually selected the portal), or the typed reason there is
+none. It never prompts and never reads, creates or deletes a key (macOS: an attribute-only query with the UI suppressed; Windows:
+one throwaway byte protected and unprotected; Linux: session check, then the default collection's `Locked` flag and the backend
+check), and every native call is limited to 10 s, so it answers even when the OS hangs. A locked macOS keychain or Linux
+collection is a success when `allowUserInteraction` is `true` and `Unavailable` when it is `false`. A failure outside the typed
+answers is `OperationFailed(ENSURE_KEY, key = null)`. The probe says which key store a secure store would use, not that a store will
+work: it makes no cipher call, so a JDK without AES-GCM or PBKDF2 still probes as available while every create answers `OperationFailed`.
+
+#### The app-key store
+
+No OS call, no binding, no native thread: it works on every OS and on JDK 21 without the JNA artifact. The data key is wrapped by
+a key derived from what your app provides.
+
+- **Open order.** The header's iteration count is checked first (outside 600,000 to 10,000,000, including 2^32-1, is
+  `Undecryptable(null)` at once: no derivation, no provider call). Then the provider is called, the key-encryption key is derived
+  (a passphrase: PBKDF2-HMAC-SHA256 over the NFC text with the header's salt and iteration count; a raw key: the key itself) and the
+  data key is unwrapped. An unwrap failure is `AccessDenied` (the wrong key, never `Undecryptable`); an unwrap that works with a
+  failing key-check is `Undecryptable(null)` (corruption).
+- **Provider outcomes.** A returned wrong key, an empty passphrase, a passphrase with an **unpaired UTF-16 surrogate** (it has no
+  UTF-8 form, and the JDK would silently turn it into `?`, so two different passphrases would open one store) or a raw key that is
+  not 32 bytes is `AccessDenied`; the cause never contains the secret. A provider that throws is `Unavailable(cause)`;
+  `CancellationException` propagates. The provider is called at most once per operation, and every array it returned is wiped
+  as soon as it has been used, so it must return a fresh array on every call. Wiping is best effort and stops where the JDK stops. The arrays this library makes (the NFC copy of
+  the passphrase, its UTF-8 encoding, the derived key) are wiped as soon as they are used, the fresh data key of a create or a re-key and
+  the data key unwrapped from a file are wiped however the operation ends (success, a typed failure such as a failing crypto provider,
+  or cancellation), and every UTF-8 encoding is written
+  once into an array of exactly its size, so no larger copy of the library's own encodings is dropped unwiped. But the JDK's
+  PBKDF2 implementation keeps copies that no code outside the JDK can wipe: its key object keeps the passphrase characters and
+  the derived key-encryption key until the object is garbage collected, and its HMAC keeps the passphrase's bytes in a masked
+  form (the bytes XOR a fixed constant, which is as good as the passphrase for this derivation; a passphrase over 64 bytes
+  leaves its SHA-256 the same way) that the JDK never clears, not even after a collection. The JDK's own UTF-8 conversion of
+  the passphrase can also leave a partial, unwiped copy when it has to grow its buffer (non-ASCII text: a single two-byte
+  character in a short passphrase is enough, since the buffer is sized for one byte per character). That holds for **every**
+  passphrase, ASCII included (the conversion copy only for non-ASCII text), so the heap holds these copies besides the wiped
+  arrays: the first two until a collection, the masked HMAC pads and the partial conversion copy until the memory is reused. A passphrase with any character from U+0300 up
+  (Cyrillic, Arabic, CJK, a combining mark, an emoji) additionally passes through immutable `String`s made by the JDK's
+  normalizer (a copy of the input and the result), which cannot be wiped either (the JDK has no normalizer that works on a
+  caller-owned buffer); a passphrase in which every character is below U+0300 (ASCII, Latin-1 and Latin Extended: the usual
+  typed text, which is already NFC) is only copied into an array and spares just that part. A re-key with the key object the instance already uses asks its provider once.
+- **Every operation verifies the key first**, a `get` of an absent key and `clear()` included, on an existing file: a wrong
+  passphrase never reads as "absent", and a wrong key never changes a byte. With no file there is nothing to verify: `get`,
+  `remove` and `clear()` answer `Success` without calling the provider.
+- **The provider and PBKDF2 run with no lock held.** A slow provider (a password dialog) or a 10 000 000-iteration derivation
+  never makes another caller wait out its 10 s budget; the round that needs the key says so, the locks are released, and the
+  next round re-reads the file and uses the derived key only if the header and key-check are the ones it was derived for.
+- **The key cache is per instance and bound to the exact header bytes** (kind, salt, iterations, wrapped key). Another instance
+  over the same file never shares it: an instance built with the wrong key gets `AccessDenied` while another instance is open and
+  unlocked, and an instance that holds the old key gets `AccessDenied` after another instance's `changeKey`.
+- **`changeKey(newKey)`** verifies the current key, asks the new provider (validated like any provider; the new key being unusable is
+  `AccessDenied` and changes nothing), then re-encrypts every value under a fresh data key wrapped by the new key with a new salt and
+  key-check, and replaces the file atomically; a crash leaves the old file or the new one, both complete. The instance is bound to the
+  new key afterwards (its `protection` follows the new key's type). A value that cannot be decrypted with the current key makes
+  `changeKey` answer `Undecryptable(key)` and change nothing. Copies of the file taken before the change stay readable with the old
+  key (they are not re-encrypted). On an absent store `changeKey` only binds the instance to the new key. A store of the other key type
+  than the instance's key (a passphrase file opened with a raw key, or the other way round) is a key that cannot open it:
+  `AccessDenied` on every operation, nothing moved or changed.
+- **A forgotten passphrase** has no reset in the API: delete the store's files and start over.
 
 ## Threading
 
@@ -491,7 +916,8 @@ call from the main thread and from any number of coroutines at once:
   updates the item instead, so neither write reports a failure. The store holds no lock and no state, so
   a call waiting on a user-presence sheet blocks no other call, and cancelling it dismisses the sheet.
 - **Desktop.** Instances over the same file share a coroutine lock (`KeyedMutex` of `kmptoolkit-files`), so their read-modify-write
-  cycles over the file never interleave. The lock is keyed by the path in Unicode NFC with the full
+  cycles over the file never interleave (a read does not take it); a write then takes the cross-process file lock (see "Concurrency" above), the only
+  thing it ever waits for while holding the in-process lock, within the same 10 s budget as the wait for the in-process lock itself, and cancellable. Reads take neither lock. The lock is keyed by the path in Unicode NFC with the full
   case mapping (`ß`, `ẞ` and `ss`, the Greek sigma forms, `Settings` and `settings` share it), so two
   spellings of one name share it on a volume that folds case (macOS, Windows); on a case-sensitive volume they are two files behind one lock. A file that
   cannot be parsed, including one that is not valid UTF-8, fails every operation on it, writes included, and is never replaced; `clear()` is

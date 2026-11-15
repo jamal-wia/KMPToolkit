@@ -1,0 +1,99 @@
+package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
+
+import java.nio.CharBuffer
+import java.text.Normalizer
+
+/**
+ * PBKDF2-HMAC-SHA256 for the passphrase store (plan 4.3, 4.8, D-8). The JDK's PBKDF2 through the [Jca] boundary, no dependency.
+ *
+ * The passphrase is Unicode NFC-normalised, then UTF-8 encoded, before derivation; this is frozen by format v1, so the
+ * same text typed in NFC and in NFD opens the same file. The accepted iteration range is [ITERATIONS_FLOOR]..
+ * [ITERATIONS_CEILING]; the floor never rises within v1 (a raised default applies to new or re-keyed files only), and a
+ * count outside the range is refused before any derivation, because `javax.crypto` PBKDF2 cannot be cancelled and a file
+ * could otherwise ask for 2^32-1 iterations.
+ */
+internal object Pbkdf2 {
+    const val ITERATIONS_FLOOR: Int = 600_000
+    const val ITERATIONS_CEILING: Int = 10_000_000
+    const val DEFAULT_ITERATIONS: Int = 600_000
+    const val KEY_BYTES: Int = 32
+
+    /** Every code point below this one is its own NFC form and cannot be affected by a neighbour (the first one that can is U+0300). */
+    private const val FIRST_CHAR_THAT_CAN_CHANGE_UNDER_NFC: Char = '\u0300'
+
+    /** Whether a header's iteration count may be derived with. Check before calling [deriveKek]. */
+    fun isAcceptableIterationCount(iterations: Long): Boolean = iterations in ITERATIONS_FLOOR..ITERATIONS_CEILING
+
+    /**
+     * [passphrase] as NFC, as characters. The returned array is owned by the caller, who wipes it.
+     *
+     * Text in which every character is below U+0300 (ASCII, Latin-1 and Latin Extended text, the usual typed passphrase)
+     * is already NFC: U+0300 is the first code point that can combine with a previous one or that has a different NFC
+     * form, so such text is only copied into the returned array and no `String` is made. Any other text goes through
+     * `java.text.Normalizer`, which works on immutable `String`s (it copies its input into one and returns another): those
+     * copies of the passphrase cannot be wiped and stay on the heap until they are collected (the JDK has no normalizer
+     * that works on a caller-owned buffer). Only the caller's array and this method's result array are wiped. (The JDK's PBKDF2
+     * keeps a copy of the passphrase too, for every passphrase: see [derive].)
+     */
+    fun normalized(passphrase: CharArray): CharArray {
+        if (passphrase.all { char: Char -> char < FIRST_CHAR_THAT_CAN_CHANGE_UNDER_NFC }) return passphrase.copyOf()
+        return Normalizer.normalize(CharBuffer.wrap(passphrase), Normalizer.Form.NFC).toCharArray()
+    }
+
+    /**
+     * The UTF-8 bytes of the NFC form of [passphrase], for tests of the frozen encoding.
+     *
+     * @throws IllegalArgumentException when the passphrase holds an unpaired surrogate (no UTF-8 form).
+     */
+    fun normalizedUtf8(passphrase: CharArray): ByteArray {
+        val chars: CharArray = normalized(passphrase)
+        try {
+            return CharBuffer.wrap(chars).toStrictUtf8()
+        } finally {
+            chars.fill(' ')
+        }
+    }
+
+    /**
+     * Raw PBKDF2-HMAC-SHA256 of [password] (no normalisation, no range check: the known-answer tests use RFC 7914 counts).
+     * Blocking and not cancellable; a caller runs it off the caller's thread.
+     *
+     * @throws JcaFailure (an `IllegalStateException`) when the JDK has no PBKDF2 provider or the provider fails in any way; the original is the cause.
+     *
+     * Not everything this call holds can be wiped, and none of it from outside the JDK. The JDK's key object (`PBKDF2KeyImpl`)
+     * clones [password] into a field of its own and keeps the derived key in another, and clears both only when the object is
+     * garbage collected (a cleaner); `PBEKeySpec.clearPassword` wipes only the spec's copy. Its HMAC (`HmacCore`) also keeps
+     * the passphrase's bytes in a masked form (XOR a fixed constant, as good as the passphrase for this derivation; a
+     * passphrase over 64 bytes leaves its SHA-256 the same way) that the JDK never clears, not even after a collection. The
+     * JDK's own UTF-8 conversion of the passphrase (`Charset.encode`) can leave a partial, unwiped copy when it has to grow its
+     * buffer. This holds for every passphrase, ASCII included (the conversion copy only for non-ASCII text). "Written once at
+     * its exact size" is true of this library's own encodings ([toStrictUtf8]), not of the JDK's. Re-implementing PBKDF2 over
+     * `Mac` would not help (HMAC keeps those pads), so this is stated, not fixed.
+     */
+    fun derive(password: CharArray, salt: ByteArray, iterations: Int, lengthBytes: Int): ByteArray =
+        Jca.pbkdf2Sha256(password, salt, iterations, lengthBytes)
+
+    /**
+     * The 32-byte key-encryption key of a passphrase store: NFC, then PBKDF2 with [salt] and [iterations].
+     * [passphrase] is not modified and not wiped (the caller owns it); the normalised character array made here is wiped.
+     * Text with a character from U+0300 up also passes through immutable `String`s of `Normalizer` that cannot be wiped (see [normalized]),
+     * and the JDK's PBKDF2 keeps copies of the passphrase and of the derived key that cannot be wiped from outside the JDK, for every passphrase (see [derive]).
+     *
+     * @throws IllegalArgumentException for an empty passphrase, a passphrase with an unpaired surrogate (it has no UTF-8
+     *   form, and the JDK would silently turn it into `?`, so two different passphrases would derive one key), a salt that
+     *   is not 16 bytes, or a count outside the range.
+     */
+    fun deriveKek(passphrase: CharArray, salt: ByteArray, iterations: Int): ByteArray {
+        require(passphrase.isNotEmpty()) { "an empty passphrase has no key" }
+        require(salt.size == SecureFileFormat.SALT_BYTES) { "salt must be 16 bytes" }
+        require(isAcceptableIterationCount(iterations.toLong())) { "iteration count out of range" }
+        val normalized: CharArray = normalized(passphrase)
+        try {
+            // Strict check before the JDK sees the characters: PBEKeySpec encodes with replacement.
+            CharBuffer.wrap(normalized).toStrictUtf8().fill(0)
+            return derive(normalized, salt, iterations, KEY_BYTES)
+        } finally {
+            normalized.fill(' ')
+        }
+    }
+}

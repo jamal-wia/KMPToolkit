@@ -1,3 +1,6 @@
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.process.CommandLineArgumentProvider
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 
 plugins {
@@ -63,11 +66,35 @@ kotlin {
             // The desktop store's atomic write and its per-file lock are kmptoolkit-files' writeAtomically and
             // KeyedMutex; Android and iOS keep their own stores. implementation: no files type is public here.
             implementation(project(":kmptoolkit-files"))
+            // @ToolkitInternalApi marks the internal seam of the desktop secure store (internal/desktop), which
+            // kmptoolkit-storage-jna implements across a module boundary. implementation: no core type is public here.
+            implementation(project(":kmptoolkit-core"))
         }
+        // The seam is public + @ToolkitInternalApi so another artifact can implement it; this module uses it freely.
+        jvmMain { languageSettings { optIn("io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi") } }
+        jvmTest { languageSettings { optIn("io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi") } }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
             // Not published; host path rules and the unwritable-directory helper for the file tests.
             implementation(project(":test-support"))
         }
     }
+}
+
+// The JCA bytecode scan (JcaBytecodeScanTest, decisions D-P12) reads the jar this module SHIPS, not the directories it is built from:
+// the jvm jar is by definition every class that ships, wherever its inputs live (class directories, processed resources, any
+// `from(...)` a later change adds). The test task builds the jar first and is told where it is through a system property whose name
+// is the scan's own (it must not collide with the `kmptoolkit.test.targetJar` that the ffm build logic sets on the same task). The jar
+// is a task input (content only), so a changed jar reruns the scan; the machine-specific path is not.
+tasks.withType<Test>().matching { it.name == "jvmTest" }.configureEach {
+    val jvmJar: TaskProvider<Jar> = tasks.named<Jar>("jvmJar")
+    dependsOn(jvmJar)
+    val jarFile: Provider<RegularFile> = jvmJar.flatMap { it.archiveFile }
+    inputs.file(jarFile).withPropertyName("shippedJvmJar").withPathSensitivity(PathSensitivity.NONE)
+    jvmArgumentProviders.add(ShippedJvmJarProperty(jarFile.map { it.asFile.path }))
+}
+
+/** `-Dkmptoolkit.test.jvmJar=<path of the built jvm jar>`, computed when the test JVM starts; the path is machine-specific, so it is no task input. */
+private class ShippedJvmJarProperty(@get:Internal val jar: Provider<String>) : CommandLineArgumentProvider {
+    override fun asArguments(): Iterable<String> = listOf("-Dkmptoolkit.test.jvmJar=${jar.get()}")
 }

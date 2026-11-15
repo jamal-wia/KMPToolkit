@@ -1,3 +1,43 @@
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/AppEncryptionKey {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/AppEncryptionKey$Passphrase : io/github/jamal_wia/kmptoolkit/storage/AppEncryptionKey {
+	public fun <init> (Lkotlin/jvm/functions/Function1;I)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getIterations ()I
+	public final fun getProvider ()Lkotlin/jvm/functions/Function1;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/AppEncryptionKey$Raw : io/github/jamal_wia/kmptoolkit/storage/AppEncryptionKey {
+	public fun <init> (Lkotlin/jvm/functions/Function1;)V
+	public final fun getProvider ()Lkotlin/jvm/functions/Function1;
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/AppKeyEncryptedKeyValueStorage : io/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage {
+	public abstract fun changeKey (Lio/github/jamal_wia/kmptoolkit/storage/AppEncryptionKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore : java/lang/Enum {
+	public static final field LINUX_SECRET_PORTAL Lio/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore;
+	public static final field LINUX_SECRET_SERVICE Lio/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore;
+	public static final field MACOS_FILE_KEYCHAIN Lio/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore;
+	public static final field WINDOWS_DPAPI Lio/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/DesktopSecureStorageOptions {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Z)V
+	public synthetic fun <init> (Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getAllowUserInteraction ()Z
+	public final fun getItemLabel ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/storage/DeviceIdProvider {
 	public static final field Companion Lio/github/jamal_wia/kmptoolkit/storage/DeviceIdProvider$Companion;
 	public static final field DEFAULT_KEY Ljava/lang/String;
@@ -19,6 +59,11 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/storage/KeyValueS
 	public abstract fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun put (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun remove (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/ProbeDesktopKeyStoreKt {
+	public static final fun probeDesktopKeyStore (Lio/github/jamal_wia/kmptoolkit/storage/DesktopSecureStorageOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun probeDesktopKeyStore$default (Lio/github/jamal_wia/kmptoolkit/storage/DesktopSecureStorageOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage : io/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage {
@@ -140,7 +185,10 @@ public final class io/github/jamal_wia/kmptoolkit/storage/StorageError$Unsupport
 }
 
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageFactory_jvmKt {
+	public static final fun createAppKeyEncryptedKeyValueStorage (Ljava/io/File;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;Lio/github/jamal_wia/kmptoolkit/storage/AppEncryptionKey;)Lio/github/jamal_wia/kmptoolkit/storage/AppKeyEncryptedKeyValueStorage;
 	public static final fun createKeyValueStorage (Ljava/io/File;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;)Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;
+	public static final fun createSecureKeyValueStorage (Ljava/io/File;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;Lio/github/jamal_wia/kmptoolkit/storage/DesktopSecureStorageOptions;)Lio/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage;
+	public static synthetic fun createSecureKeyValueStorage$default (Ljava/io/File;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;Lio/github/jamal_wia/kmptoolkit/storage/DesktopSecureStorageOptions;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageOperation : java/lang/Enum {
@@ -216,5 +264,88 @@ public final class io/github/jamal_wia/kmptoolkit/storage/UnsupportedReason : ja
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
 	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/DpapiCalls {
+	public abstract fun protect ([B[B)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
+	public abstract fun unprotect ([B[B)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/MacKeychainCalls {
+	public abstract fun addGenericPassword (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[BZ)I
+	public abstract fun copyGenericPassword (Ljava/lang/String;Ljava/lang/String;Z)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
+	public abstract fun deleteGenericPassword (Ljava/lang/String;Ljava/lang/String;Z)I
+	public abstract fun probe (Z)I
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/NativeKeyStoreBinding {
+	public abstract fun linux ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretServiceCalls;
+	public abstract fun macOs ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/MacKeychainCalls;
+	public abstract fun windows ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/DpapiCalls;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult$Failure : io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus;)V
+	public final fun getStatus ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult$Success : io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult {
+	public fun <init> (Ljava/lang/Object;)V
+	public final fun getValue ()Ljava/lang/Object;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (ILjava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCode ()I
+	public final fun getDomain ()Ljava/lang/String;
+	public final fun getErrorName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun isSuccess ()Z
+	public final fun isSymbolMissing ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus$Companion {
+	public final fun getSUCCESS ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus;
+	public final fun getSYMBOL_MISSING ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup$Found : io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup {
+	public fun <init> ([B)V
+	public final fun getSecret ()[B
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup$LockedMatch : io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup$LockedMatch;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup$NotFound : io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup$NotFound;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretServiceCalls {
+	public abstract fun backendIsPortal ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
+	public abstract fun clear (Ljava/util/Map;)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus;
+	public abstract fun defaultCollectionLocked ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
+	public abstract fun lookup (Ljava/util/Map;Z)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
+	public abstract fun store (Ljava/lang/String;Ljava/util/Map;[B)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus;
 }
 

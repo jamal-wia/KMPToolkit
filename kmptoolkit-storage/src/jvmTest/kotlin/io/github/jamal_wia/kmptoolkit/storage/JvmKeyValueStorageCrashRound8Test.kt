@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
 import io.github.jamal_wia.kmptoolkit.files.FileAccess
 import io.github.jamal_wia.kmptoolkit.files.FileError
 import io.github.jamal_wia.kmptoolkit.files.FileResult
@@ -72,7 +73,11 @@ class JvmKeyValueStorageCrashRound8Test {
                 assertTrue(store().put("other", "x") is StorageResult.Success, "$at: a put after the death")
                 assertEquals(expected, store().get("keep").getOrNull(), "$at: a put after the death changed the value")
                 store().clear()
-                assertEquals(listOf(neighbour.name, neighbourTemp.name).sorted(), names(), "$at: clear() must remove the store file and its own leftovers and nothing else")
+                assertEquals(
+                    listOf(neighbour.name, neighbourTemp.name, CrossProcessLock.lockNameOf(file().name)).sorted(),
+                    names(),
+                    "$at: clear() must remove the store file and its own leftovers and nothing else (the lock file stays)",
+                )
             }
         }
     }
@@ -101,7 +106,7 @@ class JvmKeyValueStorageCrashRound8Test {
             oneDigit.writeText("half")
             assertEquals("café 日本語", store().get("name").getOrNull(), "a 4.0.0 leftover was read as data")
             store().clear()
-            assertEquals(emptyList(), names(), "clear() left 4.0.0 files behind")
+            assertEquals(listOf(CrossProcessLock.lockNameOf(file().name)), names(), "clear() left 4.0.0 files behind (the lock file stays)")
         }
     }
 
@@ -118,7 +123,7 @@ class JvmKeyValueStorageCrashRound8Test {
             val put: StorageResult<Unit> = store(Refusing(createFileAccess())).put("keep", "new")
             assertTrue(put is StorageResult.Failure && put.error is StorageError.OperationFailed, "$put")
             assertEquals("old", store().get("keep").getOrNull())
-            assertEquals(listOf(file().name), names(), "a refused write left a temporary file")
+            assertEquals(listOf(file().name, CrossProcessLock.lockNameOf(file().name)).sorted(), names(), "a refused write left a temporary file")
         }
     }
 
@@ -143,13 +148,17 @@ class JvmKeyValueStorageCrashRound8Test {
             val storage: KeyValueStorage = createKeyValueStorage(directory, StorageConfig(own))
             assertTrue(storage.put("k", "v") is StorageResult.Success)
             assertEquals("v", storage.get("k").getOrNull())
-            assertEquals(listOf(ownFile), names(), "a successful write left a temporary file")
+            assertEquals(listOf(ownFile, CrossProcessLock.lockNameOf(ownFile)).sorted(), names(), "a successful write left a temporary file")
             val ownLeftover = File(directory, prefixOf(ownFile) + "77.tmp")
             val neighbourLeftover = File(directory, prefixOf(neighbourFile) + "77.tmp")
             ownLeftover.writeText("half")
             neighbourLeftover.writeText("half")
             storage.clear()
-            assertEquals(listOf(neighbourLeftover.name), names(), "clear() must remove its own leftover and keep the neighbour's")
+            assertEquals(
+                listOf(neighbourLeftover.name, CrossProcessLock.lockNameOf(ownFile)).sorted(),
+                names(),
+                "clear() must remove its own leftover and keep the neighbour's",
+            )
         }
     }
 }

@@ -378,6 +378,7 @@ public final class io/github/jamal_wia/kmptoolkit/files/KeyedMutex {
 	public final fun getActiveKeyCount ()I
 	public final fun tryWithLock (Ljava/lang/Object;Lkotlin/jvm/functions/Function0;)Z
 	public final fun withLock (Ljava/lang/Object;Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun withLock-WPwdCS8 (Ljava/lang/Object;JLkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/files/MoveOptions {

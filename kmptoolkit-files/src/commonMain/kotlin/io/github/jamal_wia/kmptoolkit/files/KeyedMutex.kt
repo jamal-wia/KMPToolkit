@@ -1,8 +1,12 @@
 package io.github.jamal_wia.kmptoolkit.files
 
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration
 
 /**
  * One coroutine [Mutex] per key, held in a registry only while some caller holds or awaits it, so the registry does
@@ -30,6 +34,46 @@ public class KeyedMutex<K : Any> {
         try {
             return mutex.withLock { action() }
         } finally {
+            release(key)
+        }
+    }
+
+    /**
+     * Like [withLock], but gives up waiting for [key] after [timeout] and returns what [onTimeout] answers; [action]
+     * then never runs. Only the wait for the key is timed: once the key is held, [action] runs to completion however
+     * long it takes, so a timeout can never report failure for an action that ran. A [timeout] that is zero or negative
+     * does not wait at all (the key is not even tried), and [Duration.INFINITE] waits like [withLock]. The key is
+     * released when [action] returns, throws, or the caller is cancelled while waiting or running; a wait that times
+     * out leaves nothing behind (the registry is released). [onTimeout] must not suspend.
+     *
+     * This exists so a caller that takes a second, bounded lock after this one (a cross-process file lock) can give one
+     * deadline to both waits instead of waiting up to the deadline once per queued caller. It is not part of the
+     * suite's public contract: it can change in any release.
+     */
+    @ToolkitInternalApi
+    public suspend fun <T> withLock(key: K, timeout: Duration, onTimeout: () -> T, action: suspend () -> T): T {
+        val mutex: Mutex = register(key)
+        // Decided on the flag, never on the returned value: a timeout that fires right after lock() returned must not
+        // leak the lock, and a lock won in the instant of a cancellation is released before the cancellation propagates.
+        var locked: Boolean = false
+        try {
+            withTimeoutOrNull(timeout) {
+                mutex.lock()
+                locked = true
+            }
+        } catch (cancelled: CancellationException) {
+            if (locked) mutex.unlock()
+            release(key)
+            throw cancelled
+        }
+        if (!locked) {
+            release(key)
+            return onTimeout()
+        }
+        try {
+            return action()
+        } finally {
+            mutex.unlock()
             release(key)
         }
     }
