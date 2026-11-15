@@ -3,8 +3,6 @@
 package io.github.jamal_wia.kmptoolkit.location
 
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
-import io.github.jamal_wia.kmptoolkit.logging.LogLevel
-import io.github.jamal_wia.kmptoolkit.logging.Logger
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.math.abs
@@ -32,14 +30,15 @@ internal fun normalizeDegrees(degrees: Double): Double {
 }
 
 /**
- * Emits one event of a failure path, and absorbs whatever the app's [Logger] throws. A logger is app code and
+ * Runs [emit], which logs one event, and absorbs whatever the app's logger throws. A logger is app code and
  * promises nothing about throwing (`Logger.log`): on a failure path, or inside a platform callback, its failure
  * must never replace what the path was doing (releasing a sensor, a manager) nor reach the platform's thread.
- * Only `Exception` is absorbed; an `Error` (out of memory, a linkage error) still propagates.
+ * Only `Exception` is absorbed; an `Error` (out of memory, a linkage error) still propagates. Takes a lambda
+ * rather than a `Logger` because the logging artifact is a dependency of the Android and iOS source sets only.
  */
-internal fun Logger.logSafely(level: LogLevel, throwable: Throwable? = null, message: () -> String) {
+internal inline fun guardLogger(emit: () -> Unit) {
     try {
-        log(level, throwable, message)
+        emit()
     } catch (ignored: Exception) {
         // Nowhere left to report a logger that fails to log; the event is lost, the caller carries on.
     }

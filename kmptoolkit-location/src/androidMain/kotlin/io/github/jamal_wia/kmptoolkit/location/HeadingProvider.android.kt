@@ -12,9 +12,10 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
 import android.os.Looper
-import io.github.jamal_wia.kmptoolkit.logging.LogLevel
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.logging.d
+import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.math.PI
 import kotlinx.coroutines.flow.Flow
 
@@ -292,7 +293,7 @@ internal class AndroidHeadingProvider(
     private fun declinationFor(position: DeclinationPosition): Double? = try {
         declinationOf(position.coordinates, position.altitudeMeters, currentTimeMillis()).takeIf { value: Double -> value.isFinite() }
     } catch (failure: Exception) {
-        logger.logSafely(LogLevel.WARN, failure) { "Could not compute the magnetic declination" }
+        guardLogger { logger.w(failure) { "Could not compute the magnetic declination" } }
         null
     }
 
@@ -330,7 +331,7 @@ internal class AndroidHeadingProvider(
             for (sensor: Sensor in chosen.sensors) {
                 if (!hub.register(sensorListener, sensor)) {
                     runCatching { hub.unregister(sensorListener) }
-                    logger.logSafely(LogLevel.WARN) { "The platform refused to enable heading sensor ${sensor.name}: the heading stays silent" }
+                    guardLogger { logger.w { "The platform refused to enable heading sensor ${sensor.name}: the heading stays silent" } }
                     return null
                 }
             }
@@ -345,7 +346,7 @@ internal class AndroidHeadingProvider(
                     positionRegistered = true
                 } catch (failure: Exception) {
                     runCatching { source.unregister(candidate) }
-                    logger.logSafely(LogLevel.DEBUG) { "No passive position for true north (${failure::class.simpleName}): trueDegrees stays null until declinationAt is given" }
+                    guardLogger { logger.d { "No passive position for true north (${failure::class.simpleName}): trueDegrees stays null until declinationAt is given" } }
                 }
             }
         } catch (failure: Throwable) {
@@ -362,11 +363,11 @@ internal class AndroidHeadingProvider(
             // Both removals are idempotent in the framework; one failing must not strand the other.
             if (registered != null && source != null) {
                 runCatching { source.unregister(registered) }.exceptionOrNull()?.let { failure: Throwable ->
-                    logger.logSafely(LogLevel.WARN, failure) { "Could not remove the heading position listener" }
+                    guardLogger { logger.w(failure) { "Could not remove the heading position listener" } }
                 }
             }
             runCatching { hub.unregister(sensorListener) }.exceptionOrNull()?.let { failure: Throwable ->
-                logger.logSafely(LogLevel.WARN, failure) { "Could not remove the heading sensor listener" }
+                guardLogger { logger.w(failure) { "Could not remove the heading sensor listener" } }
             }
         }
     }
@@ -388,7 +389,7 @@ internal class AndroidHeadingProvider(
                     HeadingPipeline.Kind.ACCELEROMETER_MAGNETOMETER -> onRawSample(event)
                 }
             } catch (failure: Exception) {
-                logger.logSafely(LogLevel.WARN, failure) { "Dropped a heading sample" }
+                guardLogger { logger.w(failure) { "Dropped a heading sample" } }
             }
         }
 
@@ -452,7 +453,7 @@ internal class AndroidHeadingProvider(
                     if (state.declinationDegrees == declination) state else state.copy(declinationDegrees = declination)
                 }
             } catch (failure: Exception) {
-                logger.logSafely(LogLevel.WARN, failure) { "Dropped a position for the heading declination" }
+                guardLogger { logger.w(failure) { "Dropped a position for the heading declination" } }
             }
         }
 

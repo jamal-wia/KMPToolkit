@@ -2,8 +2,8 @@
 
 package io.github.jamal_wia.kmptoolkit.location
 
-import io.github.jamal_wia.kmptoolkit.logging.LogLevel
 import io.github.jamal_wia.kmptoolkit.logging.Logger
+import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlinx.coroutines.flow.Flow
@@ -173,7 +173,7 @@ internal class IosHeadingProvider(
                     device.openManager(this, screenRotation, minChangeDegrees)
                 } catch (failure: Exception) {
                     // Nothing to release: the manager was never handed back. The stream stays silent.
-                    logger.logSafely(LogLevel.WARN, failure) { "Could not open a heading manager" }
+                    guardLogger { logger.w(failure) { "Could not open a heading manager" } }
                     return@confine
                 }
                 manager = opened
@@ -185,7 +185,7 @@ internal class IosHeadingProvider(
                 } catch (failure: Exception) {
                     // Release first, report after: whatever the logger does, no manager stays running.
                     releaseManager()
-                    logger.logSafely(LogLevel.WARN, failure) { "Could not start heading updates" }
+                    guardLogger { logger.w(failure) { "Could not start heading updates" } }
                 }
             }
         }
@@ -225,7 +225,7 @@ internal class IosHeadingProvider(
                     if (authorized && !locationRunning) startLocation(current)
                     if (!authorized && locationRunning) stopLocation(current)
                 } catch (failure: Exception) {
-                    logger.logSafely(LogLevel.WARN, failure) { "Could not change the heading location updates" }
+                    guardLogger { logger.w(failure) { "Could not change the heading location updates" } }
                 }
             }
         }
@@ -269,7 +269,7 @@ internal class IosHeadingProvider(
             try {
                 current.release()
             } catch (failure: Exception) {
-                logger.logSafely(LogLevel.WARN, failure) { "Could not release a heading manager" }
+                guardLogger { logger.w(failure) { "Could not release a heading manager" } }
             }
         }
     }

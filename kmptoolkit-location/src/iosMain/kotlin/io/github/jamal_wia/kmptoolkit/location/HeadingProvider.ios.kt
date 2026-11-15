@@ -1,8 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.location
 
-import io.github.jamal_wia.kmptoolkit.logging.LogLevel
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.CoreLocation.CLDeviceOrientation
 import platform.CoreLocation.CLDeviceOrientationLandscapeLeft
@@ -188,6 +188,6 @@ internal class HeadingDelegate(
         // A transient failure (kCLErrorHeadingFailure, kCLErrorLocationUnknown) ends nothing: the heading
         // stream has no error channel and CoreLocation keeps trying. Only reported.
         // A logger that throws must not escape into CoreLocation's callback.
-        logger.logSafely(LogLevel.WARN) { "Heading manager reported: ${didFailWithError.localizedDescription}" }
+        guardLogger { logger.w { "Heading manager reported: ${didFailWithError.localizedDescription}" } }
     }
 }
