@@ -25,8 +25,9 @@ package io.github.jamal_wia.kmptoolkit.storage
 public interface EncryptedKeyValueStorage : KeyValueStorage {
 
     /**
-     * The lower-bound guarantee of who holds this store's key and who is kept out. Constant for the
-     * instance and known without I/O.
+     * The lower-bound guarantee of who holds this store's key and who is kept out. Known without I/O. Constant for
+     * the instance, except an app-key store, which reports the type of the key it is bound to: a
+     * `changeKey` to the other key type (passphrase to raw key, or back) changes it.
      */
     public val protection: SecureStorageProtection
 

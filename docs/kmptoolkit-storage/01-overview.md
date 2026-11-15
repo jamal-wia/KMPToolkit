@@ -96,7 +96,7 @@ desktop without a key store answers `Unsupported(NO_KEY_STORE)` and the app deci
 
 ### `protection`: a lower bound
 
-`protection` is constant for the life of a store and known without I/O. Each value states a guarantee that always holds; a
+`protection` is known without I/O. It is constant for every store except an app-key store, which reports the type of the key it is bound to, so a `changeKey` to the other key type (passphrase to raw key, or back) changes it. Each value states a guarantee that always holds; a
 platform may offer more, never less.
 
 | `SecureStorageProtection` | Who holds the key | Kept out | Not kept out |

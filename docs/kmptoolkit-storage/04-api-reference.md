@@ -53,7 +53,7 @@ the plain contract.
 
 | Member | Contract |
 |---|---|
-| `protection` | The lower bound of who holds the key and who is kept out. Constant for the instance, known without I/O. See `SecureStorageProtection` |
+| `protection` | The lower bound of who holds the key and who is kept out. Known without I/O; constant for the instance, except an app-key store after a `changeKey` to the other key type (see `AppKeyEncryptedKeyValueStorage`). See `SecureStorageProtection` |
 | `ensureKey()` | Resolves (on a store with no key yet, creates) and verifies the key now, so the app chooses when the one prompt or passphrase check happens. Never falls back to a weaker key. `Success` when the key is available and verified; otherwise the typed failure the other operations would answer, with no effect on stored values. Skipping it is always safe |
 
 ### `ensureKey()` per platform
