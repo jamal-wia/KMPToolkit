@@ -274,9 +274,16 @@ app sharing that code with desktop could not compile it for desktop without the 
     Two names for one lock file that the folded canonical path does not join (a hard link) are outside the claim. The claim
     is per class loader, so for a **second copy of the library in one JVM** (a plug-in host, an application server) a
     contender that meets the JDK's JVM-wide overlapping-lock check keeps its lock-file channel open instead of closing it
-    (one descriptor per such lock file for the life of the process, and only in that setup); the one thing that is still not
-    covered there is a contender closing its channel in the nanoseconds after another process's lock made its `tryLock` answer
-    "busy", while the other copy takes the lock. Load the library once per JVM (a shared parent class loader) where that matters.
+    (one descriptor per such lock file for the life of the process, and only in that setup). That setup is **best effort
+    against other processes**, not a guarantee: POSIX drops a process's lock when any descriptor of the file is closed, and
+    the lock can be lost in three ways that no per-class-loader state can close. (1) A contender that found the lock held by
+    another process closes its channel, and if the other copy takes the lock in the nanoseconds before that close, the close
+    drops it. (2) At the hand-over between the copies, the holder releases its lock and only then closes its channel; a
+    parked channel of the other copy polls every 25 ms, and if it locks between those two calls the holder's close drops
+    its lock. (3) When a copy is unloaded, its parked channel is closed by the JDK's cleaner at the next garbage collection,
+    which drops a lock the other copy holds at that moment. In each case two processes can hold the lock at once and an
+    update can be lost. **Load the library once per JVM, in a shared parent class loader, wherever several processes
+    write one store.** With one copy of the library none of this applies.
   - A lock file the process cannot create or open (a read-only directory, a lock path that is a directory) fails the write
     with `OperationFailed`. Reads are unaffected.
   - **A file system that refuses file locks** (the lock file opens but `FileChannel.tryLock` itself throws an

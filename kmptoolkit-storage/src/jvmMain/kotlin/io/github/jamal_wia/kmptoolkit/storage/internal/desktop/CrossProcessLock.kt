@@ -119,9 +119,17 @@ internal sealed interface LockAcquisition {
  *   drop the OS lock the other copy holds (POSIX), so it is kept open instead, in a map of this class loader with at most
  *   one channel per lock file, and later attempts reuse it. The cost is one descriptor per such lock file for the life of
  *   the process, only in that setup (never with one copy of the library). A parked channel whose file was replaced or
- *   deleted behind it is dropped and closed (its inode no longer carries a lock anyone needs). A channel that found the
- *   lock held by another PROCESS (`tryLock` answers `null`) is closed as before: no handle of this JVM can then hold it,
- *   except in the nanoseconds before the close, in that same two-copies setup (documented in 05).
+ *   deleted behind it is dropped and closed (its inode no longer carries a lock anyone needs).
+ * - **With two copies of the library in one JVM, exclusion against OTHER PROCESSES is best effort.** The lock can be lost
+ *   in three ways, all because POSIX drops a process's lock when ANY descriptor of the file is closed, and no state kept
+ *   per class loader can close them all: (1) a channel that found the lock held by another PROCESS (`tryLock` answers
+ *   `null`) is closed, and if the other copy takes the lock in the nanoseconds before that close, the close drops it;
+ *   (2) the hand-over between the copies: [LockAcquisition.Held.close] releases the lock and only then closes its channel,
+ *   and a parked channel of the other copy (it polls every [POLL_INTERVAL]) that locks between the two calls loses its
+ *   lock to that close; (3) unloading a copy: a parked channel that becomes unreachable is closed by the JDK's cleaner at
+ *   the next garbage collection, which drops a lock the other copy holds at that moment. Two processes can then hold the
+ *   lock at once. With a single copy none of this exists. Load the library once per JVM, in a shared parent class loader,
+ *   wherever several processes write one store (documented in 05).
  * - **Budget.** [acquire] takes the budget that is left of the caller's one deadline (the in-process wait has already
  *   spent part of it), so a write never waits longer than [deadline] in all, however many callers queue in front of it.
  * - **Creation race.** The creation temp carries the store's own temp prefix, so another process's `clear()` can sweep it
