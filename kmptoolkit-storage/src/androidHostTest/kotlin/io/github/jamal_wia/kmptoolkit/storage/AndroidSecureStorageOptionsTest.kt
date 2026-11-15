@@ -54,7 +54,7 @@ class AndroidSecureStorageOptionsTest {
         assertFalse(options.unlockedDeviceRequired)
         assertTrue(AndroidSecureStorageOptions::class.java.methods.none { it.name == "copy" || it.name.startsWith("component") })
         assertEquals(
-            "AndroidSecureStorageOptions(keyBacking=REQUIRE_STRONGBOX, unlockedDeviceRequired=true)",
+            "AndroidSecureStorageOptions(keyBacking=REQUIRE_STRONGBOX, unlockedDeviceRequired=true, userAuthentication=null)",
             AndroidSecureStorageOptions(AndroidKeyBacking.REQUIRE_STRONGBOX, unlockedDeviceRequired = true).toString(),
         )
     }

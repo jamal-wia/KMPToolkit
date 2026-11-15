@@ -177,7 +177,7 @@ has written to it at least once before the other one can start.
 ### Key options: StrongBox and an unlocked device
 
 `createSecureKeyValueStorage(context, config, options)` takes an `AndroidSecureStorageOptions` (a plain class, not a
-data class) with two properties. They apply **when a key is generated**; a key that already exists keeps the
+data class) with three properties (the third, `userAuthentication`, has its own section below). They apply **when a key is generated**; a key that already exists keeps the
 properties it was generated with, and the library has no call that regenerates it (that would make every stored value
 `Undecryptable`). To get a key with new properties, open the store under another `StorageConfig.name` and move the
 values you want to keep, or clear the app's data.
@@ -193,6 +193,42 @@ values you want to keep, or clear the app's data.
   device is unlocked. While it is locked, calls that need the key answer `Unavailable`; the key is kept, and the same call
   succeeds after the user unlocks. Do not enable it for a store that a background sync must read while the device is locked.
 
+### User authentication
+
+`AndroidSecureStorageOptions(userAuthentication = AndroidUserAuthentication(validitySeconds = 30))` binds the key to the
+user: after the user has authenticated, the key can be used for `validitySeconds`; outside that window every call that needs
+the key answers `AccessDenied` (retry only after the user has authenticated, never in a loop, never delete anything in
+reaction to it). It is a plain-class option like the other two and applies **when the key is generated**: an existing key
+keeps the properties it has.
+
+- **The library never shows a prompt.** It has no UI and no `Activity`. The app authenticates the user with its own
+  `BiometricPrompt` (or the confirm-credential screen); the platform then opens the window for the key. `ensureKey()` is the
+  probe: `Success` inside the window, `AccessDenied` outside it.
+- **Which calls need it.** Those that use the key: `put`, `get` of an existing entry, `ensureKey()`. Reading an absent key,
+  `remove`, `clear()` and `androidKeySecurityLevel()` use no key operation and answer without authentication. A migration
+  pass (see above) that meets a closed window stops without recording the migration and finishes in a later call.
+- **`allowDeviceCredential`** (default `true`): a strong biometric or the device credential (PIN, pattern, password)
+  authenticates. `false` accepts a strong biometric only, which needs API 30 (`setUserAuthenticationParameters`); below it
+  the platform cannot tell the two apart for a time-bound key, so the store refuses to generate the key and answers
+  `Unsupported(HARDWARE_UNAVAILABLE)` rather than silently accepting the credential too. Below API 30 the window is
+  `setUserAuthenticationValidityDurationSeconds`.
+- **`validitySeconds`** is at least 1 (`IllegalArgumentException` otherwise). Per-use authentication (a `BiometricPrompt`
+  crypto object for every operation) is not offered: it cannot work without a UI of the library's.
+- **A secure lock screen is required** to generate a key bound to authentication. Without one the call answers
+  `Unavailable` and nothing is generated or cached; the same call succeeds once the user has set one.
+- **Invalidation.** The platform invalidates such a key for good when the lock screen is removed or the enrolled
+  biometrics change (`KeyPermanentlyInvalidatedException`). The store handles it as it handles any permanently invalidated
+  key (see above): the dead key is deleted, a new one is generated with the same options, writes succeed again and the old
+  values are `Undecryptable(key)`. Generating the new key needs a lock screen (`Unavailable` until there is one).
+- **With `unlockedDeviceRequired` as well**, the platform reports a locked device and an unauthenticated user in the same
+  way, so such a store answers `AccessDenied` for either. Without `userAuthentication` that refusal is a locked device and
+  answers `Unavailable`.
+
+Not observed on a device: the validity window, the invalidation by an enrolment change, the missing-lock-screen failure
+and the prompt flow need a real Keystore and a lock screen. The host tests cover the key parameters per API level, the
+mapping, the lifecycle (cancellation, a dismissed prompt, a seeded storm over a window that opens and closes) and the
+replacement of an invalidated key through a fake Keystore whose key handle refuses as the platform does.
+
 `androidKeySecurityLevel()` resolves the key if needed and returns `SOFTWARE`, `TRUSTED_ENVIRONMENT`, `STRONGBOX` or
 `UNKNOWN`. From API 31 the platform names the level; below it only "inside secure hardware" is known, which cannot tell a
 trusted environment from a StrongBox, so a hardware key there is `UNKNOWN` and a software key `SOFTWARE`. A store this
@@ -206,6 +242,9 @@ initialisation, and writes no entry. It answers what the other calls answer, wit
 | `REQUIRE_STRONGBOX` on a device without a StrongBox | `Unsupported(HARDWARE_UNAVAILABLE)` |
 | `PREFER_STRONGBOX` without a StrongBox | key generated with the default backing; `androidKeySecurityLevel()` reports it |
 | `unlockedDeviceRequired` while the device is locked | `Unavailable` |
+| `userAuthentication` outside the validity window (`UserNotAuthenticatedException`) | `AccessDenied(cause)`; the key is kept |
+| `userAuthentication` on a device without a secure lock screen, or while the dead key cannot be replaced | `Unavailable` |
+| `userAuthentication` with `allowDeviceCredential = false` below API 30 | `Unsupported(HARDWARE_UNAVAILABLE)` |
 | the platform reports the key permanently invalidated | the dead key is deleted and a new one generated under the alias lock; old entries `Undecryptable(key)`; writes and `ensureKey()` succeed |
 | a tag that fails on an entry | `Undecryptable(key)` |
 | the Keystore will not open, or a fault the platform calls transient (API 33+) | `Unavailable` (a transient fault on a write is `OperationFailed`, as before) |

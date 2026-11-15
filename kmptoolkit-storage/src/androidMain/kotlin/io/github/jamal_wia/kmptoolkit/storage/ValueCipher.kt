@@ -82,8 +82,21 @@ internal class StorageKeyUnavailableException(cause: Throwable) : Exception(caus
  */
 internal class KeyHardwareUnavailableException(cause: Throwable) : Exception(cause)
 
+/**
+ * The platform refused to use the key because the user is not authenticated (outside the validity window of
+ * [AndroidUserAuthentication]); distinct from a locked device, which is [StorageError.Unavailable]. Reported as
+ * [StorageError.AccessDenied]; the key is kept.
+ */
+internal class UserAuthenticationRequiredException(cause: Throwable) : Exception(cause)
+
 /** Where [KeystoreValueCipher] gets its symmetric key from. */
 internal interface SecretKeySource {
+
+    /**
+     * Whether the keys this source hands out are bound to user authentication: a refusal for lack of authentication is
+     * then [UserAuthenticationRequiredException], not a locked device. The default is `false`.
+     */
+    val userAuthenticationRequired: Boolean get() = false
 
     /** @throws StorageKeyUnavailableException the key cannot be obtained. */
     suspend fun key(): SecretKey
@@ -244,8 +257,12 @@ internal class KeystoreValueCipher(
             try {
                 return Cipher.getInstance(TRANSFORMATION).also { init(key, it) }
             } catch (e: InvalidKeyException) {
-                // A locked device (a key that needs it unlocked) is a state that passes: never a reason to drop the key.
-                if (isTransient(e) || isDeviceLockedFailure(e)) throw e
+                // A locked device (a key that needs it unlocked) and an unauthenticated user are states that pass: never a
+                // reason to drop the key. The platform reports them the same way; the key's own options tell which.
+                if (isDeviceLockedFailure(e)) {
+                    throw if (keySource.userAuthenticationRequired) UserAuthenticationRequiredException(e) else e
+                }
+                if (isTransient(e)) throw e
                 val permanent: Boolean = isPermanentlyInvalidated(e)
                 if (retries >= (if (permanent) MAX_PERMANENT_RETRIES else MAX_RETRIES)) throw e
                 retries++
@@ -396,6 +413,8 @@ internal class AndroidKeystoreKeySource(
 
     override suspend fun securityLevel(): AndroidKeySecurityLevel = keyStore.securityLevel(key())
 
+    override val userAuthenticationRequired: Boolean = options.userAuthentication != null
+
     /** This alias's lock, shared by every instance over it — see the class KDoc. */
     private val aliasLock: Mutex get() = aliasLocks.computeIfAbsent(cacheKey) { Mutex() }
 
@@ -474,12 +493,23 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
 
     override fun generateKey(alias: String): SecretKey = generateKey(alias, AndroidSecureStorageOptions())
 
-    override fun generateKey(alias: String, options: AndroidSecureStorageOptions): SecretKey =
-        generateWithBacking(alias, options.keyBacking, Build.VERSION.SDK_INT) { name: String, strongBox: Boolean ->
-            generate(name, strongBox, options.unlockedDeviceRequired)
+    override fun generateKey(alias: String, options: AndroidSecureStorageOptions): SecretKey {
+        // Decided before any key is made, so that a request this platform level cannot honour generates nothing.
+        val authentication: UserAuthenticationSpec? =
+            options.userAuthentication?.let { requested: AndroidUserAuthentication ->
+                userAuthenticationSpecOf(Build.VERSION.SDK_INT, requested)
+            }
+        return generateWithBacking(alias, options.keyBacking, Build.VERSION.SDK_INT) { name: String, strongBox: Boolean ->
+            generate(name, strongBox, options.unlockedDeviceRequired, authentication)
         }
+    }
 
-    private fun generate(alias: String, strongBox: Boolean, unlockedDeviceRequired: Boolean): SecretKey {
+    private fun generate(
+        alias: String,
+        strongBox: Boolean,
+        unlockedDeviceRequired: Boolean,
+        authentication: UserAuthenticationSpec?,
+    ): SecretKey {
         val generator: KeyGenerator =
             KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
         val builder: KeyGenParameterSpec.Builder = KeyGenParameterSpec.Builder(
@@ -489,10 +519,12 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setKeySize(KEY_SIZE_BITS)
-        // Deliberately not setUserAuthenticationRequired(true): this store is for values a
-        // background sync or a cold start has to read, and an auth-bound key would make
-        // every read fail outside a recent unlock. A consumer that wants biometric-gated
-        // secrets needs a key bound to their own auth flow, not a general-purpose store.
+        // Not user-authentication-bound unless the options ask for it (AndroidUserAuthentication): this store is, by
+        // default, for values a background sync or a cold start has to read.
+        if (authentication != null) {
+            builder.setUserAuthenticationRequired(true)
+            applyUserAuthentication(builder, authentication)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             if (strongBox) builder.setIsStrongBoxBacked(true)
             if (unlockedDeviceRequired) builder.setUnlockedDeviceRequired(true)
@@ -548,6 +580,51 @@ internal fun resolveExistingKey(mayDelete: Boolean, lookup: () -> SecretKey?, de
         }
         null
     }
+
+/**
+ * The platform parameters of an [AndroidUserAuthentication]: the validity window and, from API 30, which authenticators
+ * open it (`KeyProperties.AUTH_*`); [authenticators] is `null` below API 30, where the platform has only the window.
+ */
+internal class UserAuthenticationSpec(val validitySeconds: Int, val authenticators: Int?)
+
+/**
+ * The parameters [authentication] maps to on platform level [sdkInt]. From API 30 the authenticators are named: a strong
+ * biometric, plus the device credential when [AndroidUserAuthentication.allowDeviceCredential]. Below it the platform
+ * accepts the device credential or a biometric for a time-bound key and cannot be told otherwise, so a request for a
+ * biometric only is refused rather than silently weakened.
+ *
+ * @throws KeyHardwareUnavailableException a biometric-only request below API 30.
+ */
+internal fun userAuthenticationSpecOf(sdkInt: Int, authentication: AndroidUserAuthentication): UserAuthenticationSpec =
+    if (sdkInt >= Build.VERSION_CODES.R) {
+        val biometric: Int = KeyProperties.AUTH_BIOMETRIC_STRONG
+        UserAuthenticationSpec(
+            validitySeconds = authentication.validitySeconds,
+            authenticators = if (authentication.allowDeviceCredential) biometric or KeyProperties.AUTH_DEVICE_CREDENTIAL else biometric,
+        )
+    } else if (!authentication.allowDeviceCredential) {
+        throw KeyHardwareUnavailableException(
+            IllegalStateException("a biometric-only key needs API ${Build.VERSION_CODES.R}, this device is API $sdkInt"),
+        )
+    } else {
+        UserAuthenticationSpec(validitySeconds = authentication.validitySeconds, authenticators = null)
+    }
+
+/** The only place that names the user-authentication builder calls whose availability depends on the platform level. */
+@Suppress("DEPRECATION")
+private fun applyUserAuthentication(builder: KeyGenParameterSpec.Builder, spec: UserAuthenticationSpec) {
+    val authenticators: Int? = spec.authenticators
+    if (authenticators != null) {
+        applyUserAuthenticationParameters(builder, spec.validitySeconds, authenticators)
+    } else {
+        builder.setUserAuthenticationValidityDurationSeconds(spec.validitySeconds)
+    }
+}
+
+@TargetApi(Build.VERSION_CODES.R)
+private fun applyUserAuthenticationParameters(builder: KeyGenParameterSpec.Builder, seconds: Int, authenticators: Int) {
+    builder.setUserAuthenticationParameters(seconds, authenticators)
+}
 
 /**
  * Generates a key with the backing the options ask for: `DEFAULT` never asks for StrongBox; `PREFER_STRONGBOX` asks for

@@ -60,7 +60,8 @@ internal class AndroidSecureKeyValueStorage(
      * call, so this succeeds on a store whose old values are lost.
      *
      * Errors are those of [get]: [StorageError.Unavailable] (the Keystore will not open, a transient fault, a locked
-     * device with `unlockedDeviceRequired`), [StorageError.Unsupported] with
+     * device with `unlockedDeviceRequired`), [StorageError.AccessDenied] (a key with `userAuthentication`, outside the
+     * validity window: the app authenticates the user and calls again), [StorageError.Unsupported] with
      * [UnsupportedReason.HARDWARE_UNAVAILABLE] (`REQUIRE_STRONGBOX` without a StrongBox), and any other failure as
      * [StorageError.OperationFailed] with [StorageOperation.ENSURE_KEY] and no key. A cancellation propagates and
      * leaves nothing behind.
@@ -97,6 +98,8 @@ internal class AndroidSecureKeyValueStorage(
      * keeps reporting it as an operation failure, as documented.
      */
     private fun keyFailure(error: Exception, transientIsUnavailable: Boolean = true): StorageError? = when {
+        // Before the device-locked check: the wrapper's cause chain holds the same platform exception.
+        error is UserAuthenticationRequiredException -> StorageError.AccessDenied(cause = error.cause ?: error)
         error is StorageKeyUnavailableException -> StorageError.Unavailable(error.cause ?: error)
         error is KeyHardwareUnavailableException ->
             StorageError.Unsupported(UnsupportedReason.HARDWARE_UNAVAILABLE, error.cause ?: error)
