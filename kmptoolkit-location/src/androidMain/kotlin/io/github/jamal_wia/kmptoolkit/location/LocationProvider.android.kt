@@ -9,13 +9,13 @@ import android.os.Bundle
 import android.provider.Settings
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenRequest
+import io.github.jamal_wia.kmptoolkit.core.StateMachineLock
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.w
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlin.time.Duration
@@ -23,14 +23,15 @@ import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -104,6 +105,9 @@ private sealed interface RaceResult {
 
     /** Every source ended without a fix; [refused] when at least one of them refused the caller's permission. */
     class Exhausted(val refused: Boolean) : RaceResult
+
+    /** The sources were switched off while the call waited: a known answer, `SERVICE_DISABLED`, at once. */
+    data object Disabled : RaceResult
 }
 
 /** Which sources a request uses, or the typed reason there is none. */
@@ -113,30 +117,7 @@ private sealed interface Selection {
     class Failed(val reason: LocationUnavailability) : Selection
 }
 
-/**
- * Remembers the seed readings of one stream collection (the first one and every reseed after the service
- * returned) so the throttle can recognise each by identity (decision D-21, correction round 1): a cached
- * position never starts the interval, so the first live fix after any seed is not held behind it. Only the
- * last few are kept: a seed that the conflated stream dropped before the throttle saw it is never asked
- * about, so nothing needs removing, and the list cannot grow with the number of flaps.
- */
-private class SeedMarker {
-    @Volatile
-    private var recent: List<LocationReading> = emptyList()
-
-    /** Marks [reading] as a seed; call before sending it. */
-    fun mark(reading: LocationReading): LocationReading {
-        recent = (recent + reading).takeLast(RECENT_SEEDS)
-        return reading
-    }
-
-    fun isSeed(reading: LocationReading): Boolean = recent.any { seed: LocationReading -> seed === reading }
-
-    private companion object {
-        const val RECENT_SEEDS: Int = 4
-    }
-}
-
+@OptIn(ToolkitInternalApi::class)
 internal class AndroidLocationProvider(
     private val context: Context,
     private val logger: Logger,
@@ -151,6 +132,22 @@ internal class AndroidLocationProvider(
 
     override suspend fun getCurrentLocation(options: CurrentLocationOptions): LocationReading {
         val platform: LocationBackend = backend ?: return unavailable(LocationUnavailability.UNSUPPORTED)
+        return try {
+            oneShot(platform, options)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (security: SecurityException) {
+            logger.w(security) { "Location permission missing in getCurrentLocation" }
+            unavailable(LocationUnavailability.PERMISSION_MISSING)
+        } catch (failure: Exception) {
+            // The contract: never throws for a platform error. A dead system server or an OEM failure outside
+            // the race (the race treats a failing source the same way) is "no fix", reported through the logger.
+            logger.w(failure) { "The location platform failed in getCurrentLocation" }
+            unavailable(LocationUnavailability.NO_FIX)
+        }
+    }
+
+    private suspend fun oneShot(platform: LocationBackend, options: CurrentLocationOptions): LocationReading {
         val startedAtNanos: Long = platform.elapsedRealtimeNanos()
         if (!hasAnyPermission(platform)) return unavailable(LocationUnavailability.PERMISSION_MISSING)
         val requested: AndroidLocationSource =
@@ -164,22 +161,18 @@ internal class AndroidLocationProvider(
         val enabled: List<String> = providers.filter { provider: String -> platform.isProviderEnabled(provider) }
         // The sources can switch off between the two reads above: an empty list is the same known answer.
         if (enabled.isEmpty()) return unavailable(LocationUnavailability.SERVICE_DISABLED)
-        return try {
-            val cached: LocationFix? = freshestWithin(agedCache(platform, enabled), options.maxAge)
-            if (cached != null) return LocationReading.Available(cached)
-            // The timeout bounds the whole race; cancelling it (or the caller) cancels every source, and
-            // each source removes its own listener in its cancellation handler.
-            val outcome: RaceResult? = withTimeoutOrNull(options.timeout) { race(platform, enabled, options, startedAtNanos) }
-            when (outcome) {
-                is RaceResult.Fix -> LocationReading.Available(outcome.fix)
-                is RaceResult.Exhausted -> unavailable(
-                    if (outcome.refused) LocationUnavailability.PERMISSION_MISSING else LocationUnavailability.NO_FIX,
-                )
-                null -> unavailable(LocationUnavailability.NO_FIX)
-            }
-        } catch (security: SecurityException) {
-            logger.w(security) { "Location permission missing in getCurrentLocation" }
-            unavailable(LocationUnavailability.PERMISSION_MISSING)
+        val cached: LocationFix? = freshestWithin(agedCache(platform, enabled), options.maxAge)
+        if (cached != null) return LocationReading.Available(cached)
+        // The timeout bounds the whole race; cancelling it (or the caller) cancels every source, and
+        // each source removes its own listener in its cancellation handler.
+        val outcome: RaceResult? = withTimeoutOrNull(options.timeout) { race(platform, enabled, options, startedAtNanos) }
+        return when (outcome) {
+            is RaceResult.Fix -> LocationReading.Available(outcome.fix)
+            is RaceResult.Exhausted -> unavailable(
+                if (outcome.refused) LocationUnavailability.PERMISSION_MISSING else LocationUnavailability.NO_FIX,
+            )
+            RaceResult.Disabled -> unavailable(LocationUnavailability.SERVICE_DISABLED)
+            null -> unavailable(LocationUnavailability.NO_FIX)
         }
     }
 
@@ -187,6 +180,12 @@ internal class AndroidLocationProvider(
      * Asks every source for a fresh fix at once and takes the first valid one (PLAN D13, F2): a GPS that
      * stays silent indoors no longer burns the timeout before the network provider is asked. The losers
      * are cancelled, which removes their listeners.
+     *
+     * A participant besides the sources watches the service: when every source is switched off while the
+     * call waits (a provider callback or the service broadcast), the race ends with
+     * [RaceResult.Disabled] at once instead of waiting out a timeout whose outcome is known (PLAN D19).
+     * The participant only completes the one [winner] (first completion wins, thread-safe), so it needs
+     * no lock; its broadcast subscription is released in `finally` like the listeners.
      */
     private suspend fun race(
         platform: LocationBackend,
@@ -197,27 +196,52 @@ internal class AndroidLocationProvider(
         val winner = CompletableDeferred<RaceResult>()
         val ended = AtomicInteger(0)
         val refusals = AtomicInteger(0)
-        for (provider: String in providers) {
-            launch {
-                try {
-                    winner.complete(RaceResult.Fix(awaitFreshFix(platform, provider, options, startedAtNanos)))
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (security: SecurityException) {
-                    refusals.incrementAndGet()
-                    logger.d { "Location provider $provider refused the caller's permission" }
-                    sourceEnded(winner, ended, refusals, providers.size)
-                } catch (failure: Exception) {
-                    // A platform failure of one source (an OEM IllegalArgumentException) must not fail the call.
-                    logger.w(failure) { "Location provider $provider failed in getCurrentLocation" }
-                    sourceEnded(winner, ended, refusals, providers.size)
-                }
+        fun checkDisabled() {
+            try {
+                if (isDisabled(platform, providers)) winner.complete(RaceResult.Disabled)
+            } catch (failure: Exception) {
+                logger.w(failure) { "Could not re-read the location service state" }
             }
         }
+        val unsubscribe: (() -> Unit)? = try {
+            platform.observeServiceChanges { checkDisabled() }
+        } catch (failure: Exception) {
+            // Without the subscription the call still works; it just cannot end early on a switch-off.
+            logger.w(failure) { "Could not watch the location service during getCurrentLocation" }
+            null
+        }
         try {
+            // A switch-off between the caller's read and the subscription would otherwise be missed.
+            checkDisabled()
+            if (!winner.isCompleted) {
+                for (provider: String in providers) {
+                    launch {
+                        try {
+                            winner.complete(RaceResult.Fix(awaitFreshFix(platform, provider, options, startedAtNanos, ::checkDisabled)))
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (security: SecurityException) {
+                            refusals.incrementAndGet()
+                            logger.d { "Location provider $provider refused the caller's permission" }
+                            sourceEnded(winner, ended, refusals, providers.size)
+                        } catch (failure: Exception) {
+                            // A platform failure of one source (an OEM IllegalArgumentException) must not fail the call.
+                            logger.w(failure) { "Location provider $provider failed in getCurrentLocation" }
+                            sourceEnded(winner, ended, refusals, providers.size)
+                        }
+                    }
+                }
+            }
             winner.await()
         } finally {
             coroutineContext.cancelChildren()
+            if (unsubscribe != null) {
+                try {
+                    unsubscribe()
+                } catch (failure: Exception) {
+                    logger.w(failure) { "Could not unregister the location service receiver" }
+                }
+            }
         }
     }
 
@@ -225,22 +249,44 @@ internal class AndroidLocationProvider(
         if (ended.incrementAndGet() == total) winner.complete(RaceResult.Exhausted(refused = refusals.get() > 0))
     }
 
+    /** Removes [listener]; a failing removal (a dead system server) is logged, never thrown into a callback or a cancellation handler. */
+    private fun removeQuietly(platform: LocationBackend, listener: LocationListener) {
+        try {
+            platform.removeUpdates(listener)
+        } catch (failure: Exception) {
+            logger.w(failure) { "Could not remove the location listener" }
+        }
+    }
+
     /**
      * One source's fresh fix: the framework's one-shot answer first (API 30 and later), judged by the
      * delivery rule (it may hand back a cached fix up to 30 s old), and when that is stale or empty a
      * one-update registration that is removed after the first fresh fix, until the caller's timeout.
+     * [onDisabled] is called when the platform reports this source switched off.
      */
     private suspend fun awaitFreshFix(
         platform: LocationBackend,
         provider: String,
         options: CurrentLocationOptions,
         startedAtNanos: Long,
+        onDisabled: () -> Unit,
     ): LocationFix {
         val answer: Location? = suspendCancellableCoroutine { continuation ->
             val cancel: (() -> Unit)? = platform.requestCurrentLocation(provider, options.accuracy) { location: Location? ->
                 if (continuation.isActive) continuation.resume(location)
             }
-            if (cancel == null) continuation.resume(null) else continuation.invokeOnCancellation { cancel() }
+            if (cancel == null) {
+                continuation.resume(null)
+            } else {
+                continuation.invokeOnCancellation {
+                    // A cancellation handler must not throw: the exception would reach the thread's uncaught handler.
+                    try {
+                        cancel()
+                    } catch (failure: Exception) {
+                        logger.w(failure) { "Could not cancel the framework location request" }
+                    }
+                }
+            }
         }
         val framework: LocationFix? = answer?.let { location: Location -> acceptDelivery(platform, location, options.maxAge, startedAtNanos) }
         if (framework != null) return framework
@@ -251,7 +297,7 @@ internal class AndroidLocationProvider(
             val listener = object : LocationListener {
                 override fun onLocationChanged(location: Location) {
                     val fix: LocationFix = acceptDelivery(platform, location, options.maxAge, startedAtNanos) ?: return
-                    platform.removeUpdates(this)
+                    removeQuietly(platform, this)
                     if (continuation.isActive) continuation.resume(fix)
                 }
 
@@ -261,11 +307,11 @@ internal class AndroidLocationProvider(
                 @Suppress("OVERRIDE_DEPRECATION")
                 override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
 
-                override fun onProviderDisabled(provider: String) = Unit
+                override fun onProviderDisabled(provider: String) = onDisabled()
             }
             // A refused registration throws here and registers nothing.
             platform.requestUpdates(provider, UpdatesRequest(0L, 0f, 0L, options.accuracy), listener)
-            continuation.invokeOnCancellation { platform.removeUpdates(listener) }
+            continuation.invokeOnCancellation { removeQuietly(platform, listener) }
         }
     }
 
@@ -280,31 +326,28 @@ internal class AndroidLocationProvider(
         return if (fresh) location.toLocationFix(coarseOnly = isCoarseOnly(platform)) else null
     }
 
-    override fun observeLocation(options: LocationUpdatesOptions): Flow<LocationReading> = flow {
-        // One marker per collection: two collectors of the same flow must not see each other's seed.
-        val marker = SeedMarker()
-        emitAll(
-            stream(options, marker)
-                .throttledBy(options, timeSource) { reading: LocationReading -> marker.isSeed(reading) }
-                .completingAfterTerminalReading(),
-        )
-    }
+    override fun observeLocation(options: LocationUpdatesOptions): Flow<LocationReading> =
+        // Every element of the platform stream says whether it is a seed or live (loc-core, StreamReading): the
+        // mark travels with the reading, so every reseed is marked where it is built, per collection.
+        stream(options).throttledByMarks(options, timeSource).completingAfterTerminalReading()
 
     /**
      * The platform stream of one collection. Registration and release happen per collection (nothing is
      * held between collections): the listener and the service-change subscription are removed in
      * `awaitClose` and on every failure path, so a cancelled, completed or failed collection leaves
      * nothing registered. Conflated: a slow collector ends on the newest reading, never a stale one.
+     * Every element is [StreamReading.seed] (the first reading and each reseed after the service
+     * returned) or [StreamReading.live].
      */
-    private fun stream(options: LocationUpdatesOptions, marker: SeedMarker): Flow<LocationReading> = callbackFlow {
+    private fun stream(options: LocationUpdatesOptions): Flow<StreamReading> = callbackFlow {
         val platform: LocationBackend? = backend
         if (platform == null) {
-            trySend(unavailable(LocationUnavailability.UNSUPPORTED))
+            trySend(StreamReading.live(unavailable(LocationUnavailability.UNSUPPORTED)))
             close()
             return@callbackFlow
         }
         if (!hasAnyPermission(platform)) {
-            trySend(unavailable(LocationUnavailability.PERMISSION_MISSING))
+            trySend(StreamReading.live(unavailable(LocationUnavailability.PERMISSION_MISSING)))
             close()
             return@callbackFlow
         }
@@ -312,84 +355,110 @@ internal class AndroidLocationProvider(
             (options.platform as? AndroidLocationUpdatesOptions)?.source ?: AndroidLocationSource.AUTO
         val providers: List<String> = when (val selection: Selection = select(platform, requested, options.accuracy, forStream = true)) {
             is Selection.Failed -> {
-                trySend(unavailable(selection.reason))
+                trySend(StreamReading.live(unavailable(selection.reason)))
                 close()
                 return@callbackFlow
             }
             is Selection.Providers -> selection.names
         }
-        val maxUpdateDelay: Duration = (options.platform as? AndroidLocationUpdatesOptions)?.maxUpdateDelay ?: Duration.ZERO
-        val request = UpdatesRequest(
+        val session = StreamSession(platform, options, providers, autoSelect = requested == AndroidLocationSource.AUTO, out = this)
+        try {
+            session.start()
+        } catch (security: SecurityException) {
+            // A later provider's registration may have failed after an earlier one succeeded, and awaitClose
+            // below is never installed on this path: without this the manager keeps the first provider's
+            // listener (and, through it, this dead channel) for the whole process.
+            session.release()
+            logger.w(security) { "Location permission missing in observeLocation" }
+            trySend(StreamReading.live(unavailable(LocationUnavailability.PERMISSION_MISSING)))
+            close()
+            return@callbackFlow
+        } catch (failure: Throwable) {
+            // Same undo for any other failure (an OEM IllegalArgumentException, a dead system server); the
+            // failure itself still propagates to the collector.
+            session.release(failure)
+            throw failure
+        }
+        awaitClose { session.release() }
+    }.conflate()
+
+    /**
+     * The state of one stream collection and the listener it registers. Every decision about the service
+     * state (read the platform, compare with what was reported, publish) runs under one per-collection
+     * [StateMachineLock] ([gate]), the repository's primitive for platform callbacks (PATTERNS Part 1):
+     * the provider callbacks, the service broadcast, the post-subscription check and every live fix go
+     * through `submit`, which never blocks and runs the actions one at a time, in the order they arrived.
+     * The later reading therefore always reflects the later read, a transition is reported once, and a
+     * live fix cannot overtake a reseed that was read before it. Only the collector's own set-up and
+     * release take `exclusive` (they are not platform callbacks). The platform calls made under the gate
+     * are plain reads and (de)registrations that never call back synchronously on another thread, so the
+     * gate is never held across a suspension or a foreign callback.
+     *
+     * Everything below the `gate` line of properties is read and written only under [gate].
+     */
+    private inner class StreamSession(
+        private val platform: LocationBackend,
+        private val options: LocationUpdatesOptions,
+        providers: List<String>,
+        private val autoSelect: Boolean,
+        private val out: SendChannel<StreamReading>,
+    ) : LocationListener {
+
+        private val gate: StateMachineLock = StateMachineLock()
+
+        private val request: UpdatesRequest = UpdatesRequest(
             minTimeMillis = options.minUpdateInterval.inWholeMilliseconds,
             minDistanceMeters = options.minUpdateDistanceMeters.toFloat(),
-            maxUpdateDelayMillis = maxUpdateDelay.inWholeMilliseconds,
+            maxUpdateDelayMillis =
+                ((options.platform as? AndroidLocationUpdatesOptions)?.maxUpdateDelay ?: Duration.ZERO).inWholeMilliseconds,
             accuracy = options.accuracy,
         )
 
-        // The state last reported, so a provider callback and a broadcast that describe the same
-        // transition send one reading, not two.
-        val disabledNow = AtomicBoolean(isDisabled(platform, providers))
-        // The sources that can deliver: all of them during the registration window, then only the ones that
-        // accepted it (a source that refused the caller's permission never will, so its flag says nothing).
-        val deliverable = AtomicReference<List<String>>(providers)
+        /** What the selection last decided (empty after a failed re-registration, so the next check retries). */
+        private var selected: List<String> = providers
 
-        fun reseed(): LocationReading = currentReading(platform, deliverable.get(), options.maxSeedAge)
+        /**
+         * The sources that can deliver: all selected ones during the registration window, then only the ones
+         * that accepted it (a source that refused the caller's permission never will, so its flag says nothing).
+         */
+        private var deliverable: List<String> = providers
 
-        fun evaluate() {
-            val disabled: Boolean = isDisabled(platform, deliverable.get())
-            if (disabledNow.getAndSet(disabled) == disabled) return
-            // Off: the reason, the stream stays open and the listener stays registered. Back on: reseed.
-            trySend(if (disabled) unavailable(LocationUnavailability.SERVICE_DISABLED) else marker.mark(reseed()))
-        }
+        /** The state last reported, so a provider callback and a broadcast that describe the same transition send one reading. */
+        private var disabledNow: Boolean = false
 
-        // Every LocationListener method is implemented: on API 24-29 the three legacy callbacks are
-        // abstract (defaults only from API 30) and the platform calls them, so a missing one is an
-        // AbstractMethodError on the main thread.
-        val listener = object : LocationListener {
-            override fun onLocationChanged(location: Location) {
-                val fix: LocationFix = location.toLocationFix(coarseOnly = isCoarseOnly(platform)) ?: return
-                trySend(LocationReading.Available(fix))
+        /** Set by [release]: nothing is registered after it. */
+        private var closed: Boolean = false
+
+        private var unsubscribe: (() -> Unit)? = null
+
+        /**
+         * Seed first, register second. A live fix is delivered on the main looper while this runs on the
+         * collector's dispatcher, so a seed sent after the registration could land behind a newer fix and
+         * leave the collector on an older position until the next update. The gate is held for the whole
+         * set-up, so callbacks that arrive meanwhile are queued behind it and see the finished state. The
+         * seed is the freshest cached fix within maxSeedAge, else the reason (SERVICE_DISABLED while the
+         * service is off, else NO_FIX), so the stream is never silent. Reading the cache needs the permission
+         * too, so it shares the SecurityException path of the registration.
+         */
+        fun start() {
+            gate.exclusive {
+                val disabled: Boolean = isDisabled(platform, deliverable)
+                disabledNow = disabled
+                out.trySend(StreamReading.seed(currentReading(platform, deliverable, options.maxSeedAge, disabled)))
+                deliverable = register(selected)
+                unsubscribe = platform.observeServiceChanges { evaluate() }
+                // A change between the seed and the subscription would otherwise be missed.
+                evaluateLocked()
             }
-
-            override fun onProviderEnabled(provider: String) = evaluate()
-
-            @Deprecated("Deprecated in Java")
-            @Suppress("OVERRIDE_DEPRECATION")
-            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
-
-            override fun onProviderDisabled(provider: String) = evaluate()
         }
 
-        var unsubscribe: (() -> Unit)? = null
-        fun release(failure: Throwable? = null) {
-            // Removing a listener that is not registered, or unsubscribing twice, is a no-op. The undo must
-            // never replace the failure that made it necessary: its own failure is attached to that failure
-            // as suppressed, or only logged when there is none.
-            fun undone(undoFailure: Throwable?, what: String) {
-                if (undoFailure == null) return
-                if (failure != null) failure.addSuppressed(undoFailure) else logger.w(undoFailure) { what }
-            }
-            undone(runCatching { platform.removeUpdates(listener) }.exceptionOrNull(), "Could not remove the location listener")
-            undone(runCatching { unsubscribe?.invoke() }.exceptionOrNull(), "Could not unregister the location service receiver")
-            unsubscribe = null
-        }
-
-        try {
-            // Seed first, register second. A live fix is delivered on the main looper while this block may
-            // run on any dispatcher, so a seed sent after the registration can land behind a newer fix and
-            // leave the collector on an older position until the next update. Sent before, every live fix
-            // follows it in the channel by construction. The seed is the freshest cached fix within
-            // maxSeedAge, else the reason (SERVICE_DISABLED while the service is off, else NO_FIX), so the
-            // stream is never silent. Reading the cache needs the permission too, so it shares the
-            // SecurityException path of the registration.
-            trySend(marker.mark(reseed()))
-            // A provider that refuses the caller's permission is skipped, not fatal: a coarse-only app on
-            // Android 10 and lower is refused the GPS provider and still gets the network one.
-            val accepted = mutableListOf<String>()
+        /** A provider that refuses the caller's permission is skipped, not fatal: a coarse-only app on Android 10 and lower is refused GPS and still gets the network one. */
+        private fun register(wanted: List<String>): List<String> {
+            val accepted: MutableList<String> = mutableListOf()
             var lastRefusal: SecurityException? = null
-            for (provider: String in providers) {
+            for (provider: String in wanted) {
                 try {
-                    platform.requestUpdates(provider, request, listener)
+                    platform.requestUpdates(provider, request, this)
                     accepted += provider
                 } catch (refused: SecurityException) {
                     lastRefusal = refused
@@ -397,43 +466,101 @@ internal class AndroidLocationProvider(
                 }
             }
             if (accepted.isEmpty()) throw lastRefusal ?: SecurityException("no location provider accepted the registration")
-            deliverable.set(accepted.toList())
-            unsubscribe = platform.observeServiceChanges { evaluate() }
-            // A change between the seed and the subscription would otherwise be missed.
-            evaluate()
-        } catch (security: SecurityException) {
-            // A later provider's registration may have failed after an earlier one succeeded, and awaitClose
-            // below is never installed on this path: without this the manager keeps the first provider's
-            // listener (and, through it, this dead channel) for the whole process.
-            release()
-            logger.w(security) { "Location permission missing in observeLocation" }
-            trySend(unavailable(LocationUnavailability.PERMISSION_MISSING))
-            close()
-            return@callbackFlow
-        } catch (failure: Throwable) {
-            // Same undo for any other failure (an OEM IllegalArgumentException, a dead system server); the
-            // failure itself still propagates to the collector.
-            release(failure)
-            throw failure
+            return accepted
         }
 
-        awaitClose { release() }
-    }.conflate()
+        /** Entry for every platform event that may change the service state; never blocks, never throws. */
+        fun evaluate() {
+            gate.submit {
+                try {
+                    evaluateLocked()
+                } catch (failure: Exception) {
+                    // A submitted action must not throw: it would surface on an unrelated thread.
+                    logger.w(failure) { "Could not re-read the location service state" }
+                }
+            }
+        }
+
+        /** Gate held. Off: the reason, the stream stays open and the listener stays registered. Back on: reseed. */
+        private fun evaluateLocked() {
+            if (closed) return
+            if (autoSelect) {
+                // AUTO uses the first ENABLED source of its table (PLAN D19): when the one it registered went
+                // off while another is on, the registration moves instead of reading SERVICE_DISABLED.
+                val wanted: List<String> = pickAuto(platform, options.accuracy, forStream = true)
+                if (wanted.isNotEmpty() && wanted != selected) rebind(wanted)
+            }
+            val disabled: Boolean = isDisabled(platform, deliverable)
+            if (disabled == disabledNow) return
+            disabledNow = disabled
+            out.trySend(
+                if (disabled) {
+                    StreamReading.live(unavailable(LocationUnavailability.SERVICE_DISABLED))
+                } else {
+                    StreamReading.seed(currentReading(platform, deliverable, options.maxSeedAge, disabled = false))
+                },
+            )
+        }
+
+        private fun rebind(wanted: List<String>) {
+            selected = emptyList()
+            deliverable = emptyList()
+            removeQuietly(platform, this)
+            deliverable = register(wanted)
+            selected = wanted
+        }
+
+        // Every LocationListener method is implemented: on API 24-29 the three legacy callbacks are
+        // abstract (defaults only from API 30) and the platform calls them, so a missing one is an
+        // AbstractMethodError on the main thread.
+        override fun onLocationChanged(location: Location) {
+            val fix: LocationFix = location.toLocationFix(coarseOnly = isCoarseOnly(platform)) ?: return
+            // Through the gate, so a fix is never sent ahead of a reseed that was read before it arrived.
+            gate.submit { out.trySend(StreamReading.live(LocationReading.Available(fix))) }
+        }
+
+        override fun onProviderEnabled(provider: String) = evaluate()
+
+        @Deprecated("Deprecated in Java")
+        @Suppress("OVERRIDE_DEPRECATION")
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
+
+        override fun onProviderDisabled(provider: String) = evaluate()
+
+        /**
+         * Removes the listener and the subscription; idempotent. Removing a listener that is not registered,
+         * or unsubscribing twice, is a no-op. The undo must never replace the failure that made it necessary:
+         * its own failure is attached to that failure as suppressed, or only logged when there is none.
+         */
+        fun release(failure: Throwable? = null) {
+            gate.exclusive {
+                closed = true
+                fun undone(undoFailure: Throwable?, what: String) {
+                    if (undoFailure == null) return
+                    if (failure != null) failure.addSuppressed(undoFailure) else logger.w(undoFailure) { what }
+                }
+                undone(runCatching { platform.removeUpdates(this) }.exceptionOrNull(), "Could not remove the location listener")
+                undone(runCatching { unsubscribe?.invoke() }.exceptionOrNull(), "Could not unregister the location service receiver")
+                unsubscribe = null
+            }
+        }
+    }
 
     override suspend fun isLocationEnabled(): Boolean = backend?.isLocationEnabled() ?: false
 
-    override fun observeLocationEnabled(): Flow<Boolean> = callbackFlow {
-        val platform: LocationBackend? = backend
-        if (platform == null) {
-            trySend(false)
-            close()
-            return@callbackFlow
-        }
-        // Subscribe first, read second: a change between the two is then delivered, never lost.
-        val unsubscribe: () -> Unit = platform.observeServiceChanges { trySend(platform.isLocationEnabled()) }
-        trySend(platform.isLocationEnabled())
-        awaitClose { unsubscribe() }
-    }.conflate().distinctUntilChanged()
+    override fun observeLocationEnabled(): Flow<Boolean> {
+        val platform: LocationBackend = backend ?: return flowOf(false)
+        // The callback only SIGNALS a change; the single consumer reads the value. A value read in the callback
+        // and one read by the collector are produced on two threads and could be sent in either order, leaving
+        // the flow on the older one. Here every change after a read produces a later tick, so the last read is
+        // always current; conflation merges the ticks that have not been consumed yet.
+        return callbackFlow {
+            // Subscribe first, tick second: a change between the two is then delivered, never lost.
+            val unsubscribe: () -> Unit = platform.observeServiceChanges { trySend(Unit) }
+            trySend(Unit)
+            awaitClose { unsubscribe() }
+        }.conflate().map { platform.isLocationEnabled() }.distinctUntilChanged()
+    }
 
     override fun openLocationSettings() {
         val request = SystemScreenRequest(
@@ -461,9 +588,7 @@ internal class AndroidLocationProvider(
 
     /**
      * The sources a request uses (PLAN sections 4.2 and 4.3, D13, D19). An explicit source is used alone, and
-     * absent on the device is `UNSUPPORTED`. `AUTO` uses the framework fused provider when the device has it,
-     * else by accuracy: high gps and network, balanced gps and network (a stream: network, else gps), low
-     * power network, else passive.
+     * absent on the device is `UNSUPPORTED`. `AUTO` is [pickAuto].
      */
     private fun select(
         platform: LocationBackend,
@@ -476,33 +601,53 @@ internal class AndroidLocationProvider(
             AndroidLocationSource.GPS -> listOf(LocationManager.GPS_PROVIDER)
             AndroidLocationSource.NETWORK -> listOf(LocationManager.NETWORK_PROVIDER)
             AndroidLocationSource.PASSIVE -> listOf(LocationManager.PASSIVE_PROVIDER)
-            AndroidLocationSource.AUTO -> when {
-                platform.hasProvider(FUSED) -> listOf(FUSED)
-                accuracy == LocationAccuracy.HIGH_ACCURACY -> listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-                accuracy == LocationAccuracy.BALANCED && !forStream ->
-                    listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-                accuracy == LocationAccuracy.BALANCED ->
-                    listOfNotNull(
-                        listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
-                            .firstOrNull { provider: String -> platform.hasProvider(provider) },
-                    )
-                else -> listOfNotNull(
-                    listOf(LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
-                        .firstOrNull { provider: String -> platform.hasProvider(provider) },
-                )
-            }
+            AndroidLocationSource.AUTO -> pickAuto(platform, accuracy, forStream)
         }
         val present: List<String> = wanted.filter { provider: String -> platform.hasProvider(provider) }
         return if (present.isEmpty()) Selection.Failed(LocationUnavailability.UNSUPPORTED) else Selection.Providers(present)
+    }
+
+    /**
+     * The sources of `AUTO` (PLAN D13, D19): the framework fused provider when the device has it AND it is
+     * on, else by accuracy: high gps and network, balanced gps and network (a stream: network, else gps),
+     * low power network, else passive. A "first of" row takes the first source that is ON and falls back to
+     * the first one that is only PRESENT when none is on (then the call reads `SERVICE_DISABLED`), so a
+     * switched-off network provider never hides an enabled gps or passive one ("AUTO races only the enabled
+     * providers, and reads SERVICE_DISABLED only when none is enabled"). A device that has only a fused
+     * provider uses it even when it is off.
+     */
+    private fun pickAuto(platform: LocationBackend, accuracy: LocationAccuracy, forStream: Boolean): List<String> {
+        if (platform.hasProvider(FUSED) && platform.isProviderEnabled(FUSED)) return listOf(FUSED)
+        fun firstOf(vararg order: String): List<String> {
+            val present: List<String> = order.filter { provider: String -> platform.hasProvider(provider) }
+            return listOfNotNull(present.firstOrNull { provider: String -> platform.isProviderEnabled(provider) } ?: present.firstOrNull())
+        }
+        val table: List<String> = when {
+            accuracy == LocationAccuracy.HIGH_ACCURACY || (accuracy == LocationAccuracy.BALANCED && !forStream) ->
+                listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                    .filter { provider: String -> platform.hasProvider(provider) }
+            accuracy == LocationAccuracy.BALANCED -> firstOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
+            else -> firstOf(LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        }
+        return if (table.isEmpty() && platform.hasProvider(FUSED)) listOf(FUSED) else table
     }
 
     /** Device-wide off, or none of the request's sources is on (for a named source: that source is off). */
     private fun isDisabled(platform: LocationBackend, providers: List<String>): Boolean =
         !platform.isLocationEnabled() || providers.none { provider: String -> platform.isProviderEnabled(provider) }
 
-    /** What a stream shows now: the reason while off, else the freshest cache within [maxSeedAge], else `NO_FIX`. */
-    private fun currentReading(platform: LocationBackend, providers: List<String>, maxSeedAge: Duration): LocationReading =
-        if (isDisabled(platform, providers)) {
+    /**
+     * What a stream shows now, given the decided [disabled] state: the reason while off, else the freshest
+     * cache within [maxSeedAge], else `NO_FIX`. The state is passed in, not re-read, so the reading and the
+     * state the caller records come from one read.
+     */
+    private fun currentReading(
+        platform: LocationBackend,
+        providers: List<String>,
+        maxSeedAge: Duration,
+        disabled: Boolean,
+    ): LocationReading =
+        if (disabled) {
             unavailable(LocationUnavailability.SERVICE_DISABLED)
         } else {
             seedReading(
@@ -514,7 +659,8 @@ internal class AndroidLocationProvider(
 
     /**
      * The cached fixes of [providers] with their age on the boot clock. A provider that refuses the
-     * caller's permission simply has no cached fix for it, and an invalid cached fix is dropped.
+     * caller's permission, or whose cache read fails on the platform (a dead system server), simply has no
+     * cached fix, and an invalid cached fix is dropped.
      */
     private fun agedCache(platform: LocationBackend, providers: List<String>): List<AgedFix> {
         val now: Long = platform.elapsedRealtimeNanos()
@@ -523,6 +669,9 @@ internal class AndroidLocationProvider(
             val cached: Location? = try {
                 platform.lastKnownLocation(provider)
             } catch (refused: SecurityException) {
+                null
+            } catch (failure: RuntimeException) {
+                logger.w(failure) { "Could not read the cached location of $provider" }
                 null
             }
             val fix: LocationFix? = cached?.toLocationFix(coarseOnly)

@@ -131,7 +131,7 @@ internal class FakeLocationBackend(
         for (registration: Registration in targets) registration.listener.onLocationChanged(location)
     }
 
-    /** Delivers [location] to the live registration of exactly [listener]'s provider list; used by tests that hold the listener. */
+    /** Delivers [location] to every live registration whatever its provider; used by tests that hold the listener. */
     fun deliverToAll(location: Location) {
         val targets: List<Registration> = synchronized(lock) { registrations.toList() }
         for (registration: Registration in targets) registration.listener.onLocationChanged(location)
