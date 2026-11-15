@@ -19,7 +19,8 @@ import kotlin.test.assertTrue
 /**
  * Group sto-desktop, round 11 (breaker A9-m2): the JCA boundary of decisions D-P12 is enforced on the COMPILED classes of the
  * storage module's jvm target, not only on source text (`JcaBoundaryScanTest` stays as the second layer). In every class but `Jca`
- * (and the classes nested in it: told apart by their `SourceFile`, never by the shape of a name), the constant pool must name no `java.security`, `javax.crypto`, `java.util.Base64` or
+ * (exempt by its exact name and by nothing else: no name shape, no `SourceFile`, and no class nested in it, because the compiled
+ * boundary has none and a class whose name starts with `Jca$` is flagged for that name), the constant pool must name no `java.security`, `javax.crypto`, `java.util.Base64` or
  * `kotlin.io.encoding` class, hold no string that spells those packages, and mention no such type in a descriptor except
  * `SecureRandom`, the type of the random source that crosses the boundary. Round 12 adds the supertypes through which that source
  * can be driven without naming it (`java.util.Random`, `java.util.random.*`, `kotlin.random.PlatformRandomKt`), by class name and by
@@ -175,7 +176,7 @@ class JcaBytecodeScanTest {
     }
 
     @Test
-    fun `the boundary is recognised by its exact name and a nested class by its name and its source file`() {
+    fun `the boundary is exempt by its exact name only and a class named like one nested in it is flagged`() {
         assertTrue(ClassFileScan.isBoundary(boundaryName), "control: the real boundary")
         assertTrue(!ClassFileScan.isBoundary("$boundaryName\$provider\$1"), "a name is exact: a name that only starts like the boundary is not it")
         assertTrue(!ClassFileScan.isBoundary("io/github/x/desktop/Jca"), "a class Jca of another package")
@@ -183,11 +184,22 @@ class JcaBytecodeScanTest {
         fun synthetic(name: String, sourceFile: String?): ClassFileScan.Facts =
             ClassFileScan.parse(SyntheticClass.build(name, sourceFile = sourceFile, withMembers = true) { pool: SyntheticClass.Pool -> pool.classOf("x/Y") })
         assertTrue(ClassFileScan.isBoundaryClass(synthetic(boundaryName, "Jca.kt")), "the boundary")
-        assertTrue(ClassFileScan.isBoundaryClass(synthetic("$boundaryName\$provider\$1", "Jca.kt")), "a class nested in the boundary: its name and the file it was compiled from")
-        assertTrue(!ClassFileScan.isBoundaryClass(synthetic("$boundaryName\$Helper", "Helper.kt")), "a top-level class called Jca\$Helper compiled from another file")
-        assertTrue(!ClassFileScan.isBoundaryClass(synthetic("$boundaryName\$Helper", null)), "a class with no SourceFile attribute is nested in nothing")
+        assertEquals(emptyList(), ClassFileScan.violations(synthetic(boundaryName, "Jca.kt")), "the boundary's name is no violation of the name rule")
+        for (sourceFile: String? in listOf("Jca.kt", "Helper.kt", null)) {
+            for (name: String in listOf("$boundaryName\$provider\$1", "$boundaryName\$Helper", "$boundaryName\$B11Facade")) {
+                val facts: ClassFileScan.Facts = synthetic(name, sourceFile)
+                assertTrue(!ClassFileScan.isBoundaryClass(facts), "$name compiled from $sourceFile is not the boundary: neither the name nor the file name makes a nested class")
+                assertTrue(ClassFileScan.isNamedLikeNested(name), "control: $name reads like a class nested in the boundary")
+                assertTrue(
+                    ClassFileScan.violations(facts).any { line: String -> "named like a class nested in the boundary" in line },
+                    "$name compiled from $sourceFile has no JCA reference and must still be flagged for its name",
+                )
+            }
+        }
         assertTrue(!ClassFileScan.isBoundaryClass(synthetic("io/github/x/desktop/Jca\$1", "Jca.kt")), "another package's Jca.kt")
+        assertEquals(emptyList(), ClassFileScan.violations(synthetic("io/github/x/desktop/Jca\$1", "Jca.kt")), "another package's class is no class nested in this boundary")
         assertTrue(!ClassFileScan.isBoundaryClass(synthetic("${boundaryName}Failure", "Jca.kt")), "a look-alike name in the boundary's file")
+        assertEquals(emptyList(), ClassFileScan.violations(synthetic("${boundaryName}Failure", "Jca.kt")), "JcaFailure is an ordinary class: no `\$`, no name violation")
     }
 
     @Test
@@ -199,14 +211,35 @@ class JcaBytecodeScanTest {
     }
 
     @Test
-    fun `the compiled boundary names Jca kt and a fixture that only looks nested does not`() {
-        val real: ClassFileScan.Facts = ClassFileScan.classBytes(codeSource(Jca::class.java)).map(ClassFileScan::parse).single { facts: ClassFileScan.Facts -> facts.name == boundaryName }
-        assertEquals("Jca.kt", real.sourceFile, "control: the file the boundary's nested classes are told apart by")
+    fun `the compiled boundary is exempt and a fixture that only looks nested is flagged for its name`() {
+        val all: List<ClassFileScan.Facts> = ClassFileScan.classBytes(codeSource(Jca::class.java)).map(ClassFileScan::parse)
+        val real: ClassFileScan.Facts = all.single { facts: ClassFileScan.Facts -> facts.name == boundaryName }
         assertTrue(ClassFileScan.isBoundaryClass(real))
+        assertEquals(
+            emptyList(),
+            all.map { facts: ClassFileScan.Facts -> facts.name }.filter(ClassFileScan::isNamedLikeNested),
+            "the compiled boundary has no class nested in it (Kotlin 2: lambdas are invokedynamic, `provider` is inline): a new one forces a deliberate rule",
+        )
         val lookAlike: ClassFileScan.Facts = fixtureFacts("Jca\$Round12NotNested")
         assertTrue(lookAlike.name.startsWith("$boundaryName\$"), "control: its binary name looks like a class nested in the boundary")
         assertTrue(!ClassFileScan.isBoundaryClass(lookAlike), "it is a top-level class compiled from ${lookAlike.sourceFile}")
-        assertTrue(ClassFileScan.violations(lookAlike).isNotEmpty(), "control: it touches the JCA, so the real-tree scan must not let it through")
+        assertTrue(ClassFileScan.violations(lookAlike).any { line: String -> "names the class java/security/MessageDigest" in line }, "control: it touches the JCA, so the real-tree scan must not let it through")
+        assertTrue(ClassFileScan.violations(lookAlike).any { line: String -> "named like a class nested in the boundary" in line }, "and its name is flagged on its own")
+    }
+
+    @Test
+    fun `classes forged from a second file called Jca kt are flagged for their names whatever they touch`() {
+        val forged: List<ClassFileScan.Facts> = ClassFileScan.classBytes(codeSource(JcaBytecodeScanTest::class.java)).map(ClassFileScan::parse)
+            .filter { facts: ClassFileScan.Facts -> ClassFileScan.isNamedLikeNested(facts.name) && facts.sourceFile == "Jca.kt" }
+        assertEquals(
+            setOf("$boundaryName\$B11Facade", "$boundaryName\$B11Forged"),
+            forged.map { facts: ClassFileScan.Facts -> facts.name }.toSet(),
+            "control: both forged shapes of the round-11 breaker (a back-quoted class, a @file:JvmName facade) are compiled with the tests",
+        )
+        for (facts: ClassFileScan.Facts in forged) {
+            assertTrue(!ClassFileScan.isBoundaryClass(facts), "${facts.name} is not exempt")
+            assertEquals(1, ClassFileScan.violations(facts).count { line: String -> "named like a class nested in the boundary" in line }, "${facts.name} is flagged for its name")
+        }
     }
 
     @Test

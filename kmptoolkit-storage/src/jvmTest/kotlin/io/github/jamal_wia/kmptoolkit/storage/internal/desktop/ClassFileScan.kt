@@ -19,7 +19,9 @@ import kotlin.io.path.readBytes
  * back-quotes, spacing, aliases and constructor references; the constant pool cannot, because the compiler has already resolved all of
  * them to one `CONSTANT_Class` per type a class names (the owner of every method, field and constructor reference included).
  *
- * What is flagged, in a class that is not the boundary:
+ * What is flagged, in a class that is not the boundary (the boundary is exempt by its EXACT name only: a class whose name starts with
+ * `Jca$` is flagged for that name alone, whichever file it was compiled from, because a binary name and the `SourceFile` base name
+ * are both chosen by the source):
  * - a `CONSTANT_Class` whose internal name (array and `L...;` wrapping stripped) is under `java/security/`, `javax/crypto/`,
  *   `kotlin/io/encoding/`, is `java/util/Base64` or one of its nested classes, or is one of the SUPERTYPES through which a
  *   `SecureRandom` can be driven without naming it: `java/util/Random`, anything under `java/util/random/` (`RandomGenerator`) and
@@ -48,7 +50,7 @@ internal object ClassFileScan {
         val classRefs: Set<String>,
         val strings: Set<String>,
         val descriptors: Set<String>,
-        /** The class's `SourceFile` attribute (the file it was compiled from), `null` when it has none. */
+        /** The class's `SourceFile` attribute (the BASE name of the file it was compiled from), `null` when it has none; a diagnostic, never a proof of identity. */
         val sourceFile: String? = null,
     )
 
@@ -66,9 +68,6 @@ internal object ClassFileScan {
     /** The internal name of the boundary, `Jca`, taken from the class itself: a spelling of a path cannot drift away from the real one. */
     private val BOUNDARY: String = Jca::class.java.name.replace('.', '/')
 
-    /** The file the boundary and every class nested in it are compiled from. */
-    private const val BOUNDARY_SOURCE_FILE: String = "Jca.kt"
-
     /**
      * Whether [className] is the boundary class itself: EXACTLY its internal name. Never a name shape: a class `Jca` of another
      * package, or a top-level class whose back-quoted name holds a `$` (`Jca$Helper`), is not the boundary.
@@ -76,12 +75,22 @@ internal object ClassFileScan {
     fun isBoundary(className: String): Boolean = className == BOUNDARY
 
     /**
-     * Whether [facts] describe the boundary or a class nested in it (a lambda or a local class of `Jca`): the boundary by its exact
-     * name, a nested class by a name that starts with `Jca$` AND a `SourceFile` attribute of `Jca.kt`. A name can be forged with
-     * back-quotes, the file a class was compiled from cannot, and a file `Jca.kt` of the boundary's package is the boundary file.
+     * Whether [facts] describe the boundary: its exact name and nothing else. The boundary has no exempt nested class. Neither a
+     * name that starts with `Jca$` nor the `SourceFile` attribute proves that a class is nested in it: a binary name is chosen by
+     * the source (a back-quoted class name, `@file:JvmName("Jca\$X")`), and `SourceFile` holds only the BASE name of a file, so any
+     * second file called `Jca.kt` of any directory or source set produces it. Such a class is scanned like every other one and
+     * [violations] reports its name besides ([isNamedLikeNested]).
      */
-    fun isBoundaryClass(facts: Facts): Boolean =
-        isBoundary(facts.name) || (facts.name.startsWith("$BOUNDARY$") && facts.sourceFile == BOUNDARY_SOURCE_FILE)
+    fun isBoundaryClass(facts: Facts): Boolean = isBoundary(facts.name)
+
+    /**
+     * Whether [className] reads like a class nested in the boundary (`Jca$...`: a lambda, a local or an anonymous class that the
+     * compiler would make of `Jca`). The compiled boundary has none today (`Jca`, `JcaFailure` and `JcaKt` only: Kotlin 2 compiles a
+     * lambda through `invokedynamic`, and `provider` is inline). If one is ever needed it must be confirmed by the boundary's OWN
+     * class file (its `InnerClasses` table naming the class, which a second source file cannot change without editing the boundary)
+     * and this rule extended on purpose, never by a name or a file name.
+     */
+    fun isNamedLikeNested(className: String): Boolean = className.startsWith("$BOUNDARY$")
 
     fun isForbiddenType(internalName: String): Boolean {
         val bare: String = if (internalName.startsWith("[")) internalName.trimStart('[').removePrefix("L").removeSuffix(";") else internalName
@@ -157,6 +166,10 @@ internal object ClassFileScan {
     /** What a class file touches that the boundary rules forbid, one readable line per distinct finding. */
     fun violations(facts: Facts): List<String> {
         val found: MutableList<String> = mutableListOf()
+        if (isNamedLikeNested(facts.name)) {
+            found += "${facts.name} is named like a class nested in the boundary $BOUNDARY (compiled from ${facts.sourceFile}): the boundary has no " +
+                "nested class and a name or a file name proves nothing; a class that is really needed there must be confirmed by the InnerClasses table of $BOUNDARY itself"
+        }
         facts.classRefs.filter(::isForbiddenType).sorted().forEach { type: String -> found += "${facts.name} names the class $type" }
         facts.strings.filter { text: String -> DOTTED.any { name: String -> name in text } }.sorted().forEach { text: String -> found += "${facts.name} holds the string \"$text\"" }
         facts.descriptors.forEach { descriptor: String ->
