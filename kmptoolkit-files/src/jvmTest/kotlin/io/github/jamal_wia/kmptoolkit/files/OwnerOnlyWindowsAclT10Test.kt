@@ -6,6 +6,8 @@ import java.nio.file.Files
 import java.nio.file.attribute.AclEntry
 import java.nio.file.attribute.AclEntryType
 import java.nio.file.attribute.AclFileAttributeView
+import java.nio.file.attribute.UserPrincipalLookupService
+import com.sun.security.auth.module.NTSystem
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -45,11 +47,21 @@ class OwnerOnlyWindowsAclT10Test {
         return entries.map { it.principal().name }.sorted()
     }
 
+    /** The user of the process token as the JDK's NTSystem reports it, domain included; never `user.name`. */
+    private fun tokenUser(): String {
+        val account: NTSystem = NTSystem()
+        return account.domain + "\\" + account.name
+    }
+
     private fun expectedNames(): List<String> {
-        val user: String = FileSystems.getDefault().userPrincipalLookupService
-            .lookupPrincipalByName(System.getProperty("user.name")).name
-        val system: String = FileSystems.getDefault().userPrincipalLookupService
-            .lookupPrincipalByName("NT AUTHORITY\\SYSTEM").name
+        val lookup: UserPrincipalLookupService = FileSystems.getDefault().userPrincipalLookupService
+        val user: String = lookup.lookupPrincipalByName(tokenUser()).name
+        // Both spellings of SYSTEM name the same account; the localised authority name is the one that may differ.
+        val system: String = try {
+            lookup.lookupPrincipalByName("NT AUTHORITY\\SYSTEM").name
+        } catch (_: java.io.IOException) {
+            lookup.lookupPrincipalByName("SYSTEM").name
+        }
         return listOf(user, system).sorted()
     }
 
@@ -107,5 +119,39 @@ class OwnerOnlyWindowsAclT10Test {
         val path: String = File(root, "plain").path
         assertTrue(files.writeAtomically(path, byteArrayOf(1)).isSuccess)
         assertEquals(allowedNames(reference), allowedNames(File(path)))
+    }
+
+    @Test
+    fun `the granted user is the qualified token user and carries a domain part`() {
+        val files: FileAccess = createFileAccess()
+        val path: String = File(root, "secret").path
+        assertTrue(files.writeAtomically(path, byteArrayOf(1), WriteOptions(ownerOnly = true)).isSuccess)
+        val users: List<String> = acl(File(path)).map { it.principal().name }.filter { !it.endsWith("\\SYSTEM", ignoreCase = true) }
+        assertEquals(1, users.size, "exactly one entry besides SYSTEM: ${acl(File(path))}")
+        assertTrue(users.single().contains('\\'), "the principal is domain-qualified: ${users.single()}")
+        assertEquals(tokenUser(), users.single(), "the principal is the token user")
+    }
+
+    @Test
+    fun `a changed user dot name property does not redirect the grant`() {
+        val original: String? = System.getProperty("user.name")
+        val files: FileAccess = createFileAccess()
+        val path: String = File(root, "secret").path
+        try {
+            // A real, different local account: the old lookup by user.name would have granted it.
+            System.setProperty("user.name", if (NTSystem().name.equals("Guest", ignoreCase = true)) "Administrator" else "Guest")
+            assertTrue(files.writeAtomically(path, byteArrayOf(1), WriteOptions(ownerOnly = true)).isSuccess)
+        } finally {
+            if (original == null) System.clearProperty("user.name") else System.setProperty("user.name", original)
+        }
+        assertEquals(expectedNames(), allowedNames(File(path)))
+    }
+
+    @Test
+    fun `the DACL has no inherited entry at creation`() {
+        val files: FileAccess = createFileAccess()
+        val path: String = File(root, "secret").path
+        assertTrue(files.writeAtomically(path, byteArrayOf(1), WriteOptions(ownerOnly = true)).isSuccess)
+        assertEquals(2, acl(File(path)).size, "user and SYSTEM only: ${acl(File(path))}")
     }
 }
