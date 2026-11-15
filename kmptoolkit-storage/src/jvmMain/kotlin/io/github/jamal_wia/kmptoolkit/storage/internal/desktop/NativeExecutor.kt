@@ -70,7 +70,7 @@ internal class NativeExecutor(
                 done.complete(outcome)
             } else if (outcome is NativeOutcome.Completed<T>) {
                 // Abandoned while running: nobody will read the value, so let its owner wipe it.
-                discard(outcome.value)
+                NativeExecutor.discardQuietly(discard, outcome.value)
             }
         }
 
@@ -111,7 +111,7 @@ internal class NativeExecutor(
         } catch (cancelled: CancellationException) {
             if (task.abandon()) {
                 val late: NativeOutcome<T> = task.done.await()
-                if (late is NativeOutcome.Completed<T>) discard(late.value)
+                if (late is NativeOutcome.Completed<T>) NativeExecutor.discardQuietly(discard, late.value)
             }
             throw cancelled
         }
@@ -181,6 +181,15 @@ internal class NativeExecutor(
 
         fun daemonThreadFactory(name: String): ThreadFactory = ThreadFactory { runnable: Runnable ->
             Thread(runnable, name).apply { isDaemon = true }
+        }
+
+        /** A discard handler runs on the native thread or on a cancelled caller: whatever it throws must not end either. */
+        fun <T> discardQuietly(discard: (T) -> Unit, value: T) {
+            try {
+                discard(value)
+            } catch (_: Exception) {
+                // Nothing to report to: the value was abandoned, and a failed wipe handler must not kill the thread.
+            }
         }
 
         /** Whether [error] means the binding cannot run in this environment rather than that a call failed. */
