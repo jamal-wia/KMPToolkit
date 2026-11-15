@@ -31,6 +31,9 @@ kotlin {
             // api, not implementation: InMemoryKeyValueStorage implements SecureKeyValueStorage and
             // returns StorageResult/StorageError, so those types are part of this module's own API.
             api(project(":kmptoolkit-storage"))
+            // implementation: the fixture keeps its contents and failure knobs in MutableStateFlow snapshots
+            // changed with compare-and-set (safe from parallel threads); no coroutines type is public here.
+            implementation(libs.kotlinx.coroutines.core)
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)

@@ -1,16 +1,22 @@
 public final class io/github/jamal_wia/kmptoolkit/storage/testing/InMemoryKeyValueStorage : io/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage {
 	public fun <init> ()V
-	public fun <init> (Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;)V
-	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;Lio/github/jamal_wia/kmptoolkit/storage/testing/InMemoryKeyValueStorage$Backing;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;Lio/github/jamal_wia/kmptoolkit/storage/testing/InMemoryKeyValueStorage$Backing;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun clear (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun ensureKey (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun get (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getContents ()Ljava/util/Map;
+	public final fun getFailEveryOperationWith ()Lio/github/jamal_wia/kmptoolkit/storage/StorageError;
 	public final fun getFailNextOperationWith ()Lio/github/jamal_wia/kmptoolkit/storage/StorageError;
 	public fun getProtection ()Lio/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection;
 	public final fun getWrites ()Ljava/util/List;
 	public fun put (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun remove (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun setFailEveryOperationWith (Lio/github/jamal_wia/kmptoolkit/storage/StorageError;)V
 	public final fun setFailNextOperationWith (Lio/github/jamal_wia/kmptoolkit/storage/StorageError;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/testing/InMemoryKeyValueStorage$Backing {
+	public fun <init> ()V
 }
 
