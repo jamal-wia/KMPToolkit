@@ -5,6 +5,7 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageError
 import io.github.jamal_wia.kmptoolkit.storage.StorageOperation
 import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import io.github.jamal_wia.kmptoolkit.storage.unpairedSurrogateFailure
+import java.io.IOException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 
@@ -212,7 +213,16 @@ internal abstract class EncryptedStoreEngine(
             store.sweepTemps()
             ok()
         }
-        is Op.Put, Op.Ensure -> create(store, op, CreateMode.Fresh, carry)
+        // A link whose target does not exist reads as no file, but nothing can be created at its name: the create would find the name
+        // taken, read that as "another process won" and go round again for nothing (a key drawn, a native call made, four rounds), then
+        // answer a retry-later error for a fault that never heals. It is a permanent fault of the path, answered at once, before any
+        // key material or native call, exactly like the lock path.
+        is Op.Put, Op.Ensure ->
+            if (store.isLinkWithoutTarget()) {
+                fail(StorageError.OperationFailed(op.operation, op.key, cause = IOException("The store file is a symbolic link whose target does not exist")))
+            } else {
+                create(store, op, CreateMode.Fresh, carry)
+            }
     }
 
     private suspend fun unparsable(store: EncryptedFileGuard.StoreFile, op: Op, state: FileState.Unparsable, carry: Carry?): Step = when (op) {

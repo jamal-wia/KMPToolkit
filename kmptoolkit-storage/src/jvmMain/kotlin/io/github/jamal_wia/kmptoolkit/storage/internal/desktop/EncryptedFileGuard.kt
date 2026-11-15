@@ -17,6 +17,7 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import io.github.jamal_wia.kmptoolkit.storage.temporaryPrefixOf
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import java.time.Instant
 import java.util.concurrent.TimeoutException
 import kotlin.time.ComparableTimeMark
@@ -186,6 +187,12 @@ internal class EncryptedFileGuard(
                 }
             }
         }
+
+        /**
+         * Whether the store path is a symbolic link. Asked after [classify] answered [FileState.Absent], which reads through links:
+         * a link then has no target. Metadata of the name itself, never an open (so it cannot block on a pipe).
+         */
+        fun isLinkWithoutTarget(): Boolean = Files.isSymbolicLink(file.toPath())
 
         /** Writes the whole file atomically, owner-only, synced. Returns `false` only for [ExistingFile.Fail] when a file is there. */
         fun write(bytes: ByteArray, existing: ExistingFile): Boolean {

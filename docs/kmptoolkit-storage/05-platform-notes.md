@@ -474,6 +474,13 @@ next `put`). The size is worked out by counting, before the value or the entry n
 key runs with no lock held, and the next round re-reads the file and uses the key only if the header and key-check are the
 ones it was fetched for (at most four such rounds, then `Unavailable`).
 
+**A store file that is a symbolic link whose target does not exist.** A read of such a store finds no file: `get` answers `Success(null)`,
+and `remove` and `clear()` change nothing and keep the link. Nothing can be created at the name of a link, so `put` and `ensureKey` answer
+`OperationFailed` (cause: an `IOException`) at once, before any key is made, any OS call is made or the app's key provider is asked,
+and neither the link nor its missing target is touched. This is a permanent fault of the path, not a retry-later one: re-point or remove
+the link and the same instance works. (The plain store has no create step, so its first write simply replaces the link by the store
+file; it never creates the target.)
+
 **A JDK without AES-GCM or PBKDF2.** A JDK whose provider set cannot do `AES/GCM/NoPadding` or `PBKDF2WithHmacSHA256` (a FIPS-configured
 or restricted set) never makes a store call throw: a `put`, `get`, `remove`, `clear()`, `ensureKey()` or `changeKey` that needs the missing
 algorithm answers `OperationFailed` (with the provider failure as its cause) and writes, creates and moves nothing; a store with data is never
