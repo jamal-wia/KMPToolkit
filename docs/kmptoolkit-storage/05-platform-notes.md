@@ -501,8 +501,9 @@ The same holds for a provider that is present and fails. Every JCA use of the mo
 OS-key store's identity, the random source that makes every nonce, salt and data key) goes through ONE internal boundary that turns whatever an
 engine throws into one typed failure, so no provider failure is a thrown exception or a verdict about the data: a `ProviderException` (a PKCS#11
 token error under a FIPS-configured JDK, or the entropy-source failure of NativePRNG, the default `SecureRandom` on macOS and Linux), an AES-GCM
-engine without support for additional authenticated data, a failing SHA-256, or plain noise from a broken engine. The one thing it never types is
-an `Error`: the JDK's DRBG `SecureRandom` (the default on Windows, and on Linux wherever `securerandom.source` is not exactly `/dev/random` or
+engine without support for additional authenticated data, a failing SHA-256, plain noise from a broken engine, or a `Throwable` that is neither
+an `Exception` nor an `Error` (legal in Kotlin, which has no checked exceptions). Whatever the random source had written when it failed is wiped. The one
+thing it never types is an `Error`: the JDK's DRBG `SecureRandom` (the default on Windows, and on Linux wherever `securerandom.source` is not exactly `/dev/random` or
 `/dev/urandom`, for example with `-Djava.security.egd=file:/dev/./urandom`) reports a seed source it cannot read as an `InternalError`, a
 `VirtualMachineError` that the library does not catch: that call throws it, and nothing is created, moved or held when it does. (The plain store
 computes its lock and temporary-file names when it is made and uses SHA-256 only for a file name of 232 bytes or more, so a failing SHA-256

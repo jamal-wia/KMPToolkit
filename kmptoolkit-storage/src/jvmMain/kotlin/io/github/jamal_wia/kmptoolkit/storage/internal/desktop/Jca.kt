@@ -27,12 +27,13 @@ internal typealias JcaRandom = SecureRandom
  * `javax.crypto` or `java.util.Base64` (`JcaBoundaryScanTest` fails the build of the tests when a file does). Three rules live
  * here and nowhere else, which is the point of the boundary:
  *
- * 1. **A provider failure is one typed failure.** Whatever a JCA engine throws while it works (a `GeneralSecurityException` such
- *    as no such algorithm, a `ProviderException` from a PKCS#11 token or an unreadable entropy source, an
- *    `UnsupportedOperationException` from an engine without AAD support, or plain noise such as a `NullPointerException` from a
- *    broken engine) leaves as a [JcaFailure] with the original as the cause. The JCA specifies different exceptions for different
- *    engines and every audit round of 6.0.0 found one more shape; catching every `Exception` of the provider call closes the
- *    class. Only the provider call itself is inside the catch: the callers' own argument checks stay outside and keep their types.
+ * 1. **A provider failure is one typed failure.** Whatever a JCA engine throws while it works, short of an `Error` (a
+ *    `GeneralSecurityException` such as no such algorithm, a `ProviderException` from a PKCS#11 token or an unreadable entropy
+ *    source, an `UnsupportedOperationException` from an engine without AAD support, plain noise such as a `NullPointerException`
+ *    from a broken engine, or a `Throwable` that is neither an `Exception` nor an `Error`) leaves as a [JcaFailure] with the
+ *    original as the cause. The JCA specifies different exceptions for different engines and every audit round of 6.0.0 found one
+ *    more shape; catching every `Throwable` of the provider call but an `Error` closes the class. Only the provider call itself is
+ *    inside the catch: the callers' own argument checks stay outside and keep their types.
  * 2. **"Wrong key or tampered" is decided in one place** ([aesGcmOpen]), and only a GCM tag that does not verify says it. Nothing a
  *    provider fails with in any other way can read as lost data (that verdict makes an app delete things).
  * 3. **An `Error` is never typed.** `OutOfMemoryError`, `StackOverflowError` and `InternalError` are `VirtualMachineError`s; after
@@ -49,27 +50,36 @@ internal object Jca {
     private const val SHA_256: String = "SHA-256"
     private const val PBKDF2_HMAC_SHA256: String = "PBKDF2WithHmacSHA256"
 
-    /** Runs one provider call; whatever it throws, except an `Error`, becomes a [JcaFailure] naming [what] (never a message from the provider). */
+    /**
+     * Runs one provider call; whatever it throws, except an `Error`, becomes a [JcaFailure] naming [what] (never a message from the
+     * provider). That is every `Throwable` that is not an `Error`, not only every `Exception`: Kotlin has no checked exceptions, so
+     * a provider written in Kotlin may throw any `Throwable` subclass, and a Java one can sneaky-throw one.
+     */
     private inline fun <T> provider(what: String, block: () -> T): T =
         try {
             block()
         } catch (failure: JcaFailure) {
             throw failure
-        } catch (error: Exception) {
+        } catch (error: Throwable) {
+            if (error is Error) throw error
             throw JcaFailure("The $what provider failed", error)
         }
 
     /** The platform's default `SecureRandom`. A provider set that cannot make one is a [JcaFailure]. */
     fun newRandom(): JcaRandom = provider("random source") { SecureRandom() }
 
-    /** [size] random bytes from [random]; a source that fails is a [JcaFailure] (and whatever it had written is wiped). */
+    /**
+     * [size] random bytes from [random]. A source that fails is a [JcaFailure], and an `Error` leaves as itself; either way
+     * whatever the source had written is wiped (wiping is not catching: rule 3 holds).
+     */
     fun randomBytes(random: JcaRandom, size: Int): ByteArray {
         val bytes = ByteArray(size)
+        var drawn = false
         try {
             provider("random source") { random.nextBytes(bytes) }
-        } catch (failure: JcaFailure) {
-            bytes.fill(0)
-            throw failure
+            drawn = true
+        } finally {
+            if (!drawn) bytes.fill(0)
         }
         return bytes
     }
