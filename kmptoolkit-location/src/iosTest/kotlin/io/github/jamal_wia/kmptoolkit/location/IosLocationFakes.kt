@@ -203,6 +203,9 @@ internal class FakeIosLocationEnvironment(scheduler: TestCoroutineScheduler) : I
     val activeListeners: MutableList<() -> Unit> = mutableListOf()
     var unregistered: Int = 0
 
+    /** Every did-become-active registration ever made, so a test can balance it against [unregistered]. */
+    var registered: Int = 0
+
     val liveManagers: List<FakeIosLocationManager> get() = managers.filter { !it.detached }
 
     override fun authorizationStatus(): Int {
@@ -225,6 +228,7 @@ internal class FakeIosLocationEnvironment(scheduler: TestCoroutineScheduler) : I
     }
 
     override fun addBecameActiveListener(onActive: () -> Unit): () -> Unit {
+        registered++
         activeListeners += onActive
         return {
             if (activeListeners.remove(onActive)) unregistered++
