@@ -39,10 +39,12 @@ internal typealias JcaRandom = SecureRandom
  *    inside the catch: the callers' own argument checks stay outside and keep their types. An `InterruptedException` is typed like
  *    the rest and the thread's interrupt status is restored, so the code that runs on that thread sees it: a direct caller keeps the
  *    status. Inside a store call it lasts only until the call's work on that thread ends: `InterruptHygiene` clears a status that
- *    this boundary put back (never one that was set when the call reached the thread, never one that appeared otherwise), because
- *    the dispatcher's thread is not the library's and kotlinx.coroutines does not clear a worker's status between two tasks, so a
- *    status left behind would refuse the file I/O of the next, unrelated coroutine on that worker. The interrupt stays visible as
- *    the cause of the typed failure, and a caller resumed on another thread never sees the status. Only an `InterruptedException` that
+ *    this boundary put back (never one that was set when the call reached the thread, never one that appeared otherwise), at the
+ *    end of the call's block and at every suspension, because the dispatcher's thread is not the library's and kotlinx.coroutines
+ *    does not clear a worker's status between two tasks, so a status left behind would refuse the file I/O of the next, unrelated
+ *    coroutine on that worker, or of a caller that kotlinx.coroutines resumes inline on that worker (`Dispatchers.Unconfined`). The
+ *    interrupt stays visible as the cause of the typed failure, and the caller's own code after the call does not see the status,
+ *    on whichever thread it resumes (unless its thread was already interrupted when the call reached it). Only an `InterruptedException` that
  *    the provider call throws itself is an interrupt: one the JDK wraps (an SPI constructor that throws during `getInstance` leaves
  *    as a `NoSuchAlgorithmException` with it as the cause) or that another exception carries as its cause is NOT looked for, because
  *    a cause may come from another thread and an invented interrupt does more harm than one hidden by a provider constructor that
