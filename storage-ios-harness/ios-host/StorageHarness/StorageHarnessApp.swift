@@ -8,6 +8,13 @@ struct StorageHarnessApp: App {
     }
 }
 
+/// Whether this process already started the `--run-automatic` sequence. `onAppear` can fire again (scene re-appearance,
+/// a re-rendered NavigationView, a view rebuilt with a new identity), and a second run would interleave with the first
+/// over the same Keychain names and print two `HARNESS DONE` lines. A process-wide flag, touched on the main thread only.
+private enum AutomaticRun {
+    static var started = false
+}
+
 /// One row per harness case: a button that runs it against the real Keychain, and what came back.
 struct ContentView: View {
     private let runner = HarnessRunner()
@@ -45,16 +52,21 @@ struct ContentView: View {
         .onAppear {
             // `xcrun simctl launch --console <device> <bundle id> --run-automatic` runs every automatic case and
             // prints `<id> <verdict>` lines (details indented) and a final `HARNESS DONE` line to stdout.
-            if ProcessInfo.processInfo.arguments.contains("--run-automatic") { runAutomatic() }
+            if ProcessInfo.processInfo.arguments.contains("--run-automatic") && !AutomaticRun.started {
+                AutomaticRun.started = true
+                runAutomatic()
+            }
         }
     }
 
     /// Runs every non-manual case one after the other, as the buttons would, and logs each verdict to stdout.
     private func runAutomatic() {
         let automatic = runner.cases().filter { !$0.manual }
-        func step(_ index: Int, _ failed: Int) {
+        // `notPassed` counts FAIL and `FAIL (timed out)`; a SKIPPED case (the device lacks a passcode or Face ID) is counted
+        // on its own and is neither: the release check reads `notPassed=0` and names every skipped case.
+        func step(_ index: Int, _ passed: Int, _ skipped: Int, _ failed: Int) {
             if index == automatic.count {
-                emit("HARNESS DONE cases=\(automatic.count) notPassed=\(failed)")
+                emit("HARNESS DONE cases=\(automatic.count) passed=\(passed) skipped=\(skipped) notPassed=\(failed)")
                 return
             }
             let info = automatic[index]
@@ -65,11 +77,17 @@ struct ContentView: View {
                 running = nil
                 emit("\(info.id) \(result.verdict)")
                 for line in result.details.split(separator: "\n", omittingEmptySubsequences: false) { emit("    \(line)") }
-                step(index + 1, result.verdict == "PASS" ? failed : failed + 1)
+                if result.verdict == "PASS" {
+                    step(index + 1, passed + 1, skipped, failed)
+                } else if result.verdict == "SKIPPED" {
+                    step(index + 1, passed, skipped + 1, failed)
+                } else {
+                    step(index + 1, passed, skipped, failed + 1)
+                }
             }
         }
         emit("HARNESS START automaticCases=\(automatic.count)")
-        step(0, 0)
+        step(0, 0, 0, 0)
     }
 
     private func emit(_ line: String) {
@@ -78,10 +96,8 @@ struct ContentView: View {
     }
 
     private func color(_ verdict: String) -> Color {
-        switch verdict {
-        case "PASS": return .green
-        case "FAIL": return .red
-        default: return .orange
-        }
+        if verdict == "PASS" { return .green }
+        if verdict.hasPrefix("FAIL") { return .red }
+        return .orange
     }
 }

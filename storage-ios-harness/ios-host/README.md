@@ -19,7 +19,12 @@ on an iPhone simulator. Each row of the list runs one case; automatic cases end 
 
 To get a log without tapping (for example for a release check or to paste into an issue), run the app with the
 launch argument `--run-automatic`: it runs every automatic case and prints one `<id> PASS|FAIL` line per case, the
-case's checks indented below it, and a final `HARNESS DONE cases=<n> notPassed=<k>` line.
+case's checks indented below it, and a final `HARNESS DONE cases=<n> passed=<p> skipped=<s> notPassed=<k>` line.
+Every automatic case has a hang bound of 120 seconds: a case that shows a sheet or blocks in a Security call is reported
+`FAIL (timed out)` and the run goes on, so the last line always appears. The argument is honoured once per process.
+A case whose precondition the simulator lacks is reported `SKIPPED` with the reason (not a pass, not a failure,
+counted in `skipped=`, never in `notPassed=`): `ensure-key-user-presence` needs a passcode or an enrolled Face ID
+(Features > Face ID > Enrolled), so enroll Face ID first to have it counted as a PASS in a release check.
 
 ```bash
 xcrun simctl boot "iPhone 16"   # or any booted iPhone simulator
@@ -45,7 +50,7 @@ these literal identifiers; a real device would need a team id prefix, so the har
 | `accessibility-on-update` | yes | An overwrite moves an item to the configured accessibility (I-1). |
 | `missing-entitlement` | yes | `-34018` on an ungranted group is `Unsupported(MISSING_ENTITLEMENT)` for every operation. |
 | `ensure-key-changes-nothing` | yes | `ensureKey()` creates and changes nothing. |
-| `ensure-key-user-presence` | yes | `ensureKey()` of a user-presence store that holds an item is `Success` and shows no sheet (a `FAIL` shows the real status and means the mapping needs a fix). |
+| `ensure-key-user-presence` | yes (skipped without a passcode or Face ID) | `ensureKey()` of a user-presence store that holds an item is `Success` and shows no sheet (a `FAIL` shows the real status and means the mapping needs a fix). |
 | `up-user-presence`, `up-biometry-any`, `up-biometry-current-set` | manual | The system sheet on every `get`, matching and non-matching Face ID, cancel is `AccessDenied(-128)`. |
 | `bcs-store`, `bcs-read` | manual | The status after a Face ID re-enrollment with `BIOMETRY_CURRENT_SET`. |
 | `passcode-store`, `passcode-read` | manual | What a read answers after the passcode is removed with `WHEN_PASSCODE_SET_THIS_DEVICE_ONLY`. |

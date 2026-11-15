@@ -14,6 +14,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.cinterop.ObjCObjectVar
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.value
+import platform.Foundation.NSError
+import platform.LocalAuthentication.LAContext
+import platform.LocalAuthentication.LAPolicyDeviceOwnerAuthentication
+import kotlin.concurrent.atomics.AtomicInt
+import kotlin.concurrent.atomics.AtomicReference
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
+import kotlin.concurrent.atomics.incrementAndFetch
 
 /** The access groups the host app's entitlements grant besides its default one (`ios-host/StorageHarness.entitlements`). */
 internal const val SHARED_GROUP: String = "io.github.jamal-wia.kmptoolkit.storageharness.shared"
@@ -25,23 +37,50 @@ internal const val UNGRANTED_GROUP: String = "io.github.jamal-wia.kmptoolkit.sto
 /** The shape of every value the race case writes. */
 private val WRITTEN_VALUE: Regex = Regex("w\\d+-\\d+")
 
-/** What one case writes down: checks that pass or fail, and observations a person (or the CHANGELOG) will read. */
+/**
+ * What one case writes down: checks that pass or fail, and observations a person (or the CHANGELOG) will read. Safe to
+ * read from another thread while the case still writes (the runner reads it when a case timed out and its body may be
+ * stuck in a blocking Security call).
+ */
+@OptIn(ExperimentalAtomicApi::class)
 internal class CaseLog {
-    private val lines: MutableList<String> = mutableListOf()
-    var failures: Int = 0
-        private set
+    private val lines: AtomicReference<List<String>> = AtomicReference(emptyList())
+    private val failed: AtomicInt = AtomicInt(0)
+    private val skippedBecause: AtomicReference<String?> = AtomicReference(null)
+
+    val failures: Int get() = failed.load()
+
+    /** Why the case could not run on this device (a precondition of the environment), or `null` when it ran. */
+    val skipReason: String? get() = skippedBecause.load()
+
+    private fun append(line: String) {
+        while (true) {
+            val current: List<String> = lines.load()
+            if (lines.compareAndSet(current, current + line)) return
+        }
+    }
 
     fun note(line: String) {
-        lines += line
+        append(line)
     }
 
     /** A claim the library makes. A false one fails the case. */
     fun check(claim: String, holds: Boolean, evidence: String = "") {
-        if (!holds) failures++
-        lines += (if (holds) "  ok   " else "  FAIL ") + claim + if (evidence.isEmpty()) "" else "  [$evidence]"
+        if (!holds) failed.incrementAndFetch()
+        append((if (holds) "  ok   " else "  FAIL ") + claim + if (evidence.isEmpty()) "" else "  [$evidence]")
     }
 
-    fun text(): String = lines.joinToString("\n")
+    /**
+     * Declares that the environment lacks what the case needs (for example a passcode): the case is reported
+     * `SKIPPED` with [reason], neither passed nor failed, so a simulator without the precondition cannot show a
+     * false `PASS` or a false `FAIL` of the library.
+     */
+    fun skip(reason: String) {
+        skippedBecause.store(reason)
+        append("  SKIPPED $reason")
+    }
+
+    fun text(): String = lines.load().joinToString("\n")
 }
 
 /**
@@ -80,6 +119,22 @@ private fun describe(result: StorageResult<*>): String = when (result) {
 }
 
 private fun StorageResult<*>.errorOrNull(): StorageError? = (this as? StorageResult.Failure)?.error
+
+/**
+ * Why a case that writes an item behind user presence (a passcode, or Face ID / Touch ID) cannot run on this device,
+ * or `null` when device owner authentication is available. This is the harness asking the system, never the library:
+ * a stock simulator has neither a passcode nor an enrolled face, and there the put of such an item fails by the
+ * device's own rule, which says nothing about the library.
+ */
+private fun missingDeviceOwnerAuthentication(): String? = memScoped {
+    val error: ObjCObjectVar<NSError?> = alloc<ObjCObjectVar<NSError?>>()
+    if (LAContext().canEvaluatePolicy(LAPolicyDeviceOwnerAuthentication, error.ptr)) {
+        null
+    } else {
+        "this device has no passcode and no enrolled biometry (canEvaluatePolicy(deviceOwnerAuthentication) answered no, " +
+            "LAError code ${error.value?.code ?: "none"}); enable Face ID (Features > Face ID > Enrolled) or set a passcode and run the case again"
+    }
+}
 
 private fun fresh(name: String): String {
     RawKeychain.wipe(RawKeychain.serviceOf(name))
@@ -305,8 +360,12 @@ internal val allCases: List<Case> = listOf(
         id = "ensure-key-user-presence",
         title = "ensureKey() of a user-presence store that has items (m1)",
         manual = false,
-        instructions = "A USER_PRESENCE store writes one new item (a write of a new item shows no sheet), then ensureKey() runs: it must show no sheet and answer Success. If it answers Unavailable the attribute-only query reports errSecInteractionNotAllowed for an item that needs authentication, and ensureKey of a user-presence store must map that status to Success (a locked device answers the same status for a plain store). Needs a simulator with a passcode or Face ID enrolled; a failed put says so.",
+        instructions = "A USER_PRESENCE store writes one new item (a write of a new item shows no sheet), then ensureKey() runs: it must show no sheet and answer Success. If it answers Unavailable the attribute-only query reports errSecInteractionNotAllowed for an item that needs authentication, and ensureKey of a user-presence store must map that status to Success (a locked device answers the same status for a plain store). Needs a passcode or Face ID enrolled: without one the case is SKIPPED with that reason (never PASS, never FAIL).",
     ) {
+        missingDeviceOwnerAuthentication()?.let { reason: String ->
+            skip(reason)
+            return@Case
+        }
         val name: String = fresh("harness.ensureuserpresence")
         val service: String = RawKeychain.serviceOf(name)
         val store: SecureKeyValueStorage = storeNamed(name, userPresence = IosUserPresence(IosUserPresencePolicy.USER_PRESENCE, "Harness: authenticate to continue"))
