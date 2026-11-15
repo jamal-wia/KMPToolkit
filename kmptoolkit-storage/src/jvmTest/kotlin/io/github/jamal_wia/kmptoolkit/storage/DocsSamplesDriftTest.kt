@@ -15,7 +15,10 @@ import kotlin.test.assertTrue
  * - `<!-- listing -->`: an API signature listing (written from the published API; nothing compares it with the ABI dump) or an excerpt of the library's own code, not a consumer sample;
  * - `<!-- build-script -->`: a Gradle snippet.
  *
- * A fence with no marker, or a marker that names nothing, fails. The compile and run checks of the samples themselves are
+ * A fence with no marker, or a marker that names nothing, fails. So does a fence that a renderer shows as Kotlin but that is not
+ * spelled exactly ```` ```kotlin ```` (`kt`, `kts`, `Kotlin`, extra text, a space before the info string, four backticks or tildes),
+ * because the check would skip it; [DocFences] reads fences the way CommonMark does and `DocFencesTest` pins each spelling with a
+ * snippet that does not compile. The compile and run checks of the samples themselves are
  * `:docs-samples:compileKotlinJvm` (as a consumer), `DocsSamplesDesktopRunTest`, `AndroidDocsSamplesRound11Test`,
  * `IosDocsSamplesCompileTest` and `DocsSamplesTestingTest`.
  */
@@ -40,28 +43,10 @@ class DocsSamplesDriftTest {
         return lines.map { if (it.isBlank()) "" else it.drop(indent).trimEnd() }.joinToString("\n").trim('\n')
     }
 
-    private fun fences(): List<Fence> {
-        val result: MutableList<Fence> = mutableListOf()
-        val files: List<File> = docs.listFiles { f: File -> f.name.endsWith(".md") }.orEmpty().sortedBy { it.name }
-        for (file: File in files) {
-            val lines: List<String> = file.readLines()
-            var index = 0
-            while (index < lines.size) {
-                if (lines[index].trim() == "```kotlin") {
-                    val marker: String = if (index > 0) lines[index - 1].trim() else ""
-                    val body: MutableList<String> = mutableListOf()
-                    var end: Int = index + 1
-                    while (lines[end].trim() != "```") {
-                        body.add(lines[end])
-                        end++
-                    }
-                    result.add(Fence(file.name, index + 1, marker, dedent(body)))
-                    index = end
-                }
-                index++
-            }
-        }
-        return result
+    private fun docFiles(): List<File> = docs.listFiles { f: File -> f.name.endsWith(".md") }.orEmpty().sortedBy { it.name }
+
+    private fun fences(): List<Fence> = docFiles().flatMap { file: File ->
+        DocFences.kotlinFences(file.name, file.readLines()).map { Fence(it.file, it.line, it.marker, dedent(it.body)) }
     }
 
     private fun sourceBlocks(): Map<String, MutableList<Pair<String, String>>> {
@@ -100,17 +85,16 @@ class DocsSamplesDriftTest {
     }
 
     @Test
-    fun `no fence opens with a kotlin-like info string other than exactly kotlin`() {
-        val odd: MutableList<String> = mutableListOf()
-        for (file: File in docs.listFiles { f: File -> f.name.endsWith(".md") }.orEmpty().sortedBy { it.name }) {
-            file.readLines().forEachIndexed { index: Int, line: String ->
-                val info: String = line.trim().removePrefix("```")
-                val isFence: Boolean = line.trim().startsWith("```") && info.isNotEmpty()
-                val kotlinLike: Boolean = info.lowercase().let { it.startsWith("kotlin") || it == "kt" || it.startsWith("kt ") || it.startsWith("kts") }
-                if (isFence && kotlinLike && info != "kotlin") odd.add("${file.name}:${index + 1}")
-            }
+    fun `no fence that renders as kotlin is spelled other than exactly kotlin`() {
+        val odd: List<String> = docFiles().flatMap { file: File ->
+            DocFences.oddKotlinFences(file.name, file.readLines()).map { "${it.location} (${it.opening})" }
         }
-        assertEquals(emptyList(), odd, "a fence spelled kt, kts, Kotlin or kotlin with extra text is skipped by the sample check: spell it exactly ```kotlin")
+        assertEquals(
+            emptyList(),
+            odd,
+            "a fence that renders as Kotlin but is not spelled exactly ```kotlin is skipped by the sample check: " +
+                "kt, kts, Kotlin, extra text, a space before the info string, four backticks and tildes all count",
+        )
     }
 
     @Test
