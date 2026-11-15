@@ -180,6 +180,9 @@ directory the app does not own.
   attribute is passed to the creating call and the volume, which has nowhere to store it, disregards it.
   This is expected, not yet observed: the plan's check on a loop-mounted FAT/exFAT image is run by hand
   with `OwnerOnlyFatVolumeT10Test` (`-Pkmptoolkit.test.fatVolumeDirectory=<mounted directory>`).
+  On a macOS FAT or exFAT volume the OS itself puts a `._name` AppleDouble sidecar (it holds the
+  `com.apple.provenance` extended attribute) beside every new file and directory, whichever process creates it;
+  it follows the rename and is not a temporary file left by the library (the test ignores `._*` names).
 - `ownerOnly` protects reading, not replacement: if an existing parent directory is writable by other
   users, they can rename over or delete the file; the levels that already exist are never tightened,
   and a symbolic link among them is followed.

@@ -20,6 +20,11 @@ import org.junit.Assume
  *
  * Asserted: success and intact content. Not asserted: any mode, because what a FAT mount reports is decided by its
  * mount options, not by the request.
+ *
+ * Names that start with `._` are ignored when the directory is listed. On macOS the msdos and exfat drivers keep the
+ * extended attributes of every new entry (the kernel tags each one with `com.apple.provenance`) in an AppleDouble
+ * sidecar `._<name>`, whatever process created the entry and whatever mode it asked for; the sidecar follows the
+ * rename of its file, so it is an artefact of the driver and never a temp file of the library.
  */
 class OwnerOnlyFatVolumeT10Test {
     private var base: File? = null
@@ -52,7 +57,8 @@ class OwnerOnlyFatVolumeT10Test {
         val replaced: FileResult<Unit> = files.writeAtomically(path("f"), byteArrayOf(4), WriteOptions(ownerOnly = true))
         assertTrue(replaced.isSuccess, "$replaced")
         assertContentEquals(byteArrayOf(4), File(path("f")).readBytes())
-        assertEquals(listOf("f"), requireNotNull(base).list()!!.toList(), "no temp file is left behind")
+        val listed: List<String> = requireNotNull(base).list()!!.filterNot { it.startsWith(APPLE_DOUBLE_PREFIX) }
+        assertEquals(listOf("f"), listed, "no temp file is left behind")
     }
 
     @Test
@@ -68,5 +74,6 @@ class OwnerOnlyFatVolumeT10Test {
 
     private companion object {
         const val FAT_DIRECTORY_PROPERTY: String = "kmptoolkit.test.fatVolumeDirectory"
+        const val APPLE_DOUBLE_PREFIX: String = "._"
     }
 }
