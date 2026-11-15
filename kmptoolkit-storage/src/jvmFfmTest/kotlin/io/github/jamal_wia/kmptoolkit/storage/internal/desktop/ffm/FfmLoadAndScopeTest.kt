@@ -25,6 +25,9 @@ class FfmLoadAndScopeTest {
 
     private val attributes: Map<String, String> = mapOf("service" to "s", "directory" to "d")
 
+    /** libsecret 0.20.1 added the backend pair; a libsecret without it still works and has no portal backend. */
+    private val optionalSymbols: Set<String> = setOf("secret_backend_get", "secret_backend_get_finish")
+
     private class RecordingLookup(private val known: Set<String>) : SymbolLookup {
         val asked: MutableList<String> = CopyOnWriteArrayList()
         override fun find(name: String): Optional<MemorySegment> {
@@ -64,22 +67,27 @@ class FfmLoadAndScopeTest {
     }
 
     @Test
-    fun `any other missing libsecret symbol is the same status, not a half binding`() {
-        val everything: Set<String> = setOf(
-            "secret_password_search_sync", "g_str_hash", "g_str_equal", "secret_password_searchv_sync",
-            "secret_retrievable_retrieve_secret_sync", "secret_value_get", "secret_value_unref", "secret_password_storev_sync",
-            "secret_password_clearv_sync", "secret_collection_for_alias_sync", "secret_collection_get_locked",
-            "secret_backend_get_sync", "g_type_name_from_instance", "secret_item_get_type", "secret_item_get_locked",
-            "g_type_check_instance_is_a", "g_object_unref", "g_list_free", "g_hash_table_new", "g_hash_table_insert",
-            "g_hash_table_unref", "g_error_free", "g_free", "g_quark_to_string", "g_dbus_error_get_remote_error",
-            "g_dbus_error_encode_gerror",
-        )
-        // Control: with every symbol present the binding loads and is NOT the missing-symbol status (calls would run native code, so only the load is checked).
-        assertTrue(everything.size >= 26)
-        for (missing: String in everything) {
-            if (missing == "g_str_hash" || missing == "g_str_equal") continue
-            val service = FfmSecretService(foreignOf { RecordingLookup(everything - missing) }, NativeLedger())
-            assertTrue(service.clear(attributes).isSymbolMissing, "missing $missing must be SYMBOL_MISSING")
+    fun `every symbol the binding asks for exists in the real libraries, and only the backend pair is optional`() {
+        val real: Set<String> = RealLibraryExports.all("0.21.8.2")
+        val everything = RecordingLookup(known = real)
+
+        // Control: against the complete real table the binding loads (the backend question answers without native code only when
+        // the symbols are absent, so the load itself is observed through the names it asked for).
+        FfmSecretService(foreignOf { everything }, NativeLedger())
+
+        val invented: List<String> = everything.asked.distinct().filter { it !in real }
+        assertEquals(emptyList(), invented, "symbols the binding asks for that libsecret, glib, gobject and gio do not export")
+        assertTrue(everything.asked.distinct().size >= 25, "control: the binding resolved its symbols (${everything.asked.distinct()})")
+
+        for (missing: String in everything.asked.distinct()) {
+            val service = FfmSecretService(foreignOf { RecordingLookup(real - missing) }, NativeLedger())
+            // backendIsPortal() runs no native code when the backend pair is absent, so it tells a loaded binding from a missing one.
+            val answer: RawResult<Boolean> = service.backendIsPortal()
+            if (missing in optionalSymbols) {
+                assertEquals(false, assertIs<RawResult.Success<Boolean>>(answer, "missing $missing is optional").value, "missing $missing")
+            } else {
+                assertTrue(assertIs<RawResult.Failure>(answer, "missing $missing must be SYMBOL_MISSING").status.isSymbolMissing, "missing $missing")
+            }
         }
     }
 

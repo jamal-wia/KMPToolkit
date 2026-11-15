@@ -144,6 +144,10 @@ internal class Foreign(
     fun require(lookup: SymbolLookup, symbol: String): MemorySegment =
         find(lookup, symbol) ?: throw UnsatisfiedLinkError("Native symbol $symbol is missing")
 
+    /** A native-callable function pointer for [target] (a callback for a native library), valid until [arena] closes. */
+    fun upcallStub(target: MethodHandle, descriptor: FunctionDescriptor, arena: Arena): MemorySegment =
+        linker.upcallStub(target, descriptor, arena)
+
     /** Binds [symbol] of [lookup] as a callable with [descriptor]. */
     fun downcall(lookup: SymbolLookup, symbol: String, descriptor: FunctionDescriptor, vararg options: Linker.Option): Downcall =
         Downcall(symbol, linker.downcallHandle(require(lookup, symbol), descriptor, *options))

@@ -9,6 +9,8 @@ import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.SymbolLookup
 import java.lang.foreign.ValueLayout
+import java.lang.invoke.MethodHandles
+import java.lang.invoke.MethodType
 
 /**
  * The Linux half of the FFM binding: libsecret (`libsecret-1.so.0`, resolved by the system loader) over glib and gio.
@@ -20,11 +22,25 @@ import java.lang.foreign.ValueLayout
  * - **Binding load never throws for a missing library or symbol.** If `libsecret-1.so.0` cannot be opened, or any symbol the
  *   binding needs is absent (libsecret older than 0.19, such as RHEL 8's 0.18.6, lacks `secret_password_search_sync` and
  *   `secret_password_searchv_sync`), every call answers [RawStatus.SYMBOL_MISSING]: `SymbolLookup.find` returns empty and is
- *   never `orElseThrow`n. Above the seam that is `Unsupported(NO_KEY_STORE)`.
+ *   never `orElseThrow`n. Above the seam that is `Unsupported(NO_KEY_STORE)`. libsecret 0.19.x is supported: it exports no
+ *   `secret_backend_get` (that pair is exported since 0.20.1), and without it [backendIsPortal] answers `Success(false)`, because
+ *   a libsecret that old has no portal backend.
+ * - **The backend question uses libsecret's asynchronous pair**, the only API there is (`secret_backend_get` and
+ *   `secret_backend_get_finish`; there is no `_sync`). It is run the way libsecret runs its own `_sync` functions: a private
+ *   `GMainContext` is pushed as the thread default, `secret_backend_get` is started, and the context is iterated on the calling
+ *   (native-executor) thread until the callback has fired; the callback calls `secret_backend_get_finish` and records the answer.
+ *   The wait is unbounded here, as in libsecret's own `_sync` calls; the native executor bounds it from outside.
+ *   The returned `SecretBackend` is **borrowed, never unreferenced**: when this is the first backend request of the process
+ *   libsecret keeps the one reference it returns as its process-wide singleton, so releasing it would free the singleton.
+ *   (libsecret's own callers do the same.) It costs one reference-count increment per call on that singleton.
+ * - **A missing default collection counts as locked**: [defaultCollectionLocked] answers `true` when no
+ *   collection exists at the `default` alias (storing would have to create one, which prompts like an unlock), `false` on the
+ *   portal/file backend (it has no locked collection), and the collection's `Locked` property otherwise.
  * - **Every OS-allocated output is owned by the call's [NativeScope]** right after it is returned: the `GError` (`g_error_free`),
  *   D-Bus error name strings (`g_free`), the `GHashTable` (`g_hash_table_unref`), the result `GList` and its `GObject`
- *   references, the `SecretValue` (`secret_value_unref`, which libsecret wipes), the `SecretCollection` and `SecretBackend`
- *   references. The native copy of the secret that this layer makes (the password argument of a store) is wiped on close.
+ *   references, the `SecretValue` (`secret_value_unref`, which libsecret wipes), the `SecretCollection`
+ *   reference, and the private `GMainContext` of the backend question (its thread-default push is popped first).
+ *   The native copy of the secret that this layer makes (the password argument of a store) is wiped on close.
  * - **A returned object counts as a locked match only if it is a `SecretItem` whose `secret_item_get_locked()` is true**
  *   (file-backend items are never locked): that is [SecretLookup.LockedMatch], never "not found".
  *
@@ -104,37 +120,94 @@ internal class FfmSecretService(
 
     override fun defaultCollectionLocked(): RawResult<Boolean> {
         val api: Api = api ?: return RawResult.Failure(RawStatus.SYMBOL_MISSING)
+        // The backend question runs in a scope of its own: its private main context is popped again before the collection
+        // query below makes its own libsecret calls. The portal and file backends have no locked collection.
+        val portal: RawResult<Boolean> = backendIsPortal(api)
+        if (portal is RawResult.Failure) return portal
+        if ((portal as RawResult.Success<Boolean>).value) return RawResult.Success(false)
         return ledger.scope().use { scope: NativeScope ->
-            // The portal and file backends have no locked collection; only the Secret Service backend does.
-            val portal: RawResult<Boolean> = backendIsPortal(api, scope)
-            if (portal is RawResult.Failure) return@use portal
-            if ((portal as RawResult.Success<Boolean>).value) return@use RawResult.Success(false)
             val error: MemorySegment = scope.arena.allocate(ValueLayout.ADDRESS)
             val collection: MemorySegment =
                 api.collectionForAlias.pointer(MemorySegment.NULL, cString(scope, COLLECTION_DEFAULT), 0, MemorySegment.NULL, error)
             if (collection.address() != 0L) scope.own(collection) { held: MemorySegment -> api.objectUnref.invoke(held) }
             if (error.get(ValueLayout.ADDRESS, 0L).address() != 0L) return@use RawResult.Failure(api.takeError(scope, error))
-            // No default collection at all: nothing is locked; the store call that follows reports the real problem.
-            if (collection.address() == 0L) return@use RawResult.Success(false)
+            // No default collection at all: a store would have to create one, which prompts exactly like an unlock (seam contract).
+            if (collection.address() == 0L) return@use RawResult.Success(true)
             RawResult.Success(api.collectionGetLocked.int(collection) != 0)
         }
     }
 
     override fun backendIsPortal(): RawResult<Boolean> {
         val api: Api = api ?: return RawResult.Failure(RawStatus.SYMBOL_MISSING)
-        return ledger.scope().use { scope: NativeScope -> backendIsPortal(api, scope) }
+        return backendIsPortal(api)
     }
 
-    private fun backendIsPortal(api: Api, scope: NativeScope): RawResult<Boolean> {
-        val error: MemorySegment = scope.arena.allocate(ValueLayout.ADDRESS)
-        val backend: MemorySegment = api.backendGet.pointer(0, MemorySegment.NULL, error)
-        if (backend.address() != 0L) scope.own(backend) { held: MemorySegment -> api.objectUnref.invoke(held) }
-        if (error.get(ValueLayout.ADDRESS, 0L).address() != 0L) return RawResult.Failure(api.takeError(scope, error))
-        if (backend.address() == 0L) return RawResult.Failure(RawStatus(G_IO_ERROR_FAILED, G_IO_ERROR_DOMAIN))
-        val name: MemorySegment = api.typeNameFromInstance.pointer(backend)
-        val typeName: String = if (name.address() == 0L) "" else name.reinterpret(MAX_TYPE_NAME).getString(0L)
-        // libsecret's file backend is the one it selects inside a Flatpak sandbox (through the Secret portal).
-        return RawResult.Success(typeName == FILE_BACKEND_TYPE)
+    /**
+     * Asks libsecret which backend it selected: `secret_backend_get` on a private thread-default main context, iterated here until
+     * the callback fired (the shape of libsecret's own `_sync` functions). Answers `false` when libsecret has no backend API (< 0.20).
+     */
+    private fun backendIsPortal(api: Api): RawResult<Boolean> {
+        val backendApi: BackendApi = api.backend ?: return RawResult.Success(false)
+        return ledger.scope().use { scope: NativeScope ->
+            val request = BackendWait(backendApi.getFinish, scope.arena.allocate(ValueLayout.ADDRESS))
+            val context: MemorySegment = api.contextNew.pointer()
+            if (context.address() == 0L) throw OutOfMemoryError("g_main_context_new returned NULL")
+            // Released last of the context's two registrations: after the pop. A callback that already fired is the only one a drain can
+            // meet (libsecret's own cleanup does the same); an unfired one never calls back once nobody iterates the context.
+            scope.own(context) { held: MemorySegment ->
+                if (request.fired) while (api.contextIteration.int(held, 0) != 0) {
+                    // Dispatches what is still queued on the context, as libsecret's own cleanup does.
+                }
+                api.contextUnref.invoke(held)
+            }
+            api.contextPush.invoke(context)
+            scope.own(context) { held: MemorySegment -> api.contextPop.invoke(held) }
+            // The stub lives in the call's arena, which closes after every release above: the callback cannot outlive it.
+            val callback: MemorySegment = foreign.upcallStub(
+                MethodHandles.lookup()
+                    .findVirtual(
+                        BackendWait::class.java, "onReady",
+                        MethodType.methodType(Void.TYPE, MemorySegment::class.java, MemorySegment::class.java, MemorySegment::class.java),
+                    ).bindTo(request),
+                FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS),
+                scope.arena,
+            )
+            backendApi.get.invoke(0, MemorySegment.NULL, callback, MemorySegment.NULL)
+            // The task may complete inside the call above, so test before the first (blocking) iteration.
+            while (!request.fired) api.contextIteration.int(context, 1)
+            request.failure?.let { failure: Throwable -> throw failure }
+            if (request.error.get(ValueLayout.ADDRESS, 0L).address() != 0L) return@use RawResult.Failure(api.takeError(scope, request.error))
+            // Borrowed, not owned: see the class KDoc.
+            val backend: MemorySegment = request.backend
+            if (backend.address() == 0L) return@use RawResult.Failure(RawStatus(G_IO_ERROR_FAILED, G_IO_ERROR_DOMAIN))
+            val name: MemorySegment = api.typeNameFromInstance.pointer(backend)
+            val typeName: String = if (name.address() == 0L) "" else name.reinterpret(MAX_TYPE_NAME).getString(0L)
+            // libsecret's file backend is the one it selects for the Flatpak Secret portal (and for Snap or SECRET_BACKEND=file).
+            RawResult.Success(typeName == FILE_BACKEND_TYPE)
+        }
+    }
+
+    /**
+     * The state of one `secret_backend_get` request, written by the callback that libsecret invokes on the iterating thread. The
+     * callback finishes the request itself (the `GAsyncResult` is valid only during the callback) and must never throw: an exception
+     * escaping an upcall ends the JVM, so any failure is recorded and rethrown by the caller outside the upcall.
+     */
+    private class BackendWait(private val finish: Downcall, val error: MemorySegment) {
+        @Volatile var fired: Boolean = false
+        var backend: MemorySegment = MemorySegment.NULL
+        var failure: Throwable? = null
+
+        @Suppress("unused", "UNUSED_PARAMETER")
+        fun onReady(source: MemorySegment, result: MemorySegment, userData: MemorySegment) {
+            if (fired) return
+            try {
+                backend = finish.pointer(result, error)
+            } catch (thrown: Throwable) {
+                failure = thrown
+            } finally {
+                fired = true
+            }
+        }
     }
 
     /** A `SecretSchema` (592 bytes, 64-bit) naming the string attributes in [attributes], owned by [scope]'s arena. */
@@ -164,6 +237,9 @@ internal class FfmSecretService(
 
     private fun cString(scope: NativeScope, text: String): MemorySegment = scope.arena.allocateFrom(text)
 
+    /** `secret_backend_get` and `secret_backend_get_finish`, exported by libsecret 0.20.1 and newer. */
+    private class BackendApi(val get: Downcall, val getFinish: Downcall)
+
     /** Everything libsecret, gio and glib that the binding calls, resolved once. */
     private class Api(
         val searchv: Downcall,
@@ -174,7 +250,12 @@ internal class FfmSecretService(
         val clear: Downcall,
         val collectionForAlias: Downcall,
         val collectionGetLocked: Downcall,
-        val backendGet: Downcall,
+        val backend: BackendApi?,
+        val contextNew: Downcall,
+        val contextPush: Downcall,
+        val contextPop: Downcall,
+        val contextUnref: Downcall,
+        val contextIteration: Downcall,
         val typeNameFromInstance: Downcall,
         val itemGetType: Downcall,
         val itemGetLocked: Downcall,
@@ -255,6 +336,10 @@ internal class FfmSecretService(
                 if (foreign.find(all, "secret_password_search_sync") == null) return null
                 fun fn(name: String, descriptor: FunctionDescriptor): Downcall? =
                     foreign.find(all, name)?.let { address: MemorySegment -> foreign.downcall(name, address, descriptor) }
+                // Resolved as a pair: one without the other is as good as none.
+                val backendGet: Downcall? = fn("secret_backend_get", FunctionDescriptor.ofVoid(INT, ADDR, ADDR, ADDR))
+                val backendFinish: Downcall? = fn("secret_backend_get_finish", FunctionDescriptor.of(ADDR, ADDR, ADDR))
+                val backend: BackendApi? = if (backendGet != null && backendFinish != null) BackendApi(backendGet, backendFinish) else null
                 val strHash: MemorySegment = foreign.find(all, "g_str_hash") ?: return null
                 val strEqual: MemorySegment = foreign.find(all, "g_str_equal") ?: return null
                 return Api(
@@ -266,7 +351,13 @@ internal class FfmSecretService(
                     clear = fn("secret_password_clearv_sync", FunctionDescriptor.of(INT, ADDR, ADDR, ADDR, ADDR)) ?: return null,
                     collectionForAlias = fn("secret_collection_for_alias_sync", FunctionDescriptor.of(ADDR, ADDR, ADDR, INT, ADDR, ADDR)) ?: return null,
                     collectionGetLocked = fn("secret_collection_get_locked", FunctionDescriptor.of(INT, ADDR)) ?: return null,
-                    backendGet = fn("secret_backend_get_sync", FunctionDescriptor.of(ADDR, INT, ADDR, ADDR)) ?: return null,
+                    // Optional pair (libsecret 0.20.1 and newer): absent means no portal backend, not a broken library.
+                    backend = backend,
+                    contextNew = fn("g_main_context_new", FunctionDescriptor.of(ADDR)) ?: return null,
+                    contextPush = fn("g_main_context_push_thread_default", FunctionDescriptor.ofVoid(ADDR)) ?: return null,
+                    contextPop = fn("g_main_context_pop_thread_default", FunctionDescriptor.ofVoid(ADDR)) ?: return null,
+                    contextUnref = fn("g_main_context_unref", FunctionDescriptor.ofVoid(ADDR)) ?: return null,
+                    contextIteration = fn("g_main_context_iteration", FunctionDescriptor.of(INT, ADDR, INT)) ?: return null,
                     typeNameFromInstance = fn("g_type_name_from_instance", FunctionDescriptor.of(ADDR, ADDR)) ?: return null,
                     itemGetType = fn("secret_item_get_type", FunctionDescriptor.of(LONG)) ?: return null,
                     itemGetLocked = fn("secret_item_get_locked", FunctionDescriptor.of(INT, ADDR)) ?: return null,

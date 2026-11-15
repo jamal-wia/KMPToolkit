@@ -304,8 +304,8 @@ app sharing that code with desktop could not compile it for desktop without the 
       (`CFDictionary`, `CFString`, `CFData`, a `LocalFree` buffer, a `GError`, a `GHashTable`, a `GList`, a `SecretValue`) it
       is registered for release, and the scope releases in reverse order, wipes its native copy of the key, and only then
       frees its native memory. A failing allocation therefore frees what came before it. On macOS the `CFData` that wraps the
-      key buffer is released first; the `CFData` that `SecItemCopyMatching` returns belongs to the Security framework, so it is
-      copied out and released, not overwritten. On Windows the plaintext output of `CryptUnprotectData` is zeroed before
+      key buffer is released first; the `CFData` that `SecItemCopyMatching` returns belongs to the Security framework (its retain
+      count cannot show that nobody else owns its bytes), so it is copied out and released, not overwritten. On Windows the plaintext output of `CryptUnprotectData` is zeroed before
       `LocalFree`. libsecret wipes its `SecretValue` itself.
     - **macOS:** generic passwords of the login (file) keychain with `kSecUseDataProtectionKeychain = false` explicit;
       `kSecUseAuthenticationUISkip` is never used; with `allowUi = false` copy, add and delete carry
@@ -313,7 +313,14 @@ app sharing that code with desktop could not compile it for desktop without the 
       captured by the linker in the same call. **Linux:** lookup is `secret_password_searchv_sync` with
       `SECRET_SEARCH_ALL` (plus `SECRET_SEARCH_UNLOCK` when UI is allowed); a returned `SecretItem` that is locked is a
       locked match; `libsecret-1.so.0` that cannot be loaded, or one older than 0.19 (no `secret_password_search_sync`), answers
-      the dedicated `SYMBOL_MISSING` status on every call and throws nothing.
+      the dedicated `SYMBOL_MISSING` status on every call and throws nothing. libsecret 0.19 is supported. The backend
+      question ("did libsecret select its portal backend?") has no synchronous libsecret call: the binding runs the
+      asynchronous `secret_backend_get` on a private thread-default `GMainContext`, iterates it on the native thread until the
+      callback has fired (the way libsecret's own `_sync` functions work) and compares the backend's type name with
+      `SecretFileBackend`, which libsecret also selects for Snap and for `SECRET_BACKEND=file`. libsecret 0.19 exports no
+      `secret_backend_get` (0.20.1 and newer do), so there the answer is "no portal". The backend object libsecret returns is
+      borrowed, never released (libsecret keeps the first one as its process-wide singleton). A default collection that does not
+      exist counts as locked, because a store would have to create it, which prompts; the portal backend has none to lock.
     - **Running the real-store suites** (opt-in, never part of `jvmTest`): on a JDK 25 launcher through
       `./gradlew :kmptoolkit-storage:jvmTestFfm -Pkmptoolkit.secretstore=macos|windows|linux` (add
       `-Pkmptoolkit.secretstore.required=true` to turn a skip into a failure). The macOS suite creates only items whose service
