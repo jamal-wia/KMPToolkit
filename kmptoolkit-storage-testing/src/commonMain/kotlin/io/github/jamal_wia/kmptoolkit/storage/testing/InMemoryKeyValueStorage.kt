@@ -40,7 +40,8 @@ import kotlinx.coroutines.flow.update
  * ```
  *
  * [failNextOperationWith] scripts one failure; [failEveryOperationWith] scripts a store that stays
- * broken (a keyring that stays locked, an environment that is [StorageError.Unsupported]).
+ * broken (a keyring that stays locked as [StorageError.Unavailable], an environment that is
+ * [StorageError.Unsupported]).
  *
  * ### Restart and a second process
  *
@@ -55,7 +56,9 @@ import kotlinx.coroutines.flow.update
  * snapshots held in `MutableStateFlow`s and changed with `update` (compare-and-set), the idiom of the
  * suite's other fixtures: no call blocks, no write is lost, an armed [failNextOperationWith] fails
  * exactly one of any number of concurrent operations, and two puts never produce a half-written
- * state. Operations on different keys have no defined order.
+ * state. Operations on different keys have no defined order, and under concurrent writers the order of
+ * [writes] is the order in which the records landed: an entry can be visible in [contents] a moment
+ * before its record is.
  *
  * ### Cancellation
  *
@@ -115,6 +118,11 @@ public class InMemoryKeyValueStorage(
      *
      * For a store that does not recover on its own: a keyring that stays locked, an environment where
      * the store is [StorageError.Unsupported]. Checked after [failNextOperationWith].
+     *
+     * It fails `remove` and `clear` too. The "key lost" state of an OS-key store — after
+     * `Undecryptable(null)` those two still work and the next `put` starts a fresh key — is not
+     * modelled by it: to test a recovery path, script the read with
+     * `failNextOperationWith = Undecryptable(null)` and let `remove` and `clear` run normally.
      */
     public var failEveryOperationWith: StorageError?
         get() = state.value.failEvery
@@ -130,6 +138,10 @@ public class InMemoryKeyValueStorage(
      * where reading the final contents cannot tell a value that was written once from one that was
      * written, removed, and written again. Per instance: a second instance over the same [Backing]
      * keeps its own list.
+     *
+     * Under concurrent writers the order is the order in which the records landed, and an entry can be
+     * visible in [contents] a moment before its record is here: one `put` updates the shared entries
+     * and then this log, and the two are separate atomic steps.
      */
     public val writes: List<String> get() = state.value.writes
 
