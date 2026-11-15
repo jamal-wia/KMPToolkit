@@ -479,9 +479,13 @@ internal class AndroidLocationProvider(
 
         /**
          * What is registered: the candidates until [start] has registered, then the sources that accepted
-         * (empty after a failed re-registration, so the next check retries).
+         * (empty after a failed re-registration, so the next check retries, and while every candidate refused the
+         * caller with the service switched off: the stream waits for the service, see [start]).
          */
         private var selected: List<String> = initial.names
+
+        /** The candidates of the request as selected at the start (an explicit source: its one provider). */
+        private val initialNames: List<String> = initial.names
 
         /** The "first usable only" rows of the AUTO table register one source; every other selection registers all that accept. */
         private val firstOnly: Boolean = initial.firstOnly
@@ -540,10 +544,19 @@ internal class AndroidLocationProvider(
                 disabledNow = disabled
                 out.trySend(StreamReading.seed(currentReading(platform, deliverable, options.maxSeedAge, disabled)))
                 val accepted: List<String> = register(selected, firstOnly)
-                // PERMISSION_MISSING only when every candidate refused; one source that is merely off is not that.
-                if (accepted.isEmpty()) throw lastRefusal ?: SecurityException("no location provider accepted the registration")
-                selected = accepted
-                deliverable = accepted
+                if (accepted.isEmpty()) {
+                    // PERMISSION_MISSING only when every candidate refused while the service is ON. A switched-off
+                    // service wins over a refusal (PLAN 4.2: "denied with services off is SERVICE_DISABLED", D8: the
+                    // one-shot answers the same): the stream stays open on SERVICE_DISABLED with nothing registered
+                    // and ends with PERMISSION_MISSING when the service comes back (evaluateLocked).
+                    if (!isDisabled(platform, deliverable)) {
+                        throw lastRefusal ?: SecurityException("no location provider accepted the registration")
+                    }
+                    selected = emptyList()
+                } else {
+                    selected = accepted
+                    deliverable = accepted
+                }
                 unsubscribe = platform.observeServiceChanges { evaluate() }
                 // A change between the seed and the subscription would otherwise be missed. The refusals met by this very
                 // registration are not re-judged against the grant here: a grant is picked up at the next service event.
@@ -617,6 +630,7 @@ internal class AndroidLocationProvider(
         private fun evaluateLocked(forgetRefusals: Boolean = true) {
             if (closed) return
             if (forgetRefusals) forgetRefusalsOfAnotherGrant()
+            var candidates: List<String> = initialNames
             if (autoSelect) {
                 // AUTO uses the first ENABLED source of its table that accepts the caller (PLAN D19): when the one
                 // it registered went off while another is on, the registration moves instead of reading
@@ -624,8 +638,27 @@ internal class AndroidLocationProvider(
                 // the decision below judges.
                 val pick: AutoPick = pickAuto(platform, options.accuracy, forStream = true)
                 val target: List<String> = pick.target(refused)
+                candidates = pick.candidates
                 if (target != failedMove) failedMove = null
                 if (target.isNotEmpty() && target != selected && failedMove == null) rebind(pick)
+            } else if (selected.isEmpty() && initialNames.any { provider: String -> provider !in refused }) {
+                // An explicit source that was refused while the service was off, and the grant changed since (or a
+                // platform failure left nothing registered): ask again. Only the service broadcast reaches this
+                // state (no provider is held, so no listener callback does).
+                val accepted: List<String> = registerQuietly(initialNames, firstOnly = false)
+                if (accepted.isNotEmpty()) {
+                    selected = accepted
+                    deliverable = accepted
+                }
+            }
+            if (selected.isEmpty() && candidates.isNotEmpty() && candidates.all { provider: String -> provider in refused } && !isDisabled(platform, candidates)) {
+                // Every candidate refused the caller, remembered under the unchanged grant (D16: only a new grant
+                // changes it), and the service is on again: now the grant is what is missing, as at the start of a
+                // stream whose service was on. No platform call. The terminal reading is the last element.
+                closed = true
+                out.trySend(StreamReading.live(unavailable(LocationUnavailability.PERMISSION_MISSING)))
+                out.close()
+                return
             }
             val disabled: Boolean = isDisabled(platform, deliverable)
             if (disabled == disabledNow) return
