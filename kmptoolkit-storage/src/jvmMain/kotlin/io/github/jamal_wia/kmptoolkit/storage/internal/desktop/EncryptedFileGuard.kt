@@ -104,6 +104,7 @@ internal class EncryptedFileGuard(
      * always one lock.
      */
     suspend fun <T> locked(operation: StorageOperation, key: String?, block: suspend (StoreFile) -> T): StorageResult<T> {
+        var lastLockName: String = file.name
         repeat(MAX_PATH_TRIES) {
             val before: RealStorePath = try {
                 resolver.resolve(file)
@@ -113,13 +114,22 @@ internal class EncryptedFileGuard(
                 return failed(operation, key, error)
             }
             val lockKey: String = PathKey.of(before.path, CaseFolding.Always)
-            val lockFile: File = CrossProcessLock.lockFileOf(before.file)
-            val tempPrefix: String = temporaryPrefixOf(before.name)
+            // The names of a long file name are hashed (SHA-256): a provider that fails there is an environment problem like the
+            // resolution above, answered here before any lock is taken, never thrown out of the call.
+            val lockFile: File
+            val tempPrefix: String
+            try {
+                lockFile = CrossProcessLock.lockFileOf(before.file)
+                tempPrefix = temporaryPrefixOf(before.name)
+            } catch (error: JcaFailure) {
+                return failed(operation, key, error)
+            }
+            lastLockName = lockFile.name
             val budget: Duration = crossProcessLock.deadline
             val started: ComparableTimeMark = timeSource.markNow()
-            val round: StorageResult<Round<T>> = LOCKS.withLock(lockKey, budget, onTimeout = { unavailable(lockFile) }) {
+            val round: StorageResult<Round<T>> = LOCKS.withLock(lockKey, budget, onTimeout = { unavailable(lockFile.name) }) {
                 when (val acquisition: LockAcquisition = crossProcessLock.acquire(lockFile, tempPrefix, budget - started.elapsedNow())) {
-                    LockAcquisition.TimedOut -> unavailable(lockFile)
+                    LockAcquisition.TimedOut -> unavailable(lockFile.name)
                     is LockAcquisition.Failed -> failed(operation, key, acquisition.cause)
                     is LockAcquisition.NotSupported -> failed(operation, key, acquisition.cause)
                     is LockAcquisition.Held -> acquisition.use { shielded(operation, key) { under(lockKey, block) } }
@@ -133,7 +143,7 @@ internal class EncryptedFileGuard(
                 }
             }
         }
-        return unavailable(CrossProcessLock.lockFileOf(file))
+        return unavailable(lastLockName)
     }
 
     /** Under the locks: resolve again, and run [block] only if this is still the file the lock key stands for. */
@@ -162,8 +172,8 @@ internal class EncryptedFileGuard(
     private fun <T> failed(operation: StorageOperation, key: String?, cause: Throwable): StorageResult<T> =
         StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = cause))
 
-    private fun <T> unavailable(lockFile: File): StorageResult<T> = StorageResult.Failure(
-        StorageError.Unavailable(TimeoutException("Another writer held ${lockFile.name} past the wait limit")),
+    private fun <T> unavailable(lockName: String): StorageResult<T> = StorageResult.Failure(
+        StorageError.Unavailable(TimeoutException("Another writer held $lockName past the wait limit")),
     )
 
     /**
