@@ -35,6 +35,11 @@ class JcaBytecodeScanTest {
 
     private val boundaryName: String = internalName(Jca::class.java)
 
+    /** The class's own name without its package: a JVM internal class name, not a file path. */
+    private fun simpleName(facts: ClassFileScan.Facts): String =
+        // path-hygiene-ignore: PH3 a JVM internal class name, not a file path
+        facts.name.substringAfterLast('/')
+
     private fun internalName(type: Class<*>): String = type.name.replace('.', '/')
 
     private fun codeSource(type: Class<*>): URL =
@@ -63,20 +68,20 @@ class JcaBytecodeScanTest {
     @Test
     fun `the scan flags every way of reaching the JCA that a fixture takes and leaves the clean fixtures alone`() {
         val fixtures: List<ClassFileScan.Facts> = ClassFileScan.classBytes(codeSource(JcaBytecodeScanTest::class.java)).map(ClassFileScan::parse)
-            .filter { facts: ClassFileScan.Facts -> facts.name.contains("/JcaScanFixture") }
+            .filter { facts: ClassFileScan.Facts -> simpleName(facts).startsWith("JcaScanFixture") }
         fun violationsOf(prefix: String): List<String> =
-            fixtures.filter { facts: ClassFileScan.Facts -> facts.name.substringAfterLast('/').startsWith(prefix) }.flatMap(ClassFileScan::violations)
+            fixtures.filter { facts: ClassFileScan.Facts -> simpleName(facts).startsWith(prefix) }.flatMap(ClassFileScan::violations)
         val flagged: List<String> = listOf(
             "JcaScanFixtureFlaggedDirect", "JcaScanFixtureFlaggedInstanceCall", "JcaScanFixtureFlaggedConstructorReference",
             "JcaScanFixtureFlaggedSecondAlias", "JcaScanFixtureFlaggedSpaced", "JcaScanFixtureFlaggedJdkBase64",
             "JcaScanFixtureFlaggedKotlinBase64", "JcaScanFixtureFlaggedReflection",
         )
         for (fixture: String in flagged) {
-            assertTrue(fixtures.any { facts: ClassFileScan.Facts -> facts.name.substringAfterLast('/').startsWith(fixture) }, "control: $fixture is compiled with the tests")
+            assertTrue(fixtures.any { facts: ClassFileScan.Facts -> simpleName(facts).startsWith(fixture) }, "control: $fixture is compiled with the tests")
             assertTrue(violationsOf(fixture).isNotEmpty(), "$fixture reaches the JCA and the scan of its class files did not flag it")
         }
         for (fixture: String in listOf("JcaScanFixtureCleanBoundaryUse", "JcaScanFixtureCleanOtherJdk")) {
-            assertTrue(fixtures.any { facts: ClassFileScan.Facts -> facts.name.substringAfterLast('/').startsWith(fixture) }, "control: $fixture is compiled with the tests")
+            assertTrue(fixtures.any { facts: ClassFileScan.Facts -> simpleName(facts).startsWith(fixture) }, "control: $fixture is compiled with the tests")
             assertEquals(emptyList(), violationsOf(fixture), "$fixture does not touch the JCA and must not be flagged")
         }
     }
@@ -90,7 +95,7 @@ class JcaBytecodeScanTest {
 
     private fun fixtureFacts(name: String): ClassFileScan.Facts =
         ClassFileScan.classBytes(codeSource(JcaBytecodeScanTest::class.java)).map(ClassFileScan::parse)
-            .single { facts: ClassFileScan.Facts -> facts.name.endsWith("/$name") }
+            .single { facts: ClassFileScan.Facts -> simpleName(facts) == name }
 
     // ---- the parser, on class files built by hand ----
 

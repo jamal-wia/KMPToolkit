@@ -16,7 +16,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 
 /** A direct construction by the full name. */
 internal class JcaScanFixtureFlaggedDirect {
-    fun make(): Any = java.security.SecureRandom()
+    fun make(): Any = java.security.MessageDigest.getInstance("SHA-256")
 }
 
 /** A call on an INSTANCE of the boundary's random source: no name of the JDK type appears in the source of the call. */
