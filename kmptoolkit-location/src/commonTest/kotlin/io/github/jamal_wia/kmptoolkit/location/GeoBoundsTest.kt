@@ -244,11 +244,41 @@ class GeoBoundsTest {
             // Radii from 1 m to 10 000 km, cubic so small ones are common, and an exact zero now and then.
             val radius: Double = if (fraction < 0.05) 0.0 else 1.0 + 10.0 * 1e6 * fraction * fraction * fraction
             val box: GeoBounds = centre.boundingBox(radius)
-            val within: Double = radius * rng.nextDouble(0.0, 0.999999)
+            // Up to and including the radius itself: a point exactly on the circle is inside the exact distance filter, so it must be inside the box.
+            val within: Double = if (rng.nextInt(10) == 0) radius else radius * rng.nextDouble(0.0, 1.0)
             // At distance zero the point is the centre itself: destinationPoint is exact only to rounding, a box edge is not.
             val point: GeoCoordinates = if (radius == 0.0) centre else centre.destinationPoint(within, rng.nextDouble(0.0, 360.0))
             if (point !in box) {
                 fail("sample $index: $point ($within m of $centre, radius $radius) is outside $box${seedNote(seed)}")
+            }
+        }
+    }
+
+    @Test
+    fun `the edges are rounded outward so a point exactly on the circle is never outside`() {
+        // A zero radius used to give a box that was exactly the point: a position one rounding step off was outside.
+        val centre = GeoCoordinates(12.5, -33.25)
+        val box: GeoBounds = centre.boundingBox(0.0)
+
+        assertTrue(GeoCoordinates(12.5 + 1e-10, -33.25 - 1e-10) in box, "inside the 5e-10 degree padding")
+        assertTrue(GeoCoordinates(12.5 - 1e-10, -33.25 + 1e-10) in box, "inside the 5e-10 degree padding")
+        assertFalse(GeoCoordinates(12.5 + 1e-8, -33.25) in box, "far outside the padding stays outside")
+        assertTrue(box.south < 12.5 && box.north > 12.5 && box.west < -33.25 && box.east > -33.25)
+    }
+
+    @Test
+    fun `every point on the circle at every bearing is inside the box`() {
+        val seed: Int = GEO_TEST_SEED + 13
+        val rng = Random(seed)
+        repeat(200) { index: Int ->
+            val centre: GeoCoordinates = randomCoordinates(rng)
+            val radius: Double = 1.0 + 8.0e6 * rng.nextDouble(0.0, 1.0)
+            val box: GeoBounds = centre.boundingBox(radius)
+            var bearing = 0.0
+            while (bearing < 360.0) {
+                val point: GeoCoordinates = centre.destinationPoint(radius, bearing)
+                if (point !in box) fail("sample $index: $point (bearing $bearing, radius $radius from $centre) is outside $box${seedNote(seed)}")
+                bearing += 0.1
             }
         }
     }

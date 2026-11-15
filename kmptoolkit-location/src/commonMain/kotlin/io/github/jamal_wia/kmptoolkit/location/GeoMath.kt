@@ -90,8 +90,13 @@ public fun GeoCoordinates.destinationPoint(distanceMeters: Double, bearingDegree
     return GeoCoordinates(phi2.toDegreesValue().coerceIn(-90.0, 90.0), longitude2)
 }
 
+/** The outward rounding of every [boundingBox] edge: far below any real measurement, far above rounding error. */
+private const val BOX_EDGE_PADDING_DEGREES: Double = 5.0e-10
+
 /**
- * The smallest box holding every point within [radiusMeters] of this position on the same sphere.
+ * The smallest box holding every point within [radiusMeters] of this position on the same sphere,
+ * with each edge rounded outward by 5e-10 degrees (about 0.05 mm) so
+ * that floating-point rounding can never leave a point that is exactly on the circle outside it.
  * It is a prefilter before [distanceInMetersTo]: a point outside the box is outside the radius, a
  * point inside still needs the exact distance. A pole inside the circle gives the full longitude
  * span. `west > east` in the result means the box crosses the antimeridian, so build a SQL
@@ -111,9 +116,9 @@ public fun GeoCoordinates.boundingBox(radiusMeters: Double): GeoBounds {
     // A pole inside the circle: the box reaches the pole and spans every longitude.
     if (rawNorth >= 90.0 || rawSouth <= -90.0) {
         return GeoBounds(
-            south = rawSouth.coerceAtLeast(-90.0),
+            south = (rawSouth - BOX_EDGE_PADDING_DEGREES).coerceAtLeast(-90.0),
             west = -180.0,
-            north = rawNorth.coerceAtMost(90.0),
+            north = (rawNorth + BOX_EDGE_PADDING_DEGREES).coerceAtMost(90.0),
             east = 180.0,
         )
     }
@@ -122,12 +127,17 @@ public fun GeoCoordinates.boundingBox(radiusMeters: Double): GeoBounds {
     // so the quotient is below 1; the clamp only absorbs rounding at the border.
     val ratio: Double = (sin(angularRadius) / cos(latitude.toRadiansValue())).coerceAtMost(1.0)
     val halfSpanDegrees: Double = asin(ratio).toDegreesValue()
-    var west: Double = longitude - halfSpanDegrees
-    var east: Double = longitude + halfSpanDegrees
+    var west: Double = longitude - halfSpanDegrees - BOX_EDGE_PADDING_DEGREES
+    var east: Double = longitude + halfSpanDegrees + BOX_EDGE_PADDING_DEGREES
     // An edge exactly at +-180 stays: only a value past it wraps, so east == 180 is not a crossing.
     if (west < -180.0) west += 360.0
     if (east > 180.0) east -= 360.0
-    return GeoBounds(south = rawSouth, west = west, north = rawNorth, east = east)
+    return GeoBounds(
+        south = (rawSouth - BOX_EDGE_PADDING_DEGREES).coerceAtLeast(-90.0),
+        west = west,
+        north = (rawNorth + BOX_EDGE_PADDING_DEGREES).coerceAtMost(90.0),
+        east = east,
+    )
 }
 
 /**

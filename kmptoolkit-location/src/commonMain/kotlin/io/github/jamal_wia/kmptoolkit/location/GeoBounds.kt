@@ -38,6 +38,10 @@ public data class GeoBounds(
      * One non-wrapping longitude range, or two when the box crosses the antimeridian; each has
      * `start <= endInclusive`, ready for SQL `BETWEEN`. A crossing box gives `west..180` and
      * `-180..east`.
+     *
+     * A row stored at exactly `-180` is not matched by a range that ends at `180`, and the other way
+     * round, although [contains] treats both as the same meridian; store the antimeridian as one
+     * value.
      */
     public val longitudeRanges: List<ClosedFloatingPointRange<Double>>
         get() = if (crossesAntimeridian) listOf(west..180.0, -180.0..east) else listOf(west..east)
