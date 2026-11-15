@@ -439,7 +439,12 @@ everything makes no fetch and keeps the cache; the failure is the answer. The co
 one fetch and the call succeeds; a file whose key-check no key opens (tampered) answers `OperationFailed` and costs one fetch per call, and with
 `allowUserInteraction = true` that fetch can show a macOS access prompt; an item that is gone, or a macOS non-interactive not-found, while a key is
 cached keeps the failure (the cached key may be the only copy of the real key). Nothing is ever written, quarantined or created for it, and a
-file that keeps changing under the rounds can end in `Unavailable`.
+file that keeps changing under the rounds can end in `Unavailable`, after at most four rounds and four fetches: the fourth round fetches the key
+although no round is left to use it, so with `allowUserInteraction = true` such a file can cost one macOS access prompt that nothing uses (bounded,
+and nothing is lost). One rare path fails a single call without asking the item again: a call that fetched the key in its first round, while
+another call of the same process put a key into the cache in the meantime, meets a transient token error on that cached key in its second round;
+the key it already holds is the one it compares, so it answers `OperationFailed` for that one call, never loses data, and the next call recovers
+by the rule above.
 
 **"The key is lost"** means exactly one of: a definitive not-found at the store's own identity (macOS -25300 from an interactive
 call; Linux: no matching item in any collection, locked or not), a key-check that fails with the fetched key, a header whose

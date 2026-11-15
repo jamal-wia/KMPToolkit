@@ -34,7 +34,10 @@ internal class OsCarry(val snapshot: Snapshot, private val key: ByteArray?, val 
  *   that another process replaced (under a PKCS#11 provider both look the same): the item is asked for its key (off the lock) only
  *   when the provider still works with the cached key, and the cache is replaced only by a fetched key that opens this file; a
  *   failing provider makes no native call, and an equal key, a missing item or a fetched key that does not open the file keeps the
- *   failure and the cache.
+ *   failure and the cache. Two bounded costs, both without data loss: a file that keeps changing makes the fetch of the last round
+ *   although no round is left to use it (at most [MAX_ROUNDS][EncryptedStoreEngine.MAX_ROUNDS] fetches, so possibly one unused
+ *   macOS prompt with dialogs allowed), and a call that already holds a fetched key (another call of the process cached one
+ *   meanwhile) fails alone, without a new fetch, on a transient token error of that cached key in its second round.
  * - **The identity is derived per locked round from the real path of the store file** ([RealStorePath], no case folding,
  *   never memoised, never a fallback path), and a key fetched off the lock is used only if it was fetched for the
  *   identity of the round that uses it. A file system that cannot be asked fails that one call (`OperationFailed`).
