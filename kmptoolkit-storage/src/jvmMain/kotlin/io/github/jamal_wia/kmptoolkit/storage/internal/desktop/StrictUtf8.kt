@@ -29,3 +29,13 @@ internal fun CharSequence.toStrictUtf8(): ByteArray {
         throw IllegalArgumentException("The text holds an unpaired UTF-16 surrogate and has no UTF-8 form")
     }
 }
+
+/** The text these bytes are as strict UTF-8, or `null` when they are not valid UTF-8 (a replacement would change the value). */
+internal fun ByteArray.decodeStrictUtf8(): String? = try {
+    StandardCharsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(this)).toString()
+} catch (_: CharacterCodingException) {
+    null
+}
