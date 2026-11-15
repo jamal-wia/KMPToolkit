@@ -43,8 +43,7 @@ internal class AndroidSecureKeyValueStorage(
             if (isTransientKeystoreFailure(error)) {
                 StorageResult.Failure(StorageError.Unavailable(error))
             } else {
-                // GET: the first operation that would need the key, whichever call meets the failure first.
-                StorageResult.Failure(StorageError.OperationFailed(StorageOperation.GET, cause = error))
+                StorageResult.Failure(StorageError.OperationFailed(StorageOperation.ENSURE_KEY, cause = error))
             }
         }
     }

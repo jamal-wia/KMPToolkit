@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import android.content.SharedPreferences
 import android.util.Base64
 import javax.crypto.SecretKey
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
@@ -16,6 +17,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 
@@ -189,13 +191,27 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `ensureKey resolves the key and writes no entry`() = runTest {
-        val storage: SecureKeyValueStorage = secure()
+    fun `ensureKey resolves the key once and writes no entry`() = runTest {
+        var resolutions = 0
+        val counting: SecretKeySource = object : SecretKeySource {
+            override suspend fun key(): SecretKey {
+                resolutions += 1
+                return TestKeys.generate()
+            }
+        }
+        val storage = AndroidSecureKeyValueStorage(
+            preferences = preferences(NAME),
+            cipher = KeystoreValueCipher(counting),
+            dispatcher = dispatcher,
+        )
 
         assertEquals(StorageResult.Success(Unit), storage.ensureKey())
 
+        assertEquals(1, resolutions, "ensureKey must resolve the key, exactly once")
         assertEquals(emptySet(), preferences(NAME).all.keys)
+        // Control: a read of an absent key never asks for the key, so the count above is ensureKey's own.
         assertEquals(StorageResult.Success(null), storage.get("k"))
+        assertEquals(1, resolutions)
     }
 
     @Test
@@ -211,7 +227,7 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `ensureKey meeting an unexpected cipher failure is OperationFailed for GET without a key and stores nothing`() = runTest {
+    fun `ensureKey meeting an unexpected cipher failure is OperationFailed for ENSURE_KEY without a key and stores nothing`() = runTest {
         val failure = IllegalStateException("cipher init failed")
         val storage = AndroidSecureKeyValueStorage(
             preferences = preferences(NAME),
@@ -223,9 +239,28 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
         )
 
         assertEquals(
-            StorageError.OperationFailed(StorageOperation.GET, key = null, cause = failure),
+            StorageError.OperationFailed(StorageOperation.ENSURE_KEY, key = null, cause = failure),
             storage.ensureKey().errorOrNull(),
         )
+        assertEquals(emptySet(), preferences(NAME).all.keys)
+    }
+
+    @Test
+    fun `ensureKey whose key source throws a CancellationException while the caller is not cancelled rethrows it`() = runTest {
+        // A swallowed CancellationException would come back as a Failure here, which a cancelling
+        // caller cannot tell apart from a real one; the caller below is NOT cancelled, so only an
+        // ensureKey that rethrows passes.
+        val storage = AndroidSecureKeyValueStorage(
+            preferences = preferences(NAME),
+            cipher = KeystoreValueCipher(
+                object : SecretKeySource {
+                    override suspend fun key(): SecretKey = throw CancellationException("key wait cancelled")
+                },
+            ),
+            dispatcher = dispatcher,
+        )
+
+        assertFailsWith<CancellationException> { storage.ensureKey() }
         assertEquals(emptySet(), preferences(NAME).all.keys)
     }
 

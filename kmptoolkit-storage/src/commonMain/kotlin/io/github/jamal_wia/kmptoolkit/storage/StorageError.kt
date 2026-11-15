@@ -35,11 +35,15 @@ package io.github.jamal_wia.kmptoolkit.storage
 public sealed interface StorageError {
 
     /**
-     * The backing store could not be opened at all, so no key in it is readable or writable.
+     * The store cannot be used right now, and retrying later can succeed; nothing is lost. Examples: a
+     * keychain that is locked and cannot show UI, a key-store daemon that is still starting, a lock
+     * wait or an OS call that ran into its time limit, a device that is locked, a backing store that
+     * cannot be opened yet (on iOS, code that runs before the device's first unlock after boot; on
+     * Android, a Keystore provider that refuses to load or to generate a key).
      *
-     * On Android this is a Keystore provider that refuses to load or to generate a key; on iOS a
-     * Keychain that is not available yet, which happens when code runs before the device's first
-     * unlock after boot. Retrying later can succeed — nothing here says the data is gone.
+     * Nothing here says the data is gone, so never delete anything in reaction to this case. A user
+     * refusal is [AccessDenied], not this case, and an environment that can never work is
+     * [Unsupported].
      *
      * On Android 13+ (API 33) it is also what a read reports when decrypting failed with an
      * `android.security.KeyStoreException` that the platform itself calls transient (found anywhere
@@ -111,8 +115,8 @@ public sealed interface StorageError {
      * A value the store can never accept is not this case but [InvalidValue], so a caller that
      * retries [OperationFailed] never retries one forever.
      *
-     * @param key the entry the operation targeted, or `null` for [StorageOperation.CLEAR], which
-     *   targets the whole store.
+     * @param key the entry the operation targeted, or `null` for [StorageOperation.CLEAR] and
+     *   [StorageOperation.ENSURE_KEY], which target the whole store.
      * @param platformCode the raw platform status code where the platform reports failure as a
      *   number rather than an exception — an iOS Security-framework `OSStatus` such as `-25300`.
      *   `null` when the platform threw instead, in which case [cause] carries the detail.
@@ -142,7 +146,7 @@ public sealed interface StorageError {
     ) : StorageError
 }
 
-/** The operation an error refers to. Mirrors the methods of [KeyValueStorage]. */
+/** The operation an error refers to. Mirrors the methods of [KeyValueStorage] and [EncryptedKeyValueStorage]. */
 public enum class StorageOperation {
 
     /** [KeyValueStorage.get]. */
@@ -156,6 +160,9 @@ public enum class StorageOperation {
 
     /** [KeyValueStorage.clear]. */
     CLEAR,
+
+    /** [EncryptedKeyValueStorage.ensureKey]. */
+    ENSURE_KEY,
 }
 
 /**
