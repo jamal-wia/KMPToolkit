@@ -20,6 +20,7 @@ import kotlin.test.fail
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TestTimeSource
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -457,6 +458,55 @@ class AndroidLocationProviderRound2Test {
 
         assertEquals(GeoCoordinates(41.0, 2.0), call.await().fixOrNull()?.coordinates)
         assertEquals(0, fake.registeredCount)
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Conflation at the end of the stream (loc-ios breaker round 2, M1, checked on Android)
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun `a busy collector skips the intermediate readings and ends on the newest`() = runTest(timeout = 60.seconds) {
+        val fake = FakeLocationBackend(providers = setOf(gps))
+        val provider: LocationProvider = providerOver(fake)
+        val seen: MutableList<LocationReading> = mutableListOf()
+        val release = CompletableDeferred<Unit>()
+        val job: Job = backgroundScope.launch {
+            provider.observeLocation(LocationUpdatesOptions(accuracy = LocationAccuracy.HIGH_ACCURACY)).collect { reading: LocationReading ->
+                seen += reading
+                if (seen.size == 1) release.await()
+            }
+        }
+        runCurrent()
+        assertEquals(listOf(noFix), seen, "control: the collector is busy with the seed")
+        for (step: Int in 10 until 30) fake.deliver(gps, fake.locationAt(gps, step.toDouble()))
+        runCurrent()
+        assertEquals(1, seen.size, "control: still busy, nothing else was handed over")
+
+        release.complete(Unit)
+        runCurrent()
+
+        assertEquals(2, seen.size, "a busy collector must skip intermediate readings (observeLocation is conflated): $seen")
+        assertEquals(GeoCoordinates(29.0, 2.0), seen.last().fixOrNull()?.coordinates, "and end on the newest: $seen")
+        job.cancelAndJoin()
+        assertEquals(0, fake.registeredCount)
+    }
+
+    @Test
+    fun `a terminal reading is never conflated away from a busy collector and the stream still completes`() = runTest(timeout = 60.seconds) {
+        val fake = FakeLocationBackend(providers = setOf(gps, network))
+        fake.refuse(gps)
+        fake.refuse(network)
+        val provider: LocationProvider = providerOver(fake)
+        val seen: MutableList<LocationReading> = mutableListOf()
+        val job: Job = backgroundScope.launch {
+            provider.observeLocation(LocationUpdatesOptions(accuracy = LocationAccuracy.HIGH_ACCURACY)).collect { reading: LocationReading -> seen += reading }
+        }
+        runCurrent()
+
+        assertTrue(job.isCompleted, "the stream completes after PERMISSION_MISSING")
+        assertEquals(LocationReading.Unavailable(LocationUnavailability.PERMISSION_MISSING), seen.last(), "$seen")
+        assertEquals(0, fake.registeredCount)
+        assertEquals(0, fake.subscriberCount)
     }
 
     // ---------------------------------------------------------------------------------------------

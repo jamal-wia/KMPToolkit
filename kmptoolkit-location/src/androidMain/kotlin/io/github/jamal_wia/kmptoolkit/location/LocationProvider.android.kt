@@ -328,8 +328,12 @@ internal class AndroidLocationProvider(
 
     override fun observeLocation(options: LocationUpdatesOptions): Flow<LocationReading> =
         // Every element of the platform stream says whether it is a seed or live (loc-core, StreamReading): the
-        // mark travels with the reading, so every reseed is marked where it is built, per collection.
-        stream(options).throttledByMarks(options, timeSource).completingAfterTerminalReading()
+        // mark travels with the reading, so every reseed is marked where it is built, per collection. The final
+        // conflate is the contract of observeLocation (a busy collector skips intermediate readings and ends on
+        // the newest): the throttle's inbox would otherwise hand it every stale reading in order. A terminal
+        // reading is always the last element (the stream completes after it), and conflation never drops the
+        // last element, so a busy collector is never stranded without it.
+        stream(options).throttledByMarks(options, timeSource).completingAfterTerminalReading().conflate()
 
     /**
      * The platform stream of one collection. Registration and release happen per collection (nothing is
