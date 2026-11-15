@@ -36,8 +36,8 @@ artifacts by coordinate.
   `gradle.properties` (the single source of truth every module and the BOM read).
 - Targets: Android + iOS. No JS/wasm. No JVM/desktop either, with one narrow exception —
   `kmptoolkit-systembars` (+ `-testing`), `kmptoolkit-language` (+ `-compose`),
-  `kmptoolkit-storage` (+ `-testing`), `kmptoolkit-hardware-keys`, `kmptoolkit-hijri`,
-  `kmptoolkit-logging`, `kmptoolkit-location` (+ `-testing`) and
+  `kmptoolkit-storage` (+ `-testing`), `kmptoolkit-files` (+ `-testing`), `kmptoolkit-hardware-keys`,
+  `kmptoolkit-hijri`, `kmptoolkit-logging`, `kmptoolkit-location` (+ `-testing`) and
   `kmptoolkit-video-player` (+ `-testing`, `-compose`) also publish `jvm`, because their types belong
   in code a consumer shares with desktop and omitting the target would stop that shared code
   compiling at all. So does the internal support artifact `kmptoolkit-core`, for a plainer reason:
