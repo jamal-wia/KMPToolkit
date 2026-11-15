@@ -225,7 +225,7 @@ described in [`05-platform-notes.md`](05-platform-notes.md#desktop).
 
 If your app also depends on plain `jna` (OSHI, Testcontainers) next to `kmptoolkit-storage-jna`, the classpath holds two copies of
 `com.sun.jna`: exclude one of the two artifacts (the recipe is in
-[`05-platform-notes.md`](05-platform-notes.md#the-optional-jna-artifact-kmptoolkit-storage-jna)).
+[`05-platform-notes.md`](05-platform-notes.md#packaging-and-runtime-desktop)).
 
 ## 8. Android and iOS options in brief
 

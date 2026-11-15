@@ -1,7 +1,7 @@
 # kmptoolkit-storage — Migrating to 6.0.0
 
-What changes for code written against 5.x, in the order you will meet it. Items 1 to 6 are compile errors or warnings you will be
-shown; items 7 to 11 are decisions or behaviour changes that no compiler points at. The full list is under `Breaking` in
+What changes for code written against 5.x, in the order you will meet it. Items 1 to 4 and 6 are compile errors or warnings you will be
+shown (item 3 also changes behaviour); item 5 and items 7 to 11 are decisions or behaviour changes that no compiler points at. The full list is under `Breaking` in
 `CHANGELOG.md`.
 
 ## 1. Exhaustive `when` over `StorageError`

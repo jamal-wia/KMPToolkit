@@ -87,7 +87,7 @@ injection) and `FileAccessContract` for decorators — see
 
 `kmptoolkit-storage-jna` is not in the table above either, and has no folder of its own: it is a backend-only artifact with no public API (adding the dependency is the
 whole opt-in), so it is documented as a section of [`kmptoolkit-storage/02-getting-started.md`](kmptoolkit-storage/02-getting-started.md#7-desktop-a-secure-store) and of
-[`kmptoolkit-storage/05-platform-notes.md`](kmptoolkit-storage/05-platform-notes.md#desktop), the way the desktop video engines are documented next to the module they plug into.
+[`kmptoolkit-storage/05-platform-notes.md`](kmptoolkit-storage/05-platform-notes.md#desktop). The desktop video engines have folders of their own because they carry public API; this artifact has none.
 
 `kmptoolkit-core` is not in the table above on purpose: it is an internal support artifact that other
 modules pull in, not something you add to a build. Its [`docs/kmptoolkit-core/`](kmptoolkit-core/01-overview.md)

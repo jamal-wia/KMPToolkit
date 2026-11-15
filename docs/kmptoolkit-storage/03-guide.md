@@ -12,7 +12,7 @@ Everything every store promises, on every platform:
 | `remove` a key that is not there | `Success`: removal is idempotent |
 | `clear` | only this store's entries; another store's are untouched |
 | `put` then read from a second instance | the value, including after a process restart |
-| a platform problem (a locked keychain, a full disk, a dead key) | a `StorageResult.Failure` with a typed `StorageError`, never an exception |
+| a platform problem (a locked keychain, a full disk, a dead key) | a `StorageResult.Failure` with a typed `StorageError` (the few throws are listed below) |
 | call from the main thread | fine: every call is a main-safe `suspend` function |
 | call from many coroutines at once | no corruption, no entry made unreadable by the overlap |
 
