@@ -7,6 +7,9 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeoutOrNull
@@ -40,7 +43,11 @@ internal sealed interface NativeOutcome<out T> {
  *   operating-system call keeps it busy, and later calls queue behind it and time out ([NativeOutcome.TimedOut]) rather
  *   than start more threads.
  * - **A limit is a limit for the caller, not for the call.** A call that has not started when its limit passes (or
- *   its caller is cancelled) is withdrawn from the queue and never runs, so a timed-out write is never applied later. A call that
+ *   its caller is cancelled) is withdrawn from the queue and never runs, so a timed-out write is never applied later. The
+ *   withdrawal happens at the instant of the cancellation or of the limit, in the thread that cancels, not when the caller's
+ *   dispatcher gets round to resuming the caller (a busy dispatcher would otherwise leave the call queued, and the native
+ *   thread, which has just become free, would run it). The cancellation handler is registered before the call is queued, so
+ *   there is no moment at which a call is queued and its caller's cancellation is not watched. A call that
  *   is running cannot be stopped: its result is delivered to nobody and handed to `discard` (to wipe a key). A caller that is
  *   already cancelled when it calls gets its `CancellationException` at once and queues nothing, so no call ever starts for a
  *   caller that was cancelled before it asked.
@@ -149,10 +156,19 @@ internal class NativeExecutor(
             if (state.get() == RUNNING) settle(NativeOutcome.Threw(error))
         }
 
+        /**
+         * The caller stopped waiting. A task that the cancellation handler already took out of play ([withdraw]) reads as
+         * withdrawn: answering [Abandoned.REFUSED] for it would send a timed-out caller to wait for an answer that nothing will give.
+         */
         fun abandon(): Abandoned {
             if (state.compareAndSet(QUEUED, ABANDONED)) return Abandoned.WITHDRAWN
             if (state.compareAndSet(RUNNING, ABANDONED_RUNNING)) return Abandoned.RUNNING
-            return if (state.get() == FINISHED) Abandoned.DELIVERED else Abandoned.REFUSED
+            return when (state.get()) {
+                ABANDONED -> Abandoned.WITHDRAWN
+                ABANDONED_RUNNING -> Abandoned.RUNNING
+                FINISHED -> Abandoned.DELIVERED
+                else -> Abandoned.REFUSED
+            }
         }
 
         /** Takes the task out of play if it has not started; `false` when it runs, finished or was refused (it then answers by itself). */
@@ -179,8 +195,8 @@ internal class NativeExecutor(
         require(limit == null || limit > Duration.ZERO) { "limit must be positive" }
         // A caller that is already cancelled never queues anything: without this the native thread, woken by the offer below, can
         // win the QUEUED-to-RUNNING race against the caller's own `abandon()` and run a call for a caller that is then told it was
-        // cancelled (about one attempt in six on an idle executor). A cancellation that lands during the call stays the documented
-        // race: the call has not started and is withdrawn, or it has started.
+        // cancelled (about one attempt in six on an idle executor). A cancellation that lands later is watched from before the
+        // task is queued (see `withdrawOnCancelling`): the call has not started and is withdrawn at that instant, or it has started.
         currentCoroutineContext().ensureActive()
         if (closed.get()) return NativeOutcome.Threw(IllegalStateException("The native executor is closed"))
         // The thread first, the queue second: a call that could not get a thread is never queued, so no other caller that
@@ -193,28 +209,26 @@ internal class NativeExecutor(
             return NativeOutcome.Threw(error)
         }
         val task: Task<T> = Task(block, discard, beforeDelivery)
-        // `offer`, not `put`: on an unbounded queue it never blocks, and unlike `put` it does not take the queue lock
-        // interruptibly, so a caller whose thread is already interrupted neither gets an InterruptedException out of an
-        // API that answers outcomes nor loses its interrupt status.
-        queue.offer(task)
-        if (closed.get()) {
-            refuseQueued()
-        } else if (thread?.isAlive != true) {
-            // The thread that ensureStarted saw ended after that (its loop died on an Error) and its last look at the queue was
-            // before the offer above: it cannot be counted on to run this task. The thread clears `thread` before that look, so
-            // either it saw the task and made a replacement, or this read sees no live thread and makes one here.
-            try {
-                ensureStarted()
-            } catch (error: Throwable) {
-                if (task.withdraw()) {
-                    queue.remove(task)
-                    return NativeOutcome.Threw(error)
-                }
-            }
-        }
+        // Watched BEFORE the task is queued, so there is no moment at which the task is visible to the native thread and the
+        // cancellation of its caller is not watched.
+        val callerWatch: DisposableHandle? = withdrawOnCancelling(currentCoroutineContext()[Job], task)
         try {
+            enqueue(task)?.let { answered: NativeOutcome<T> -> return answered }
             val outcome: NativeOutcome<T>? =
-                if (limit == null) task.done.await() else withTimeoutOrNull(limit) { task.done.await() }
+                if (limit == null) {
+                    task.done.await()
+                } else {
+                    withTimeoutOrNull(limit) {
+                        // The limit cancels this scope, not the caller's job: it is watched too (a scope that is already cancelled runs
+                        // the handler at once). A limit that passes between the offer and this line is thus seen as soon as it can be.
+                        val limitWatch: DisposableHandle? = withdrawOnCancelling(currentCoroutineContext()[Job], task)
+                        try {
+                            task.done.await()
+                        } finally {
+                            limitWatch?.dispose()
+                        }
+                    }
+                }
             if (outcome != null) return outcome
             // The limit passed. A result that landed in the same instant is still a result.
             return when (task.abandon()) {
@@ -237,7 +251,54 @@ internal class NativeExecutor(
                 Abandoned.RUNNING, Abandoned.REFUSED -> Unit
             }
             throw escaped
+        } finally {
+            callerWatch?.dispose()
         }
+    }
+
+    /**
+     * Takes [task] out of the queue the moment the job that waits for it is cancelling: the caller's own cancellation, or the
+     * limit of the enclosing `withTimeoutOrNull` (its scope is cancelled when the limit passes). `invokeOnCompletion` with
+     * `onCancelling` runs synchronously in the thread that cancels, before the resumption of the caller is dispatched, so a busy
+     * caller dispatcher cannot keep a cancelled caller's task queued for the native thread, which has just become free, to run.
+     * `invokeImmediately` makes a job that is already cancelling run the handler at once, so there is no moment between the
+     * registration and the cancellation in which the cancellation is missed. The handler only does a compare-and-set and a
+     * `remove` on the queue: short, never throws, takes no store lock and not `startLock`. The caller disposes the handle on every way
+     * out, so nothing stays registered on a long-lived job.
+     */
+    @OptIn(InternalCoroutinesApi::class)
+    private fun <T> withdrawOnCancelling(job: Job?, task: Task<T>): DisposableHandle? =
+        job?.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { _: Throwable? ->
+            if (task.withdraw()) queue.remove(task)
+        }
+
+    /**
+     * Offers [task] and makes sure a live native thread will see it. A caller cancelled before the offer has had the task withdrawn
+     * by its handler already (a withdrawn task is never run, whoever takes it from the queue); its own wait then throws at once
+     * and `call` removes the task again, so nothing stays queued behind a hung call. Answers the call at once (`Threw`) when no
+     * thread could be made for it and it was still queued; `null` otherwise.
+     */
+    private fun <T> enqueue(task: Task<T>): NativeOutcome<T>? {
+        // `offer`, not `put`: on an unbounded queue it never blocks, and unlike `put` it does not take the queue lock
+        // interruptibly, so a caller whose thread is already interrupted neither gets an InterruptedException out of an
+        // API that answers outcomes nor loses its interrupt status.
+        queue.offer(task)
+        if (closed.get()) {
+            refuseQueued()
+        } else if (thread?.isAlive != true) {
+            // The thread that ensureStarted saw ended after that (its loop died on an Error) and its last look at the queue was
+            // before the offer above: it cannot be counted on to run this task. The thread clears `thread` before that look, so
+            // either it saw the task and made a replacement, or this read sees no live thread and makes one here.
+            try {
+                ensureStarted()
+            } catch (error: Throwable) {
+                if (task.withdraw()) {
+                    queue.remove(task)
+                    return NativeOutcome.Threw(error)
+                }
+            }
+        }
+        return null
     }
 
     /** How many calls are queued or running; `0` when idle. Used by tests as the "nothing left behind" check. */
