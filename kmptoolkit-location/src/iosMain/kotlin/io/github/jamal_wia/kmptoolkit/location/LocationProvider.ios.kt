@@ -294,6 +294,11 @@ private enum class StreamState { IDLE, READY, SERVICE_DISABLED, TERMINAL, DENIAL
  *
  * It owns exactly one manager for the whole collection. A service flap stops and restarts updates on
  * that manager and re-seeds; it never creates a second manager or delegate (no restart leak).
+ *
+ * Re-entrancy: [out] may run the collector, and with it [release], in place, inside the call (on
+ * `Dispatchers.Main.immediate` a send from a main task resumes the downstream without a dispatch). So every
+ * call of [out] is either the last statement of its path or followed by a check that the session is still
+ * live ([enter] with a seed, [onLocations] per fix); no native call on the manager follows an unchecked [out].
  */
 private class StreamSession(
     private val env: IosLocationEnvironment,
@@ -385,6 +390,11 @@ private class StreamSession(
                 state = StreamState.READY
                 // The seed first, then the registration: nothing a delegate delivers can overtake it.
                 emitSeed(current)
+                // `out` may run the collector in place (Dispatchers.Main.immediate, where a channel resumption
+                // from a main task needs no dispatch), and a collector that ends on this seed (`first { ... }`,
+                // a cancel) runs the whole release before `out` returns: this manager is then already stopped and
+                // detached, and starting it would leave updates running on a dropped manager.
+                if (released || manager !== current) return
                 beginUpdates(current)
             }
             LocationUnavailability.SERVICE_DISABLED -> {
