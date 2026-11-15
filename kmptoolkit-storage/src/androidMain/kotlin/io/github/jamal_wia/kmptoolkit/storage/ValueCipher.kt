@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.security.InvalidKeyException
@@ -69,6 +70,17 @@ internal interface SecretKeySource {
      * forget.
      */
     suspend fun invalidate(stale: SecretKey) {}
+
+    /**
+     * Reports that [dead], a key this source handed out, is permanently unusable: the platform will never accept it
+     * again (`KeyPermanentlyInvalidatedException`), and looking the alias up again would hand out the same dead entry
+     * for ever. The source gets rid of the dead key, unless a newer key has replaced it by then, which is never
+     * dropped, so that the next [key] is a new one. The default only forgets the key, like [invalidate].
+     *
+     * @throws StorageKeyUnavailableException the dead key could not be removed; nothing changed and a later attempt
+     *   can succeed.
+     */
+    suspend fun discard(dead: SecretKey) = invalidate(dead)
 }
 
 /**
@@ -90,6 +102,9 @@ internal class KeystoreValueCipher(
     private val keySource: SecretKeySource,
     /** A seam for the transient-fault classifier; production uses the platform's own verdict. */
     private val isTransient: (Throwable) -> Boolean = { error: Throwable -> isTransientKeystoreFailure(error) },
+    /** A seam for the permanent-invalidation classifier; production uses [isPermanentlyInvalidatedKey]. */
+    private val isPermanentlyInvalidated: (Throwable) -> Boolean =
+        { error: Throwable -> isPermanentlyInvalidatedKey(error) },
 ) : ValueCipher {
 
     override suspend fun encrypt(plaintext: String): String = encryptBound(plaintext, aad = null)
@@ -139,11 +154,16 @@ internal class KeystoreValueCipher(
     }
 
     /**
-     * A cipher [init] accepted a key for. A key the platform rejects ([InvalidKeyException], which
-     * includes `KeyPermanentlyInvalidatedException`) is reported to the source, which forgets it, and
-     * the lookup is repeated once: a key replaced in the key store by another instance is picked up
-     * instead of failing every use for the life of the process. Each attempt gets a new [Cipher]; one
-     * whose `init` failed must not be reused.
+     * A cipher [init] accepted a key for. A key the platform rejects ([InvalidKeyException]) is reported to the source
+     * and the lookup is repeated: a key replaced in the key store by another instance is picked up instead of failing
+     * every use for the life of the process. Each attempt gets a new [Cipher]; one whose `init` failed must not be
+     * reused.
+     *
+     * A key the platform calls permanently invalidated ([isPermanentlyInvalidated]) is reported with
+     * [SecretKeySource.discard]: looking it up again would only answer the same dead entry, which used to fail every
+     * write for the life of the install. The source deletes it and the next lookup generates a new one, so the write
+     * succeeds and entries of the dead key read as [StorageError.Undecryptable]. A concurrent caller may have been
+     * handed the same dead entry again before it was deleted, so a permanent rejection gets one more attempt.
      *
      * A fault the platform itself calls transient ([isTransientKeystoreFailure]) is rethrown
      * unchanged and the key is kept: the key is fine, the key store is briefly not, and a re-lookup
@@ -151,15 +171,20 @@ internal class KeystoreValueCipher(
      * a write reports it as `OperationFailed` (the key is kept either way).
      */
     private suspend fun initialised(first: SecretKey? = null, init: (SecretKey, Cipher) -> Unit): Cipher {
-        val key: SecretKey = first ?: keySource.key()
-        try {
-            return Cipher.getInstance(TRANSFORMATION).also { init(key, it) }
-        } catch (e: InvalidKeyException) {
-            if (isTransient(e)) throw e
-            keySource.invalidate(key)
+        var key: SecretKey = first ?: keySource.key()
+        var retries = 0
+        while (true) {
+            try {
+                return Cipher.getInstance(TRANSFORMATION).also { init(key, it) }
+            } catch (e: InvalidKeyException) {
+                if (isTransient(e)) throw e
+                val permanent: Boolean = isPermanentlyInvalidated(e)
+                if (retries >= (if (permanent) MAX_PERMANENT_RETRIES else MAX_RETRIES)) throw e
+                retries++
+                if (permanent) keySource.discard(key) else keySource.invalidate(key)
+                key = keySource.key()
+            }
         }
-        val retry: SecretKey = keySource.key()
-        return Cipher.getInstance(TRANSFORMATION).also { init(retry, it) }
     }
 
     internal companion object {
@@ -173,7 +198,28 @@ internal class KeystoreValueCipher(
 
         /** Full-length GCM authentication tag. */
         const val TAG_LENGTH_BITS = 128
+
+        /** A rejected key is looked up once more: a key another instance replaced is then picked up. */
+        const val MAX_RETRIES = 1
+
+        /** A permanent rejection may meet the same dead entry once more, handed out to a concurrent caller. */
+        const val MAX_PERMANENT_RETRIES = 2
     }
+}
+
+/**
+ * Whether [error], or anything in its cause chain, is `KeyPermanentlyInvalidatedException`: the platform has
+ * invalidated the key for good (a key that required a lock screen the user removed, or biometrics that changed). Any
+ * other rejection may be a fault that passes, so it never leads to a key being deleted.
+ */
+internal fun isPermanentlyInvalidatedKey(error: Throwable): Boolean {
+    val seen: MutableSet<Throwable> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
+    var current: Throwable? = error
+    while (current != null && seen.add(current)) {
+        if (current is KeyPermanentlyInvalidatedException) return true
+        current = current.cause
+    }
+    return false
 }
 
 /**
@@ -228,6 +274,24 @@ internal class AndroidKeystoreKeySource(
         }
     }
 
+    /**
+     * Compare-and-delete: only the handle the platform reported dead is deleted from the key store, and only while it
+     * is still the one cached. A newer key another caller made is never touched. The key store entry goes first, so a
+     * failed deletion leaves the cache as it was and the next report retries; the next [key] then finds the alias empty
+     * and generates a new key, under the same lock.
+     */
+    override suspend fun discard(dead: SecretKey) {
+        keyResolution.withLock {
+            if (cache[cacheKey] !== dead) return
+            try {
+                keyStore.deleteKey(alias)
+            } catch (error: Exception) {
+                throw StorageKeyUnavailableException(error)
+            }
+            cache.remove(cacheKey)
+        }
+    }
+
     private val cacheKey: Pair<AliasedKeyStore, String> = keyStore to alias
 
     /**
@@ -260,7 +324,7 @@ internal class AndroidKeystoreKeySource(
     }
 }
 
-/** The two key-store operations [AndroidKeystoreKeySource] needs, and nothing else. */
+/** The key-store operations [AndroidKeystoreKeySource] needs, and nothing else. */
 internal interface AliasedKeyStore {
 
     /**
@@ -273,6 +337,9 @@ internal interface AliasedKeyStore {
 
     /** Generates a new key under [alias], replacing whatever the alias held. */
     fun generateKey(alias: String): SecretKey
+
+    /** Deletes whatever [alias] holds; a no-op when it holds nothing. */
+    fun deleteKey(alias: String)
 }
 
 /** [AliasedKeyStore] over the real AndroidKeyStore. */
@@ -296,9 +363,17 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
             // unreadable, so drop the alias and start a new key: reads of old entries fail with
             // Undecryptable, which is what they are, and new writes work again instead of the store
             // being bricked for the lifetime of the install.
-            runCatching { keyStore.deleteEntry(alias) }
+            try {
+                keyStore.deleteEntry(alias)
+            } catch (_: Exception) {
+                // Best effort: if the entry cannot be deleted now, generateKey replaces it anyway.
+            }
             null
         }
+    }
+
+    override fun deleteKey(alias: String) {
+        KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }.deleteEntry(alias)
     }
 
     override fun generateKey(alias: String): SecretKey {
