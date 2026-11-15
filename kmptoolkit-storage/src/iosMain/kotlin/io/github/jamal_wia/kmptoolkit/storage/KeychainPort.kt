@@ -46,9 +46,6 @@ internal interface KeychainPort {
     /** `SecItemCopyMatching` with nothing returned (attribute-only): only whether the query matches. */
     fun matches(query: CFDictionaryRef): Int
 
-    /** `SecItemCopyMatching` for [query] with attributes returned: the status, and the item's access group. */
-    fun readAccessGroup(query: CFDictionaryRef): KeychainAccessGroup
-
     /** `SecItemAdd`. */
     fun add(query: CFDictionaryRef): Int
 
@@ -65,7 +62,7 @@ internal interface KeychainPort {
 /** The outcome of [KeychainPort.readData]. */
 internal class KeychainData(val status: Int, val data: NSData?)
 
-/** The outcome of a [KeychainPort] call that returns attributes: [group] is the `kSecAttrAccessGroup` value, if any. */
+/** The outcome of [KeychainPort.addReadingAccessGroup]: [group] is the `kSecAttrAccessGroup` value of the new item, if any. */
 internal class KeychainAccessGroup(val status: Int, val group: String?)
 
 /** The one real [KeychainPort]: each call is the `SecItem*` function of its name, nothing more. */
@@ -81,12 +78,6 @@ internal object SecItemKeychainPort : KeychainPort {
     }
 
     override fun matches(query: CFDictionaryRef): Int = SecItemCopyMatching(query, null)
-
-    override fun readAccessGroup(query: CFDictionaryRef): KeychainAccessGroup = memScoped {
-        val result = alloc<CFTypeRefVar>()
-        val status: Int = SecItemCopyMatching(query, result.ptr)
-        KeychainAccessGroup(status, if (status == errSecSuccess) takeAccessGroup(result.value) else null)
-    }
 
     override fun add(query: CFDictionaryRef): Int = SecItemAdd(query, null)
 

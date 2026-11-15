@@ -13,6 +13,7 @@ import platform.CoreFoundation.kCFAllocatorDefault
 import platform.CoreFoundation.kCFBooleanFalse
 import platform.CoreFoundation.kCFBooleanTrue
 import platform.Foundation.NSData
+import platform.Foundation.NSUUID
 import platform.Security.SecAccessControlCreateWithFlags
 import platform.Security.kSecAccessControlBiometryAny
 import platform.Security.kSecAccessControlBiometryCurrentSet
@@ -158,38 +159,54 @@ internal class KeychainQueries(
     private fun exactSynchronizable(): kotlinx.cinterop.CPointer<out kotlinx.cinterop.CPointed>? =
         if (synchronizable) kCFBooleanTrue else kCFBooleanFalse
 
-    /** The probe of [DefaultAccessGroup]: an item in a service of its own, never visible to the store's own reads. */
-    fun probeItem(): KeychainQuery = KeychainQuery().apply {
+    /**
+     * What every probe of [DefaultAccessGroup] has in common: a local item of the probe service, which the store's own
+     * reads, `remove` and `clear` never match. No account and no group: [probeAdd] and [probeRemove] add those.
+     */
+    private fun probeScope(): KeychainQuery = KeychainQuery().apply {
         putConstant(kSecClass, kSecClassGenericPassword)
         putString(kSecAttrService, probeService(service))
-        putString(kSecAttrAccount, PROBE_ACCOUNT)
         putConstant(kSecAttrSynchronizable, kCFBooleanFalse)
     }
 
-    /** [probeItem] read with its attributes, to learn the access group a leftover probe is in. */
-    fun probeLookup(): KeychainQuery = probeItem().apply {
+    /**
+     * Reads whichever probe of the probe service the Keychain returns first, in any group, with its attributes.
+     * Production code does not use it: a lookup that names no group would adopt another process's probe (see
+     * [DefaultAccessGroup]). It stays because `KeychainQueriesBreakerR1Test` pins its shape.
+     */
+    fun probeLookup(): KeychainQuery = probeScope().apply {
         putConstant(kSecReturnAttributes, kCFBooleanTrue)
         putConstant(kSecMatchLimit, kSecMatchLimitOne)
     }
 
-    /** [probeItem] as a new item that reports its attributes: the access group the Keychain files it under. */
-    fun probeAdd(): KeychainQuery = probeItem().apply {
+    /**
+     * A new probe item under [account] (unique per call, see [newProbeAccount]) that reports its attributes: the access
+     * group the Keychain files it under. It names no group, which is how the default group is learned.
+     */
+    fun probeAdd(account: String = newProbeAccount()): KeychainQuery = probeScope().apply {
+        putString(kSecAttrAccount, account)
         // Local, and never in a backup: a probe must not outlive its delete anywhere but this device.
         putConstant(kSecAttrAccessible, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
         putConstant(kSecReturnAttributes, kCFBooleanTrue)
     }
 
-    /** [probeItem] in the access group that was resolved, to remove it. */
-    fun probeRemove(group: String): KeychainQuery = probeItem().apply {
+    /**
+     * Every probe of the probe service in [group], whatever its account: the removal of this call's own probe, which
+     * also sweeps a leftover of an earlier killed call. It never reaches another group.
+     */
+    fun probeRemove(group: String): KeychainQuery = probeScope().apply {
         putString(kSecAttrAccessGroup, group)
     }
 
     internal companion object {
-        /** The account of the probe item; the service differs from the store's, so the two never meet. */
+        /** The prefix of every probe account; [newProbeAccount] appends a random UUID. */
         const val PROBE_ACCOUNT: String = "kmptoolkit.accessgroupprobe"
 
         /** The service the probe lives in: the store's own with a suffix, so a delete by the store's service never matches it. */
         fun probeService(service: String): String = "$service.accessgroupprobe"
+
+        /** A probe account no other call, process or app extension has used or will use: [PROBE_ACCOUNT] plus a random UUID. */
+        fun newProbeAccount(): String = "$PROBE_ACCOUNT.${NSUUID().UUIDString}"
     }
 }
 

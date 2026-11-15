@@ -226,11 +226,11 @@ class KeychainQueriesTest {
 
     @Test
     fun `the probe lives in a service of its own so a delete by the store's service can never match it`() {
-        val probe: Map<String, String> = queries().probeAdd().use { describe(it) }
+        val probe: Map<String, String> = queries().probeAdd("kmptoolkit.accessgroupprobe.fixed").use { describe(it) }
 
         assertNotEquals(SERVICE, probe["service"])
         assertEquals(KeychainQueries.probeService(SERVICE), probe["service"])
-        assertEquals(KeychainQueries.PROBE_ACCOUNT, probe["account"])
+        assertEquals("kmptoolkit.accessgroupprobe.fixed", probe["account"])
         assertNull(probe["group"], "the probe is added without a group: that is how the default group is learned")
         assertEquals("afterFirstUnlockThisDeviceOnly", probe["accessible"])
         assertEquals("true", probe["returnAttributes"])
@@ -238,11 +238,21 @@ class KeychainQueriesTest {
     }
 
     @Test
-    fun `the probe is removed in the group it was found in`() {
+    fun `a probe added without an account gets a fresh account every time`() {
+        val q: KeychainQueries = queries()
+        val accounts: List<String?> = List(5) { q.probeAdd().use { describe(it)["account"] } }
+
+        assertEquals(5, accounts.toSet().size, "$accounts")
+        assertTrue(accounts.all { it != null && it.startsWith(KeychainQueries.PROBE_ACCOUNT + ".") && it.length > KeychainQueries.PROBE_ACCOUNT.length + 1 })
+    }
+
+    @Test
+    fun `the probe is removed by service and group alone so a leftover of an earlier call goes with it`() {
         val remove: Map<String, String> = queries().probeRemove("TEAM.default").use { describe(it) }
 
         assertEquals("TEAM.default", remove["group"])
         assertEquals(KeychainQueries.probeService(SERVICE), remove["service"])
+        assertNull(remove["account"], "naming no account sweeps every probe of the group")
     }
 
     private companion object {

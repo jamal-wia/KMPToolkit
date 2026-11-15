@@ -20,6 +20,9 @@ import kotlin.time.Duration.Companion.seconds
  *
  * Against [InMemoryKeychainPort], which models "a delete that names no group matches every group", so a regression
  * to the wider delete shows up as a surviving-item assertion failing, not as a changed query string only.
+ *
+ * The probe is added under an account of its own per call and never looked up (breaker round 1, M2): a lookup would
+ * have to name no group and could adopt another process's probe, whose group is that process's default.
  */
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class, ExperimentalCoroutinesApi::class)
 class IosDefaultAccessGroupTest {
@@ -27,6 +30,24 @@ class IosDefaultAccessGroupTest {
     private val probeService: String = KeychainQueries.probeService(STORE_SERVICE)
 
     private fun StorageResult<*>.error(): StorageError = (this as StorageResult.Failure).error
+
+    private fun queries(): KeychainQueries = KeychainQueries(
+        service = STORE_SERVICE,
+        accessibility = KeychainAccessibility.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+        accessGroup = null,
+        synchronizable = false,
+        userPresence = null,
+    )
+
+    private fun leftoverProbe(group: String, account: String): InMemoryKeychainPort.Item = InMemoryKeychainPort.Item(
+        service = probeService,
+        account = account,
+        group = group,
+        synchronizable = false,
+        accessible = "afterFirstUnlockThisDeviceOnly",
+        accessControl = false,
+        data = null,
+    )
 
     @Test
     fun `clear of a default-group store leaves a same-name store in a shared group untouched I-2b`() = runTest {
@@ -70,35 +91,71 @@ class IosDefaultAccessGroupTest {
 
         assertTrue(keychain.items.isEmpty(), "left over: ${keychain.items.map { it.service to it.account }}")
         assertEquals(
-            listOf("readAccessGroup", "addReadingAccessGroup", "delete", "delete"),
-            keychain.operations().take(4),
+            listOf("addReadingAccessGroup", "delete", "delete", "addReadingAccessGroup", "delete", "delete"),
+            keychain.operations(),
+            "per clear: one probe add (no lookup), the probe's delete, the store's delete",
         )
     }
 
     @Test
-    fun `a probe that a killed process left behind is used and removed rather than added again`() = runTest {
+    fun `a probe left in the app's own group by a killed clear is swept by the next clear and never adopted`() = runTest {
         val keychain = InMemoryKeychainPort()
-        keychain.seed(
-            InMemoryKeychainPort.Item(probeService, KeychainQueries.PROBE_ACCOUNT, "TEAM.default", false, "afterFirstUnlockThisDeviceOnly", false, null),
-        )
+        keychain.seed(leftoverProbe("TEAM.default", account = "${KeychainQueries.PROBE_ACCOUNT}.killed"))
         keychain.seed(keychain.item("mine"))
         val store: IosSecureKeyValueStorage = storeOver(keychain)
 
         assertEquals(StorageResult.Success(Unit), store.clear())
 
-        assertTrue("addReadingAccessGroup" !in keychain.operations(), "an existing probe must not be added again")
-        assertTrue(keychain.items.isEmpty(), "the leftover probe is removed with the clear")
+        assertEquals(1, keychain.calls.count { it.operation == "addReadingAccessGroup" }, "the probe is always added fresh")
+        assertTrue(keychain.items.isEmpty(), "the leftover probe is removed with this clear's own: ${keychain.items.map { it.service to it.account }}")
     }
 
     @Test
-    fun `a second clear that races the first one's probe still resolves`() = runTest {
+    fun `a probe left in a shared group stays there and its group is not taken for ours`() = runTest {
         val keychain = InMemoryKeychainPort()
-        // The other clear() adds the probe between our lookup and our add: our add then sees a duplicate.
+        keychain.seed(leftoverProbe("TEAM.shared", account = "${KeychainQueries.PROBE_ACCOUNT}.extension"))
+        keychain.seed(keychain.item("mine"))
+        keychain.seed(keychain.item("theirs", group = "TEAM.shared"))
+        val store: IosSecureKeyValueStorage = storeOver(keychain)
+
+        assertEquals(StorageResult.Success(Unit), store.clear())
+
+        assertEquals(
+            listOf(probeService to "TEAM.shared", STORE_SERVICE to "TEAM.shared"),
+            keychain.items.map { it.service to it.group },
+            "only the other group's probe and store item survive",
+        )
+    }
+
+    @Test
+    fun `every clear adds its probe under an account of its own`() = runTest {
+        val keychain = InMemoryKeychainPort()
+        val store: IosSecureKeyValueStorage = storeOver(keychain)
+
+        repeat(3) { assertEquals(StorageResult.Success(Unit), store.clear()) }
+
+        val accounts: List<String?> = keychain.calls.filter { it.operation == "addReadingAccessGroup" }.map { it.query["account"] }
+        assertEquals(3, accounts.size)
+        assertEquals(3, accounts.toSet().size, "the three probes must not share an account: $accounts")
+        assertTrue(accounts.all { it != null && it.startsWith(KeychainQueries.PROBE_ACCOUNT + ".") }, "$accounts")
+    }
+
+    @Test
+    fun `the probe account is the one the injected source gives`() = runTest {
+        val keychain = InMemoryKeychainPort()
+        val resolved: StorageResult<String> = DefaultAccessGroup(keychain, queries()) { "fixed-account" }.resolve()
+
+        assertEquals(StorageResult.Success("TEAM.default"), resolved)
+        assertEquals("fixed-account", keychain.calls.first { it.operation == "addReadingAccessGroup" }.query["account"])
+    }
+
+    @Test
+    fun `a concurrent clear that adds its own probe in between does not disturb this clear`() = runTest {
+        val keychain = InMemoryKeychainPort()
         keychain.script = { operation: String, _: Map<String, String> ->
-            if (operation == "addReadingAccessGroup" && keychain.items.isEmpty()) {
-                keychain.seed(
-                    InMemoryKeychainPort.Item(probeService, KeychainQueries.PROBE_ACCOUNT, "TEAM.default", false, "afterFirstUnlockThisDeviceOnly", false, null),
-                )
+            if (operation == "addReadingAccessGroup") {
+                // The other clear adds its probe (another account) just before ours lands, in the same default group.
+                keychain.seed(leftoverProbe("TEAM.default", account = "${KeychainQueries.PROBE_ACCOUNT}.other"))
             }
             null
         }
@@ -106,28 +163,31 @@ class IosDefaultAccessGroupTest {
 
         assertEquals(StorageResult.Success(Unit), store.clear())
 
-        assertEquals(
-            listOf("readAccessGroup", "addReadingAccessGroup", "readAccessGroup", "delete", "delete"),
-            keychain.operations(),
-        )
+        assertEquals(listOf("addReadingAccessGroup", "delete", "delete"), keychain.operations(), "no retry round exists")
         assertTrue(keychain.items.isEmpty())
     }
 
-    // --- fail closed ----------------------------------------------------------------------------------------
-
     @Test
-    fun `when the lookup fails the clear fails and nothing is deleted`() = runTest {
+    fun `a concurrent clear that already swept our probe leaves this clear successful`() = runTest {
         val keychain = InMemoryKeychainPort()
         keychain.seed(keychain.item("mine"))
-        keychain.seed(keychain.item("theirs", group = "TEAM.shared"))
-        keychain.script = { operation: String, _: Map<String, String> -> if (operation == "readAccessGroup") ERR_SEC_INTERACTION_NOT_ALLOWED else null }
+        var swept = false
+        keychain.script = { operation: String, q: Map<String, String> ->
+            if (operation == "delete" && q["service"] == probeService && !swept) {
+                // The other clear's sweep of the default group removes our probe before our own delete runs.
+                swept = true
+                queries().probeRemove("TEAM.default").use { keychain.delete(it) }
+            }
+            null
+        }
         val store: IosSecureKeyValueStorage = storeOver(keychain)
 
-        assertEquals(StorageError.Unavailable(), store.clear().error())
+        assertEquals(StorageResult.Success(Unit), store.clear())
 
-        assertEquals(2, keychain.items.size, "fail closed: nothing may be deleted")
-        assertTrue("delete" !in keychain.operations())
+        assertTrue(keychain.items.isEmpty(), "errSecItemNotFound on the probe's delete is a success: ${keychain.items.map { it.account }}")
     }
+
+    // --- fail closed ----------------------------------------------------------------------------------------
 
     @Test
     fun `when the probe cannot be added the clear fails with the mapped status and nothing is deleted`() = runTest {
@@ -174,10 +234,10 @@ class IosDefaultAccessGroupTest {
     }
 
     @Test
-    fun `a probe that keeps answering duplicate is retried a bounded number of times and then fails closed`() = runTest {
+    fun `a probe add that answers duplicate anyway fails closed at once without a retry`() = runTest {
         val keychain = InMemoryKeychainPort()
         keychain.seed(keychain.item("mine"))
-        // The add always loses (the other writer's probe is gone again by our next lookup): never an endless loop.
+        // A unique account cannot collide, so a duplicate means something is wrong: the clear says so and deletes nothing.
         keychain.script = { operation: String, _: Map<String, String> -> if (operation == "addReadingAccessGroup") errSecDuplicateItem else null }
 
         val error: StorageError = storeOver(keychain).clear().error()
@@ -186,20 +246,19 @@ class IosDefaultAccessGroupTest {
             StorageError.OperationFailed(StorageOperation.CLEAR, key = null, platformCode = errSecDuplicateItem),
             error,
         )
-        assertEquals(List(3) { listOf("readAccessGroup", "addReadingAccessGroup") }.flatten(), keychain.operations())
+        assertEquals(listOf("addReadingAccessGroup"), keychain.operations(), "no lookup and no retry loop exist")
         assertEquals(1, keychain.items.size)
     }
 
     @Test
-    fun `two concurrent clears of default-group stores both succeed and leave no probe`() = runTest(timeout = 120.seconds) {
+    fun `many concurrent clears of default-group stores all succeed and leave no probe`() = runTest(timeout = 120.seconds) {
         for (round: Int in 0 until 50) {
             val keychain = InMemoryKeychainPort()
             keychain.seed(keychain.item("mine"))
             keychain.seed(keychain.item("theirs", group = "TEAM.shared"))
-            val first: IosSecureKeyValueStorage = storeOver(keychain, dispatcher = Dispatchers.Default)
-            val second: IosSecureKeyValueStorage = storeOver(keychain, dispatcher = Dispatchers.Default)
+            val stores: List<IosSecureKeyValueStorage> = List(CONCURRENT_CLEARS) { storeOver(keychain, dispatcher = Dispatchers.Default) }
 
-            val results: List<StorageResult<Unit>> = listOf(async { first.clear() }, async { second.clear() }).awaitAll()
+            val results: List<StorageResult<Unit>> = stores.map { store -> async { store.clear() } }.awaitAll()
 
             assertTrue(results.all { it == StorageResult.Success(Unit) }, "round $round answered $results")
             assertEquals(listOf("theirs"), keychain.items.map { it.account }, "round $round")
@@ -214,5 +273,10 @@ class IosDefaultAccessGroupTest {
         assertEquals(StorageResult.Success(Unit), store.clear())
 
         assertEquals(listOf("delete"), keychain.operations())
+    }
+
+    private companion object {
+        /** More clears than the old three-round lookup loop could survive. */
+        const val CONCURRENT_CLEARS: Int = 6
     }
 }

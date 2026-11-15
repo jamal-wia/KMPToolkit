@@ -92,15 +92,6 @@ internal class InMemoryKeychainPort(
         return if (any) errSecSuccess else errSecItemNotFound
     }
 
-    override fun readAccessGroup(query: CFDictionaryRef): KeychainAccessGroup {
-        val q: Map<String, String> = describe(query)
-        forced("readAccessGroup", q)?.let { return KeychainAccessGroup(it, null) }
-        val found: Item? = transact { current ->
-            State(current.items, current.calls + Call("readAccessGroup", q)) to current.items.firstOrNull { matches(it, q) }
-        }
-        return if (found == null) KeychainAccessGroup(errSecItemNotFound, null) else KeychainAccessGroup(errSecSuccess, found.group)
-    }
-
     override fun add(query: CFDictionaryRef): Int = insert("add", query).first
 
     override fun addReadingAccessGroup(query: CFDictionaryRef): KeychainAccessGroup =

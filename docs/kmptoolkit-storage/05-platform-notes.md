@@ -208,9 +208,14 @@ If you ever edit that file: do not "simplify" it back to a dictionary literal.
   when that is `null`, **the app's default access group**. A delete that names no group matches every group
   the app belongs to, so it would also remove a same-named store's items in a shared group; the library
   therefore resolves the default group first. It does so with a probe item (service
-  `<store service>.accessgroupprobe`, account `kmptoolkit.accessgroupprobe`) that it adds without a group,
-  reads the group of, and removes inside the same `clear()`; a probe left by a killed process is found and
-  removed by the next one. If the group cannot be resolved, `clear()` fails and deletes nothing. Items
+  `<store service>.accessgroupprobe`, account `kmptoolkit.accessgroupprobe.<random UUID>`, a new account on every
+  call) that it adds without a group and reads the group of from the answer, then removes inside the same
+  `clear()`. The unique account is what keeps the group honest: no lookup is made, so a probe that another
+  process left in its own default group (an app extension killed mid-`clear()`) is never mistaken for this app's, and
+  concurrent `clear()` calls cannot collide on the probe. The removal names the probe service and the resolved
+  group but no account, so it also sweeps a leftover of this app's own default group; one in another group is left
+  alone. If the group cannot be resolved (for example before the first unlock, when the probe cannot be added),
+  `clear()` fails and deletes nothing. Items
   written by another store, another framework, or the same app under a different service are not matched.
   (Changed in 6.0.0: earlier versions sent no group and no synchronizable attribute, so they could also
   remove a shared-group store's items and missed the store's own iCloud items.)

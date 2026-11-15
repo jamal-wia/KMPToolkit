@@ -44,8 +44,8 @@ class IosSecureStoreStormTest {
                             if (value != null && !VALUE.matches(value)) local += "seed=$seed torn value '$value' for $key"
                         }
                         8 -> store.remove(key)
-                        // At most two workers clear, so at most two clears race for the default-group probe.
-                        else -> if (worker < 2) store.clear() else store.remove(key)
+                        // Every worker clears: the probe has an account of its own per call, so any number of clears may race.
+                        else -> store.clear()
                     }
                     if (result is StorageResult.Failure) local += "seed=$seed worker=$worker step=$step failed: ${result.error}"
                 }
