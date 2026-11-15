@@ -118,7 +118,12 @@ internal class FakeIosLocationManager(
 
     val detached: Boolean get() = detachCount > 0
 
-    override val authorizationStatus: Int get() = env.status
+    override val authorizationStatus: Int
+        get() {
+            env.managerStatusReads++
+            if (!env.main.isRunning) env.managerStatusReadsOffMain++
+            return env.status
+        }
     override val isAccuracyReduced: Boolean get() = env.reduced
     override val lastLocation: IosRawFix? get() = env.cached
 
@@ -186,6 +191,13 @@ internal class FakeIosLocationEnvironment(scheduler: TestCoroutineScheduler) : I
 
     /** Authorization status reads made while no task of the main dispatcher was running. */
     var statusReadsOffMain: Int = 0
+
+    /**
+     * Reads of the `authorizationStatus` property of a manager that already exists (the re-read of a
+     * running stream takes this path, not [authorizationStatus]), and those made off the main dispatcher.
+     */
+    var managerStatusReads: Int = 0
+    var managerStatusReadsOffMain: Int = 0
     var settingsOpened: Int = 0
     val managers: MutableList<FakeIosLocationManager> = mutableListOf()
     val activeListeners: MutableList<() -> Unit> = mutableListOf()

@@ -58,14 +58,18 @@ class IosStatusReadOnMainTest {
         val job: Job = backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { provider.observeLocation().collect { } }
         runCurrent()
         val afterStart: Int = env.statusReads
+        val managerReadsAfterStart: Int = env.managerStatusReads
         assertTrue(afterStart > 0, "control: the first check read the status")
         env.servicesOn = false
         env.announceChange()
         runCurrent()
-        assertTrue(env.statusReads > afterStart, "control: the re-read read the status again")
+        // The re-read of a running stream asks the manager the stream already owns (no new manager is
+        // created), so it is counted on the manager seam, not on the environment's one-shot read.
+        assertTrue(env.managerStatusReads > managerReadsAfterStart, "control: the re-read read the status of the stream's manager")
         job.cancel()
         runCurrent()
-        assertEquals(0, env.statusReadsOffMain, "the status read created a CLLocationManager off the main queue")
+        assertEquals(0, env.statusReadsOffMain, "the first check read the status off the main queue")
+        assertEquals(0, env.managerStatusReadsOffMain, "the re-read read the status off the main queue")
     }
 
     @Test
