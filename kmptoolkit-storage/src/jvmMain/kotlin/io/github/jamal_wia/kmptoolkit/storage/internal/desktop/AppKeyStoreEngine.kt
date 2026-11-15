@@ -130,7 +130,8 @@ internal class AppKeyStoreEngine(
     val protection: SecureStorageProtection
         get() = if (key is AppEncryptionKey.Passphrase) SecureStorageProtection.PASSPHRASE else SecureStorageProtection.APP_PROVIDED_KEY
 
-    override val kinds: Set<StoreKind> get() = setOf(kindOf(key))
+    // Both kinds belong to this store type; a file of the other kind than the bound key is a key that cannot open it (AccessDenied).
+    override val kinds: Set<StoreKind> = setOf(StoreKind.PASSPHRASE, StoreKind.RAW_KEY)
 
     override val clearNeedsKey: Boolean = true
 
@@ -158,6 +159,11 @@ internal class AppKeyStoreEngine(
 
     override fun resolve(parsed: FileState.Parsed, carry: Carry?): Resolution {
         val file: ParsedStoreFile = parsed.file
+        if (file.kind != kindOf(key)) {
+            // A passphrase store opened with a raw key, or the other way round: the supplied key cannot open it, and
+            // nothing is read, moved or changed.
+            return Resolution.Fail(StorageError.AccessDenied(cause = IllegalArgumentException("The key type does not open this store")))
+        }
         val current: CachedKey? = cached
         if (current != null) {
             if (current.headerPrefix.contentEquals(file.headerPrefix)) {

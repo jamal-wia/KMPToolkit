@@ -19,7 +19,9 @@ public interface AppKeyEncryptedKeyValueStorage : EncryptedKeyValueStorage {
     /**
      * Re-encrypts the store under a fresh data key wrapped by [newKey], atomically: a new salt, a new key-check, every value
      * re-encrypted. The current key must verify first ([StorageError.AccessDenied] otherwise, nothing changed). A crash
-     * leaves either the old or the new file, both complete. Copies of the file taken before the change stay readable with
+     * leaves either the old or the new file, both complete. A [newKey] whose provider returns an unusable key (an empty or
+     * unpaired-surrogate passphrase, a raw key that is not 32 bytes) is [StorageError.AccessDenied] and changes nothing; a
+     * stored value that cannot be decrypted with the current key is [StorageError.Undecryptable] and changes nothing. Copies of the file taken before the change stay readable with
      * the old key; they are not re-encrypted. Failures are reported with [StorageOperation.CHANGE_KEY].
      *
      * Another instance over the same file that still holds the old key answers [StorageError.AccessDenied] on its next

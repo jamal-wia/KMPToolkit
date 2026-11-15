@@ -17,7 +17,8 @@ public sealed interface AppEncryptionKey {
      * A key derived from a passphrase with PBKDF2-HMAC-SHA256 over the Unicode-NFC-normalised UTF-8 passphrase and a
      * 16-byte random salt. The same text typed composed or decomposed opens the same store.
      *
-     * @param provider supplies the passphrase. An empty one is [StorageError.AccessDenied].
+     * @param provider supplies the passphrase. An empty one, or one that holds an unpaired UTF-16 surrogate (it has no
+     *   UTF-8 form, so two different passphrases would otherwise open one store), is [StorageError.AccessDenied].
      * @param iterations the PBKDF2 iteration count for NEW or RE-KEYED files, `600_000..10_000_000`. The header's own count
      *   wins when an existing file is opened, within that same range; a header outside it is [StorageError.Undecryptable]
      *   with no derivation run.

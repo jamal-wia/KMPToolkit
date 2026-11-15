@@ -24,8 +24,8 @@ a name `N`:
 | | Android | iOS | Desktop (`jvm`) |
 |---|---|---|---|
 | Plain store | `SharedPreferences` file `N.kmptoolkit.storage` | `NSUserDefaults` suite `N.kmptoolkit.storage` | file `N.kmptoolkit.storage.properties` in the directory you pass |
-| Secure store | `SharedPreferences` file `N.kmptoolkit.securestorage` | Keychain `kSecAttrService` = `N.kmptoolkit.securestorage` | none — see below |
-| Encryption key | AndroidKeyStore alias `N.kmptoolkit.securestorage.key` | held by `securityd`; no alias of ours | — |
+| Secure store | `SharedPreferences` file `N.kmptoolkit.securestorage` | Keychain `kSecAttrService` = `N.kmptoolkit.securestorage` | file `N.kmptoolkit.securestorage.bin` (OS-key store) or `N.kmptoolkit.appkeystorage.bin` (app-key store) in the directory you pass, see "Desktop secure stores" |
+| Encryption key | AndroidKeyStore alias `N.kmptoolkit.securestorage.key` | held by `securityd`; no alias of ours | the OS key store (macOS keychain item, Windows DPAPI blob in the file, Linux Secret Service item), or the key your app provides |
 
 On desktop `N` has no default — there is no application id to derive it from — so
 `StorageConfig.name` is required there.
@@ -325,9 +325,151 @@ app sharing that code with desktop could not compile it for desktop without the 
   - The parser checks every length against the bytes that remain before it allocates, rejects duplicate or non-UTF-8 entry
     names and trailing bytes, and never throws for any input. A file that fails to parse is not a store: it is reported as
     unreadable (`Undecryptable`), never as a wrong value.
-- **No secure store.** The JVM has no platform key store this module could keep a key in without
-  inventing its own — and a key kept next to the data it encrypts protects nothing. Desktop apps that
-  need a secret at rest should use the operating system's credential store directly.
+### Desktop secure stores
+
+Two encrypted stores exist on desktop, and both use the file format above. Neither is ever chosen for you.
+
+| | `createSecureKeyValueStorage` | `createAppKeyEncryptedKeyValueStorage` |
+|---|---|---|
+| File | `<name>.kmptoolkit.securestorage.bin` | `<name>.kmptoolkit.appkeystorage.bin` |
+| Lock file | the file name plus `.lock` | the file name plus `.lock` |
+| Data key kept by | the OS key store (below) | wrapped by a key your app provides (passphrase or raw 256-bit key) |
+| `protection` | `OS_KEY_STORE_USER_SCOPED`, known without I/O | `PASSPHRASE` or `APP_PROVIDED_KEY` |
+| Native binding needed | yes (JDK 22+ built in, JDK 21 with `kmptoolkit-storage-jna`) | no, any OS and any JDK 21+ |
+
+`StorageConfig.name` is required for both. A quarantined file is `<file>.undecryptable-<yyyyMMdd'T'HHmmss'Z'>` (UTC; `-1`, `-2`
+after it when two quarantines land in one second); the library never deletes one. To start over after a forgotten passphrase
+or a destroyed key, delete the store file (and, for an OS-key store, the key item).
+
+#### The OS-key store
+
+One 256-bit data key per store, kept in the running OS's key store; every value is AES-256-GCM under it. Nothing touches the
+OS before the first call, and a problem is never answered with a weaker store.
+
+| OS | Where the key is | Who else can read it | Prompts |
+|---|---|---|---|
+| macOS | a generic password in the **login (file) keychain**: service `<name>.kmptoolkit.securestorage`, account `dir-` plus 32 hex characters (the first 128 bits of SHA-256 over the folded canonical directory), label your `itemLabel` or the service | same-user code the user lets through the keychain's access prompt; every `java -jar` tool on one JDK shares one code identity | an access prompt when the code identity differs from the item's creator, the unlock prompt for a locked keychain |
+| Windows | a DPAPI blob (current user, no UI) in the file header; entropy `kmptoolkit-storage:<service>`; there is no OS item, so nothing is ever orphaned | any process of the same user | never |
+| Linux | a libsecret item with attributes `service` and `directory` (both are always passed, so only the own identity is touched), the key as base64, in the default collection (inside Flatpak with libsecret 0.20+ the portal backend, per app) | any same-user process while the collection is unlocked | the collection unlock, once per login session; KWallet may ask once |
+
+The identity of a store is its name plus the directory, so two directories with one store name are two stores with two keys,
+and a store file moved or copied into another directory is a store whose key is lost (below), never one that opens another
+store's key.
+
+**The data key is cached** in process memory per identity, shared by every instance over the same file. A cached key is never
+trusted alone: every operation reads the file header under the lock and verifies its key-check with the cached key; a mismatch
+drops (and wipes) the entry and fetches the key again.
+
+**"The key is lost"** means exactly one of: a definitive not-found at the store's own identity (macOS -25300 from an interactive
+call; Linux: no matching item in any collection, locked or not), a key-check that fails with the fetched key, a header whose
+fingerprint or OS tag names another identity, or (Windows) DPAPI failing to unwrap while a one-byte round trip works. A locked,
+dismissed, denied, hung or missing key store is **never** "lost": it answers `AccessDenied`, `Unavailable` or `Unsupported`, never
+touches the file and never leads to quarantine or key creation. On macOS the verification of what `kSecUseAuthenticationUIFail`
+returns on the file keychain has not been run, so the conservative rule applies: a -25300 from a call made with
+`allowUserInteraction = false` is `Unavailable`, not "lost" (see "Open verification items").
+
+What each call does (decided under the locks; every answer after the key has been verified first):
+
+| Situation | `get` | `remove` | `put` | `clear()` | `ensureKey()` |
+|---|---|---|---|---|---|
+| no file | `Success(null)` | `Success` | create, then write | `Success`, nothing created | create |
+| key fetched and verified | normal | normal | normal | empties the file, header kept | `Success` |
+| key lost, entries present | an entry that exists: `Undecryptable(null)`; one that does not: `Success(null)` | drops that entry, copying the header and the other entries byte for byte | quarantines the file, creates a new key | empties the file, header kept | `Undecryptable(null)` |
+| key lost, zero entries | `Success(null)` | `Success` | replaces the empty file with a new key | `Success` | replaces the empty file with a new key |
+| one entry's tag fails | `Undecryptable(key)` for that key | drops it | overwrites it | as healthy | `Success` |
+| OS locked, denied, hung, missing | the mapped error; the file is never touched | same | same | `Success` (no OS call) | same as `get` |
+| file does not parse (bad magic, truncated, wrong kind, absurd lengths, ...) | `Undecryptable(null)` | `Undecryptable(null)`, untouched | quarantines it, creates a new key | quarantines it, creates nothing | `Undecryptable(null)` |
+| file of a **newer** format version | `Undecryptable(null)` | `Undecryptable(null)` | `Undecryptable(null)`, untouched | quarantines it | `Undecryptable(null)` |
+
+`clear()` never calls the OS: it works while the keychain is locked, which is what makes `remove` and `clear()` the way out of
+an `Undecryptable` store.
+
+**Creating a key** happens inside both locks and in this order: the OS part that can fail without side effects first (Linux:
+the session check, the collection-locked check when no dialog is allowed; Windows: the DPAPI call), then the empty sealed file
+(`ExistingFile.Fail`, so another process that wins is detected and read), then the OS item (delete the item at the own
+identity, then add: never an update), then the cache. A failure at any step undoes the previous ones, a quarantined file is
+renamed back, and the store is byte-identical to before the call; cancellation does the same. A crash between the file and the
+item leaves an empty sealed file with no item, which reads as `Success(null)` and is repaired by the next `put`. **A creation
+can hold the store's locks while an OS dialog is on screen** (the unlock dialog of macOS with `allowUserInteraction = true`):
+other callers answer `Unavailable` after their 10 s wait. With `allowUserInteraction = false` the macOS add and delete carry
+`kSecUseAuthenticationUIFail`, and Linux first reads the collection's `Locked` flag and answers `Unavailable` without a prompt.
+Reading and verifying an existing key never holds a lock while a call that can prompt is awaited.
+
+**Per-OS errors.**
+
+| Situation | Answer |
+|---|---|
+| macOS -25308 interaction not allowed, -25299 duplicate on add, -25291 not available | `Unavailable` |
+| macOS -128 user cancelled, -25293 auth failed (also a refused delete of a planted item: the file stays byte-identical) | `AccessDenied(platformCode)` |
+| macOS -25307 no default keychain, -25294 no such keychain | `Unsupported(NO_KEY_STORE)` |
+| macOS -34018 missing entitlement | `Unsupported(MISSING_ENTITLEMENT)` |
+| Windows: unprotect fails and the one-byte round trip fails with 1312 | `Unsupported(NO_USER_SESSION)` |
+| Windows: unprotect fails and the round trip fails otherwise | `Unavailable` |
+| Windows: unprotect fails and the round trip works | key lost (`Undecryptable(null)` for an entry) |
+| Linux: neither `DBUS_SESSION_BUS_ADDRESS` nor `$XDG_RUNTIME_DIR/bus` | `Unsupported(NO_USER_SESSION)`, before any native call |
+| Linux: no libsecret, libsecret older than 0.19 (no `secret_password_search_sync`), service unknown, D-Bus access denied | `Unsupported(NO_KEY_STORE)` |
+| Linux: activation failed, no reply, timed out, collection locked without UI | `Unavailable` |
+| Linux: prompt dismissed | `AccessDenied`; a match that stays locked is `AccessDenied` after a dismissed prompt and `Unavailable` without UI |
+| a native call past its limit (10 s without UI) | `Unavailable` |
+| the binding cannot run (`LinkageError`, `IllegalCallerException`, `SecurityException`) | `Unsupported(NATIVE_ACCESS_UNAVAILABLE)` |
+| anything else | `OperationFailed(operation, key, platformCode)`; failures of `ensureKey()` carry `ENSURE_KEY` and `key = null` |
+
+**Locks.** Reads and writes of an encrypted store both take the in-process lock and the cross-process lock (a read must not see
+a key being created), under one 10 s budget; a call that cannot get them answers `Unavailable`. A file system that refuses file
+locks (see Concurrency above) makes every call answer `OperationFailed` and touch nothing: unlike the plain store, an encrypted
+store never degrades. The one thing a call does not wait for under the locks is anything slow: the native fetch of an existing
+key runs with no lock held, and the next round re-reads the file and uses the key only if the header and key-check are the
+ones it was fetched for (at most four such rounds, then `Unavailable`).
+
+**Open verification items (macOS, not yet run on a real keychain).** Whether `kSecUseAuthenticationUIFail` applies to
+`SecItemAdd` and `SecItemDelete` on the file keychain; whether a locked keychain and an item of another code identity both
+return -25308 (never -25300); whether deleting the previous unsigned build's item prompts. Until then a non-interactive -25300 is
+`Unavailable`, and the documented behaviour of `allowUserInteraction = false` is "a needed dialog answers `Unavailable`" for the
+unlock dialog and, if the verification fails, only for it.
+
+#### `probeDesktopKeyStore`
+
+`probeDesktopKeyStore(options)` answers which key store a secure store would use now: `MACOS_FILE_KEYCHAIN`, `WINDOWS_DPAPI`,
+`LINUX_SECRET_SERVICE` or `LINUX_SECRET_PORTAL` (only when libsecret actually selected the portal), or the typed reason there is
+none. It never prompts and never reads, creates or deletes a key (macOS: an attribute-only query with the UI suppressed; Windows:
+one throwaway byte protected and unprotected; Linux: session check, then the default collection's `Locked` flag and the backend
+check), and every native call is limited to 10 s, so it answers even when the OS hangs. A locked macOS keychain or Linux
+collection is a success when `allowUserInteraction` is `true` and `Unavailable` when it is `false`. A failure outside the typed
+answers is `OperationFailed(ENSURE_KEY, key = null)`.
+
+#### The app-key store
+
+No OS call, no binding, no native thread: it works on every OS and on JDK 21 without the JNA artifact. The data key is wrapped by
+a key derived from what your app provides.
+
+- **Open order.** The header's iteration count is checked first (outside 600,000 to 10,000,000, including 2^32-1, is
+  `Undecryptable(null)` at once: no derivation, no provider call). Then the provider is called, the key-encryption key is derived
+  (a passphrase: PBKDF2-HMAC-SHA256 over the NFC text with the header's salt and iteration count; a raw key: the key itself) and the
+  data key is unwrapped. An unwrap failure is `AccessDenied` (the wrong key, never `Undecryptable`); an unwrap that works with a
+  failing key-check is `Undecryptable(null)` (corruption).
+- **Provider outcomes.** A returned wrong key, an empty passphrase, a passphrase with an **unpaired UTF-16 surrogate** (it has no
+  UTF-8 form, and the JDK would silently turn it into `?`, so two different passphrases would open one store) or a raw key that is
+  not 32 bytes is `AccessDenied`; the cause never contains the secret. A provider that throws is `Unavailable(cause)`;
+  `CancellationException` propagates. The provider is called at most once per operation, and every array it returned is wiped
+  as soon as it has been used, so it must return a fresh array on every call.
+- **Every operation verifies the key first**, a `get` of an absent key and `clear()` included, on an existing file: a wrong
+  passphrase never reads as "absent", and a wrong key never changes a byte. With no file there is nothing to verify: `get`,
+  `remove` and `clear()` answer `Success` without calling the provider.
+- **The provider and PBKDF2 run with no lock held.** A slow provider (a password dialog) or a 10 000 000-iteration derivation
+  never makes another caller wait out its 10 s budget; the round that needs the key says so, the locks are released, and the
+  next round re-reads the file and uses the derived key only if the header and key-check are the ones it was derived for.
+- **The key cache is per instance and bound to the exact header bytes** (kind, salt, iterations, wrapped key). Another instance
+  over the same file never shares it: an instance built with the wrong key gets `AccessDenied` while another instance is open and
+  unlocked, and an instance that holds the old key gets `AccessDenied` after another instance's `changeKey`.
+- **`changeKey(newKey)`** verifies the current key, asks the new provider (validated like any provider; the new key being unusable is
+  `AccessDenied` and changes nothing), then re-encrypts every value under a fresh data key wrapped by the new key with a new salt and
+  key-check, and replaces the file atomically; a crash leaves the old file or the new one, both complete. The instance is bound to the
+  new key afterwards (its `protection` follows the new key's type). A value that cannot be decrypted with the current key makes
+  `changeKey` answer `Undecryptable(key)` and change nothing. Copies of the file taken before the change stay readable with the old
+  key (they are not re-encrypted). On an absent store `changeKey` only binds the instance to the new key. A store of the other key type
+  than the instance's key (a passphrase file opened with a raw key, or the other way round) is a key that cannot open it:
+  `AccessDenied` on every operation, nothing moved or changed.
+- **A forgotten passphrase** has no reset in the API: delete the store's files and start over.
 
 ## Threading
 

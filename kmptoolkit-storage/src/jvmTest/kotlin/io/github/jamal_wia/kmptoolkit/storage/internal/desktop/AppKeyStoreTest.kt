@@ -278,6 +278,20 @@ class AppKeyStoreTest {
         assertEquals(StorageResult.Success("v"), store(raw(7).key).get("k"))
     }
 
+    @Test
+    fun `a passphrase store opened with a raw key is AccessDenied on every operation and nothing is moved or changed`() = runBlocking {
+        val a: JvmAppKeyEncryptedKeyValueStorage = store(AppEncryptionKey.Passphrase({ "first pass".toCharArray() }))
+        assertTrue(a.put("k", "v") is StorageResult.Success)
+        val before: ByteArray = dataFile.readBytes()
+        val wrongType: JvmAppKeyEncryptedKeyValueStorage = store(raw(1).key)
+
+        for (result: StorageResult<*> in listOf(wrongType.get("k"), wrongType.put("k", "w"), wrongType.remove("k"), wrongType.clear(), wrongType.ensureKey(), wrongType.changeKey(raw(2).key))) {
+            assertIs<StorageError.AccessDenied>(failure(result))
+        }
+        assertContentEquals(before, dataFile.readBytes())
+        assertTrue(directory.list()!!.none { ".undecryptable-" in it }, "a store of the other key type is never quarantined")
+    }
+
     // ---- clear and the file rows ----
 
     @Test
