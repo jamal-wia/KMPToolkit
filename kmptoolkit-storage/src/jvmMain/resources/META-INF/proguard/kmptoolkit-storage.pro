@@ -7,6 +7,12 @@
     <init>();
 }
 
+# The libsecret backend question hands libsecret a callback whose target is found by NAME (MethodHandles.findVirtual), so a
+# shrinker that sees no caller would remove or rename it and the call would fail at run time.
+-keep class io.github.jamal_wia.kmptoolkit.storage.internal.desktop.ffm.FfmSecretService$BackendWait {
+    *;
+}
+
 # The JNA bridge artifact (kmptoolkit-storage-jna) is loaded by name the same way; its own rules keep its class.
 -dontwarn io.github.jamal_wia.kmptoolkit.storage.jna.**
 
