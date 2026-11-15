@@ -239,9 +239,9 @@ The rules for a module that does this:
 
 ## Desktop targets
 
-Fourteen artifacts also publish `jvm`: `kmptoolkit-systembars`, `kmptoolkit-storage` and
-`kmptoolkit-files`, each with its `-testing` fixtures, `kmptoolkit-language` with
-`kmptoolkit-language-compose`, `kmptoolkit-hardware-keys`, `kmptoolkit-hijri`,
+Seventeen artifacts also publish `jvm`: `kmptoolkit-systembars`, `kmptoolkit-storage`,
+`kmptoolkit-files` and `kmptoolkit-location`, each with its `-testing` fixtures, `kmptoolkit-language`
+with `kmptoolkit-language-compose`, `kmptoolkit-hardware-keys`, `kmptoolkit-hijri`, `kmptoolkit-logging`,
 `kmptoolkit-video-player` with its `-testing` and `-compose` companions, and the internal support
 artifact `kmptoolkit-core`. Two more are **JVM-only** — the desktop video engines
 `kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx`, built with the
@@ -280,6 +280,17 @@ in **shared** code:
   `FileAccess` from compiling for desktop. The JVM half is real, not a no-op: the same engine runs
   over `java.nio`, including the Windows rules (reserved names, the rename retry, the in-process
   gate).
+- **Logging.** `Logger` is the seam a consumer's shared code logs through: a repository, a controller or a
+  provider takes one as a parameter. The JVM sink is real: `platformLogSink()` writes `<L>/<tag>: <message>`
+  and the stack trace to standard error, one event at a time under a process-wide lock held only around the
+  write of the already rendered text, so concurrent events never interleave and no caller code (a `toString`
+  or `cause` override) runs while the lock is held.
+- **Location.** The geo math and `GeoCoordinates` / `LocationReading` are threaded through shared code: a
+  catalogue of places, a distance filter, a repository that stores positions, a presenter that takes a
+  `LocationProvider`. The geo half is real, like hijri's: the same pure Kotlin answers on the phone and in a
+  desktop unit test. The providers answer the typed `UNSUPPORTED` state, because no desktop location source
+  exists here and the library will not invent one (no IP lookup); a consumer, or a future engine artifact,
+  implements `LocationProvider` for the engine it chooses. The JVM factories take no logger.
 - **Hardware keys.** `DialogWindowHardwareKeyEffect` is called from inside dialog content, and
   dialog content is typical shared UI. Desktop has no Android-style per-window key routing, so the
   `jvm` actual is a no-op — the target exists only so that the shared dialog compiles.
@@ -294,8 +305,8 @@ in **shared** code:
   consumer inherit a GPL dependency it did not ask for.
 - **Core.** `kmptoolkit-core` is not a capability at all: it holds the cross-module internal API
   (`@ToolkitInternalApi`, `StateMachineLock`). It publishes `jvm` only because
-  `kmptoolkit-video-player` does and depends on it — a Gradle module cannot depend on a module that
-  lacks one of its own targets. Nothing in it is meant for a consumer to use on desktop or anywhere
+  `kmptoolkit-video-player` and `kmptoolkit-location` do and depend on it — a Gradle module cannot depend on a
+  module that lacks one of its own targets. Nothing in it is meant for a consumer to use on desktop or anywhere
   else.
 - **Hijri.** `toHijriDate` is a pure date conversion a consumer calls from shared code; the JDK's
   `HijrahDate` is Umm al-Qura, so the JVM half is real.

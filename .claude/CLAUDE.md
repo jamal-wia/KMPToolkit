@@ -36,11 +36,13 @@ artifacts by coordinate.
   `gradle.properties` (the single source of truth every module and the BOM read).
 - Targets: Android + iOS. No JS/wasm. No JVM/desktop either, with one narrow exception —
   `kmptoolkit-systembars` (+ `-testing`), `kmptoolkit-language` (+ `-compose`),
-  `kmptoolkit-storage` (+ `-testing`), `kmptoolkit-hardware-keys`, `kmptoolkit-hijri` and
+  `kmptoolkit-storage` (+ `-testing`), `kmptoolkit-hardware-keys`, `kmptoolkit-hijri`,
+  `kmptoolkit-logging`, `kmptoolkit-location` (+ `-testing`) and
   `kmptoolkit-video-player` (+ `-testing`, `-compose`) also publish `jvm`, because their types belong
   in code a consumer shares with desktop and omitting the target would stop that shared code
   compiling at all. So does the internal support artifact `kmptoolkit-core`, for a plainer reason:
-  `kmptoolkit-video-player` depends on it and a module cannot depend on one missing its target.
+  `kmptoolkit-video-player` and `kmptoolkit-location` depend on it and a module cannot depend on one
+  missing its target.
   The desktop video engines `kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx` are
   JVM-only artifacts, kept out of the video-player core so their licences (GPL-3 / GPL-2 + Classpath
   Exception) reach only an app that opts in. The reasoning, and the bar any further exception has to
