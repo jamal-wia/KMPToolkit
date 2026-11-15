@@ -474,11 +474,27 @@ internal class AndroidLocationProvider(
         private var deliverable: List<String> = initial.names
 
         /**
-         * The sources the platform refused this caller for (a SecurityException). A refusal does not change
-         * without a process restart (D16: a revoke kills the process), so AUTO skips them for the rest of the
-         * stream instead of trying them again on every event.
+         * The sources the platform refused this caller for (a SecurityException). A revoke kills the process
+         * (D16), so a refusal only goes away with a new grant: AUTO skips these sources instead of trying them
+         * again on every event, until the fine grant differs from the one they were met under
+         * ([forgetRefusalsOfAnotherGrant]).
          */
         private val refused: MutableSet<String> = mutableSetOf()
+
+        /**
+         * Whether the app held the fine grant when the refusals in [refused] were met. A grant can arrive while the
+         * stream runs (a revoke kills the process, a grant does not) and a refusal under the coarse grant says nothing
+         * about the fine one, so [refused] is dropped as soon as the grant differs from this.
+         */
+        private var refusedUnderFine: Boolean = false
+
+        /**
+         * The AUTO decision whose move failed on the platform (not a refusal) and was undone by putting the previous
+         * registration back. The restored source is switched off, and the platform answers a registration on a disabled
+         * provider with `onProviderDisabled` at once: that event would re-run the same failing move forever. The move is
+         * not retried until the decision itself changes (then a transient failure gets its new chance).
+         */
+        private var failedMove: List<String>? = null
 
         private var lastRefusal: SecurityException? = null
 
@@ -530,6 +546,7 @@ internal class AndroidLocationProvider(
                     accepted += provider
                 } catch (refusal: SecurityException) {
                     lastRefusal = refusal
+                    refusedUnderFine = platform.hasFinePermission()
                     refused += provider
                     logger.d { "Location provider $provider refused the caller's permission" }
                 }
@@ -558,9 +575,11 @@ internal class AndroidLocationProvider(
                 // it registered went off while another is on, the registration moves instead of reading
                 // SERVICE_DISABLED. A move never ends the evaluation: whatever is registered afterwards is what
                 // the decision below judges.
+                forgetRefusalsOfAnotherGrant()
                 val pick: AutoPick = pickAuto(platform, options.accuracy, forStream = true)
                 val target: List<String> = pick.target(refused)
-                if (target.isNotEmpty() && target != selected) rebind(pick)
+                if (target != failedMove) failedMove = null
+                if (target.isNotEmpty() && target != selected && failedMove == null) rebind(pick)
             }
             val disabled: Boolean = isDisabled(platform, deliverable)
             if (disabled == disabledNow) return
@@ -574,26 +593,45 @@ internal class AndroidLocationProvider(
             )
         }
 
+        /** Gate held. Refusals met under another grant than the current one are not evidence any more: they are tried again. */
+        private fun forgetRefusalsOfAnotherGrant() {
+            if (refused.isEmpty() || platform.hasFinePermission() == refusedUnderFine) return
+            refused.clear()
+            failedMove = null
+        }
+
         /**
          * Moves the registration to [pick]: the old one is removed first (the platform treats a second
          * registration of the same listener as a replacement, and two would deliver twice), then the first
          * accepting candidate is registered. When none accepts (every candidate refused the caller, or the
          * platform failed) the previous sources are put back, so something stays registered and the caller's
          * decision judges the real state instead of a hole. Never throws: a failure is logged and leaves
-         * [selected] empty only when nothing could be registered, so the next event tries again.
+         * [selected] empty only when nothing could be registered, so the next event tries again. A move that failed
+         * on the platform and was restored is not retried until the decision changes ([failedMove]).
          */
         private fun rebind(pick: AutoPick) {
             val previous: List<String> = deliverable
             selected = emptyList()
             deliverable = emptyList()
             removeQuietly(platform, this)
-            var accepted: List<String> = registerQuietly(pick.candidates, pick.firstOnly)
+            var moveFailed = false
+            var accepted: List<String> = try {
+                register(pick.candidates, pick.firstOnly)
+            } catch (failure: Exception) {
+                logger.w(failure) { "Could not move the location registration" }
+                removeQuietly(platform, this)
+                moveFailed = true
+                emptyList()
+            }
             if (accepted.isEmpty()) accepted = registerQuietly(previous, firstOnly = false)
             if (accepted.isEmpty()) {
-                // Nothing is registered: keep judging the last known sources; selected stays empty (retry on the next event).
+                // Nothing is registered: keep judging the last known sources; selected stays empty (retry on the next
+                // event: with nothing registered the platform cannot answer with an event of its own, so no loop).
                 deliverable = previous
                 return
             }
+            // The previous registration is back: remember the failed decision, so the restore's own callback is not a retry.
+            if (moveFailed) failedMove = pick.target(refused)
             selected = accepted
             deliverable = accepted
         }
