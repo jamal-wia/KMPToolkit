@@ -541,20 +541,25 @@ sees the interrupt; a caller resumed on another thread does not. Only an `Interr
 that the JDK wraps (an SPI constructor that throws while `getInstance` makes the engine leaves as a `NoSuchAlgorithmException` with it as
 the cause) or that another exception carries as its cause is typed like any other failure and leaves the status alone, because a cause can
 be an exception that came from another thread and inventing an interrupt is worse than missing one that a provider constructor hid. Whatever the random source had written when it failed is wiped. Two scans
-of the build enforce that nothing else of the desktop code touches the JCA: one reads the constant pools of EVERY class entry of the built jvm jar (the one artifact that ships: commonMain and jvmMain, the `jvmFfm`
+of the build enforce that nothing else of the desktop code touches the JCA: one reads the constant pools of EVERY class entry of the built jvm jar (any case of the `.class` extension, because a class loader over a directory on a case-insensitive file system loads `X.CLASS` too; the one artifact that ships: commonMain and jvmMain, the `jvmFfm`
 output wherever that source set exists, the javac output of Java sources such as `src/jvmMain/java`, and any class packed from the resources or
 from a later `from(...)` of the jar task; the build hands the jar to the test, so no directory is discovered or classified and a new source
 set, language or input cannot hide, and the test fails when it has no jar, an empty jar, a nested archive or a repeated entry name; a second scan of
 the directories the jar is built from backs it for a tree without a jar), so it
 sees a use however the source spells it and a call on the random source the boundary hands out (also through `java.util.Random`,
-`RandomGenerator` or `asKotlinRandom()`, which no main code uses today). The boundary is exempt by its exact class name and by nothing
+`RandomGenerator` or `asKotlinRandom()`, which no main code uses today) and a type that only a signature names (an array, a generic argument,
+a wildcard, the bound of a type parameter: every `Utf8` entry of a class is read for the types it names, which is what a Java class needs, as it has no
+Kotlin metadata that names them a second time). The boundary is exempt by its exact class name and by nothing
 else: the class has no nested class, a class whose name only starts with `Jca$` (a back-quoted name, a renamed file facade) fails the
 scan for that name whatever file it was compiled from (the file name a class carries is only a base name and proves nothing), and a
 second class with the boundary's name anywhere else in the jar fails it too. The other scan reads every `.kt` and `.java` file under every
 `jvm*` source directory of the module that is not a test source set (`jvmMain`, `jvmFfm` where it exists, a set that does not exist yet; found
 by walking `src/`). Neither sees reflection by a string built at run time, or a helper of another module that reaches the JCA
-inside its own code; the bytecode scan does not flag the `toString()` of a provider's random engine that a caller reaches through `Object`.
-(A Java source under `src/jvmFfm/java` is not a gap: the build refuses it on a branch that has that source set, because the Java and Kotlin
+inside its own code, or class bytes that sit under an entry name that is not a class name and are defined by a custom class loader at run time;
+the bytecode scan does not flag the `toString()` of a provider's random engine that a caller reaches through `Object`.
+The two scans are defence in depth for the maintainers of the module: they stop an accidental direct JCA use and a careless new source set,
+they cannot stop repository code that is written on purpose to evade them, and a further evasion of that kind is a documented limit, not a gap to close
+with another rule. (A Java source under `src/jvmFfm/java` is not a gap: the build refuses it on a branch that has that source set, because the Java and Kotlin
 compile tasks of its compilation disagree on the JVM target, so no such class ships.) The one
 thing it never types is an `Error`: the JDK's DRBG `SecureRandom` (the default on Windows, and on Linux wherever `securerandom.source` is not exactly `/dev/random` or
 `/dev/urandom`, for example with `-Djava.security.egd=file:/dev/./urandom`) reports a seed source it cannot read as an `InternalError`, a

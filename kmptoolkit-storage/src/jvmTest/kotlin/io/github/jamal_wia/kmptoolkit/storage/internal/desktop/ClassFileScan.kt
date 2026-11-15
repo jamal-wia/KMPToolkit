@@ -45,7 +45,10 @@ import kotlin.io.path.readBytes
  * folded by the compiler into one string and is flagged), `MethodHandles` and a `ServiceLoader` lookup by a computed name, and a
  * helper of ANOTHER module that reaches the JCA inside its own code (the scan reads this module's classes only), the `toString()` of
  * a provider's random engine that code outside the boundary reaches through `Object` (`"$random"`: the owner is `StringBuilder`, the
- * descriptor `Object`; negligible, and nothing in the module does it). Compile-time constants are no hole: an `Int` constant is inlined
+ * descriptor `Object`; negligible, and nothing in the module does it), and class bytes under an entry name that is not a class name (`X.bin`)
+ * that a custom class loader defines at run time (the same class as reflection by a computed string). Both scans are defence in depth for the
+ * maintainers of the module (decisions D-36): they stop an accidental direct JCA use, not repository code written on purpose to evade them, and a
+ * further evasion of that kind is a limit named here, not a rule to add. Compile-time constants are no hole: an `Int` constant is inlined
  * as a number and names no class. The source scan (`JcaBoundaryScanTest`) sees none of those either.
  *
  * Where the classes are read from, in two layers.
