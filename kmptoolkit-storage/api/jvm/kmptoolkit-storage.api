@@ -1,3 +1,13 @@
+public final class io/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore : java/lang/Enum {
+	public static final field LINUX_SECRET_PORTAL Lio/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore;
+	public static final field LINUX_SECRET_SERVICE Lio/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore;
+	public static final field MACOS_FILE_KEYCHAIN Lio/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore;
+	public static final field WINDOWS_DPAPI Lio/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/storage/DesktopKeyStore;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/storage/DeviceIdProvider {
 	public static final field Companion Lio/github/jamal_wia/kmptoolkit/storage/DeviceIdProvider$Companion;
 	public static final field DEFAULT_KEY Ljava/lang/String;
