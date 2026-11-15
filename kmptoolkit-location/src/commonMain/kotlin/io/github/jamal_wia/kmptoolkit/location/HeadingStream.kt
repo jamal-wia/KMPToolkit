@@ -122,9 +122,14 @@ internal class HeadingInputs<S : Any>(initial: S, private val wake: () -> Unit) 
  *
  * [register] contracts: it releases whatever it registered itself before it throws (a thrown call has no
  * handle to release); it returns `null` when nothing is registered (no hardware, a refused sensor), and
- * then the stream stays open and silent; the handle's `close()` must not throw and may be called on any
+ * then the stream stays open and silent; the handle's `close()` should not throw and may be called on any
  * thread. Callbacks it installs call [HeadingInputs.update] and must not let an exception escape into the
  * platform.
+ *
+ * The handle's `close()` is expected not to throw, but when it throws anyway (a platform provider lets an
+ * `Error` of the app's logger through after it released everything) the stream still finishes its release
+ * and ends with that throwable. If the collection was already ending with a failure or by cancellation,
+ * that earlier throwable is attached to it as suppressed, so neither is lost.
  *
  * @throws IllegalArgumentException at the call, not on collection, when [minChangeDegrees] is negative
  * or non-finite.
@@ -141,6 +146,9 @@ internal fun <S : Any> headingStream(
         val inputs: HeadingInputs<S> = HeadingInputs(initial()) { wake.trySend(Unit) }
         val filter = HeadingFilter(minChangeDegrees)
         var registration: AutoCloseable? = null
+        // The failure that ends the collection (cancellation included), kept so a failing release cannot
+        // replace it without a trace.
+        var inFlight: Throwable? = null
         try {
             registration = register(inputs)
             for (ignored: Unit in wake) {
@@ -151,9 +159,21 @@ internal fun <S : Any> headingStream(
                 val passed: Heading = filter.accept(composed) ?: continue
                 emit(passed)
             }
+        } catch (thrown: Throwable) {
+            inFlight = thrown
+            throw thrown
         } finally {
-            registration?.close()
-            wake.cancel()
+            try {
+                registration?.close()
+            } catch (closeFailure: Throwable) {
+                // The release's failure wins (an Error is not absorbed), with the collection's own end
+                // attached as suppressed: neither is lost, as in AutoCloseable.use.
+                val original: Throwable? = inFlight
+                if (original != null && original !== closeFailure) closeFailure.addSuppressed(original)
+                throw closeFailure
+            } finally {
+                wake.cancel()
+            }
         }
     }
 }
