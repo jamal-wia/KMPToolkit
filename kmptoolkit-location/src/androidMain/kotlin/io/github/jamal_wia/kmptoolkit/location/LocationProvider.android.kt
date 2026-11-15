@@ -412,7 +412,9 @@ internal class AndroidLocationProvider(
 
         private val request: UpdatesRequest = UpdatesRequest(
             minTimeMillis = options.minUpdateInterval.inWholeMilliseconds,
-            minDistanceMeters = options.minUpdateDistanceMeters.toFloat(),
+            // A finite Double above Float.MAX_VALUE is a valid option but Infinity as a Float, which the platform
+            // request rejects; the common throttle applies the exact Double, so the platform only needs "far".
+            minDistanceMeters = options.minUpdateDistanceMeters.coerceAtMost(Float.MAX_VALUE.toDouble()).toFloat(),
             maxUpdateDelayMillis =
                 ((options.platform as? AndroidLocationUpdatesOptions)?.maxUpdateDelay ?: Duration.ZERO).inWholeMilliseconds,
             accuracy = options.accuracy,
