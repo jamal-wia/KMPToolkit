@@ -380,11 +380,11 @@ internal class AndroidKeystoreKeySource(
     private val cacheKey: Pair<AliasedKeyStore, String> = keyStore to alias
 
     /**
-     * Only the first resolution in the process may delete an unrecoverable alias. A later one is a
-     * re-lookup after [invalidate], and a keystore fault during it also surfaces as an unrecoverable
-     * entry on API 24-32, where nothing tells it from a dead key: deleting then would destroy every
-     * stored value over a hiccup. It fails with [StorageKeyUnavailableException] instead, and the
-     * next process start recovers a key that really died.
+     * Only the first resolution in the process may delete an alias, and only one the platform has proven permanently
+     * invalidated ([resolveExistingKey]). A later one is a re-lookup after [invalidate], and a keystore fault during it
+     * also surfaces as an unrecoverable entry on API 24-32, where nothing tells it from a dead key: deleting then would
+     * destroy every stored value over a hiccup. It fails with [StorageKeyUnavailableException] instead, and the next
+     * process start recovers a key that was proven dead.
      */
     private fun resolve(): SecretKey = try {
         keyStore.existingKey(alias, mayDelete = cacheKey !in resolvedOnce) ?: keyStore.generateKey(alias, options)
@@ -424,10 +424,10 @@ internal class AndroidKeystoreKeySource(
 internal interface AliasedKeyStore {
 
     /**
-     * The key filed under [alias], or `null` when there is none to use — never filed, or filed but
-     * unrecoverable, in which case the dead entry is removed so [generateKey] can replace it —
-     * but only when [mayDelete]. When it is `false` an unrecoverable entry is rethrown instead and
-     * nothing is deleted.
+     * The key filed under [alias], or `null` when there is none to use — never filed, or filed but PROVEN permanently
+     * invalidated, in which case the dead entry is removed so [generateKey] can replace it — but only when [mayDelete].
+     * When it is `false`, and for every failure that is not such a proof (a locked device, a transient fault, anything
+     * unknown), the failure is rethrown instead and nothing is deleted; see [resolveExistingKey].
      */
     fun existingKey(alias: String, mayDelete: Boolean = true): SecretKey?
 
@@ -461,26 +461,11 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
 
     override fun existingKey(alias: String, mayDelete: Boolean): SecretKey? {
         val keyStore: KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        return try {
-            (keyStore.getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.secretKey
-        } catch (e: UnrecoverableKeyException) {
-            // A keystore fault that is not "gone" also surfaces as UnrecoverableKeyException (its
-            // cause is the KeyStoreException). When the platform calls it transient the key is
-            // still there: deleting the alias would destroy every stored value over a hiccup.
-            // Throw instead, which the caller reports as Unavailable (retry later).
-            if (!mayDelete || isTransientKeystoreFailure(e)) throw e
-            // The alias exists but its key is gone — the user changed the device lock, or the entry
-            // was restored to a device that cannot use it. Every value written under it is already
-            // unreadable, so drop the alias and start a new key: reads of old entries fail with
-            // Undecryptable, which is what they are, and new writes work again instead of the store
-            // being bricked for the lifetime of the install.
-            try {
-                keyStore.deleteEntry(alias)
-            } catch (_: Exception) {
-                // Best effort: if the entry cannot be deleted now, generateKey replaces it anyway.
-            }
-            null
-        }
+        return resolveExistingKey(
+            mayDelete = mayDelete,
+            lookup = { (keyStore.getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.secretKey },
+            delete = { keyStore.deleteEntry(alias) },
+        )
     }
 
     override fun deleteKey(alias: String) {
@@ -526,6 +511,43 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
         AndroidKeySecurityLevel.UNKNOWN
     }
 }
+
+/**
+ * Looks an alias up and, only for a key the platform has PROVEN dead, deletes it so that a new one can be generated.
+ *
+ * `getEntry` answers `UnrecoverableKeyException` for a key that is gone, but also for faults that pass: a keystore
+ * daemon that is restarting, a device that is locked while the key needs it unlocked, a provider that is busy. On the
+ * older platforms nothing in the exception tells the two apart, and deleting the alias over a fault that passes
+ * destroys every stored value. So the entry is deleted only when [isPermanentlyInvalidatedKey] holds for the exception
+ * (`KeyPermanentlyInvalidatedException` in its cause chain, the plan's A-4 definition), only when [mayDelete] (the
+ * first resolution in the process), and never for a locked device or a fault the platform calls transient. Every other
+ * failure, including one that is none of these, is rethrown, nothing is deleted, and the caller reports
+ * [StorageError.Unavailable]; a key that is dead for real is then replaced by the cipher's own invalidation handling at
+ * its first use.
+ *
+ * A function over the two key-store calls so that the policy can be tested on the JVM, where no AndroidKeyStore exists.
+ *
+ * @param lookup `KeyStore.getEntry` for the alias, as the secret key or `null` when the alias holds none.
+ * @param delete `KeyStore.deleteEntry` for the alias.
+ * @return the key, or `null` when there is none to use (never filed, or proven dead and deleted).
+ */
+internal fun resolveExistingKey(mayDelete: Boolean, lookup: () -> SecretKey?, delete: () -> Unit): SecretKey? =
+    try {
+        lookup()
+    } catch (e: UnrecoverableKeyException) {
+        if (!mayDelete || isTransientKeystoreFailure(e) || isDeviceLockedFailure(e) || !isPermanentlyInvalidatedKey(e)) {
+            throw e
+        }
+        // The platform has said the key is dead for good: every value written under it is already unreadable. Drop the
+        // alias and start a new key, so that reads of old entries fail with Undecryptable, which is what they are, and
+        // new writes work again instead of the store being bricked for the lifetime of the install.
+        try {
+            delete()
+        } catch (_: Exception) {
+            // Best effort: if the entry cannot be deleted now, generateKey replaces it anyway.
+        }
+        null
+    }
 
 /**
  * Generates a key with the backing the options ask for: `DEFAULT` never asks for StrongBox; `PREFER_STRONGBOX` asks for

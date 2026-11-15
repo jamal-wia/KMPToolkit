@@ -127,9 +127,9 @@ versioned entry and reports it `Undecryptable`.
 The Keystore key can be lost: an app restored to a new device from a backup carries the ciphertext without the key,
 and the platform can invalidate a key permanently (`KeyPermanentlyInvalidatedException`). Reads of the affected values
 return `StorageError.Undecryptable`. The module recovers as far as it can, so a store is never bricked for the life of
-the install: an alias whose key has become unrecoverable is dropped and a new key generated, and a key the platform
-reports as permanently invalidated is deleted and replaced by a new one under the alias lock (compare-and-delete: only
-the dead key itself, never a newer one another caller made). *New* writes succeed again, old values are
+the install: a key the platform reports as permanently invalidated (`KeyPermanentlyInvalidatedException`, at the lookup
+or when the key is first used) is deleted and replaced by a new one under the alias lock (compare-and-delete: only the
+dead key itself, never a newer one another caller made). *New* writes succeed again, old values are
 `Undecryptable(key)`, and nothing can recover them.
 
 A decrypt that fails for a *transient* keystore reason is the exception: when anything in the
@@ -143,11 +143,13 @@ still `Undecryptable`, as before. A failure the platform does not call transient
 
 The same rule protects the key itself: a transient fault never makes the module drop its cached key
 and look the alias up again, and a transient `UnrecoverableKeyException` during that lookup never
-deletes the alias. The unrecoverable-alias recovery (delete and generate) runs only on the first key
-resolution in a process. A key the platform rejects later is forgotten and looked up again once, but
+deletes the alias. An alias is deleted only on proof: `UnrecoverableKeyException` alone is not proof (a keystore fault
+and a locked device look the same on API 24-32), so a failed lookup without a `KeyPermanentlyInvalidatedException` in
+its cause chain, a locked device and every unknown failure delete nothing and answer `Unavailable`. The
+lookup-time deletion runs only on the first key resolution in a process. A key the platform rejects later is forgotten and looked up again once, but
 that lookup never deletes: if it hits an unrecoverable entry — which on API 24-32 a keystore fault
 also looks like, since nothing there can name a transient failure — the call fails with
-`StorageError.Unavailable` and the next process start recovers a key that really died. A read that
+`StorageError.Unavailable` and the next process start recovers a key that was proven dead. A read that
 hits a transient fault reports `Unavailable`; a write reports `OperationFailed`. The key and the
 stored values are kept either way, so a momentary outage costs a retry, never the stored values.
 
