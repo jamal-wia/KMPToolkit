@@ -617,6 +617,53 @@ app sharing that code with desktop could not compile it for desktop without the 
       Linux suite needs a session bus and an unlocked default collection (`dbus-run-session` with `gnome-keyring-daemon
       --unlock`).
 
+- **The optional JNA artifact `kmptoolkit-storage-jna` (internal, a bridge for JDK 21).** It implements the seam above with JNA, for
+  applications that cannot run on JDK 22 or newer; on JDK 22+ the FFM binding inside `kmptoolkit-storage` serves and this artifact
+  is ignored. It has no public API for apps: adding the dependency is the whole opt-in (the library finds
+  `io.github.jamal_wia.kmptoolkit.storage.jna.JnaNativeKeyStoreBinding` by its fixed name). It is deprecated once the suite's
+  desktop baseline reaches JDK 22.
+  - **Dependency.** Only `net.java.dev.jna:jna-jpms` core, at the version `kmptoolkit-video-player-vlcj` already resolves
+    (5.16.0, one catalog entry moved together with vlcj); never `jna-platform`. The jar carries about 30 prebuilt `libjnidispatch`
+    binaries, extracted to a temporary directory on first use (set `jna.tmpdir` where the temporary directory is `noexec`, or the
+    secure store answers `Unsupported(NATIVE_ACCESS_UNAVAILABLE)`). A notarised macOS app that adds this artifact must sign the
+    nested `libjnidispatch.jnilib`. An app that also has plain `jna` (OSHI, Testcontainers) gets duplicate `com.sun.jna` classes:
+    exclude one of the two artifacts. From JDK 24 the JDK prints a native-access warning for JNA (JEP 472) unless the app passes
+    `--enable-native-access=ALL-UNNAMED`.
+  - **Loading.** Constructing the binding and asking it for a platform's calls touch no library and make no operating-system
+    call; JNA's native library and the system libraries load on the first call, on the native-executor thread. Plain-store apps
+    never load any of it.
+  - **Libraries, by absolute path or soname:** `/System/Library/Frameworks/Security.framework/Security` and CoreFoundation
+    (macOS), `%SystemRoot%\System32\crypt32.dll` and `kernel32.dll` (Windows), `libsecret-1.so.0`, `libglib-2.0.so.0`,
+    `libgobject-2.0.so.0` and `libgio-2.0.so.0` (Linux).
+  - **Every raw call frees what the OS allocated and zeroes the native copies of the key that the binding itself allocates**
+    (`CFRelease`, `LocalFree`, `g_error_free`, `g_free`, `g_list_free`, `g_object_unref`, `secret_value_unref`). Those copies are
+    the add buffers (the mutable `CFData` and the block that fed it), the DPAPI buffers and the libsecret password buffer of a
+    store. The `CFData` that a keychain read returns is not one of them: its bytes are read-only by Apple's contract, so the
+    binding copies them into a Kotlin array (which the caller wipes) and releases the object without writing into it.
+  - **libsecret older than 0.19** (a missing library, or any missing symbol the binding uses, `secret_password_search_sync` first)
+    answers every Linux call with the dedicated `SYMBOL_MISSING` status, never an exception, so the secure store reports
+    `Unsupported(NO_KEY_STORE)`. Only the load step catches an `UnsatisfiedLinkError` (for the required symbols, and for the two
+    optional `secret_backend_get` symbols, whose absence means libsecret 0.19, which has no portal); a JNA that cannot load at
+    all is a `LinkageError`, which is `NATIVE_ACCESS_UNAVAILABLE`.
+  - **macOS.** `kSecUseDataProtectionKeychain = false` is set on every query; with `allowUi = false` the read, add and delete calls pass
+    `kSecUseAuthenticationUI = kSecUseAuthenticationUIFail`, and on a macOS that has no such constant a non-interactive call
+    answers `errSecNotAvailable` (-25291) without calling the keychain. The probe never prompts, whatever `allowUi` says.
+  - **Linux.** An absent default collection counts as locked (using it needs the service to create one, which can show a
+    prompt). The portal is recognised by asking libsecret which backend it selected: `secret_backend_get` (libsecret 0.20 or
+    newer; there is no synchronous variant) runs on a private GLib main context pushed as the thread default, and the answer is
+    the file backend (`SecretFileBackend`) that libsecret picks inside Flatpak. The binding never releases the `SecretBackend`
+    it gets back, because libsecret caches it without a reference of its own. On the file backend the default collection is
+    reported as unlocked without a D-Bus call. A libsecret older than 0.20 answers "not the portal". A `store` that libsecret
+    answers FALSE without a `GError` is a failure (`G_IO_ERROR_FAILED`), never a success.
+  - **ProGuard / R8.** The jar ships `META-INF/proguard/kmptoolkit-storage-jna.pro`, which keeps the binding class, the JNA
+    interfaces and the native-callback interface of the package (bound by method name), `com.sun.jna.**`, and the class-file
+    `Exceptions` attribute (`-keepattributes Exceptions`: JNA reads the `throws` clause to capture `GetLastError`, so a shrunk
+    app would otherwise report every DPAPI failure as a generic one and never see "no user session"). Copy it by hand only if
+    your tool ignores `META-INF/proguard`.
+  - **Real-store suites** (opt-in, run on JDK 21 with this artifact): `-Pkmptoolkit.secretstore=macos|windows|linux`, with
+    `-Pkmptoolkit.secretstore.required=true` to turn a skip into a failure; the Linux suite also takes
+    `-Pkmptoolkit.secretstore.scenario=unlocked|nobus|noservice`.
+
 - **Encrypted file format v1 (internal, for the desktop encrypted stores).** The encrypted desktop stores keep one binary
   file that is rewritten as a whole: magic `KTSS`, format version `1`, a kind byte (1 = an OS item holds the data key,
   2 = DPAPI-wrapped, 3 = passphrase, 4 = raw app key), a 2-byte header length and the header body, a 28-byte key-check

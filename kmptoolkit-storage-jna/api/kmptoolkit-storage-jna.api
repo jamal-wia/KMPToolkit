@@ -1,0 +1,6 @@
+public final class io/github/jamal_wia/kmptoolkit/storage/jna/JnaNativeKeyStoreBinding : io/github/jamal_wia/kmptoolkit/storage/internal/desktop/NativeKeyStoreBinding {
+	public fun linux ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretServiceCalls;
+	public fun macOs ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/MacKeychainCalls;
+	public fun windows ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/DpapiCalls;
+}
+
