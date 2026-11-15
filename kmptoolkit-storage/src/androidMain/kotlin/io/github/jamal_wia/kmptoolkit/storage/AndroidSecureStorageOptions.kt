@@ -68,7 +68,10 @@ public class AndroidSecureStorageOptions(
  * that is opened with this option after it was first used without it keeps its old key, and keeps answering as before).
  * The key is generated on the first use after a permanent invalidation too, and generating it needs a secure lock screen:
  * without one the call answers [StorageError.Unavailable] until the user sets one. The platform invalidates the key for
- * good when the lock screen is removed or the enrolled biometrics change; the store then replaces it as it replaces any
+ * good when the lock screen is removed; a change of the enrolled biometrics invalidates it only for a biometric-only key
+ * (`allowDeviceCredential = false`), because the default key, which also accepts the device credential, is bound to the
+ * device credential. A biometric-only key also needs an enrolled biometric to be generated: without one the call answers
+ * [StorageError.Unavailable] until a biometric is enrolled. The store replaces an invalidated key as it replaces any
  * permanently invalidated key, and the values of the old key are [StorageError.Undecryptable].
  *
  * Do not combine it with [AndroidSecureStorageOptions.unlockedDeviceRequired] unless both are wanted: the platform

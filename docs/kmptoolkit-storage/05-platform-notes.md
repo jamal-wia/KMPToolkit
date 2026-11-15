@@ -225,16 +225,21 @@ keeps the properties it has.
   crypto object for every operation) is not offered: it cannot work without a UI of the library's.
 - **A secure lock screen is required** to generate a key bound to authentication. Without one the call answers
   `Unavailable` and nothing is generated or cached; the same call succeeds once the user has set one.
-- **Invalidation.** The platform invalidates such a key for good when the lock screen is removed or the enrolled
-  biometrics change (`KeyPermanentlyInvalidatedException`). The store handles it as it handles any permanently invalidated
+- **Invalidation.** The platform invalidates such a key for good when the lock screen is removed
+  (`KeyPermanentlyInvalidatedException`). A change of the enrolled biometrics invalidates it only for a biometric-only key
+  (`allowDeviceCredential = false`, with the platform default `setInvalidatedByBiometricEnrollment(true)`): the default
+  key, which also accepts the device credential, is bound to the device credential and survives an enrolment change
+  (by reading the framework's `KeyStore2ParameterUtils.addSids`, API 34). A biometric-only key also needs an enrolled
+  biometric to be generated: without one the platform refuses (`IllegalStateException`) and the store answers
+  `Unavailable` until a biometric is enrolled, as it does without a lock screen. The store handles it as it handles any permanently invalidated
   key (see above): the dead key is deleted, a new one is generated with the same options, writes succeed again and the old
   values are `Undecryptable(key)`. Generating the new key needs a lock screen (`Unavailable` until there is one).
 - **With `unlockedDeviceRequired` as well**, the platform reports a locked device and an unauthenticated user in the same
   way, so such a store answers `AccessDenied` for either. Without `userAuthentication` that refusal is a locked device and
   answers `Unavailable`.
 
-Not observed on a device: the validity window, the invalidation by an enrolment change, the missing-lock-screen failure
-and the prompt flow need a real Keystore and a lock screen. The host tests cover the key parameters per API level, the
+Not observed on a device: the validity window, the invalidation by a lock-screen removal or an enrolment change, the
+missing-lock-screen and missing-biometric failures, the exact exception of a lookup of an invalidated key and the prompt flow need a real Keystore and a lock screen. The host tests cover the key parameters per API level, the
 mapping, the lifecycle (cancellation, a dismissed prompt, a seeded storm over a window that opens and closes) and the
 replacement of an invalidated key through a fake Keystore whose key handle refuses as the platform does.
 
