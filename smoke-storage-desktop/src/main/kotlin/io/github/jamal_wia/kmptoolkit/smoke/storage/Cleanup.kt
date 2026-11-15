@@ -55,10 +55,10 @@ internal suspend fun runAll(vararg steps: suspend () -> Unit) {
 /** The removal of the key item a secure store of the smoke created in the OS key store. */
 internal interface KeyItemRemoval {
     /**
-     * Removes the item and proves that it is gone. When [expectPresent] (the round trip succeeded, so the store did create its key)
+     * Removes the item and proves that it is gone. When [expectPresent] (the first put of the round trip succeeded, so the store did create its key)
      * the item MUST be found first: that is the control that the removal addresses the item the library really made, not an
-     * identity that drifted from the library's. Otherwise (a failed run) an absent item is fine, because the failure may have come
-     * before the key was made.
+     * identity that drifted from the library's, and it holds on a failed run too. Otherwise (a failure before the first put) an absent item
+     * is fine, because the failure may have come before the key was made.
      */
     fun remove(expectPresent: Boolean)
 }
@@ -117,7 +117,7 @@ internal class MacKeyItemRemoval(
         val before: Boolean = isPresent("before the removal")
         if (expectPresent && !before) {
             throw SmokeFailure(
-                "control failed: the secure round trip passed but no key item was found at the identity the smoke derived ($item): " +
+                "control failed: the secure store had already made its key (a put succeeded) but no key item was found at the identity the smoke derived ($item): " +
                     "the smoke's copy of the library's identity derivation may have drifted, and the item the library made may still be in the " +
                     "login keychain (look for it with: security find-generic-password -l \"$ITEM_LABEL\")",
             )
