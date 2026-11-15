@@ -354,7 +354,7 @@ class HeadingStreamTest {
     }
 
     @Test
-    fun `first() stops the collection and releases`() = runTest {
+    fun `first stops the collection and releases`() = runTest {
         val platform = Platform()
         val result: Deferred<Heading> = backgroundScope.async(UnconfinedTestDispatcher(testScheduler)) {
             platform.stream().first()
@@ -419,7 +419,7 @@ class HeadingStreamTest {
     // region argument check at the call
 
     @Test
-    fun `a bad filter is refused at the call, not when the flow is collected`() {
+    fun `a bad filter is refused at the call not when the flow is collected`() {
         val platform = Platform()
         assertFailsWith<IllegalArgumentException> { platform.stream(minChangeDegrees = -1.0) }
         assertFailsWith<IllegalArgumentException> { platform.stream(minChangeDegrees = Double.NaN) }

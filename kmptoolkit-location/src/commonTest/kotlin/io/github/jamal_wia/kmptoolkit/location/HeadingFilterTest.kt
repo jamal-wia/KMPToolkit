@@ -96,7 +96,7 @@ class HeadingFilterTest {
     }
 
     @Test
-    fun `true north appearing or disappearing passes without movement, a changed value does not`() {
+    fun `true north appearing or disappearing passes without movement a changed value does not`() {
         val filter = HeadingFilter(45.0)
         filter.accept(heading(100.0, trueDegrees = null))
 
