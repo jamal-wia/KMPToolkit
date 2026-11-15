@@ -87,9 +87,12 @@ public fun main(args: Array<String>) {
     var verdict: String
     var exitCode: Int
     val directory: File = Files.createTempDirectory("kmptoolkit-smoke-").toFile()
+    // A run stopped from outside (Gradle cancelling the build, `timeout`, Ctrl-C) never reaches the finally below: see Shutdown.kt.
+    val shutdown: ShutdownCleanup = ShutdownCleanup(directory)
+    shutdown.install()
     try {
         say("SMOKE variant=${options.variant} java=${Runtime.version()} os=${System.getProperty("os.name")} secureRequired=${options.secureRequired}")
-        val outcome: SecureOutcome = runBlocking { withTimeout(HARD_BOUND_MILLIS) { run(options, directory, ::say) } }
+        val outcome: SecureOutcome = runBlocking { withTimeout(HARD_BOUND_MILLIS) { run(options, directory, shutdown, ::say) } }
         when (outcome) {
             is SecureOutcome.Passed -> {
                 say("secure round trip: PASSED (key store ${outcome.store})")
@@ -115,7 +118,15 @@ public fun main(args: Array<String>) {
         verdict = failureVerdict(failure)
         exitCode = 1
     } finally {
-        directory.deleteRecursively()
+        shutdown.deleteDirectory()
+    }
+    if (directory.exists()) {
+        // Something is left behind, and a run that leaves something behind is not a pass.
+        say("ALSO FAILED while cleaning up (something is left behind): the temporary directory $directory could not be deleted")
+        if (exitCode == 0) {
+            verdict = "SMOKE-RESULT: FAIL the temporary directory $directory could not be deleted"
+            exitCode = 1
+        }
     }
     say(verdict)
     options.resultFile?.let { file: File ->
@@ -126,12 +137,12 @@ public fun main(args: Array<String>) {
     exitProcess(exitCode)
 }
 
-private suspend fun run(options: Options, directory: File, say: (String) -> Unit): SecureOutcome {
+private suspend fun run(options: Options, directory: File, shutdown: ShutdownCleanup, say: (String) -> Unit): SecureOutcome {
     checkRunOptions(options.secureRequired, options.probeOnly)
     checkPackaging(options.variant, say)
     checkRemovalSeam(options.variant, say)
     plainRoundTrip(directory, say)
-    return secureRoundTrip(directory, options, say)
+    return secureRoundTrip(directory, options, shutdown, say)
 }
 
 /** Facts about the packaged runtime that no store call reports: the runtime level, the native-access flag, the binding names. */
@@ -196,7 +207,7 @@ private suspend fun plainRoundTrip(directory: File, say: (String) -> Unit) {
     say("plain round trip: PASSED")
 }
 
-private suspend fun secureRoundTrip(directory: File, run: Options, say: (String) -> Unit): SecureOutcome {
+private suspend fun secureRoundTrip(directory: File, run: Options, shutdown: ShutdownCleanup, say: (String) -> Unit): SecureOutcome {
     val required: Boolean = run.secureRequired
     // No dialog, ever: a smoke run must not block on a prompt nobody is looking at.
     val options: DesktopSecureStorageOptions = DesktopSecureStorageOptions(itemLabel = ITEM_LABEL, allowUserInteraction = false)
@@ -216,12 +227,15 @@ private suspend fun secureRoundTrip(directory: File, run: Options, say: (String)
     }
     val secureDirectory: File = File(directory, "secure")
     val storeName: String = "$SECURE_STORE_NAME_PREFIX.${UUID.randomUUID().toString().replace("-", "").take(RUN_ID_CHARS)}"
+    // Armed BEFORE the store exists, so a kill at any later moment still removes the key item the first put makes. The run uses the same
+    // removal (wrapped to run once), so the normal path and the hook never delete twice.
+    val removal: KeyItemRemoval = shutdown.arm(keyItemRemovalFor(run.variant, keyStore, storeName, secureDirectory))
     val store: SecureKeyValueStorage = createSecureKeyValueStorage(secureDirectory, StorageConfig(storeName), options)
     // Nothing is left behind on any way out (the data and the key item), and a failing cleanup never hides the first failure: see SecureRun.kt.
     runSecureRoundTrip(
         store = store,
         openSecond = { createSecureKeyValueStorage(secureDirectory, StorageConfig(storeName), options) },
-        removal = keyItemRemovalFor(run.variant, keyStore, storeName, secureDirectory),
+        removal = removal,
     )
     say("cleanup: the store's data and its key item (where $keyStore has one) are removed and the item's absence is confirmed")
     return SecureOutcome.Passed(keyStore)
