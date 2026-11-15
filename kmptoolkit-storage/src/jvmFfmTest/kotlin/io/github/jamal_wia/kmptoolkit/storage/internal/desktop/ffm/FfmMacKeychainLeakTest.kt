@@ -71,8 +71,8 @@ class FfmMacKeychainLeakTest {
 
     @Test
     fun `every allocation that fails frees what was allocated before it, for every raw call`() {
-        failEachAllocation("add") { calls.addGenericPassword("svc", "acct", "label", ByteArray(32) { 7 }) }
-        failEachAllocation("delete") { calls.deleteGenericPassword("svc", "acct") }
+        failEachAllocation("add") { calls.addGenericPassword("svc", "acct", "label", ByteArray(32) { 7 }, allowUi = true) }
+        failEachAllocation("delete") { calls.deleteGenericPassword("svc", "acct", allowUi = true) }
         failEachAllocation("copy") { calls.copyGenericPassword("svc", "acct", true) }
         failEachAllocation("probe") { calls.probe(false) }
     }
@@ -81,7 +81,7 @@ class FfmMacKeychainLeakTest {
     fun `the data the OS saw is the key and the add releases the wrapping CFData`() {
         val key = ByteArray(32) { (it * 3).toByte() }
 
-        assertEquals(0, calls.addGenericPassword("svc", "acct", "label", key))
+        assertEquals(0, calls.addGenericPassword("svc", "acct", "label", key, allowUi = true))
 
         assertContentEquals(key, fake.secretSeenByOs)
         assertNothingHeld("add")
@@ -108,18 +108,10 @@ class FfmMacKeychainLeakTest {
     }
 
     @Test
-    fun `the 6a seam overrides keep the interactive behaviour`() {
-        fake.resetSets()
-        assertEquals(0, calls.addGenericPassword("svc", "acct", "label", ByteArray(32)))
-        assertEquals(0, calls.deleteGenericPassword("svc", "acct"))
-        assertTrue(fake.sets.none { it.startsWith("kSecUseAuthenticationUI") }, fake.sets.toString())
-    }
-
-    @Test
     fun `a failed add reports the raw status and releases everything`() {
         fake.addStatus = -25299
 
-        assertEquals(-25299, calls.addGenericPassword("svc", "acct", "label", ByteArray(32)))
+        assertEquals(-25299, calls.addGenericPassword("svc", "acct", "label", ByteArray(32), allowUi = true))
 
         assertNothingHeld("duplicate")
     }
@@ -127,7 +119,7 @@ class FfmMacKeychainLeakTest {
     @Test
     fun `delete and probe release everything and report the raw status`() {
         fake.deleteStatus = -25300
-        assertEquals(-25300, calls.deleteGenericPassword("svc", "acct"))
+        assertEquals(-25300, calls.deleteGenericPassword("svc", "acct", allowUi = true))
         fake.copyStatus = -25308
         assertEquals(-25308, calls.probe(allowUi = true))
         assertNothingHeld("delete and probe")
@@ -136,9 +128,9 @@ class FfmMacKeychainLeakTest {
     @Test
     fun `a thousand calls leave the OS and the ledger balanced`() {
         repeat(250) {
-            assertEquals(0, calls.addGenericPassword("svc", "acct", "label", ByteArray(32)))
+            assertEquals(0, calls.addGenericPassword("svc", "acct", "label", ByteArray(32), allowUi = true))
             assertIs<RawResult.Success<ByteArray?>>(calls.copyGenericPassword("svc", "acct", false))
-            assertEquals(0, calls.deleteGenericPassword("svc", "acct"))
+            assertEquals(0, calls.deleteGenericPassword("svc", "acct", allowUi = true))
             assertEquals(0, calls.probe(false))
         }
         assertNothingHeld("1000 calls")

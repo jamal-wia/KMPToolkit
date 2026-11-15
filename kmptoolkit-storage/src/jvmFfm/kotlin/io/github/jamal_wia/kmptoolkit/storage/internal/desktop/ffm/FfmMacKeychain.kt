@@ -119,17 +119,8 @@ internal class FfmMacKeychain(
             RawResult.Success(bytes)
         }
 
-    // The 6a seam has no allowUi on add and delete; the lead's decision (advisor, sto-desktop phase A, Q1) adds it, so these
-    // two overrides are an adapter that keeps the interactive behaviour until the seam change lands, and the work is done by the
-    // overloads below, which already take it: with allowUi = false the call carries kSecUseAuthenticationUIFail and cannot show a dialog.
-    override fun addGenericPassword(service: String, account: String, label: String, secret: ByteArray): Int =
-        addGenericPassword(service, account, label, secret, allowUi = true)
-
-    override fun deleteGenericPassword(service: String, account: String): Int =
-        deleteGenericPassword(service, account, allowUi = true)
-
-    /** `SecItemAdd`; [allowUi] `false` passes `kSecUseAuthenticationUIFail`. */
-    fun addGenericPassword(service: String, account: String, label: String, secret: ByteArray, allowUi: Boolean): Int =
+    /** `SecItemAdd`; with [allowUi] `false` the attributes carry `kSecUseAuthenticationUIFail`, so a put cannot show a keychain dialog. */
+    override fun addGenericPassword(service: String, account: String, label: String, secret: ByteArray, allowUi: Boolean): Int =
         ledger.scope().use { scope: NativeScope ->
             val attributes: MemorySegment = identityQuery(scope, service, account)
             if (!allowUi) setValue(attributes, kSecUseAuthenticationUI, kSecUseAuthenticationUIFail)
@@ -143,8 +134,8 @@ internal class FfmMacKeychain(
             secItemAdd.int(attributes, MemorySegment.NULL)
         }
 
-    /** `SecItemDelete`; [allowUi] `false` passes `kSecUseAuthenticationUIFail`. */
-    fun deleteGenericPassword(service: String, account: String, allowUi: Boolean): Int =
+    /** `SecItemDelete`; with [allowUi] `false` the query carries `kSecUseAuthenticationUIFail`. */
+    override fun deleteGenericPassword(service: String, account: String, allowUi: Boolean): Int =
         ledger.scope().use { scope: NativeScope ->
             val query: MemorySegment = identityQuery(scope, service, account)
             if (!allowUi) setValue(query, kSecUseAuthenticationUI, kSecUseAuthenticationUIFail)

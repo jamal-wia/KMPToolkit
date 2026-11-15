@@ -36,7 +36,7 @@ class FfmMacKeychainRealStoreTest {
     @AfterTest
     fun cleanUp() {
         // Only the services this test created, one by one; a missing item is fine.
-        if (::calls.isInitialized) created.forEach { service: String -> calls.deleteGenericPassword(service, ACCOUNT) }
+        if (::calls.isInitialized) created.forEach { service: String -> calls.deleteGenericPassword(service, ACCOUNT, allowUi = false) }
         if (::calls.isInitialized) assertEquals(0, ledger.outstanding, "every CF object the calls created must be released")
     }
 
@@ -50,10 +50,10 @@ class FfmMacKeychainRealStoreTest {
         val service: String = newService()
         val key: ByteArray = secret(1L)
 
-        assertEquals(0, calls.addGenericPassword(service, ACCOUNT, "kmptoolkit test item", key))
+        assertEquals(0, calls.addGenericPassword(service, ACCOUNT, "kmptoolkit test item", key, allowUi = true))
         val read: RawResult<ByteArray?> = calls.copyGenericPassword(service, ACCOUNT, allowUi = true)
         assertContentEquals(key, assertIs<RawResult.Success<ByteArray?>>(read).value)
-        assertEquals(0, calls.deleteGenericPassword(service, ACCOUNT))
+        assertEquals(0, calls.deleteGenericPassword(service, ACCOUNT, allowUi = true))
         val gone: RawResult<ByteArray?> = calls.copyGenericPassword(service, ACCOUNT, allowUi = true)
         assertEquals(ERR_SEC_ITEM_NOT_FOUND, assertIs<RawResult.Failure>(gone).status.code)
         assertEquals(0, ledger.outstanding)
@@ -63,7 +63,7 @@ class FfmMacKeychainRealStoreTest {
     fun `a non-interactive read of an item this process created succeeds without a dialog`() {
         val service: String = newService()
         val key: ByteArray = secret(2L)
-        assertEquals(0, calls.addGenericPassword(service, ACCOUNT, "kmptoolkit test item", key))
+        assertEquals(0, calls.addGenericPassword(service, ACCOUNT, "kmptoolkit test item", key, allowUi = true))
 
         val read: RawResult<ByteArray?> = calls.copyGenericPassword(service, ACCOUNT, allowUi = false)
 
@@ -73,7 +73,7 @@ class FfmMacKeychainRealStoreTest {
     @Test
     fun `non-interactive add and delete of this process own item work without a dialog`() {
         val service: String = newService()
-        val mac: FfmMacKeychain = FfmMacKeychain(Foreign.system(), ledger)
+        val mac: MacKeychainCalls = calls
         val key: ByteArray = secret(9L)
 
         assertEquals(0, mac.addGenericPassword(service, ACCOUNT, "kmptoolkit test item", key, allowUi = false))
@@ -89,16 +89,16 @@ class FfmMacKeychainRealStoreTest {
             val read: RawResult<ByteArray?> = calls.copyGenericPassword(service, ACCOUNT, allowUi)
             assertEquals(ERR_SEC_ITEM_NOT_FOUND, assertIs<RawResult.Failure>(read).status.code, "allowUi=$allowUi")
         }
-        assertEquals(ERR_SEC_ITEM_NOT_FOUND, calls.deleteGenericPassword(service, ACCOUNT))
+        assertEquals(ERR_SEC_ITEM_NOT_FOUND, calls.deleteGenericPassword(service, ACCOUNT, allowUi = true))
     }
 
     @Test
     fun `adding over an existing item is a duplicate and leaves the stored secret untouched`() {
         val service: String = newService()
         val first: ByteArray = secret(3L)
-        assertEquals(0, calls.addGenericPassword(service, ACCOUNT, "first", first))
+        assertEquals(0, calls.addGenericPassword(service, ACCOUNT, "first", first, allowUi = true))
 
-        assertEquals(ERR_SEC_DUPLICATE_ITEM, calls.addGenericPassword(service, ACCOUNT, "second", secret(4L)))
+        assertEquals(ERR_SEC_DUPLICATE_ITEM, calls.addGenericPassword(service, ACCOUNT, "second", secret(4L), allowUi = true))
 
         val read: RawResult<ByteArray?> = calls.copyGenericPassword(service, ACCOUNT, allowUi = true)
         assertContentEquals(first, assertIs<RawResult.Success<ByteArray?>>(read).value)
@@ -109,10 +109,10 @@ class FfmMacKeychainRealStoreTest {
     fun `two identities do not see each other and deleting one keeps the other`() {
         val one: String = newService()
         val two: String = newService()
-        assertEquals(0, calls.addGenericPassword(one, ACCOUNT, "one", secret(5L)))
-        assertEquals(0, calls.addGenericPassword(two, ACCOUNT, "two", secret(6L)))
+        assertEquals(0, calls.addGenericPassword(one, ACCOUNT, "one", secret(5L), allowUi = true))
+        assertEquals(0, calls.addGenericPassword(two, ACCOUNT, "two", secret(6L), allowUi = true))
 
-        assertEquals(0, calls.deleteGenericPassword(one, ACCOUNT))
+        assertEquals(0, calls.deleteGenericPassword(one, ACCOUNT, allowUi = true))
 
         assertEquals(ERR_SEC_ITEM_NOT_FOUND, assertIs<RawResult.Failure>(calls.copyGenericPassword(one, ACCOUNT, true)).status.code)
         assertContentEquals(
@@ -128,10 +128,10 @@ class FfmMacKeychainRealStoreTest {
         val account = "dir-üñ"
         val key: ByteArray = secret(7L)
         try {
-            assertEquals(0, calls.addGenericPassword(service, account, "étiquette 中", key))
+            assertEquals(0, calls.addGenericPassword(service, account, "étiquette 中", key, allowUi = true))
             assertContentEquals(key, assertIs<RawResult.Success<ByteArray?>>(calls.copyGenericPassword(service, account, true)).value)
         } finally {
-            calls.deleteGenericPassword(service, account)
+            calls.deleteGenericPassword(service, account, allowUi = true)
         }
     }
 
@@ -151,10 +151,10 @@ class FfmMacKeychainRealStoreTest {
         val before: Long = TestFs.requireOpenDescriptorCount()
 
         repeat(250) {
-            assertEquals(0, calls.addGenericPassword(service, ACCOUNT, "loop", key))
+            assertEquals(0, calls.addGenericPassword(service, ACCOUNT, "loop", key, allowUi = true))
             assertIs<RawResult.Success<ByteArray?>>(calls.copyGenericPassword(service, ACCOUNT, allowUi = false))
-            assertEquals(ERR_SEC_DUPLICATE_ITEM, calls.addGenericPassword(service, ACCOUNT, "loop", key))
-            assertEquals(0, calls.deleteGenericPassword(service, ACCOUNT))
+            assertEquals(ERR_SEC_DUPLICATE_ITEM, calls.addGenericPassword(service, ACCOUNT, "loop", key, allowUi = true))
+            assertEquals(0, calls.deleteGenericPassword(service, ACCOUNT, allowUi = true))
         }
 
         assertEquals(0, ledger.outstanding, "leaked CF objects")

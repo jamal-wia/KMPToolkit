@@ -291,6 +291,36 @@ app sharing that code with desktop could not compile it for desktop without the 
     cancelled, is withdrawn and never runs, so a timed-out write is never applied later. A call that was already running cannot
     be stopped: its late result is discarded and the key bytes in it are wiped. A call that may show a dialog has no limit but
     stays cancellable. No store lock is held while a native call that can prompt is awaited.
+  - **The FFM binding (JDK 22 and newer, no third-party dependency).** It is compiled by a second compilation of the `jvm`
+    target against the JDK 25 class library at bytecode 21, and packed into the same `jvm` jar; a plain-store app never loads
+    it (nothing of `java.lang.foreign` is referenced outside the `internal/desktop/ffm` package, checked on the jar). Only the
+    API of JDK 22 is used, and every build compiles the same sources a second time against the JDK 22 API, so a JDK 23+
+    method fails the build instead of throwing `NoSuchMethodError` on a JDK 22-24 runtime. The JDK prints a native-access
+    warning for it (JEP 454) unless the app passes `--enable-native-access=ALL-UNNAMED`; under `--illegal-native-access=deny`
+    the binding fails to load and the answer is `Unsupported(NATIVE_ACCESS_UNAVAILABLE)`. The binding holds only the section
+    of the running OS; libraries load by absolute path (`/System/Library/Frameworks/Security.framework/Security`,
+    `%SystemRoot%\System32\crypt32.dll`) or, for libsecret, by the soname `libsecret-1.so.0` through the system loader.
+    - **Every OS-allocated object is freed on every path.** Each raw call has a scope: the line after an object is created
+      (`CFDictionary`, `CFString`, `CFData`, a `LocalFree` buffer, a `GError`, a `GHashTable`, a `GList`, a `SecretValue`) it
+      is registered for release, and the scope releases in reverse order, wipes its native copy of the key, and only then
+      frees its native memory. A failing allocation therefore frees what came before it. On macOS the `CFData` that wraps the
+      key buffer is released first; the `CFData` that `SecItemCopyMatching` returns belongs to the Security framework, so it is
+      copied out and released, not overwritten. On Windows the plaintext output of `CryptUnprotectData` is zeroed before
+      `LocalFree`. libsecret wipes its `SecretValue` itself.
+    - **macOS:** generic passwords of the login (file) keychain with `kSecUseDataProtectionKeychain = false` explicit;
+      `kSecUseAuthenticationUISkip` is never used; with `allowUi = false` copy, add and delete carry
+      `kSecUseAuthenticationUI = kSecUseAuthenticationUIFail`; the probe always suppresses UI. **Windows:** `GetLastError` is
+      captured by the linker in the same call. **Linux:** lookup is `secret_password_searchv_sync` with
+      `SECRET_SEARCH_ALL` (plus `SECRET_SEARCH_UNLOCK` when UI is allowed); a returned `SecretItem` that is locked is a
+      locked match; `libsecret-1.so.0` that cannot be loaded, or one older than 0.19 (no `secret_password_search_sync`), answers
+      the dedicated `SYMBOL_MISSING` status on every call and throws nothing.
+    - **Running the real-store suites** (opt-in, never part of `jvmTest`): on a JDK 25 launcher through
+      `./gradlew :kmptoolkit-storage:jvmTestFfm -Pkmptoolkit.secretstore=macos|windows|linux` (add
+      `-Pkmptoolkit.secretstore.required=true` to turn a skip into a failure). The macOS suite creates only items whose service
+      starts with `kmptoolkit-storage.test.ffm-` and deletes them; the Windows suite must run in the logged-on user's
+      interactive session (a scheduled task with `/it`), because in a key-based ssh logon every DPAPI call answers 1312; the
+      Linux suite needs a session bus and an unlocked default collection (`dbus-run-session` with `gnome-keyring-daemon
+      --unlock`).
 
 - **Encrypted file format v1 (internal, for the desktop encrypted stores).** The encrypted desktop stores keep one binary
   file that is rewritten as a whole: magic `KTSS`, format version `1`, a kind byte (1 = an OS item holds the data key,
