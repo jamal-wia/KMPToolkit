@@ -545,8 +545,9 @@ internal class AndroidLocationProvider(
                 selected = accepted
                 deliverable = accepted
                 unsubscribe = platform.observeServiceChanges { evaluate() }
-                // A change between the seed and the subscription would otherwise be missed.
-                evaluateLocked()
+                // A change between the seed and the subscription would otherwise be missed. The refusals met by this very
+                // registration are not re-judged against the grant here: a grant is picked up at the next service event.
+                evaluateLocked(forgetRefusals = false)
             }
         }
 
@@ -554,20 +555,28 @@ internal class AndroidLocationProvider(
          * Registers [wanted] in order and returns the sources that accepted (all of them, or just the first when
          * [firstOnly]). A provider that refuses the caller's permission is skipped, not fatal, and remembered in
          * [refused]: a coarse-only app on Android 10 and lower is refused GPS and still gets the network one.
-         * Any other failure propagates; the caller decides what the stream does then.
+         * Any other failure propagates, unless [skipFailures] (a move): then that candidate is skipped like a
+         * refusal, but not remembered as refused (it can be transient), so the candidates that accept are kept.
          */
-        private fun register(wanted: List<String>, firstOnly: Boolean): List<String> {
+        private fun register(wanted: List<String>, firstOnly: Boolean, skipFailures: Boolean = false): List<String> {
             val accepted: MutableList<String> = mutableListOf()
             for (provider: String in wanted) {
                 if (provider in refused) continue
+                // Read BEFORE the platform is asked: a grant that lands between the refusal and a later read would
+                // be recorded as the grant the refusal was met under and pin it. Before errs the safe way: a refusal
+                // recorded under the coarse grant is tried once more under the fine one.
+                val fineBefore: Boolean = platform.hasFinePermission()
                 try {
                     platform.requestUpdates(provider, request, this)
                     accepted += provider
                 } catch (refusal: SecurityException) {
                     lastRefusal = refusal
-                    refusedUnderFine = platform.hasFinePermission()
+                    refusedUnderFine = fineBefore
                     refused += provider
                     logger.d { "Location provider $provider refused the caller's permission" }
+                } catch (failure: Exception) {
+                    if (!skipFailures) throw failure
+                    logger.w(failure) { "Location provider $provider failed to register during a move" }
                 }
                 if (firstOnly && accepted.isNotEmpty()) break
             }
@@ -586,15 +595,33 @@ internal class AndroidLocationProvider(
             }
         }
 
+        /**
+         * Entry for a listener callback about [provider]. A callback for a provider this session does not hold is
+         * ignored: on API 24-28 the platform delivers a registration's callbacks as posted messages even after the
+         * registration was removed, and the brief registration of a switched-off source inside a failed move posts
+         * `onProviderDisabled` at once, so re-evaluating on it would re-run that move and post the next callback,
+         * forever. The service broadcast ([evaluate]) fires on every real change and is what retries a state with
+         * nothing registered.
+         */
+        private fun evaluateFor(provider: String) {
+            gate.submit {
+                try {
+                    if (provider in selected) evaluateLocked()
+                } catch (failure: Exception) {
+                    logger.w(failure) { "Could not re-read the location service state" }
+                }
+            }
+        }
+
         /** Gate held. Off: the reason, the stream stays open and the listener stays registered. Back on: reseed. */
-        private fun evaluateLocked() {
+        private fun evaluateLocked(forgetRefusals: Boolean = true) {
             if (closed) return
+            if (forgetRefusals) forgetRefusalsOfAnotherGrant()
             if (autoSelect) {
                 // AUTO uses the first ENABLED source of its table that accepts the caller (PLAN D19): when the one
                 // it registered went off while another is on, the registration moves instead of reading
                 // SERVICE_DISABLED. A move never ends the evaluation: whatever is registered afterwards is what
                 // the decision below judges.
-                forgetRefusalsOfAnotherGrant()
                 val pick: AutoPick = pickAuto(platform, options.accuracy, forStream = true)
                 val target: List<String> = pick.target(refused)
                 if (target != failedMove) failedMove = null
@@ -612,7 +639,10 @@ internal class AndroidLocationProvider(
             )
         }
 
-        /** Gate held. Refusals met under another grant than the current one are not evidence any more: they are tried again. */
+        /**
+         * Gate held. Refusals met under another grant than the current one are not evidence any more: they are tried
+         * again.
+         */
         private fun forgetRefusalsOfAnotherGrant() {
             if (refused.isEmpty() || platform.hasFinePermission() == refusedUnderFine) return
             refused.clear()
@@ -633,24 +663,26 @@ internal class AndroidLocationProvider(
             selected = emptyList()
             deliverable = emptyList()
             removeQuietly(platform, this)
-            var moveFailed = false
             var accepted: List<String> = try {
-                register(pick.candidates, pick.firstOnly)
+                // A platform failure of one candidate is skipped like a refusal: the candidates that accept are kept.
+                register(pick.candidates, pick.firstOnly, skipFailures = true)
             } catch (failure: Exception) {
                 logger.w(failure) { "Could not move the location registration" }
                 removeQuietly(platform, this)
-                moveFailed = true
                 emptyList()
             }
+            // A usable candidate of the decision that did not register failed on the platform (a refusal is not usable).
+            val incomplete: Boolean = accepted != pick.target(refused)
             if (accepted.isEmpty()) accepted = registerQuietly(previous, firstOnly = false)
             if (accepted.isEmpty()) {
-                // Nothing is registered: keep judging the last known sources; selected stays empty (retry on the next
-                // event: with nothing registered the platform cannot answer with an event of its own, so no loop).
+                // Nothing is registered: keep judging the last known sources; selected stays empty. The next service
+                // broadcast retries; a listener callback does not (the session holds no provider it could come from).
                 deliverable = previous
                 return
             }
-            // The previous registration is back: remember the failed decision, so the restore's own callback is not a retry.
-            if (moveFailed) failedMove = pick.target(refused)
+            // Whatever is registered now is not the decision: remember it, so the echo of this very registration
+            // (a restored or kept source that is switched off answers onProviderDisabled at once) is not a retry.
+            if (incomplete) failedMove = pick.target(refused)
             selected = accepted
             deliverable = accepted
         }
@@ -674,13 +706,13 @@ internal class AndroidLocationProvider(
             gate.submit { out.trySend(StreamReading.live(LocationReading.Available(fix))) }
         }
 
-        override fun onProviderEnabled(provider: String) = evaluate()
+        override fun onProviderEnabled(provider: String) = evaluateFor(provider)
 
         @Deprecated("Deprecated in Java")
         @Suppress("OVERRIDE_DEPRECATION")
         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
 
-        override fun onProviderDisabled(provider: String) = evaluate()
+        override fun onProviderDisabled(provider: String) = evaluateFor(provider)
 
         /**
          * Removes the listener and the subscription; idempotent. Removing a listener that is not registered,
