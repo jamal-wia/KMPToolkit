@@ -33,6 +33,9 @@ import platform.Security.errSecSuccess
  * the framework goes through [keychain], and every user-presence sheet through [authentication], so the logic
  * of this class runs in a test binary that has no Keychain.
  *
+ * With `accessGroup = null`, `get`, `put` and `remove` match items in every access group the app can reach (only
+ * `clear()` is pinned to the default group, I-2b, D-18): see the known limit in [IosSecureStorageOptions].
+ *
  * Holds no lock and no state beyond its constructor arguments: each operation is independent, and the one that
  * can wait for the user (a `get` or an overwriting `put` of a `userPresence` store) waits without holding
  * anything, and is cancellable (see [onNative]).
@@ -60,8 +63,9 @@ internal class IosSecureKeyValueStorage(
     /**
      * Non-mutating and never prompting: an attribute-only `SecItemCopyMatching` for the service, with UI
      * forbidden, matching local and synchronizable items alike. There is no key to create on iOS, so this only
-     * tells whether the Keychain can be reached (no items is success, as is an item that needs authentication:
-     * no data is read). Failures report [StorageOperation.ENSURE_KEY] with no key; a store-wide `errSecDecode`
+     * tells whether the Keychain can be reached (no items is success; no data is read). For a `userPresence` store that
+     * already holds items the real status is not observed on a device (the harness case `ensure-key-user-presence`
+     * records it): `errSecInteractionNotAllowed` would read as [StorageError.Unavailable]. Failures report [StorageOperation.ENSURE_KEY] with no key; a store-wide `errSecDecode`
      * is [StorageError.Undecryptable] with a `null` key.
      */
     override suspend fun ensureKey(): StorageResult<Unit> = withContext(dispatcher) {

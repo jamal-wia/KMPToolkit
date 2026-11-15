@@ -63,7 +63,9 @@ public fun createKeyValueStorage(config: StorageConfig = StorageConfig()): KeyVa
  *
  * [KeyValueStorage.clear] removes this store's items, local and synchronizable, in exactly one access
  * group: [IosSecureStorageOptions.accessGroup] when it is set, otherwise the app's default access group, so
- * it never touches a same-named store that lives in a shared group.
+ * it never touches a same-named store that lives in a shared group. `get`, `put` and `remove` of a store with
+ * `accessGroup = null` are not pinned that way and can reach a same-named store in a shared group: a known limit,
+ * described at [IosSecureStorageOptions.accessGroup].
  *
  * @param config which store to open — see [StorageConfig].
  * @param options the Keychain attributes of the store: accessibility, access group, iCloud

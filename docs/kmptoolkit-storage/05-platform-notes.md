@@ -201,7 +201,12 @@ If you ever edit that file: do not "simplify" it back to a dictionary literal.
   rather than replacing it, so an unconditional add would make `put` non-overwriting. Every write
   carries the configured accessibility, the update of an existing item included: a changed
   `IosSecureStorageOptions.accessibility` reaches each item on its next `put`, and an item that is never
-  written again keeps the class it was stored with (`clear()` moves everything at once).
+  written again keeps the class it was stored with (`clear()` moves everything at once). Another writer or
+  remover (a second coroutine, a second store over the same service, an app extension in the access group) can
+  change the item between the update and the add, so a miss is retried: update, then add, up to eight rounds
+  (`MAX_WRITE_ATTEMPTS`), each lost round meaning someone else made progress. A `put` therefore never fails
+  because it raced another write or a `remove`; it gives up with `OperationFailed(PUT, key, -25299)` only after
+  eight lost rounds in a row, and never reports a value that is not stored.
 - **`clear` deletes by service, in one access group.** One `SecItemDelete` matching the store's
   `kSecAttrService`, no account, `kSecAttrSynchronizable = kSecAttrSynchronizableAny` (local and iCloud
   items alike) and exactly one `kSecAttrAccessGroup`: the one in `IosSecureStorageOptions.accessGroup`, or,
@@ -219,6 +224,14 @@ If you ever edit that file: do not "simplify" it back to a dictionary literal.
   written by another store, another framework, or the same app under a different service are not matched.
   (Changed in 6.0.0: earlier versions sent no group and no synchronizable attribute, so they could also
   remove a shared-group store's items and missed the store's own iCloud items.)
+- **Known limit: with `accessGroup = null`, `get`, `put` and `remove` address every access group the app can
+  reach.** Only `clear()` is pinned to the default group. A query that names no group matches items in every group
+  of the app, so when a store with `accessGroup = null` and a same-named store in a shared group (another
+  `accessGroup`, or an app extension) exist side by side, the first one's `get` can return the second one's value,
+  its `remove` can delete it, and its `put` can overwrite it instead of adding to its own group. Reads and
+  writes are not narrowed to the default group on purpose: items created under an earlier default group (the
+  `keychain-access-groups` order changed between releases) would then become invisible, which is a data loss.
+  When several stores share a keychain group, give each an explicit `accessGroup`, or distinct store names.
 - **Reads and writes name the exact `synchronizable` value**, so a store only ever sees its own kind of
   item. `synchronizable = true` needs a portable accessibility (`WHEN_UNLOCKED` or `AFTER_FIRST_UNLOCK`),
   because iOS does not sync a `THIS_DEVICE_ONLY` item; the options class rejects the combination, and the
@@ -227,8 +240,10 @@ If you ever edit that file: do not "simplify" it back to a dictionary literal.
   an item too.
 - **`ensureKey()` never changes anything and never prompts.** It is an attribute-only
   `SecItemCopyMatching` for the store's service (no data requested), with `kSecUseAuthenticationUI` set to
-  fail and `kSecAttrSynchronizable = Any`. No items, or items that need authentication, are `Success`: there
-  is no key to create. Failures report `StorageOperation.ENSURE_KEY` with no key.
+  fail and `kSecAttrSynchronizable = Any`. No items is `Success`: there is no key to create. For a
+  `userPresence` store that already holds items, whether the query answers `Success` or `errSecInteractionNotAllowed`
+  (`Unavailable`) is **not observed on a device**: the `ensure-key-user-presence` case of the harness records it, and
+  the mapping follows what it shows. Failures report `StorageOperation.ENSURE_KEY` with no key.
 - **User presence (`IosSecureStorageOptions.userPresence`).** Items are stored with a `SecAccessControl`
   (`.userPresence`, `.biometryAny` or `.biometryCurrentSet`) instead of `kSecAttrAccessible`, protected by
   the configured accessibility class, and the sheet's reason is the app's `prompt`, passed through a fresh

@@ -22,7 +22,12 @@ package io.github.jamal_wia.kmptoolkit.storage
  *   app extension or a sibling app. Needs the Keychain Sharing entitlement; a group your entitlements do
  *   not grant makes every operation fail with [StorageError.Unsupported] ([UnsupportedReason.MISSING_ENTITLEMENT]).
  *   `null` uses the app's default access group, and [KeyValueStorage.clear] then touches only that group.
- *   Must not be blank.
+ *   Must not be blank. **Known limit:** only `clear()` is pinned to the default group. With `null`, `get`, `put` and
+ *   `remove` send a query that names no group, which the Keychain matches against every group the app can reach, so a
+ *   same-named store in a shared group can be read, deleted or overwritten by a `null`-group store. This is
+ *   deliberate: pinning reads and writes to a resolved default group would hide items created under an earlier
+ *   default group (the order of `keychain-access-groups` changed), which is a data loss. When several stores share
+ *   a keychain group, give each an explicit `accessGroup` or a distinct store name.
  * @param synchronizable `kSecAttrSynchronizable`: puts the items in iCloud Keychain, so they leave the
  *   device. Reads and writes pass the exact value, so a store never sees the other kind of item.
  *   Rejected with an `accessibility` whose name ends in `THIS_DEVICE_ONLY` (iOS cannot sync such an
