@@ -211,6 +211,25 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
+    fun `ensureKey meeting an unexpected cipher failure is OperationFailed for GET without a key and stores nothing`() = runTest {
+        val failure = IllegalStateException("cipher init failed")
+        val storage = AndroidSecureKeyValueStorage(
+            preferences = preferences(NAME),
+            cipher = object : ValueCipher {
+                override suspend fun encrypt(plaintext: String): String = throw failure
+                override suspend fun decrypt(encoded: String): String = throw failure
+            },
+            dispatcher = dispatcher,
+        )
+
+        assertEquals(
+            StorageError.OperationFailed(StorageOperation.GET, key = null, cause = failure),
+            storage.ensureKey().errorOrNull(),
+        )
+        assertEquals(emptySet(), preferences(NAME).all.keys)
+    }
+
+    @Test
     fun `ensureKey cancelled while the key is being resolved propagates the cancellation and stores nothing`() = runTest {
         val gate: CompletableDeferred<Unit> = CompletableDeferred()
         val storage = AndroidSecureKeyValueStorage(
