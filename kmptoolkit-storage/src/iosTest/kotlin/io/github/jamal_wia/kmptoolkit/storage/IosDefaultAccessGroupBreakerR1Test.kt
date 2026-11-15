@@ -116,21 +116,31 @@ class IosDefaultAccessGroupBreakerR1Test {
             1, // a positive status no table knows
             Int.MIN_VALUE,
         )
-        val steps: List<String> = listOf("readAccessGroup", "addReadingAccessGroup", "delete")
+        // Round 2: the resolution has two steps since the M2 fix removed the lookup ("readAccessGroup"); the round-1
+        // row for that step named a call that no longer exists (dispute of the executor's round-2 report, upheld). The
+        // control below makes a step that is renamed or removed again fail loudly instead of passing vacuously.
+        val steps: List<String> = listOf("addReadingAccessGroup", "delete")
         val problems: MutableList<String> = mutableListOf()
         for (step: String in steps) {
             for (status: Int in statuses) {
                 val keychain = InMemoryKeychainPort()
                 keychain.seed(keychain.item("a", group = "TEAM.default"))
                 keychain.seed(keychain.item("b", group = "TEAM.shared"))
+                var injected = 0
                 keychain.script = { operation: String, q: Map<String, String> ->
-                    if (operation == step && q["service"] == probeService) status else null
+                    if (operation == step && q["service"] == probeService) {
+                        injected++
+                        status
+                    } else {
+                        null
+                    }
                 }
                 val store: IosSecureKeyValueStorage = storeOver(keychain)
 
                 val result: StorageResult<Unit> = store.clear()
 
                 val label = "step=$step status=$status"
+                if (injected == 0) problems += "$label: control: the resolution never made this call"
                 if (result !is StorageResult.Failure) problems += "$label: answered $result"
                 if (keychain.calls.any { it.operation == "delete" && it.query["service"] == STORE_SERVICE }) {
                     problems += "$label: a delete of the store's items was sent"
