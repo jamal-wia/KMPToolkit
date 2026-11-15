@@ -543,7 +543,13 @@ internal class AndroidLocationProvider(
                 val disabled: Boolean = isDisabled(platform, deliverable)
                 disabledNow = disabled
                 out.trySend(StreamReading.seed(currentReading(platform, deliverable, options.maxSeedAge, disabled)))
-                val accepted: List<String> = register(selected, firstOnly)
+                var accepted: List<String> = register(selected, firstOnly)
+                if (accepted.isEmpty()) {
+                    // A grant that landed after the platform's refusal is not a missing grant: refusals met under another
+                    // grant than the current one are asked again once (the same rule as every later evaluation).
+                    forgetRefusalsOfAnotherGrant()
+                    if (refused.isEmpty()) accepted = register(selected, firstOnly)
+                }
                 if (accepted.isEmpty()) {
                     // PERMISSION_MISSING only when every candidate refused while the service is ON. A switched-off
                     // service wins over a refusal (PLAN 4.2: "denied with services off is SERVICE_DISABLED", D8: the
@@ -558,9 +564,9 @@ internal class AndroidLocationProvider(
                     deliverable = accepted
                 }
                 unsubscribe = platform.observeServiceChanges { evaluate() }
-                // A change between the seed and the subscription would otherwise be missed. The refusals met by this very
-                // registration are not re-judged against the grant here: a grant is picked up at the next service event.
-                evaluateLocked(forgetRefusals = false)
+                // A change between the seed and the subscription would otherwise be missed. This evaluation stands in for
+                // the service event the subscription missed, so it behaves like one, grant re-judgement included.
+                evaluateLocked()
             }
         }
 
@@ -626,10 +632,15 @@ internal class AndroidLocationProvider(
             }
         }
 
-        /** Gate held. Off: the reason, the stream stays open and the listener stays registered. Back on: reseed. */
-        private fun evaluateLocked(forgetRefusals: Boolean = true) {
+        /**
+         * Gate held. Off: the reason, the stream stays open and the listener stays registered. Back on: reseed.
+         * A waiting stream (nothing registered, every candidate refused) never reseeds: it reads SERVICE_DISABLED until
+         * the terminal or a grant. [recheckGrant]: the terminal is decided on refusals, so the grant is read once more
+         * right before it; a grant that landed during this evaluation runs it again (once, under the new grant).
+         */
+        private fun evaluateLocked(recheckGrant: Boolean = true) {
             if (closed) return
-            if (forgetRefusals) forgetRefusalsOfAnotherGrant()
+            forgetRefusalsOfAnotherGrant()
             var candidates: List<String> = initialNames
             if (autoSelect) {
                 // AUTO uses the first ENABLED source of its table that accepts the caller (PLAN D19): when the one
@@ -651,10 +662,22 @@ internal class AndroidLocationProvider(
                     deliverable = accepted
                 }
             }
-            if (selected.isEmpty() && candidates.isNotEmpty() && candidates.all { provider: String -> provider in refused } && !isDisabled(platform, candidates)) {
-                // Every candidate refused the caller, remembered under the unchanged grant (D16: only a new grant
-                // changes it), and the service is on again: now the grant is what is missing, as at the start of a
-                // stream whose service was on. No platform call. The terminal reading is the last element.
+            if (selected.isEmpty() && candidates.isNotEmpty() && candidates.all { provider: String -> provider in refused }) {
+                // Waiting: nothing is registered and every candidate refused the caller (D-30). ONE read of the service
+                // state decides everything below, so a switch that turns on between two reads cannot publish a reseed
+                // the stream has no registration to back.
+                val candidatesOff: Boolean = isDisabled(platform, candidates)
+                if (candidatesOff) {
+                    if (!disabledNow) {
+                        disabledNow = true
+                        out.trySend(StreamReading.live(unavailable(LocationUnavailability.SERVICE_DISABLED)))
+                    }
+                    return
+                }
+                if (recheckGrant && platform.hasFinePermission() != refusedUnderFine) return evaluateLocked(recheckGrant = false)
+                // The service is on again and the refusals stand under the current grant (D16: only a new grant changes
+                // them): now the grant is what is missing, as at the start of a stream whose service was on. No platform
+                // call. The terminal reading is the last element.
                 closed = true
                 out.trySend(StreamReading.live(unavailable(LocationUnavailability.PERMISSION_MISSING)))
                 out.close()
