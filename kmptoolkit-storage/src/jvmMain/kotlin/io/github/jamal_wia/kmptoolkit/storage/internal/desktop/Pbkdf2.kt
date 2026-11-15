@@ -64,12 +64,15 @@ internal object Pbkdf2 {
      *
      * @throws IllegalStateException when the JDK has no PBKDF2 provider (the cause is the `GeneralSecurityException`).
      *
-     * Not everything this call holds can be wiped. The JDK's key object (`PBKDF2KeyImpl`) clones [password] into a field of
-     * its own and keeps the derived key in another, and clears both only when the object is garbage collected (a cleaner); no
-     * public API clears them sooner, and `PBEKeySpec.clearPassword` wipes only the spec's copy. This holds for every
-     * passphrase, ASCII included: until a collection the heap holds the NFC characters and the 32-byte key-encryption key
-     * besides the arrays this class wipes. Re-implementing PBKDF2 over `Mac` would not help (HMAC keeps pads equivalent to
-     * the key), so this is stated, not fixed.
+     * Not everything this call holds can be wiped, and none of it from outside the JDK. The JDK's key object (`PBKDF2KeyImpl`)
+     * clones [password] into a field of its own and keeps the derived key in another, and clears both only when the object is
+     * garbage collected (a cleaner); `PBEKeySpec.clearPassword` wipes only the spec's copy. Its HMAC (`HmacCore`) also keeps
+     * the passphrase's bytes in a masked form (XOR a fixed constant, as good as the passphrase for this derivation; a
+     * passphrase over 64 bytes leaves its SHA-256 the same way) that the JDK never clears, not even after a collection. The
+     * JDK's own UTF-8 conversion of the passphrase (`Charset.encode`) can leave a partial, unwiped copy when it has to grow its
+     * buffer. This holds for every passphrase, ASCII included (the conversion copy only for non-ASCII text). "Written once at
+     * its exact size" is true of this library's own encodings ([toStrictUtf8]), not of the JDK's. Re-implementing PBKDF2 over
+     * `Mac` would not help (HMAC keeps those pads), so this is stated, not fixed.
      */
     fun derive(password: CharArray, salt: ByteArray, iterations: Int, lengthBytes: Int): ByteArray {
         val spec = PBEKeySpec(password, salt, iterations, lengthBytes * 8)
@@ -87,7 +90,7 @@ internal object Pbkdf2 {
      * The 32-byte key-encryption key of a passphrase store: NFC, then PBKDF2 with [salt] and [iterations].
      * [passphrase] is not modified and not wiped (the caller owns it); the normalised character array made here is wiped.
      * Text with a character from U+0300 up also passes through immutable `String`s of `Normalizer` that cannot be wiped (see [normalized]),
-     * and the JDK's PBKDF2 keeps a copy of the passphrase and of the derived key until garbage collection for every passphrase (see [derive]).
+     * and the JDK's PBKDF2 keeps copies of the passphrase and of the derived key that cannot be wiped from outside the JDK, for every passphrase (see [derive]).
      *
      * @throws IllegalArgumentException for an empty passphrase, a passphrase with an unpaired surrogate (it has no UTF-8
      *   form, and the JDK would silently turn it into `?`, so two different passphrases would derive one key), a salt that

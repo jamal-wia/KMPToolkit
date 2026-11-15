@@ -331,8 +331,11 @@ app sharing that code with desktop could not compile it for desktop without the 
     call does to it: the interrupt status a call leaves behind is cleared after every call and does not end the loop, and a
     thread that cannot be created (a thread limit) answers that one call as failed and is created again by the next call. A native
     thread that dies with the executor still open (only an `Error` such as an `OutOfMemoryError` can end it) hands the calls
-    queued behind it to a replacement thread, answers the call it was running as failed, and is replaced by the next call too; if
-    no replacement can be made the queued calls answer as failed with that cause. After the executor is closed no thread is made.
+    queued behind it to a replacement thread, answers the call it was running as failed (unless even that fails: then the caller's own
+    limit or cancellation ends the wait, and an interactive call waits until it is cancelled), and is replaced by the next call too; if
+    no replacement can be made the queued calls answer as failed with that cause. A value a native call returned that does not
+    reach its caller (the caller left first, or the delivery failed) is always handed to the wipe handler first, so a key is never
+    left unwiped by a failed delivery. After the executor is closed no thread is made.
 
 - **Encrypted file format v1 (internal, for the desktop encrypted stores).** The encrypted desktop stores keep one binary
   file that is rewritten as a whole: magic `KTSS`, format version `1`, a kind byte (1 = an OS item holds the data key,
@@ -463,7 +466,7 @@ Reading and verifying an existing key never holds a lock while a call that can p
 a key being created), under one 10 s budget; a call that cannot get them answers `Unavailable`. A file system that refuses file
 locks (see Concurrency above) makes every call answer `OperationFailed` and touch nothing: unlike the plain store, an encrypted
 store never degrades. A store file is at most 256 MiB: a `put` whose encoded file would be larger is refused with
-`InvalidValue(key)` before anything is written or created (a larger file would be read back as unparsable and quarantined by the
+`InvalidValue(key)` before any store file, key or item is written or created (the store directory and the lock file may already exist by then, as after any first call that fails; a larger file would be read back as unparsable and quarantined by the
 next `put`). The size is worked out by counting, before the value or the entry name is encoded or sealed, so a value (or a name over 65,535 UTF-8 bytes) that cannot fit never allocates its encoded copies; a first `put` into a store that has no file yet is refused the same way, before any key material is asked for (a Linux preflight, the app's provider, a key derivation), when its entry cannot fit even the smallest file of the store's kind; only on Windows is the exact header (a DPAPI blob of its own length) known after DPAPI has produced it, so a value that fits the smallest header but not the real one asks DPAPI first and a failure of that call answers instead of `InvalidValue`; `changeKey` on a file that the new header would push over the limit answers `OperationFailed(CHANGE_KEY)`. The one thing a call does not wait for under the locks is anything slow: the native fetch of an existing
 key runs with no lock held, and the next round re-reads the file and uses the key only if the header and key-check are the
 ones it was fetched for (at most four such rounds, then `Unavailable`).
@@ -473,7 +476,13 @@ or restricted set) never makes a store call throw: a `put`, `get`, `remove`, `cl
 algorithm answers `OperationFailed` (with the provider failure as its cause) and writes, creates and moves nothing; a store with data is never
 read as "key lost", and a passphrase is never called wrong (`AccessDenied`) for it. The same instance works once the algorithm is available.
 
-**A call on an interrupted thread is not served.** A store call made on a thread whose interrupt status is already set never throws and keeps that status, but it does not do its work: the JDK refuses file I/O on an interrupted thread, so every operation of an encrypted store, a `get` included, answers `OperationFailed` with a `ClosedByInterruptException` as its cause. Nothing is written, no temporary file or lock is left behind, and the call can be repeated once the status is cleared.
+**A call on an interrupted thread.** When the store's dispatcher runs a call on a thread whose interrupt status is set (for example
+`Dispatchers.Unconfined` called from an interrupted thread), the JDK refuses the file I/O: the call answers `OperationFailed` (cause: an
+`IOException` that wraps `ClosedByInterruptException`), writes nothing, leaves no temporary file or lock, keeps the status, and can be
+repeated once the status is cleared. With the default `Dispatchers.IO` the I/O runs on a pool thread and an interrupted caller is served
+normally. (`runBlocking` on an interrupted thread throws `InterruptedException` before the store answers; that is kotlinx.coroutines
+behaviour. A `get`, `remove` or `clear()` of a store whose directory does not exist answers `Success` without any I/O, and a `put` over
+the size bound answers `InvalidValue`, whatever the thread's status.)
 
 **Open verification items (macOS, not yet run on a real keychain).** Whether `kSecUseAuthenticationUIFail` applies to
 `SecItemAdd` and `SecItemDelete` on the file keychain; whether a locked keychain and an item of another code identity both
@@ -507,10 +516,14 @@ a key derived from what your app provides.
   `CancellationException` propagates. The provider is called at most once per operation, and every array it returned is wiped
   as soon as it has been used, so it must return a fresh array on every call. Wiping is best effort and stops where the JDK stops. The arrays this library makes (the NFC copy of
   the passphrase, its UTF-8 encoding, the derived key) are wiped as soon as they are used, and every UTF-8 encoding is written
-  once into an array of exactly its size, so no larger copy is dropped unwiped. But the JDK's PBKDF2 implementation keeps its
-  own copy of the passphrase characters and of the derived key-encryption key inside its key object and clears them only when
-  that object is garbage collected; no public API clears them sooner. That holds for **every** passphrase, ASCII included,
-  so until a collection the heap holds them besides the wiped arrays. A passphrase with any character from U+0300 up
+  once into an array of exactly its size, so no larger copy of the library's own encodings is dropped unwiped. But the JDK's
+  PBKDF2 implementation keeps copies that no code outside the JDK can wipe: its key object keeps the passphrase characters and
+  the derived key-encryption key until the object is garbage collected, and its HMAC keeps the passphrase's bytes in a masked
+  form (the bytes XOR a fixed constant, which is as good as the passphrase for this derivation; a passphrase over 64 bytes
+  leaves its SHA-256 the same way) that the JDK never clears, not even after a collection. The JDK's own UTF-8 conversion of
+  the passphrase can also leave a partial, unwiped copy when it has to grow its buffer (a passphrase with many two-byte
+  characters). That holds for **every** passphrase, ASCII included (the conversion copy only for non-ASCII text), so the heap
+  holds these copies besides the wiped arrays: the first two until a collection, the masked HMAC pads until the memory is reused. A passphrase with any character from U+0300 up
   (Cyrillic, Arabic, CJK, a combining mark, an emoji) additionally passes through immutable `String`s made by the JDK's
   normalizer (a copy of the input and the result), which cannot be wiped either (the JDK has no normalizer that works on a
   caller-owned buffer); a passphrase in which every character is below U+0300 (ASCII, Latin-1 and Latin Extended: the usual
