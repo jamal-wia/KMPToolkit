@@ -184,9 +184,11 @@ values you want to keep, or clear the app's data.
 
 - `keyBacking`: `DEFAULT` (the platform default, TEE or software; never fails for lack of hardware),
   `PREFER_STRONGBOX` (a StrongBox when the device has one, otherwise the default key; read what you got with
-  `storage.androidKeySecurityLevel()`), `REQUIRE_STRONGBOX` (a StrongBox or nothing: on a device without one, and on
+  `storage.androidKeySecurityLevel()`), `REQUIRE_STRONGBOX` (a StrongBox or nothing *when the key is generated*: on a device without one, and on
   every device below API 28, the first use answers `Unsupported(HARDWARE_UNAVAILABLE)`, no key is generated and nothing
-  is cached, so a later call tries again).
+  is cached, so a later call tries again. An alias that already holds a key keeps it, StrongBox or not, and answers
+  no `Unsupported`: that happens when an app switches from `DEFAULT`, or when another store with the same
+  `StorageConfig.name` was opened with other options earlier in the process. Check `androidKeySecurityLevel()`).
 - `unlockedDeviceRequired` (`setUnlockedDeviceRequired`, API 28 and newer, ignored below): the key works only while the
   device is unlocked. While it is locked, calls that need the key answer `Unavailable`; the key is kept, and the same call
   succeeds after the user unlocks. Do not enable it for a store that a background sync must read while the device is locked.

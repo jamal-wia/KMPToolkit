@@ -37,6 +37,10 @@ import kotlinx.coroutines.withContext
  * file's [StoreLocks.migration] mutex, taken with `tryLock`: an operation that finds a pass running does not wait for
  * it, it reads legacy entries itself and writes versioned ones. The lock order is migration, then file; neither is
  * ever taken inside the key's alias lock, and neither is held while a callback into foreign code runs.
+ *
+ * Plan 4.9 words the pass as running "under the alias lock". It does not, by decision D-27: the alias lock is a
+ * key-resolution lock, held only across blocking key-store calls and never across a suspension, while the pass is a
+ * per-file read-modify-write that suspends for the key; holding the alias lock across it would deadlock with `key()`.
  */
 internal class AndroidSecureKeyValueStorage(
     private val preferences: SharedPreferences,

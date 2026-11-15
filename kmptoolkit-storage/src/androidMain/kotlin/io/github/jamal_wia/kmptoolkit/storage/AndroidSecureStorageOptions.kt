@@ -53,9 +53,12 @@ public enum class AndroidKeyBacking {
     PREFER_STRONGBOX,
 
     /**
-     * A StrongBox secure element or nothing: on a device without one (and on every device below API 28) the first use
-     * of the store answers [StorageError.Unsupported] with [UnsupportedReason.HARDWARE_UNAVAILABLE], and no key is
-     * generated.
+     * A StrongBox secure element or nothing, *when the key is generated*: on a device without one (and on every device
+     * below API 28) the first use of the store answers [StorageError.Unsupported] with
+     * [UnsupportedReason.HARDWARE_UNAVAILABLE], and no key is generated. An alias that already holds a key keeps it,
+     * StrongBox or not, and answers no `Unsupported`: that is the case when an app switches from [DEFAULT], or when
+     * another store with the same [StorageConfig.name] was opened with other options earlier in the process (the key is
+     * cached per alias, not per options). Check [androidKeySecurityLevel].
      */
     REQUIRE_STRONGBOX,
 }
