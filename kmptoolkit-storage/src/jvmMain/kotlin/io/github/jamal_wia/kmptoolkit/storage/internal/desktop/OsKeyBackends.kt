@@ -177,31 +177,31 @@ internal class WindowsBackend(
 
     override suspend fun newKey(identity: StoreIdentity, operation: StorageOperation, key: String?, newDataKey: () -> ByteArray): Verdict<NewKey> {
         val dataKey: ByteArray = newDataKey()
-        val plain: ByteArray = dataKey.copyOf() // owned by the native call (see MacBackend.install)
-        val outcome: NativeOutcome<RawResult<ByteArray>> = caller.callLimited {
-            try {
-                calls.protect(plain, identity.windowsEntropy)
-            } finally {
-                plain.fill(0)
-            }
-        }
-        val raw: RawResult<ByteArray>? = (outcome as? NativeOutcome.Completed)?.value
-        if (raw == null) {
-            dataKey.fill(0)
-            return failed(outcome, operation, key)
-        }
-        return when (raw) {
-            is RawResult.Failure -> {
-                dataKey.fill(0)
-                Verdict.Failed(ErrorMapping.windowsProtectFailure(raw.status.code, operation, key))
-            }
-            is RawResult.Success ->
-                if (raw.value.isEmpty() || raw.value.size > SecureFileFormat.MAX_DPAPI_BLOB_BYTES) {
-                    dataKey.fill(0)
-                    Verdict.Failed(StorageError.OperationFailed(operation, key = key, cause = IllegalStateException("DPAPI returned a blob of an unusable size")))
-                } else {
-                    Verdict.Ok(NewKey(HeaderBody.Dpapi(raw.value), dataKey))
+        var delivered = false
+        try {
+            val plain: ByteArray = dataKey.copyOf() // owned by the native call (see MacBackend.install)
+            val outcome: NativeOutcome<RawResult<ByteArray>> = caller.callLimited {
+                try {
+                    calls.protect(plain, identity.windowsEntropy)
+                } finally {
+                    plain.fill(0)
                 }
+            }
+            val raw: RawResult<ByteArray> = (outcome as? NativeOutcome.Completed)?.value ?: return failed(outcome, operation, key)
+            return when (raw) {
+                is RawResult.Failure -> Verdict.Failed(ErrorMapping.windowsProtectFailure(raw.status.code, operation, key))
+                is RawResult.Success ->
+                    if (raw.value.isEmpty() || raw.value.size > SecureFileFormat.MAX_DPAPI_BLOB_BYTES) {
+                        Verdict.Failed(StorageError.OperationFailed(operation, key = key, cause = IllegalStateException("DPAPI returned a blob of an unusable size")))
+                    } else {
+                        delivered = true
+                        Verdict.Ok(NewKey(HeaderBody.Dpapi(raw.value), dataKey))
+                    }
+            }
+        } finally {
+            // Every way out but the hand-over wipes the key: a failed protect, an unusable blob, and a caller cancelled while
+            // the call was queued or running (CancellationException), none of which reaches a plan whose dispose would.
+            if (!delivered) dataKey.fill(0)
         }
     }
 

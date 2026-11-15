@@ -142,7 +142,13 @@ internal class OsKeyStoreEngine(
             is Verdict.Failed -> return CreatePlan.Failed(verdict.error)
             is Verdict.NotFoundUnconfirmed, Verdict.NotFound -> error("creating a key has no not-found")
         }
-        val keyCheck: ByteArray = cipher.sealKeyCheck(material.dataKey, SecureFileFormat.headerPrefix(material.header))
+        val keyCheck: ByteArray = try {
+            cipher.sealKeyCheck(material.dataKey, SecureFileFormat.headerPrefix(material.header))
+        } catch (error: Throwable) {
+            // The plan whose dispose wipes the key does not exist yet, so nobody else will: the key made for it ends with this failure.
+            material.dataKey.fill(0)
+            throw error
+        }
         return CreatePlan.Ready(
             header = material.header,
             keyCheck = keyCheck,

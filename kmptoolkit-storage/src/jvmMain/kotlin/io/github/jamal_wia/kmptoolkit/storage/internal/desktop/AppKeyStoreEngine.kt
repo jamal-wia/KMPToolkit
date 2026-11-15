@@ -185,12 +185,13 @@ internal class AppKeyStoreEngine(
             // An unwrap failure is the wrong key (never Undecryptable); an unwrap that works with a failing key-check is corruption.
             val dataKey: ByteArray = unwrap(file.header, derived.kek)
                 ?: return Resolution.Fail(StorageError.AccessDenied(cause = IllegalArgumentException("The key does not open this store")))
-            if (!cipher.verifyKeyCheck(dataKey, file.headerPrefix, file.keyCheck)) {
+            try {
+                // verifyKeyCheck throws for a failing crypto provider: the unwrapped key is wiped on that path too.
+                if (!cipher.verifyKeyCheck(dataKey, file.headerPrefix, file.keyCheck)) return Resolution.Fail(StorageError.Undecryptable(null))
+                adopt(file.headerPrefix, dataKey)
+            } finally {
                 dataKey.fill(0)
-                return Resolution.Fail(StorageError.Undecryptable(null))
             }
-            adopt(file.headerPrefix, dataKey)
-            dataKey.fill(0)
             return Resolution.Have(checkNotNull(cached).dataKey)
         }
         return Resolution.Need(Request.Existing(Snapshot.of(parsed)))
@@ -236,17 +237,23 @@ internal class AppKeyStoreEngine(
     /** The header, key-check and data key of a NEW file wrapped by [carry]'s KEK. The caller wipes [NewKey.dataKey]. */
     private fun newFile(forKey: AppEncryptionKey, carry: KekCarry): Triple<HeaderBody, ByteArray, ByteArray> {
         val dataKey: ByteArray = cipher.newDataKey()
-        val header: HeaderBody = if (forKey is AppEncryptionKey.Passphrase) {
-            val salt: ByteArray = checkNotNull(carry.salt)
-            val before: ByteArray = HeaderBody.Passphrase(salt, carry.iterations.toLong(), ByteArray(SecureFileFormat.WRAPPED_KEY_BYTES)).beforeWrappedKey()
-            val wrapped: ByteArray = cipher.wrapDataKey(carry.kek, dataKey, SecureFileFormat.wrapAad(StoreKind.PASSPHRASE, before))
-            HeaderBody.Passphrase(salt, carry.iterations.toLong(), wrapped)
-        } else {
-            val wrapped: ByteArray = cipher.wrapDataKey(carry.kek, dataKey, SecureFileFormat.wrapAad(StoreKind.RAW_KEY, ByteArray(0)))
-            HeaderBody.RawKey(wrapped)
+        try {
+            val header: HeaderBody = if (forKey is AppEncryptionKey.Passphrase) {
+                val salt: ByteArray = checkNotNull(carry.salt)
+                val before: ByteArray = HeaderBody.Passphrase(salt, carry.iterations.toLong(), ByteArray(SecureFileFormat.WRAPPED_KEY_BYTES)).beforeWrappedKey()
+                val wrapped: ByteArray = cipher.wrapDataKey(carry.kek, dataKey, SecureFileFormat.wrapAad(StoreKind.PASSPHRASE, before))
+                HeaderBody.Passphrase(salt, carry.iterations.toLong(), wrapped)
+            } else {
+                val wrapped: ByteArray = cipher.wrapDataKey(carry.kek, dataKey, SecureFileFormat.wrapAad(StoreKind.RAW_KEY, ByteArray(0)))
+                HeaderBody.RawKey(wrapped)
+            }
+            val keyCheck: ByteArray = cipher.sealKeyCheck(dataKey, SecureFileFormat.headerPrefix(header))
+            return Triple(header, keyCheck, dataKey)
+        } catch (error: Throwable) {
+            // Wrapping or sealing failed (a provider failure): the caller never receives the key, so nobody else would wipe it.
+            dataKey.fill(0)
+            throw error
         }
-        val keyCheck: ByteArray = cipher.sealKeyCheck(dataKey, SecureFileFormat.headerPrefix(header))
-        return Triple(header, keyCheck, dataKey)
     }
 
     override suspend fun createPlan(store: EncryptedFileGuard.StoreFile, op: Op, carry: Carry?): CreatePlan {

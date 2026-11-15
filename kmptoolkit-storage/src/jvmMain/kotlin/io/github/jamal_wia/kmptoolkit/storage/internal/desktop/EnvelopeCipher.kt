@@ -23,8 +23,9 @@ import javax.crypto.spec.SecretKeySpec
  * `init`, so the JDK does not fail over once the operation has begun and the failure reaches here as it is.
  *
  * Stateless apart from [random]; safe from any thread. Key arguments are borrowed, never kept and never wiped here.
- * The class and [sealEntry] are open only so that a test can count how many values were sealed (the proof that a refused
- * value was never encoded); nothing in the library overrides them.
+ * The class, [sealEntry], [unwrapDataKey] and [verifyKeyCheck] are open only so that a test can count how many values were
+ * sealed (the proof that a refused value was never encoded), see which key an unwrap returned (the proof that it is wiped when
+ * the key-check then fails) and make a step fail; nothing in the library overrides them.
  */
 internal open class EnvelopeCipher(private val random: SecureRandom = SecureRandom()) {
 
@@ -52,7 +53,7 @@ internal open class EnvelopeCipher(private val random: SecureRandom = SecureRand
     }
 
     /** Whether [keyCheck] verifies under [dataKey] for exactly [headerPrefix]; any changed header byte makes it `false`. */
-    fun verifyKeyCheck(dataKey: ByteArray, headerPrefix: ByteArray, keyCheck: ByteArray): Boolean {
+    open fun verifyKeyCheck(dataKey: ByteArray, headerPrefix: ByteArray, keyCheck: ByteArray): Boolean {
         if (keyCheck.size != SecureFileFormat.KEY_CHECK_BYTES) return false
         val nonce: ByteArray = keyCheck.copyOfRange(0, SecureFileFormat.NONCE_BYTES)
         val tag: ByteArray = keyCheck.copyOfRange(SecureFileFormat.NONCE_BYTES, keyCheck.size)
@@ -67,7 +68,7 @@ internal open class EnvelopeCipher(private val random: SecureRandom = SecureRand
     }
 
     /** The data key inside [wrapped], or `null` when [kek] or the header bytes in [aad] are not the ones it was wrapped with. */
-    fun unwrapDataKey(kek: ByteArray, wrapped: ByteArray, aad: ByteArray): ByteArray? {
+    open fun unwrapDataKey(kek: ByteArray, wrapped: ByteArray, aad: ByteArray): ByteArray? {
         if (wrapped.size != SecureFileFormat.WRAPPED_KEY_BYTES) return null
         val nonce: ByteArray = wrapped.copyOfRange(0, SecureFileFormat.NONCE_BYTES)
         return gcmDecrypt(kek, nonce, aad, wrapped.copyOfRange(SecureFileFormat.NONCE_BYTES, wrapped.size))

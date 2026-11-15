@@ -518,7 +518,9 @@ a key derived from what your app provides.
   not 32 bytes is `AccessDenied`; the cause never contains the secret. A provider that throws is `Unavailable(cause)`;
   `CancellationException` propagates. The provider is called at most once per operation, and every array it returned is wiped
   as soon as it has been used, so it must return a fresh array on every call. Wiping is best effort and stops where the JDK stops. The arrays this library makes (the NFC copy of
-  the passphrase, its UTF-8 encoding, the derived key) are wiped as soon as they are used, and every UTF-8 encoding is written
+  the passphrase, its UTF-8 encoding, the derived key) are wiped as soon as they are used, the fresh data key of a create or a re-key and
+  the data key unwrapped from a file are wiped however the operation ends (success, a typed failure such as a failing crypto provider,
+  or cancellation), and every UTF-8 encoding is written
   once into an array of exactly its size, so no larger copy of the library's own encodings is dropped unwiped. But the JDK's
   PBKDF2 implementation keeps copies that no code outside the JDK can wipe: its key object keeps the passphrase characters and
   the derived key-encryption key until the object is garbage collected, and its HMAC keeps the passphrase's bytes in a masked
