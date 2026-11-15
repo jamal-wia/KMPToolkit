@@ -88,6 +88,8 @@ internal class OsKeyStoreEngine(
 
     override val kinds: Set<StoreKind> get() = setOf(ready.backend.kind)
 
+    override fun newFileKind(): StoreKind = ready.backend.kind
+
     override val clearNeedsKey: Boolean = false
 
     override fun unavailableReason(): StorageError? = (resolved as? Resolved.Unsupported)?.error

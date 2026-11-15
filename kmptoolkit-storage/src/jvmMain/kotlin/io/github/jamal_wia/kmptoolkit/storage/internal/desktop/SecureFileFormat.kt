@@ -264,6 +264,22 @@ internal object SecureFileFormat {
      */
     fun entrySize(key: String, plainLength: Long): Long = 2 + key.strictUtf8Length() + NONCE_BYTES + 4 + plainLength + TAG_BYTES
 
+    /**
+     * The size of a file of [kind] that holds no entry, as far as it is known before its header exists: exact for the kinds
+     * whose header has a fixed length (1, 3 and 4), and the smallest possible one for a DPAPI header (its blob has a length of
+     * its own, known only after DPAPI has produced it). A new store whose first entry cannot fit even in this much is refused
+     * without asking for key material.
+     */
+    fun minimumFileBytes(kind: StoreKind): Long {
+        val body: Int = when (kind) {
+            StoreKind.OS_ITEM -> OS_ITEM_BODY_BYTES
+            StoreKind.DPAPI -> 2 + 1
+            StoreKind.PASSPHRASE -> PASSPHRASE_BODY_BYTES
+            StoreKind.RAW_KEY -> WRAPPED_KEY_BYTES
+        }
+        return FIXED_PREFIX_BYTES.toLong() + body + KEY_CHECK_BYTES + 4
+    }
+
     /** Parses [bytes]; never throws for any input. */
     fun parse(bytes: ByteArray): ParseResult {
         val buffer: ByteBuffer = ByteBuffer.wrap(bytes)

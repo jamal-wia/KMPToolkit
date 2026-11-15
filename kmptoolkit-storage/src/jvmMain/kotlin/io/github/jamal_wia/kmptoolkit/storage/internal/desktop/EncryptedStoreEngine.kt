@@ -113,6 +113,9 @@ internal abstract class EncryptedStoreEngine(
     /** The kinds of file this store type may hold; any other kind is unparsable for it. */
     protected abstract val kinds: Set<StoreKind>
 
+    /** The kind of file this store creates when it has none (the bound key's kind): known without any key material. */
+    protected abstract fun newFileKind(): StoreKind
+
     /** Whether `clear()` must verify the key first (app-key stores) or never touches it (OS-key stores). */
     protected abstract val clearNeedsKey: Boolean
 
@@ -299,6 +302,14 @@ internal abstract class EncryptedStoreEngine(
     }
 
     private suspend fun create(store: EncryptedFileGuard.StoreFile, op: Op, mode: CreateMode, carry: Carry?): Step {
+        // An entry that cannot fit even the smallest file of this kind is refused before any key material is asked for (a
+        // preflight, DPAPI, a key derivation), so the answer is InvalidValue whatever the key store would have said. The exact
+        // header is known only after createPlan (a DPAPI blob has a length of its own), so the exact check below still follows.
+        if (op is Op.Put &&
+            SecureFileFormat.minimumFileBytes(newFileKind()) + SecureFileFormat.entrySize(op.key!!, op.value.strictUtf8Length()) > guard.maxStoreBytes
+        ) {
+            return fail(tooLarge(op.key))
+        }
         val plan: CreatePlan.Ready = when (val built: CreatePlan = createPlan(store, op, carry)) {
             is CreatePlan.Need -> return Step.Need(built.request)
             is CreatePlan.Failed -> return fail(built.error)

@@ -141,6 +141,8 @@ internal class AppKeyStoreEngine(
 
     override fun newScope(): OpScope = SecretScope()
 
+    override fun newFileKind(): StoreKind = kindOf(key)
+
     private fun kindOf(key: AppEncryptionKey): StoreKind =
         if (key is AppEncryptionKey.Passphrase) StoreKind.PASSPHRASE else StoreKind.RAW_KEY
 
