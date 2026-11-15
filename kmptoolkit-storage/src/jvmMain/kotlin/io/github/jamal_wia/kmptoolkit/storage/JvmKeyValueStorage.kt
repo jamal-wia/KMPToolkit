@@ -12,6 +12,7 @@ import io.github.jamal_wia.kmptoolkit.files.PathKey
 import io.github.jamal_wia.kmptoolkit.files.WriteOptions
 import io.github.jamal_wia.kmptoolkit.files.createFileAccess
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.Jca
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.LockAcquisition
 import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.refuseUnlessRegularOrAbsent
 import java.io.ByteArrayOutputStream
@@ -23,7 +24,6 @@ import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
-import java.security.MessageDigest
 import java.util.Properties
 import java.util.concurrent.TimeoutException
 import kotlin.time.ComparableTimeMark
@@ -280,7 +280,7 @@ internal fun temporaryPrefixOf(fileName: String): String {
         bytes += width
         end += Character.charCount(codePoint)
     }
-    val digest: ByteArray = MessageDigest.getInstance("SHA-256").digest(fileName.toByteArray(StandardCharsets.UTF_8))
+    val digest: ByteArray = Jca.sha256(fileName.toByteArray(StandardCharsets.UTF_8))
     val hash: String = digest.take(8).joinToString("") { "%02x".format(it) }
     return fileName.substring(0, end) + "~" + hash
 }

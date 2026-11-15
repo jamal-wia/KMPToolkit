@@ -1,0 +1,155 @@
+package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
+
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
+import javax.crypto.AEADBadTagException
+import javax.crypto.Cipher
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
+
+/**
+ * The one typed failure of the JCA boundary: a security provider (or the random source) of this JVM could not do what the
+ * storage module asked, in whatever shape it reported that. It is an `IllegalStateException` so that every existing guard
+ * (`EncryptedFileGuard.shielded`) answers it as `OperationFailed(operation, key, cause)`, and it is never a verdict about the
+ * user's data: nothing here ever means "wrong key", "tampered" or "key lost" (see [Jca.aesGcmOpen] for the one place that decides that).
+ */
+internal class JcaFailure(message: String, cause: Throwable) : IllegalStateException(message, cause)
+
+/** The random source type of the storage module, so that nothing outside [Jca] names `java.security`. */
+internal typealias JcaRandom = SecureRandom
+
+/**
+ * THE JCA boundary of `kmptoolkit-storage` (decisions D-P12): every `Cipher`, `SecretKeyFactory`, `SecureRandom`,
+ * `MessageDigest` and `Base64` use of the module's JVM code goes through this object, and nothing else imports `java.security`,
+ * `javax.crypto` or `java.util.Base64` (`JcaBoundaryScanTest` fails the build of the tests when a file does). Three rules live
+ * here and nowhere else, which is the point of the boundary:
+ *
+ * 1. **A provider failure is one typed failure.** Whatever a JCA engine throws while it works (a `GeneralSecurityException` such
+ *    as no such algorithm, a `ProviderException` from a PKCS#11 token or an unreadable entropy source, an
+ *    `UnsupportedOperationException` from an engine without AAD support, or plain noise such as a `NullPointerException` from a
+ *    broken engine) leaves as a [JcaFailure] with the original as the cause. The JCA specifies different exceptions for different
+ *    engines and every audit round of 6.0.0 found one more shape; catching every `Exception` of the provider call closes the
+ *    class. Only the provider call itself is inside the catch: the callers' own argument checks stay outside and keep their types.
+ * 2. **"Wrong key or tampered" is decided in one place** ([aesGcmOpen]), and only a GCM tag that does not verify says it. Nothing a
+ *    provider fails with in any other way can read as lost data (that verdict makes an app delete things).
+ * 3. **An `Error` is never typed.** `OutOfMemoryError`, `StackOverflowError` and `InternalError` are `VirtualMachineError`s; after
+ *    one the JVM's state is not the library's to judge, so the boundary does not catch them, and neither does anything above it.
+ *    The one that matters here is the JDK's DRBG `SecureRandom` (the default on Windows and wherever `securerandom.source` is not
+ *    exactly `/dev/random` or `/dev/urandom`): a seed source it cannot read is an `InternalError`, which leaves the store call as
+ *    that `Error`. Nothing is created or held when it does (the call's own `finally` blocks run; pinned by a test).
+ *
+ * Stateless; safe from any thread. Key arguments are borrowed: never kept and never wiped here (the JDK's own copies, such as the
+ * `SecretKeySpec`'s, cannot be wiped from outside the JDK).
+ */
+internal object Jca {
+    private const val AES_GCM: String = "AES/GCM/NoPadding"
+    private const val SHA_256: String = "SHA-256"
+    private const val PBKDF2_HMAC_SHA256: String = "PBKDF2WithHmacSHA256"
+
+    /** Runs one provider call; whatever it throws, except an `Error`, becomes a [JcaFailure] naming [what] (never a message from the provider). */
+    private inline fun <T> provider(what: String, block: () -> T): T =
+        try {
+            block()
+        } catch (failure: JcaFailure) {
+            throw failure
+        } catch (error: Exception) {
+            throw JcaFailure("The $what provider failed", error)
+        }
+
+    /** The platform's default `SecureRandom`. A provider set that cannot make one is a [JcaFailure]. */
+    fun newRandom(): JcaRandom = provider("random source") { SecureRandom() }
+
+    /** [size] random bytes from [random]; a source that fails is a [JcaFailure] (and whatever it had written is wiped). */
+    fun randomBytes(random: JcaRandom, size: Int): ByteArray {
+        val bytes = ByteArray(size)
+        try {
+            provider("random source") { random.nextBytes(bytes) }
+        } catch (failure: JcaFailure) {
+            bytes.fill(0)
+            throw failure
+        }
+        return bytes
+    }
+
+    /** SHA-256 of [input]; exact SHA-256 whichever provider serves it (the digests address OS items and file names). A failing provider is a [JcaFailure]. */
+    fun sha256(input: ByteArray): ByteArray = provider(SHA_256) { MessageDigest.getInstance(SHA_256).digest(input) }
+
+    /**
+     * AES-GCM encryption with a given 96-bit [nonce]: the ciphertext followed by the tag. The sizes of [key] and [nonce] are the
+     * caller's to check. Any provider failure is a [JcaFailure].
+     */
+    fun aesGcmSeal(key: ByteArray, nonce: ByteArray, aad: ByteArray, tagBits: Int, plaintext: ByteArray): ByteArray =
+        provider("AES-GCM") {
+            val cipher: Cipher = Cipher.getInstance(AES_GCM)
+            cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(tagBits, nonce))
+            cipher.updateAAD(aad)
+            cipher.doFinal(plaintext)
+        }
+
+    /**
+     * The plaintext of [sealed], or `null` ONLY when the GCM tag does not verify: the single place in the module that decides
+     * "wrong key or tampered". Every other outcome is a [JcaFailure].
+     *
+     * The JDK's own mismatch is an `AEADBadTagException` with no cause (`GaloisCounterMode`: "Tag mismatch"). A PKCS#11 provider
+     * (served first under a FIPS-configured JDK) reports a token error (`CKR_GENERAL_ERROR`) as an `AEADBadTagException` WITH the
+     * `PKCS11Exception` as its cause, so a bad-tag exception that carries a cause is a provider failure, decided by structure and
+     * never by reading text. The price, stated in the platform notes: such a provider attaches a cause to its real tag failures
+     * too, so under it a wrong key or a tampered file also answers `OperationFailed`. That is the safe direction: an environment
+     * problem is never allowed to delete data.
+     */
+    fun aesGcmOpen(key: ByteArray, nonce: ByteArray, aad: ByteArray, tagBits: Int, sealed: ByteArray): ByteArray? =
+        provider("AES-GCM") {
+            try {
+                val cipher: Cipher = Cipher.getInstance(AES_GCM)
+                cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(tagBits, nonce))
+                cipher.updateAAD(aad)
+                cipher.doFinal(sealed)
+            } catch (mismatch: AEADBadTagException) {
+                if (mismatch.cause != null) throw mismatch
+                null
+            }
+        }
+
+    /**
+     * Raw PBKDF2-HMAC-SHA256 of [password]: [lengthBytes] bytes. The spec is made outside the provider call, so a bad parameter
+     * keeps its own `IllegalArgumentException`; the spec's copy of the password is wiped on every way out. Any provider failure
+     * is a [JcaFailure].
+     */
+    fun pbkdf2Sha256(password: CharArray, salt: ByteArray, iterations: Int, lengthBytes: Int): ByteArray {
+        val spec = PBEKeySpec(password, salt, iterations, lengthBytes * 8)
+        try {
+            return provider("PBKDF2") {
+                SecretKeyFactory.getInstance(PBKDF2_HMAC_SHA256).generateSecret(spec).encoded
+                    ?: throw IllegalStateException("The derived key has no encoding")
+            }
+        } finally {
+            spec.clearPassword()
+        }
+    }
+
+    /** The base64 text of [bytes] as bytes. The caller owns and wipes the result. */
+    fun base64Encode(bytes: ByteArray): ByteArray = Base64.getEncoder().encode(bytes)
+
+    /**
+     * The [size] bytes that the base64 text [text] decodes to, or `null` when it is not valid base64 or does not decode to exactly
+     * [size] bytes. The decoded bytes are written into a buffer of this function's own that is wiped on every way out, so no
+     * decoded key is ever left in an array nobody can wipe (the JDK's one-argument `decode` allocates its own and leaves it behind
+     * when the input turns out malformed). The result is owned by the caller, who wipes it.
+     */
+    fun base64DecodeExactly(text: ByteArray, size: Int): ByteArray? {
+        val buffer = ByteArray((text.size + 3) / 4 * 3)
+        try {
+            val written: Int = try {
+                Base64.getDecoder().decode(text, buffer)
+            } catch (_: IllegalArgumentException) {
+                return null
+            }
+            return if (written == size) buffer.copyOf(size) else null
+        } finally {
+            buffer.fill(0)
+        }
+    }
+}

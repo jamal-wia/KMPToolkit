@@ -22,7 +22,6 @@ import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileAttribute
-import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
@@ -397,7 +396,7 @@ internal class CrossProcessLock(
                 bytes += width
                 end += Character.charCount(codePoint)
             }
-            val hash: String = MessageDigest.getInstance("SHA-256").digest(utf8).take(HASH_HEX_CHARS / 2).joinToString("") { "%02x".format(it) }
+            val hash: String = Jca.sha256(utf8).take(HASH_HEX_CHARS / 2).joinToString("") { "%02x".format(it) }
             return fileName.substring(0, end) + "~" + hash + LOCK_SUFFIX
         }
     }

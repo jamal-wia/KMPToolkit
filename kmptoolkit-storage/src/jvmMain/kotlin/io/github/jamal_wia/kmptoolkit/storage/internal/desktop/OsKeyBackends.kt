@@ -4,7 +4,6 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageError
 import io.github.jamal_wia.kmptoolkit.storage.StorageOperation
 import io.github.jamal_wia.kmptoolkit.storage.UnsupportedReason
 import java.io.File
-import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** What the Linux backend reads from the process: injectable so every branch runs on any machine. */
@@ -290,14 +289,7 @@ internal class LinuxBackend(
     /** The stored secret is base64 text; anything else, or a wrong size, cannot be this store's key (the key-check fails: lost). */
     private fun decode(secret: ByteArray): Verdict<ByteArray> {
         try {
-            val key: ByteArray = try {
-                Base64.getDecoder().decode(secret)
-            } catch (_: IllegalArgumentException) {
-                return Verdict.NotFound
-            }
-            if (key.size == SecureFileFormat.DATA_KEY_BYTES) return Verdict.Ok(key)
-            key.fill(0)
-            return Verdict.NotFound
+            return Jca.base64DecodeExactly(secret, SecureFileFormat.DATA_KEY_BYTES)?.let { key: ByteArray -> Verdict.Ok(key) } ?: Verdict.NotFound
         } finally {
             secret.fill(0)
         }
@@ -328,7 +320,7 @@ internal class LinuxBackend(
             handedOver = true
             // The base64 text is made on the native thread, inside the block, and wiped there: no unwiped encoding can be left behind.
             val stored: NativeOutcome<SecretStatus?> = caller.callOwning(secret) { owned: ByteArray ->
-                val encoded: ByteArray = Base64.getEncoder().encode(owned)
+                val encoded: ByteArray = Jca.base64Encode(owned)
                 try {
                     calls.store(itemLabel, identity.linuxAttributes, encoded)
                 } finally {

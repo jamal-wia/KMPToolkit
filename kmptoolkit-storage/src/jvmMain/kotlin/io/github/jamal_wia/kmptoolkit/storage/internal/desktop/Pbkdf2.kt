@@ -1,14 +1,10 @@
 package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
 
 import java.nio.CharBuffer
-import java.security.GeneralSecurityException
-import java.security.ProviderException
 import java.text.Normalizer
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.PBEKeySpec
 
 /**
- * PBKDF2-HMAC-SHA256 for the passphrase store (plan 4.3, 4.8, D-8). `javax.crypto` only, no dependency.
+ * PBKDF2-HMAC-SHA256 for the passphrase store (plan 4.3, 4.8, D-8). The JDK's PBKDF2 through the [Jca] boundary, no dependency.
  *
  * The passphrase is Unicode NFC-normalised, then UTF-8 encoded, before derivation; this is frozen by format v1, so the
  * same text typed in NFC and in NFD opens the same file. The accepted iteration range is [ITERATIONS_FLOOR]..
@@ -21,7 +17,6 @@ internal object Pbkdf2 {
     const val ITERATIONS_CEILING: Int = 10_000_000
     const val DEFAULT_ITERATIONS: Int = 600_000
     const val KEY_BYTES: Int = 32
-    private const val ALGORITHM: String = "PBKDF2WithHmacSHA256"
 
     /** Every code point below this one is its own NFC form and cannot be affected by a neighbour (the first one that can is U+0300). */
     private const val FIRST_CHAR_THAT_CAN_CHANGE_UNDER_NFC: Char = '\u0300'
@@ -63,7 +58,7 @@ internal object Pbkdf2 {
      * Raw PBKDF2-HMAC-SHA256 of [password] (no normalisation, no range check: the known-answer tests use RFC 7914 counts).
      * Blocking and not cancellable; a caller runs it off the caller's thread.
      *
-     * @throws IllegalStateException when the JDK has no PBKDF2 provider or the provider fails (the cause is the `GeneralSecurityException`, `ProviderException` or `UnsupportedOperationException`).
+     * @throws JcaFailure (an `IllegalStateException`) when the JDK has no PBKDF2 provider or the provider fails in any way; the original is the cause.
      *
      * Not everything this call holds can be wiped, and none of it from outside the JDK. The JDK's key object (`PBKDF2KeyImpl`)
      * clones [password] into a field of its own and keeps the derived key in another, and clears both only when the object is
@@ -75,23 +70,8 @@ internal object Pbkdf2 {
      * its exact size" is true of this library's own encodings ([toStrictUtf8]), not of the JDK's. Re-implementing PBKDF2 over
      * `Mac` would not help (HMAC keeps those pads), so this is stated, not fixed.
      */
-    fun derive(password: CharArray, salt: ByteArray, iterations: Int, lengthBytes: Int): ByteArray {
-        val spec = PBEKeySpec(password, salt, iterations, lengthBytes * 8)
-        try {
-            return SecretKeyFactory.getInstance(ALGORITHM).generateSecret(spec).encoded
-        } catch (error: GeneralSecurityException) {
-            // A provider set without PBKDF2 (restricted or FIPS): an environment problem, not a wrong passphrase.
-            throw IllegalStateException("The PBKDF2 provider failed", error)
-        } catch (error: ProviderException) {
-            // The engine chosen failed in the derivation (a PKCS#11 token error); the JDK fails over only inside generateSecret
-            // and only to another provider, so a lone failing engine reaches here as it is.
-            throw IllegalStateException("The PBKDF2 provider failed", error)
-        } catch (error: UnsupportedOperationException) {
-            throw IllegalStateException("The PBKDF2 provider failed", error)
-        } finally {
-            spec.clearPassword()
-        }
-    }
+    fun derive(password: CharArray, salt: ByteArray, iterations: Int, lengthBytes: Int): ByteArray =
+        Jca.pbkdf2Sha256(password, salt, iterations, lengthBytes)
 
     /**
      * The 32-byte key-encryption key of a passphrase store: NFC, then PBKDF2 with [salt] and [iterations].

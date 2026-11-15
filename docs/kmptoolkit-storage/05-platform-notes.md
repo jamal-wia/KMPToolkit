@@ -486,12 +486,25 @@ the link and the same instance works. (The plain store has no create step, so it
 file; it never creates the target.)
 
 **A JDK without AES-GCM or PBKDF2.** A JDK whose provider set cannot do `AES/GCM/NoPadding` or `PBKDF2WithHmacSHA256` (a FIPS-configured
-or restricted set) never makes a store call throw: a `put`, `get`, `remove`, `clear()`, `ensureKey()` or `changeKey` that needs the missing
+or restricted set) never makes a store call throw an exception: a `put`, `get`, `remove`, `clear()`, `ensureKey()` or `changeKey` that needs the missing
 algorithm answers `OperationFailed` (with the provider failure as its cause) and writes, creates and moves nothing; a store with data is never
 read as "key lost", and a passphrase is never called wrong (`AccessDenied`) for it. The same instance works once the algorithm is available.
-The same holds for a provider that is present and fails: a `ProviderException` out of an operation (a PKCS#11 token error under a
-FIPS-configured JDK), an AES-GCM engine without support for additional authenticated data, or a `SecureRandom` that cannot read its entropy
-(every nonce, salt and data key is drawn from one). Only a GCM tag that does not verify means "wrong key or tampered".
+The same holds for a provider that is present and fails. Every JCA use of the module (AES-GCM, PBKDF2, the SHA-256 of a long file name and of an
+OS-key store's identity, the random source that makes every nonce, salt and data key) goes through ONE internal boundary that turns whatever an
+engine throws into one typed failure, so no provider failure is a thrown exception or a verdict about the data: a `ProviderException` (a PKCS#11
+token error under a FIPS-configured JDK, or the entropy-source failure of NativePRNG, the default `SecureRandom` on macOS and Linux), an AES-GCM
+engine without support for additional authenticated data, a failing SHA-256, or plain noise from a broken engine. The one thing it never types is
+an `Error`: the JDK's DRBG `SecureRandom` (the default on Windows, and on Linux wherever `securerandom.source` is not exactly `/dev/random` or
+`/dev/urandom`, for example with `-Djava.security.egd=file:/dev/./urandom`) reports a seed source it cannot read as an `InternalError`, a
+`VirtualMachineError` that the library does not catch: that call throws it, and nothing is created, moved or held when it does. (The plain store
+computes its lock and temporary-file names when it is made and uses SHA-256 only for a file name of 232 bytes or more, so a failing SHA-256
+provider with such a name makes the factory throw an `IllegalStateException`, not a store call.)
+
+Only a GCM tag that does not verify means "wrong key or tampered", and only one that carries no provider cause. A PKCS#11 provider reports a
+token error during a decryption as a bad-tag exception that has the token's exception as its cause, so the library reads a bad-tag exception
+with a cause as a provider failure. The cost is deliberate: under such a provider a genuinely wrong key or a tampered file also answers
+`OperationFailed` (never `AccessDenied`, never "key lost", never a quarantine), because the provider attaches a cause to its real tag failures
+too; on such a JDK the way out of a truly lost key is `clear()`. An environment problem is never allowed to delete data.
 
 **A call on an interrupted thread.** When the store's dispatcher runs a call on a thread whose interrupt status is set (for example
 `Dispatchers.Unconfined` called from an interrupted thread), the JDK refuses the file I/O: the call answers `OperationFailed` (cause: an

@@ -3,7 +3,6 @@ package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
 import io.github.jamal_wia.kmptoolkit.storage.secureStoreId
 import java.io.File
 import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
 import java.text.Normalizer
 
 /**
@@ -36,7 +35,7 @@ internal class StoreIdentity(
 
     /** The 16 bytes of a kind 1 header: compared with the file's before any OS call, never used to address an item. */
     val headerFingerprint: ByteArray
-        get() = sha256("kmptoolkit-identity\u0000$service\u0000$directoryHex".toByteArray(StandardCharsets.UTF_8))
+        get() = Jca.sha256("kmptoolkit-identity\u0000$service\u0000$directoryHex".toByteArray(StandardCharsets.UTF_8))
             .copyOf(SecureFileFormat.FINGERPRINT_BYTES)
 
     internal companion object {
@@ -64,10 +63,8 @@ internal class StoreIdentity(
 
         /** The first 128 bits of SHA-256 over [directoryPath], as 32 hex characters. */
         fun directoryHex(directoryPath: String): String {
-            val digest: ByteArray = sha256(directoryPath.toByteArray(StandardCharsets.UTF_8))
+            val digest: ByteArray = Jca.sha256(directoryPath.toByteArray(StandardCharsets.UTF_8))
             return digest.take(DIRECTORY_HEX_CHARS / 2).joinToString("") { "%02x".format(it) }
         }
-
-        private fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)
     }
 }
