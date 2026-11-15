@@ -73,6 +73,14 @@ internal class FakeHeadingDevice(override val isHeadingAvailable: Boolean = true
     @Volatile
     var releaseFailure: Throwable? = null
 
+    /** Runs inside every manager's `startHeading`, after it took effect: a manager that delivers in place. */
+    @Volatile
+    var afterStartHeading: (FakeManager) -> Unit = { }
+
+    /** Runs inside every manager's `startLocation`, after it took effect: a manager that delivers in place. */
+    @Volatile
+    var afterStartLocation: (FakeManager) -> Unit = { }
+
     /** Runs after a manager was recorded (1-based count), on the opening thread. */
     @Volatile
     var afterOpen: (count: Int) -> Unit = { }
@@ -142,12 +150,18 @@ internal class FakeHeadingDevice(override val isHeadingAvailable: Boolean = true
             get() = authorizedFlag.load()
             set(value) = authorizedFlag.store(value)
 
-        override val isAuthorized: Boolean get() = authorizedFlag.load()
+        override val isAuthorized: Boolean
+            get() {
+                if (delegateNil.load()) report("isAuthorized after release")
+                return authorizedFlag.load()
+            }
 
         override fun startHeading() {
+            if (delegateNil.load()) report("startHeading after release")
             startHeadingFailure?.let { failure: Throwable -> throw failure }
             headingStarts.incrementAndFetch()
             headingFlag.store(true)
+            afterStartHeading(this)
         }
 
         override fun startLocation() {
@@ -155,9 +169,11 @@ internal class FakeHeadingDevice(override val isHeadingAvailable: Boolean = true
             if (delegateNil.load()) report("startLocation after release")
             locationStarts.incrementAndFetch()
             locationFlag.store(true)
+            afterStartLocation(this)
         }
 
         override fun stopLocation() {
+            if (delegateNil.load()) report("stopLocation after release")
             locationStops.incrementAndFetch()
             locationFlag.store(false)
         }

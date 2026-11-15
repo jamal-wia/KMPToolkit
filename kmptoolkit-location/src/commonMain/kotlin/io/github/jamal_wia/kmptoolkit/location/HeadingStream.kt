@@ -97,6 +97,12 @@ internal class HeadingInputs<S : Any>(initial: S, private val wake: () -> Unit) 
      * Replaces the state with `transform(state)`. [transform] must be pure: it runs again when another
      * thread won the race. Returning the very same instance means "nothing changed" and wakes nobody.
      * Safe from any thread, including the platform's callback thread.
+     *
+     * The wake-up can run the collector in place, on the caller's stack: a collector on
+     * `Dispatchers.Main.immediate` resumes inside the callback that published, and when it ends there the
+     * collection's release (and so the platform handle's `close()`) has run before this call returns. A caller
+     * therefore does no work on what the collection registered after a publish, unless it first checks that the
+     * collection is still open.
      */
     fun update(transform: (S) -> S) {
         while (true) {

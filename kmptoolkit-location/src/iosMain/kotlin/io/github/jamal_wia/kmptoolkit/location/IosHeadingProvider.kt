@@ -151,7 +151,16 @@ internal class IosHeadingProvider(
         )
     }
 
-    /** One collection: its fence, its manager and its events. */
+    /**
+     * One collection: its fence, its manager and its events.
+     *
+     * Publishing through [HeadingInputs.update] can run the collector in place (a collector on
+     * `Dispatchers.Main.immediate` resumes inside the callback that published), and with it the end of the
+     * collection and [close], which releases the manager before `update` returns. So every publish is either
+     * the last statement of its path or followed by [owns], and no call on the manager follows an unchecked
+     * publish. A call into the manager is never followed by anything but bookkeeping, so a manager that delivers
+     * in place from inside such a call (a fake does, CoreLocation does not) gets no further call after its release.
+     */
     private inner class Session(
         private val inputs: HeadingInputs<IosHeadingState>,
         private val minChangeDegrees: Double,
@@ -179,8 +188,12 @@ internal class IosHeadingProvider(
                 manager = opened
                 try {
                     opened.startHeading()
+                    // A manager that delivers inside startHeading can have run the collection to its end.
+                    if (!owns(opened)) return@confine
                     val authorized: Boolean = opened.isAuthorized
                     setAuthorized(authorized)
+                    // Publishing can run an inline collector to its end and release this manager.
+                    if (!owns(opened)) return@confine
                     if (authorized) startLocation(opened)
                 } catch (failure: Throwable) {
                     // Release first, report after: whatever the logger does, no manager stays running, and an
@@ -233,6 +246,9 @@ internal class IosHeadingProvider(
                 try {
                     val authorized: Boolean = current.isAuthorized
                     setAuthorized(authorized)
+                    // Publishing can run an inline collector to its end, and that releases this manager inside
+                    // this very callback: nothing may be started or stopped on it afterwards.
+                    if (!owns(current)) return@confine
                     if (authorized && !locationRunning) startLocation(current)
                     if (!authorized && locationRunning) stopLocation(current)
                 } catch (failure: Exception) {
@@ -261,6 +277,12 @@ internal class IosHeadingProvider(
                 }
             }
         }
+
+        /**
+         * Inside the confine only: this collection is still open and [current] is still its manager, so the
+         * manager may be told to do something. `false` once [close] ran or the release has begun, in place or not.
+         */
+        private fun owns(current: IosHeadingManager): Boolean = !closed.load() && manager === current
 
         private fun startLocation(current: IosHeadingManager) {
             current.startLocation()
