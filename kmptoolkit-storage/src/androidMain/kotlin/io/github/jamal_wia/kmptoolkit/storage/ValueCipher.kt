@@ -1,6 +1,9 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import android.annotation.TargetApi
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyInfo
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -11,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.BadPaddingException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
+import javax.crypto.SecretKeyFactory
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import kotlinx.coroutines.sync.Mutex
@@ -59,6 +63,9 @@ internal interface ValueCipher {
      * store has been migrated an unversioned entry is lost. The default has no older format.
      */
     suspend fun decryptLegacyFor(key: String, encoded: String): String = decryptFor(key, encoded)
+
+    /** The security level the platform reports for the key behind this cipher; the default cannot say. */
+    suspend fun keySecurityLevel(): AndroidKeySecurityLevel = AndroidKeySecurityLevel.UNKNOWN
 }
 
 /**
@@ -67,6 +74,13 @@ internal interface ValueCipher {
  * value, and a later attempt can succeed.
  */
 internal class StorageKeyUnavailableException(cause: Throwable) : Exception(cause)
+
+/**
+ * The key cannot be generated because the hardware it was required to live in is not there
+ * ([AndroidKeyBacking.REQUIRE_STRONGBOX] on a device without a StrongBox). Permanent for this device: nothing to retry,
+ * reported as [StorageError.Unsupported].
+ */
+internal class KeyHardwareUnavailableException(cause: Throwable) : Exception(cause)
 
 /** Where [KeystoreValueCipher] gets its symmetric key from. */
 internal interface SecretKeySource {
@@ -92,6 +106,9 @@ internal interface SecretKeySource {
      *   can succeed.
      */
     suspend fun discard(dead: SecretKey) = invalidate(dead)
+
+    /** The security level the platform reports for the key this source hands out; the default cannot say. */
+    suspend fun securityLevel(): AndroidKeySecurityLevel = AndroidKeySecurityLevel.UNKNOWN
 }
 
 /**
@@ -127,6 +144,8 @@ internal class KeystoreValueCipher(
     override suspend fun decrypt(encoded: String): String = decryptVersioned(encoded, key = null)
 
     override suspend fun decryptFor(key: String, encoded: String): String = decryptVersioned(encoded, key)
+
+    override suspend fun keySecurityLevel(): AndroidKeySecurityLevel = keySource.securityLevel()
 
     /**
      * Tries the binding to [key] first (5.0.0); an entry that fails its tag that way is read once more as an unbound
@@ -211,7 +230,8 @@ internal class KeystoreValueCipher(
             try {
                 return Cipher.getInstance(TRANSFORMATION).also { init(key, it) }
             } catch (e: InvalidKeyException) {
-                if (isTransient(e)) throw e
+                // A locked device (a key that needs it unlocked) is a state that passes: never a reason to drop the key.
+                if (isTransient(e) || isDeviceLockedFailure(e)) throw e
                 val permanent: Boolean = isPermanentlyInvalidated(e)
                 if (retries >= (if (permanent) MAX_PERMANENT_RETRIES else MAX_RETRIES)) throw e
                 retries++
@@ -303,6 +323,8 @@ internal fun isPermanentlyInvalidatedKey(error: Throwable): Boolean {
 internal class AndroidKeystoreKeySource(
     private val alias: String,
     private val keyStore: AliasedKeyStore = AndroidKeyStoreAliases,
+    /** The properties a key gets when it is generated; an existing key keeps the ones it has. */
+    private val options: AndroidSecureStorageOptions = AndroidSecureStorageOptions(),
 ) : SecretKeySource {
 
     override suspend fun key(): SecretKey {
@@ -351,10 +373,14 @@ internal class AndroidKeystoreKeySource(
      * next process start recovers a key that really died.
      */
     private fun resolve(): SecretKey = try {
-        keyStore.existingKey(alias, mayDelete = cacheKey !in resolvedOnce) ?: keyStore.generateKey(alias)
+        keyStore.existingKey(alias, mayDelete = cacheKey !in resolvedOnce) ?: keyStore.generateKey(alias, options)
+    } catch (error: KeyHardwareUnavailableException) {
+        throw error
     } catch (error: Exception) {
         throw StorageKeyUnavailableException(error)
     }
+
+    override suspend fun securityLevel(): AndroidKeySecurityLevel = keyStore.securityLevel(key())
 
     /** This alias's lock, shared by every instance over it — see the class KDoc. */
     private val aliasLock: Mutex get() = aliasLocks.computeIfAbsent(cacheKey) { Mutex() }
@@ -394,6 +420,17 @@ internal interface AliasedKeyStore {
     /** Generates a new key under [alias], replacing whatever the alias held. */
     fun generateKey(alias: String): SecretKey
 
+    /**
+     * Generates a new key under [alias] with the properties of [options]. A key store that has no use for them (a test
+     * double) inherits this default and ignores them.
+     *
+     * @throws KeyHardwareUnavailableException the required hardware is not there.
+     */
+    fun generateKey(alias: String, options: AndroidSecureStorageOptions): SecretKey = generateKey(alias)
+
+    /** The security level the platform reports for [key]; a store that cannot say answers UNKNOWN. */
+    fun securityLevel(key: SecretKey): AndroidKeySecurityLevel = AndroidKeySecurityLevel.UNKNOWN
+
     /** Deletes whatever [alias] holds; a no-op when it holds nothing. */
     fun deleteKey(alias: String)
 }
@@ -432,23 +469,115 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
         KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }.deleteEntry(alias)
     }
 
-    override fun generateKey(alias: String): SecretKey {
+    override fun generateKey(alias: String): SecretKey = generateKey(alias, AndroidSecureStorageOptions())
+
+    override fun generateKey(alias: String, options: AndroidSecureStorageOptions): SecretKey =
+        generateWithBacking(alias, options.keyBacking, Build.VERSION.SDK_INT) { name: String, strongBox: Boolean ->
+            generate(name, strongBox, options.unlockedDeviceRequired)
+        }
+
+    private fun generate(alias: String, strongBox: Boolean, unlockedDeviceRequired: Boolean): SecretKey {
         val generator: KeyGenerator =
             KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-        generator.init(
-            KeyGenParameterSpec.Builder(
-                alias,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(KEY_SIZE_BITS)
-                // Deliberately not setUserAuthenticationRequired(true): this store is for values a
-                // background sync or a cold start has to read, and an auth-bound key would make
-                // every read fail outside a recent unlock. A consumer that wants biometric-gated
-                // secrets needs a key bound to their own auth flow, not a general-purpose store.
-                .build(),
+        val builder: KeyGenParameterSpec.Builder = KeyGenParameterSpec.Builder(
+            alias,
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
         )
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(KEY_SIZE_BITS)
+        // Deliberately not setUserAuthenticationRequired(true): this store is for values a
+        // background sync or a cold start has to read, and an auth-bound key would make
+        // every read fail outside a recent unlock. A consumer that wants biometric-gated
+        // secrets needs a key bound to their own auth flow, not a general-purpose store.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            if (strongBox) builder.setIsStrongBoxBacked(true)
+            if (unlockedDeviceRequired) builder.setUnlockedDeviceRequired(true)
+        }
+        generator.init(builder.build())
         return generator.generateKey()
     }
+
+    override fun securityLevel(key: SecretKey): AndroidKeySecurityLevel = try {
+        val info: KeyInfo =
+            SecretKeyFactory.getInstance(key.algorithm, ANDROID_KEYSTORE).getKeySpec(key, KeyInfo::class.java) as KeyInfo
+        @Suppress("DEPRECATION")
+        securityLevelOf(Build.VERSION.SDK_INT, { securityLevelConstant(info) }, { info.isInsideSecureHardware })
+    } catch (_: Exception) {
+        // The platform could not say: not a failure of the store.
+        AndroidKeySecurityLevel.UNKNOWN
+    }
+}
+
+/**
+ * Generates a key with the backing the options ask for: `DEFAULT` never asks for StrongBox; `PREFER_STRONGBOX` asks for
+ * it and, when the device has none (or the platform predates it), generates the default key instead; `REQUIRE_STRONGBOX`
+ * asks for it and, when there is none, generates nothing and fails with [KeyHardwareUnavailableException].
+ *
+ * A function over a [make] seam so the fallback can be tested on the JVM, where no Keystore exists.
+ *
+ * @param make generates one key, in a StrongBox or not, with a new generator each time.
+ * @param isStrongBoxUnavailable whether a failure of [make] means the device has no StrongBox.
+ */
+internal fun generateWithBacking(
+    alias: String,
+    backing: AndroidKeyBacking,
+    sdkInt: Int,
+    isStrongBoxUnavailable: (Throwable) -> Boolean = { error: Throwable -> isStrongBoxUnavailableFailure(error) },
+    make: (alias: String, strongBox: Boolean) -> SecretKey,
+): SecretKey {
+    val strongBoxPossible: Boolean = sdkInt >= Build.VERSION_CODES.P
+    return when (backing) {
+        AndroidKeyBacking.DEFAULT -> make(alias, false)
+        AndroidKeyBacking.PREFER_STRONGBOX ->
+            if (!strongBoxPossible) {
+                make(alias, false)
+            } else {
+                try {
+                    make(alias, true)
+                } catch (error: Exception) {
+                    if (!isStrongBoxUnavailable(error)) throw error
+                    make(alias, false)
+                }
+            }
+        AndroidKeyBacking.REQUIRE_STRONGBOX ->
+            if (!strongBoxPossible) {
+                throw KeyHardwareUnavailableException(IllegalStateException("StrongBox needs API ${Build.VERSION_CODES.P}"))
+            } else {
+                try {
+                    make(alias, true)
+                } catch (error: Exception) {
+                    if (!isStrongBoxUnavailable(error)) throw error
+                    throw KeyHardwareUnavailableException(error)
+                }
+            }
+    }
+}
+
+/**
+ * The level the platform reports in [info]: from API 31 its `securityLevel`; below, only "inside secure hardware" is
+ * known, which cannot tell a trusted environment from a StrongBox, so a hardware key is UNKNOWN and a software key is
+ * SOFTWARE.
+ */
+internal fun securityLevelOf(
+    sdkInt: Int,
+    level: () -> Int,
+    insideSecureHardware: () -> Boolean,
+): AndroidKeySecurityLevel =
+    if (sdkInt >= Build.VERSION_CODES.S) {
+        securityLevelOf(level())
+    } else {
+        if (insideSecureHardware()) AndroidKeySecurityLevel.UNKNOWN else AndroidKeySecurityLevel.SOFTWARE
+    }
+
+/** The only place that reads `KeyInfo.getSecurityLevel`, which exists from API 31. */
+@TargetApi(Build.VERSION_CODES.S)
+private fun securityLevelConstant(info: KeyInfo): Int = info.securityLevel
+
+/** The `KeyProperties.SECURITY_LEVEL_*` constant as a level; one this library does not know is UNKNOWN. */
+internal fun securityLevelOf(level: Int): AndroidKeySecurityLevel = when (level) {
+    KeyProperties.SECURITY_LEVEL_SOFTWARE -> AndroidKeySecurityLevel.SOFTWARE
+    KeyProperties.SECURITY_LEVEL_TRUSTED_ENVIRONMENT -> AndroidKeySecurityLevel.TRUSTED_ENVIRONMENT
+    KeyProperties.SECURITY_LEVEL_STRONGBOX -> AndroidKeySecurityLevel.STRONGBOX
+    else -> AndroidKeySecurityLevel.UNKNOWN
 }

@@ -1,3 +1,35 @@
+public final class io/github/jamal_wia/kmptoolkit/storage/AndroidKeyBacking : java/lang/Enum {
+	public static final field DEFAULT Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeyBacking;
+	public static final field PREFER_STRONGBOX Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeyBacking;
+	public static final field REQUIRE_STRONGBOX Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeyBacking;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeyBacking;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeyBacking;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/AndroidKeySecurityLevel : java/lang/Enum {
+	public static final field SOFTWARE Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeySecurityLevel;
+	public static final field STRONGBOX Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeySecurityLevel;
+	public static final field TRUSTED_ENVIRONMENT Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeySecurityLevel;
+	public static final field UNKNOWN Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeySecurityLevel;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeySecurityLevel;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeySecurityLevel;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/AndroidSecureStorageOptions {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeyBacking;Z)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeyBacking;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getKeyBacking ()Lio/github/jamal_wia/kmptoolkit/storage/AndroidKeyBacking;
+	public final fun getUnlockedDeviceRequired ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/AndroidSecureStorageOptionsKt {
+	public static final fun androidKeySecurityLevel (Lio/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/storage/DeviceIdProvider {
 	public static final field Companion Lio/github/jamal_wia/kmptoolkit/storage/DeviceIdProvider$Companion;
 	public static final field DEFAULT_KEY Ljava/lang/String;
@@ -142,8 +174,8 @@ public final class io/github/jamal_wia/kmptoolkit/storage/StorageError$Unsupport
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageFactory_androidKt {
 	public static final fun createKeyValueStorage (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;)Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;
 	public static synthetic fun createKeyValueStorage$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;
-	public static final fun createSecureKeyValueStorage (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;)Lio/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage;
-	public static synthetic fun createSecureKeyValueStorage$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage;
+	public static final fun createSecureKeyValueStorage (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;Lio/github/jamal_wia/kmptoolkit/storage/AndroidSecureStorageOptions;)Lio/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage;
+	public static synthetic fun createSecureKeyValueStorage$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;Lio/github/jamal_wia/kmptoolkit/storage/AndroidSecureStorageOptions;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageOperation : java/lang/Enum {

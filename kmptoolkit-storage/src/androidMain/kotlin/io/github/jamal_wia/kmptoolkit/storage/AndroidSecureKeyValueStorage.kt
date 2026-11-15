@@ -50,10 +50,16 @@ internal class AndroidSecureKeyValueStorage(
     private val locks: StoreLocks = storeLocks(preferences)
 
     /**
-     * Provisional: resolves (on a first run, creates) the Keystore key and runs one cipher round, which
-     * is what the first `put` would do, without touching the stored entries. Same cancellation and error
-     * idiom as [get] and [put]; the full contract of this call on Android is defined by the Android
-     * platform group.
+     * Resolves the Keystore key through the same path a `get` takes, creating it on a first run, and runs one cipher
+     * initialisation with it: exactly what the first `put` would do, without touching the stored entries (and without
+     * stamping or migrating them). A key the platform has permanently invalidated is replaced here as it is in any other
+     * call, so this succeeds on a store whose old values are lost.
+     *
+     * Errors are those of [get]: [StorageError.Unavailable] (the Keystore will not open, a transient fault, a locked
+     * device with `unlockedDeviceRequired`), [StorageError.Unsupported] with
+     * [UnsupportedReason.HARDWARE_UNAVAILABLE] (`REQUIRE_STRONGBOX` without a StrongBox), and any other failure as
+     * [StorageError.OperationFailed] with [StorageOperation.ENSURE_KEY] and no key. A cancellation propagates and
+     * leaves nothing behind.
      */
     override suspend fun ensureKey(): StorageResult<Unit> = withContext(dispatcher) {
         try {
@@ -61,15 +67,38 @@ internal class AndroidSecureKeyValueStorage(
             StorageResult.Success(Unit)
         } catch (cancellation: CancellationException) {
             throw cancellation
-        } catch (error: StorageKeyUnavailableException) {
-            StorageResult.Failure(StorageError.Unavailable(error.cause ?: error))
         } catch (error: Exception) {
-            if (isTransientKeystoreFailure(error)) {
-                StorageResult.Failure(StorageError.Unavailable(error))
-            } else {
-                StorageResult.Failure(StorageError.OperationFailed(StorageOperation.ENSURE_KEY, cause = error))
-            }
+            StorageResult.Failure(
+                keyFailure(error) ?: StorageError.OperationFailed(StorageOperation.ENSURE_KEY, cause = error),
+            )
         }
+    }
+
+    /** The platform's security level for this store's key, resolving it if needed; failures as [ensureKey]. */
+    suspend fun keySecurityLevel(): StorageResult<AndroidKeySecurityLevel> = withContext(dispatcher) {
+        try {
+            StorageResult.Success(cipher.keySecurityLevel())
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            StorageResult.Failure(
+                keyFailure(error) ?: StorageError.OperationFailed(StorageOperation.ENSURE_KEY, cause = error),
+            )
+        }
+    }
+
+    /**
+     * The typed failure for a key that cannot be had, or `null` when [error] is something else. A fault the platform
+     * calls transient is [StorageError.Unavailable] only when [transientIsUnavailable]: a read reports it so, a write
+     * keeps reporting it as an operation failure, as documented.
+     */
+    private fun keyFailure(error: Exception, transientIsUnavailable: Boolean = true): StorageError? = when {
+        error is StorageKeyUnavailableException -> StorageError.Unavailable(error.cause ?: error)
+        error is KeyHardwareUnavailableException ->
+            StorageError.Unsupported(UnsupportedReason.HARDWARE_UNAVAILABLE, error.cause ?: error)
+        isDeviceLockedFailure(error) -> StorageError.Unavailable(error)
+        transientIsUnavailable && isTransientKeystoreFailure(error) -> StorageError.Unavailable(error)
+        else -> null
     }
 
     override suspend fun get(key: String): StorageResult<String?> = withContext(dispatcher) {
@@ -91,14 +120,11 @@ internal class AndroidSecureKeyValueStorage(
         } catch (cancellation: CancellationException) {
             // The wait for the key was cancelled, not the value lost — never report it as one.
             throw cancellation
-        } catch (error: StorageKeyUnavailableException) {
-            StorageResult.Failure(StorageError.Unavailable(error.cause ?: error))
         } catch (error: Exception) {
-            // A keystore fault the platform itself calls transient (API 33+) is not a lost value:
-            // the same bytes can decrypt a moment later, so it must not read as "discard it".
-            if (isTransientKeystoreFailure(error)) {
-                return@withContext StorageResult.Failure(StorageError.Unavailable(error))
-            }
+            // The key cannot be had (Keystore will not open, a locked device, no StrongBox) or a keystore
+            // fault the platform itself calls transient (API 33+): not a lost value, the same bytes can
+            // decrypt later or elsewhere, so it must not read as "discard it".
+            keyFailure(error)?.let { return@withContext StorageResult.Failure(it) }
             // Everything else means these particular bytes cannot be turned back into a value:
             // truncated or hand-edited Base64, a tag that fails to authenticate, a key the platform
             // destroyed. The entry is not coming back; say so rather than returning null, which a
@@ -115,11 +141,10 @@ internal class AndroidSecureKeyValueStorage(
             cipher.encryptFor(key, value)
         } catch (cancellation: CancellationException) {
             throw cancellation
-        } catch (error: StorageKeyUnavailableException) {
-            return@withContext StorageResult.Failure(StorageError.Unavailable(error.cause ?: error))
         } catch (error: Exception) {
             return@withContext StorageResult.Failure(
-                StorageError.OperationFailed(StorageOperation.PUT, key = key, cause = error),
+                keyFailure(error, transientIsUnavailable = false)
+                    ?: StorageError.OperationFailed(StorageOperation.PUT, key = key, cause = error),
             )
         }
         locks.file.withLock {

@@ -167,6 +167,44 @@ has no atomic create-if-absent. If your app runs components in a second process
 (`android:process`), do not give that process the same secure store, or make sure the main process
 has written to it at least once before the other one can start.
 
+### Key options: StrongBox and an unlocked device
+
+`createSecureKeyValueStorage(context, config, options)` takes an `AndroidSecureStorageOptions` (a plain class, not a
+data class) with two properties. They apply **when a key is generated**; a key that already exists keeps the
+properties it was generated with, and the library has no call that regenerates it (that would make every stored value
+`Undecryptable`). To get a key with new properties, open the store under another `StorageConfig.name` and move the
+values you want to keep, or clear the app's data.
+
+- `keyBacking`: `DEFAULT` (the platform default, TEE or software; never fails for lack of hardware),
+  `PREFER_STRONGBOX` (a StrongBox when the device has one, otherwise the default key; read what you got with
+  `storage.androidKeySecurityLevel()`), `REQUIRE_STRONGBOX` (a StrongBox or nothing: on a device without one, and on
+  every device below API 28, the first use answers `Unsupported(HARDWARE_UNAVAILABLE)`, no key is generated and nothing
+  is cached, so a later call tries again).
+- `unlockedDeviceRequired` (`setUnlockedDeviceRequired`, API 28 and newer, ignored below): the key works only while the
+  device is unlocked. While it is locked, calls that need the key answer `Unavailable`; the key is kept, and the same call
+  succeeds after the user unlocks. Do not enable it for a store that a background sync must read while the device is locked.
+
+`androidKeySecurityLevel()` resolves the key if needed and returns `SOFTWARE`, `TRUSTED_ENVIRONMENT`, `STRONGBOX` or
+`UNKNOWN`. From API 31 the platform names the level; below it only "inside secure hardware" is known, which cannot tell a
+trusted environment from a StrongBox, so a hardware key there is `UNKNOWN` and a software key `SOFTWARE`. A store this
+factory did not create (a test double, a decorator) answers `Success(UNKNOWN)`.
+
+`ensureKey()` resolves the key through the same path a `get` takes, creating it on a first run, runs one cipher
+initialisation, and writes no entry. It answers what the other calls answer, with no effect on stored values:
+
+| Situation | Result |
+|---|---|
+| `REQUIRE_STRONGBOX` on a device without a StrongBox | `Unsupported(HARDWARE_UNAVAILABLE)` |
+| `PREFER_STRONGBOX` without a StrongBox | key generated with the default backing; `androidKeySecurityLevel()` reports it |
+| `unlockedDeviceRequired` while the device is locked | `Unavailable` |
+| the platform reports the key permanently invalidated | the dead key is deleted and a new one generated under the alias lock; old entries `Undecryptable(key)`; writes and `ensureKey()` succeed |
+| a tag that fails on an entry | `Undecryptable(key)` |
+| the Keystore will not open, or a fault the platform calls transient (API 33+) | `Unavailable` (a transient fault on a write is `OperationFailed`, as before) |
+| any other failure of `ensureKey()` | `OperationFailed(ENSURE_KEY)` with no key |
+
+Not observed on a device: a real StrongBox, the `Unsupported` answer on an emulator without one, and a locked
+emulator. The StrongBox fallback and every mapping above are covered on the host through seams.
+
 ### Writes use `commit()`, not `apply()`
 
 `apply()` returns before the write reaches disk, which would quietly break the durability half of

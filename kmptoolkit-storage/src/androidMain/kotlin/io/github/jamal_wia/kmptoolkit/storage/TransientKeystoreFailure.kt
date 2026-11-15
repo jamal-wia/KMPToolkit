@@ -43,3 +43,47 @@ private object TransientKeystoreFailureApi33 {
         return false
     }
 }
+
+/**
+ * Whether [error], or anything in its cause chain, is `UserNotAuthenticatedException`: the platform refuses to use a
+ * key that needs the device unlocked ([AndroidSecureStorageOptions.unlockedDeviceRequired]) while the device is locked.
+ * A state that passes when the user unlocks, so it is reported as [StorageError.Unavailable] and never leads to a key
+ * being dropped or replaced.
+ */
+internal fun isDeviceLockedFailure(error: Throwable): Boolean {
+    val seen: MutableSet<Throwable> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
+    var current: Throwable? = error
+    while (current != null && seen.add(current)) {
+        if (current is android.security.keystore.UserNotAuthenticatedException) return true
+        current = current.cause
+    }
+    return false
+}
+
+/**
+ * Whether [error], or anything in its cause chain, is `StrongBoxUnavailableException`: the device has no StrongBox
+ * secure element. The class exists from API 28; below it this always answers `false`, and the caller never asks for a
+ * StrongBox there.
+ */
+internal fun isStrongBoxUnavailableFailure(
+    error: Throwable,
+    sdkInt: Int = Build.VERSION.SDK_INT,
+): Boolean {
+    if (sdkInt < Build.VERSION_CODES.P) return false
+    return StrongBoxFailureApi28.inChain(error)
+}
+
+/** The only place that names `StrongBoxUnavailableException`, kept apart so a device below API 28 never resolves it. */
+@TargetApi(Build.VERSION_CODES.P)
+private object StrongBoxFailureApi28 {
+
+    fun inChain(error: Throwable): Boolean {
+        val seen: MutableSet<Throwable> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
+        var current: Throwable? = error
+        while (current != null && seen.add(current)) {
+            if (current is android.security.keystore.StrongBoxUnavailableException) return true
+            current = current.cause
+        }
+        return false
+    }
+}
