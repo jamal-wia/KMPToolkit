@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Group sto-desktop, round 9: a new direct JCA use in the storage module's JVM code fails here (baseline zero).
+ * Group sto-desktop, round 9: a new direct JCA use in the storage module's desktop (jvm) code fails here (baseline zero).
  *
  * The rule (decisions D-P12): `Jca.kt` is the ONE file of `kmptoolkit-storage/src/jvmMain` that names `java.security`,
  * `javax.crypto`, `java.util.Base64` or one of their types, because that file holds the three rules every provider call needs
@@ -18,6 +18,13 @@ import kotlin.test.assertTrue
  * `typealias` (every alias `Jca.kt` exports is a type name: constructing it or calling its statics outside the boundary is a
  * direct provider call; naming it as a type, which is how `EnvelopeCipher` accepts an injectable random source, is not), and a
  * back-quoted package segment (back-quotes are deleted before matching).
+ *
+ * Since round 11 this is the SECOND layer. The first is `JcaBytecodeScanTest`, which reads the constant pools of the compiled classes
+ * and therefore cannot be fooled by quoting, back-quotes, spacing, aliases, constructor references or a call on an instance the
+ * boundary handed out (breaker A9-m2: the third round in a row of lexer shapes). This layer stays for what the bytecode cannot say:
+ * it reads the source files themselves, so it sees an unused import or a file the compiler never reached, and it is the reason the
+ * lexer is kept correct for the shapes the breakers found (raw strings closing at the last three quotes of a run, back-quoted names as
+ * one token, whitespace around the dots of a qualified name, `::Alias`, a second alias and an import alias).
  *
  * Limits, stated: it scans `jvmMain` of this module only (the Android store's Keystore code and the other modules have their own
  * rules), it is lexical (a use through reflection by a string that does not spell a package name, or through a type that is not
@@ -108,6 +115,32 @@ class JcaBoundaryScanTest {
         assertTrue(scan("import java.util.`Base64`").isNotEmpty(), "a back-quoted Base64")
     }
 
+    @Test
+    fun `the lexer follows Kotlin's own rules for raw string ends, back-quoted names, spaced names and aliases`() {
+        val use = "val d = java.security.MessageDigest.getInstance(\"SHA-256\")"
+        // A raw string closes at the last three quotes of a run: with four quotes the fourth is content, not the start of a string.
+        assertTrue(scan("val a = \"\"\"say \"hi\"\"\"\"; val u = \"https://example.org\"; $use").isNotEmpty(), "four closing quotes")
+        assertTrue(scan("val a = \"\"\"x\"\"\"\"\"\"\nval b = \"\"\" /* \"\"\"\n$use\nval c = \"\"\" */ \"\"\"\n").isNotEmpty(), "six closing quotes")
+        assertEquals(emptyList(), scan("val a = \"\"\"\"\"\"; val n = 1"), "an empty raw string")
+        // A back-quoted name is one token: an apostrophe, a quote or two slashes in it open nothing.
+        assertTrue(scan("fun `it's done`(): String = \"'//\"; $use").isNotEmpty(), "an apostrophe in a back-quoted name")
+        assertTrue(scan("fun `say \"hi\"`() = 1\n$use").isNotEmpty(), "a quote in a back-quoted name")
+        // Whitespace, line breaks and comments around the dots of a qualified name.
+        assertTrue(scan("val k = java . security . KeyStore.getInstance(\"PKCS12\")").isNotEmpty(), "spaces around the dots")
+        assertTrue(scan("val k = java\n    .security\n    .KeyStore.getInstance(\"PKCS12\")").isNotEmpty(), "line breaks around the dots")
+        assertTrue(scan("val k = java./* x */security.KeyStore.getInstance(\"PKCS12\")").isNotEmpty(), "a comment inside the name")
+        assertTrue(scan("val p = javax .crypto .CipherInputStream(input, cipher)").isNotEmpty(), "a type that is in no list")
+        assertTrue(scan("val k = java\n    .security\n    .KeyStore.getInstance(\"PKCS12\")").single().contains("line 1"), "the line is the line of the first segment")
+        for (alias: String in BOUNDARY_ALIASES) {
+            assertTrue(scan("val make: () -> Any = ::$alias").isNotEmpty(), "$alias as a constructor reference")
+            assertTrue(scan("val make = :: $alias").isNotEmpty(), "$alias as a spaced constructor reference")
+            assertTrue(scan("private typealias R = $alias\nval r = R()").isNotEmpty(), "a second alias")
+            assertTrue(scan("typealias Box<T> = $alias").isNotEmpty(), "a generic second alias")
+            assertTrue(scan("import io.github.x.$alias as R\nval r = R()").isNotEmpty(), "an import alias")
+            assertEquals(emptyList(), scan("val x: List<$alias> = emptyList()"), "$alias as a type argument")
+        }
+    }
+
     private companion object {
         val PACKAGES: List<String> = listOf("java.security", "javax.crypto", "java.util.Base64", "kotlin.io.encoding")
         val TYPES: List<String> = listOf(
@@ -115,7 +148,9 @@ class JcaBoundaryScanTest {
             "Signature", "Cipher", "Mac", "Base64", "SecretKeySpec", "PBEKeySpec", "GCMParameterSpec",
         )
         val PATTERNS: List<Pair<String, Regex>> =
-            PACKAGES.map { name: String -> name to Regex("(?<![\\w.])" + Regex.escape(name) + "(?![\\w])") } +
+            PACKAGES.map { name: String ->
+                name to Regex("(?<![\\w.])" + name.split('.').joinToString("\\s*\\.\\s*") { segment: String -> Regex.escape(segment) } + "(?![\\w])")
+            } +
                 TYPES.map { name: String -> name to Regex("(?<![\\w])" + name + "(?![\\w])") }
 
         /**
@@ -137,13 +172,20 @@ class JcaBoundaryScanTest {
          * An exported alias is a use when it is constructed or its statics are called (`Alias(`, `Alias.`, `Alias::`); as a type
          * annotation it names no provider call.
          */
-        fun aliasPatterns(): List<Pair<String, Regex>> = BOUNDARY_ALIASES.map { name: String ->
-            name to Regex("(?<![\\w.])" + Regex.escape(name) + "\\s*(?:\\(|\\.|::)")
+        fun aliasPatterns(): List<Pair<String, Regex>> = BOUNDARY_ALIASES.flatMap { name: String ->
+            val escaped: String = Regex.escape(name)
+            listOf(
+                name to Regex("(?<![\\w.])" + escaped + "\\s*(?:\\(|\\.|::)"),
+                // A constructor reference (`::JcaRandom`), a second alias of the alias, and an import alias are the same construction by another name.
+                name to Regex("::\\s*" + escaped + "(?![\\w])"),
+                name to Regex("typealias\\s+\\w+(?:\\s*<[^>]*>)?\\s*=\\s*" + escaped + "(?![\\w])"),
+                name to Regex("import\\s+[\\w.\\s]*\\.\\s*" + escaped + "\\s+as\\s+\\w+"),
+            )
         }
 
         /** The JCA names that the code of [source] (comments blanked, back-quotes deleted) uses, one entry per distinct name: `"<name> (line n)"`. */
         fun scan(source: String): List<String> {
-            val code: String = blankComments(source).replace("`", "")
+            val code: String = blankComments(source)
             return (PATTERNS + aliasPatterns()).mapNotNull { (name: String, pattern: Regex) ->
                 pattern.find(code)?.let { match: MatchResult -> "$name (line ${code.substring(0, match.range.first).count { it == '\n' } + 1})" }
             }
@@ -179,6 +221,7 @@ class JcaBoundaryScanTest {
                         c == '/' && next == '*' -> blockComment()
                         source.startsWith("\"\"\"", i) -> rawString()
                         c == '"' -> string()
+                        c == '`' -> backQuoted()
                         c == '\'' -> charLiteral()
                         inTemplate && c == '{' -> { depth++; out.append(c); i++ }
                         inTemplate && c == '}' -> {
@@ -205,12 +248,36 @@ class JcaBoundaryScanTest {
                 code(inTemplate = true)
             }
 
+            /**
+             * A raw string closes at the LAST three quotes of a run of quotes (`"""x""""` is the text `x"`): the quotes of a longer run
+             * before the last three are content.
+             */
             private fun rawString() {
                 out.append("\"\"\""); i += 3
-                while (i < source.length && !source.startsWith("\"\"\"", i)) {
-                    if (source.startsWith("\${", i)) template() else { out.append(source[i]); i++ }
+                while (i < source.length) {
+                    if (source[i] == '"') {
+                        var run = 0
+                        while (i + run < source.length && source[i + run] == '"') run++
+                        if (run >= 3) {
+                            repeat(run) { out.append('"') }
+                            i += run
+                            return
+                        }
+                        repeat(run) { out.append('"') }
+                        i += run
+                    } else if (source.startsWith("\${", i)) {
+                        template()
+                    } else {
+                        out.append(source[i]); i++
+                    }
                 }
-                if (i < source.length) { out.append("\"\"\""); i += 3 }
+            }
+
+            /** A back-quoted name is one token (it may hold an apostrophe, a quote or two slashes): emitted without its back-quotes. */
+            private fun backQuoted() {
+                i++
+                while (i < source.length && source[i] != '`' && source[i] != '\n') { out.append(source[i]); i++ }
+                if (i < source.length && source[i] == '`') i++
             }
 
             private fun string() {

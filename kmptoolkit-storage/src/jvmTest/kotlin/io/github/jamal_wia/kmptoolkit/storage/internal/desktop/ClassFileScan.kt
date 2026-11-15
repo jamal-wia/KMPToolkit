@@ -1,0 +1,154 @@
+package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
+
+import java.io.ByteArrayInputStream
+import java.io.DataInputStream
+import java.io.EOFException
+import java.net.URL
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.util.jar.JarFile
+import kotlin.io.path.extension
+import kotlin.io.path.isDirectory
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.readBytes
+
+/**
+ * The part of the JCA boundary scan (decisions D-P12) that reads COMPILED classes: what a class file's constant pool says about
+ * the JDK crypto types a class touches, whatever its source looked like. A lexer over source text can be fooled by quoting,
+ * back-quotes, spacing, aliases and constructor references; the constant pool cannot, because the compiler has already resolved all of
+ * them to one `CONSTANT_Class` per type a class names (the owner of every method, field and constructor reference included).
+ *
+ * What is flagged, in a class that is not the boundary:
+ * - a `CONSTANT_Class` whose internal name (array and `L...;` wrapping stripped) is under `java/security/`, `javax/crypto/`,
+ *   `kotlin/io/encoding/`, or is `java/util/Base64` or one of its nested classes: a construction, a call, a field read, an
+ *   `instanceof`, a cast, or a call on an INSTANCE the boundary handed out (its owner is the JDK type);
+ * - a `CONSTANT_String` that spells one of those packages with dots (`Class.forName("java.security.SecureRandom")` written out);
+ * - a descriptor (a `Utf8` entry) that mentions one of those types other than `java/security/SecureRandom`, the one type that may
+ *   cross the boundary (`JcaRandom`, how an injectable random source is accepted). Naming it in a signature is no call: a call on it
+ *   is a `CONSTANT_Class`, which is flagged.
+ *
+ * Not seen, stated: reflection by a computed string, a non-inline helper of ANOTHER module that uses the JCA, a value obtained
+ * from the boundary and upcast before it is used, and compile-time constants (an `Int` constant is inlined as a number).
+ */
+internal object ClassFileScan {
+
+    /** Which JDK crypto types a class file touches, as read from its constant pool. */
+    class Facts(val name: String, val classRefs: Set<String>, val strings: Set<String>, val descriptors: Set<String>)
+
+    /** A class file that is not one: bad magic, an unknown constant tag, or a truncated pool. */
+    class MalformedClass(message: String) : IllegalArgumentException(message)
+
+    private val FORBIDDEN_PREFIXES: List<String> = listOf("java/security/", "javax/crypto/", "kotlin/io/encoding/")
+    private const val BASE64: String = "java/util/Base64"
+    private val DOTTED: List<String> = listOf("java.security", "javax.crypto", "java.util.Base64", "kotlin.io.encoding")
+    private val DESCRIPTOR_TYPE: Regex = Regex("L([^;()\\[]+);")
+    private const val ALLOWED_TYPE: String = "java/security/SecureRandom"
+
+    /** The internal name of the boundary and of its nested classes and lambdas (`.../desktop/Jca`, `.../desktop/Jca$...`). */
+    fun isBoundary(className: String): Boolean = className.endsWith("/desktop/Jca") || className.contains("/desktop/Jca$")
+
+    fun isForbiddenType(internalName: String): Boolean {
+        val bare: String = if (internalName.startsWith("[")) internalName.trimStart('[').removePrefix("L").removeSuffix(";") else internalName
+        return FORBIDDEN_PREFIXES.any { prefix: String -> bare.startsWith(prefix) } || bare == BASE64 || bare.startsWith("$BASE64$")
+    }
+
+    /** Parses the constant pool of [bytes]; throws [MalformedClass] for anything that is not a well-formed class file. */
+    fun parse(bytes: ByteArray): Facts {
+        try {
+            val input = DataInputStream(ByteArrayInputStream(bytes))
+            if (input.readInt() != MAGIC) throw MalformedClass("bad magic")
+            input.readUnsignedShort()
+            input.readUnsignedShort()
+            val count: Int = input.readUnsignedShort()
+            val utf8: Array<String?> = arrayOfNulls(count)
+            // Entry index to the index of its Utf8 (a class's name, a string's text): resolved after the whole pool is read.
+            val classEntries: MutableMap<Int, Int> = mutableMapOf()
+            val stringEntries: MutableList<Int> = mutableListOf()
+            var index = 1
+            while (index < count) {
+                when (val tag: Int = input.readUnsignedByte()) {
+                    TAG_UTF8 -> utf8[index] = input.readUTF()
+                    TAG_INTEGER, TAG_FLOAT -> input.skipFully(4)
+                    // An eight-byte constant takes two slots of the pool.
+                    TAG_LONG, TAG_DOUBLE -> {
+                        input.skipFully(8)
+                        index++
+                    }
+                    TAG_CLASS -> classEntries[index] = input.readUnsignedShort()
+                    TAG_STRING -> stringEntries += input.readUnsignedShort()
+                    TAG_METHOD_TYPE, TAG_MODULE, TAG_PACKAGE -> input.skipFully(2)
+                    TAG_FIELD_REF, TAG_METHOD_REF, TAG_INTERFACE_METHOD_REF, TAG_NAME_AND_TYPE, TAG_DYNAMIC, TAG_INVOKE_DYNAMIC -> input.skipFully(4)
+                    TAG_METHOD_HANDLE -> input.skipFully(3)
+                    else -> throw MalformedClass("unknown constant tag $tag at entry $index")
+                }
+                index++
+            }
+            input.readUnsignedShort()
+            val thisClass: Int = input.readUnsignedShort()
+            fun text(entry: Int, what: String): String = utf8.getOrNull(entry) ?: throw MalformedClass("$what $entry is not a Utf8 entry")
+            val thisName: String = text(classEntries[thisClass] ?: throw MalformedClass("this_class $thisClass is not a CONSTANT_Class entry"), "this_class name")
+            return Facts(
+                name = thisName,
+                classRefs = classEntries.values.map { nameIndex: Int -> text(nameIndex, "class name") }.toSet(),
+                strings = stringEntries.map { stringIndex: Int -> text(stringIndex, "string") }.toSet(),
+                descriptors = utf8.filterNotNull().filter { value: String -> '(' in value || (value.startsWith("L") && value.endsWith(";")) }.toSet(),
+            )
+        } catch (eof: EOFException) {
+            throw MalformedClass("truncated class file")
+        }
+    }
+
+    /** What a class file touches that the boundary rules forbid, one readable line per distinct finding. */
+    fun violations(facts: Facts): List<String> {
+        val found: MutableList<String> = mutableListOf()
+        facts.classRefs.filter(::isForbiddenType).sorted().forEach { type: String -> found += "${facts.name} names the class $type" }
+        facts.strings.filter { text: String -> DOTTED.any { name: String -> name in text } }.sorted().forEach { text: String -> found += "${facts.name} holds the string \"$text\"" }
+        facts.descriptors.forEach { descriptor: String ->
+            DESCRIPTOR_TYPE.findAll(descriptor).map { match: MatchResult -> match.groupValues[1] }
+                .filter { type: String -> isForbiddenType(type) && type != ALLOWED_TYPE }
+                .forEach { type: String -> found += "${facts.name} has a descriptor that mentions $type" }
+        }
+        return found.distinct()
+    }
+
+    /** The class files under [location]: a directory (walked) or a jar (its entries). Fails when [location] is neither. */
+    fun classBytes(location: URL): List<ByteArray> {
+        val path: Path = Paths.get(location.toURI())
+        return when {
+            path.isDirectory() -> Files.walk(path).use { stream -> stream.filter { file: Path -> file.isRegularFile() && file.extension == "class" }.map { file: Path -> file.readBytes() }.toList() }
+            path.isRegularFile() && path.extension == "jar" -> JarFile(path.toFile()).use { jar: JarFile ->
+                jar.entries().asSequence().filter { entry -> !entry.isDirectory && entry.name.endsWith(".class") }.map { entry -> jar.getInputStream(entry).use { stream -> stream.readBytes() } }.toList()
+            }
+            else -> error("the class location $location is neither a directory nor a jar: the scan cannot run (it must not pass silently)")
+        }
+    }
+
+    private fun DataInputStream.skipFully(count: Int) {
+        var left: Int = count
+        while (left > 0) {
+            val skipped: Int = skipBytes(left)
+            if (skipped <= 0) throw EOFException()
+            left -= skipped
+        }
+    }
+
+    private const val MAGIC: Int = 0xCAFEBABE.toInt()
+    private const val TAG_UTF8: Int = 1
+    private const val TAG_INTEGER: Int = 3
+    private const val TAG_FLOAT: Int = 4
+    private const val TAG_LONG: Int = 5
+    private const val TAG_DOUBLE: Int = 6
+    private const val TAG_CLASS: Int = 7
+    private const val TAG_STRING: Int = 8
+    private const val TAG_FIELD_REF: Int = 9
+    private const val TAG_METHOD_REF: Int = 10
+    private const val TAG_INTERFACE_METHOD_REF: Int = 11
+    private const val TAG_NAME_AND_TYPE: Int = 12
+    private const val TAG_METHOD_HANDLE: Int = 15
+    private const val TAG_METHOD_TYPE: Int = 16
+    private const val TAG_DYNAMIC: Int = 17
+    private const val TAG_INVOKE_DYNAMIC: Int = 18
+    private const val TAG_MODULE: Int = 19
+    private const val TAG_PACKAGE: Int = 20
+}
