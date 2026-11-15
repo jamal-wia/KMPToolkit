@@ -7,6 +7,7 @@ import android.util.Base64
 import java.security.InvalidKeyException
 import java.security.KeyStore
 import java.security.UnrecoverableKeyException
+import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.BadPaddingException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -231,7 +232,7 @@ internal fun isPermanentlyInvalidatedKey(error: Throwable): Boolean {
  * not check for it — refusing to store a token on the weaker device would only push the consumer
  * into storing it somewhere worse.
  *
- * ### Why the lookup runs under a process-wide lock
+ * ### Why the lookup runs under a lock, and why the lock is per alias
  *
  * "Look the alias up, generate a key if it is absent" is two key-store calls, and the second one
  * does not fail when the alias already exists — it silently replaces the entry. Two callers that
@@ -242,11 +243,14 @@ internal fun isPermanentlyInvalidatedKey(error: Throwable): Boolean {
  * [AliasedKeyStore.existingKey] has the same shape and a sharper edge: a caller still holding a
  * stale `UnrecoverableKeyException` would delete the fresh key another caller had just generated.
  *
- * The lock is [keyResolution], one for the whole process, not one per instance: every
+ * The lock is [aliasLock], one per alias for the whole process, not one per instance: every
  * `createSecureKeyValueStorage` call builds a new source, so two stores over the same configuration
- * are two instances racing for one alias. Inside the lock the key store is asked again, so the
- * second caller finds the first caller's key instead of making its own. It is held only while a key
- * is resolved or dropped; once resolved, [cache] answers for the whole process.
+ * are two instances racing for one alias, while two stores over different aliases share nothing and
+ * never wait for each other (one slow alias used to stall every store in the process). Inside the
+ * lock the key store is asked again, so the second caller finds the first caller's key instead of
+ * making its own. It is held only while a key is resolved, dropped or deleted; once resolved,
+ * [cache] answers for the whole process without taking any lock. The key-store calls under the lock
+ * are blocking but never suspend and never call back into foreign code.
  *
  * Another *process* of the same app is not covered: the AndroidKeyStore has no atomic
  * create-if-absent, and nothing in-process can stand in for one. See
@@ -260,16 +264,20 @@ internal class AndroidKeystoreKeySource(
     private val keyStore: AliasedKeyStore = AndroidKeyStoreAliases,
 ) : SecretKeySource {
 
-    override suspend fun key(): SecretKey = keyResolution.withLock {
-        cache[cacheKey] ?: resolve().also {
-            cache[cacheKey] = it
-            resolvedOnce += cacheKey
+    override suspend fun key(): SecretKey {
+        // A resolved key is answered without any lock; only a miss waits for the alias's own lock.
+        cache[cacheKey]?.let { cached: SecretKey -> return cached }
+        return aliasLock.withLock {
+            cache[cacheKey] ?: resolve().also { resolved: SecretKey ->
+                cache[cacheKey] = resolved
+                resolvedOnce += cacheKey
+            }
         }
     }
 
     /** Compare-and-remove: only the handle that failed is dropped, never a fresh key another caller made. */
     override suspend fun invalidate(stale: SecretKey) {
-        keyResolution.withLock {
+        aliasLock.withLock {
             if (cache[cacheKey] === stale) cache.remove(cacheKey)
         }
     }
@@ -281,7 +289,7 @@ internal class AndroidKeystoreKeySource(
      * and generates a new key, under the same lock.
      */
     override suspend fun discard(dead: SecretKey) {
-        keyResolution.withLock {
+        aliasLock.withLock {
             if (cache[cacheKey] !== dead) return
             try {
                 keyStore.deleteKey(alias)
@@ -307,20 +315,27 @@ internal class AndroidKeystoreKeySource(
         throw StorageKeyUnavailableException(error)
     }
 
+    /** This alias's lock, shared by every instance over it — see the class KDoc. */
+    private val aliasLock: Mutex get() = aliasLocks.computeIfAbsent(cacheKey) { Mutex() }
+
     private companion object {
-        /** Serializes key resolution across every instance in the process — see the class KDoc. */
-        val keyResolution: Mutex = Mutex()
+        /**
+         * One lock per alias (and key store) for the whole process: it serializes the resolution, invalidation and
+         * deletion of that alias's key and nothing else, so a slow alias never stalls another one. Entries are never
+         * removed, like [cache]'s: one small object per alias the process has used.
+         */
+        val aliasLocks: ConcurrentHashMap<Pair<AliasedKeyStore, String>, Mutex> = ConcurrentHashMap()
 
         /**
-         * The resolved key per alias, for the whole process and guarded by [keyResolution] — not per
-         * instance: an instance that cached a key another instance later replaced would keep using
-         * the dead handle for the life of the process. Keyed by the key store too, so a test's fake
-         * store never sees another's keys.
+         * The resolved key per alias, for the whole process — not per instance: an instance that cached a key
+         * another instance later replaced would keep using the dead handle for the life of the process. Keyed by
+         * the key store too, so a test's fake store never sees another's keys. Read without a lock (a hit costs
+         * nothing), written only under the alias's lock.
          */
-        val cache: MutableMap<Pair<AliasedKeyStore, String>, SecretKey> = mutableMapOf()
+        val cache: ConcurrentHashMap<Pair<AliasedKeyStore, String>, SecretKey> = ConcurrentHashMap()
 
-        /** Aliases resolved at least once in this process, guarded by [keyResolution]. */
-        val resolvedOnce: MutableSet<Pair<AliasedKeyStore, String>> = mutableSetOf()
+        /** Aliases resolved at least once in this process; each entry is touched only under its own alias's lock. */
+        val resolvedOnce: MutableSet<Pair<AliasedKeyStore, String>> = ConcurrentHashMap.newKeySet()
     }
 }
 
