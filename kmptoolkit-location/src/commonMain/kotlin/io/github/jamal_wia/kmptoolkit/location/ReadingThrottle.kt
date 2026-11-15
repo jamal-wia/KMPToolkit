@@ -45,6 +45,9 @@ private sealed interface Inbound {
  *   a newer such fix replaces the pending one (the newest wins);
  * - a fix that is too close to the last emitted one is dropped and also discards the pending fix: the
  *   newest position says nothing worth emitting (the user came back);
+ * - a **seed** (the cached first fix of a stream, recognised by `isSeed`, decision D-21) sets the
+ *   distance reference but no emission time: the interval has not started, so the first live fix
+ *   that is far enough passes at once, and one that is too close is dropped like any other;
  * - when the upstream completes while a fix is pending, that fix is still emitted at the end of the
  *   interval and then the stream completes.
  *
@@ -66,8 +69,10 @@ private class ReadingThrottle(
     private val minDistanceMeters: Double,
     private val minInterval: Duration,
     private val timeSource: TimeSource,
+    private val isSeed: (LocationReading) -> Boolean,
 ) {
     private var lastEmittedFix: LocationFix? = null
+    /** `null` while there is no reference fix and while the reference is a seed (no interval running). */
     private var lastEmittedAt: TimeMark? = null
     private var pending: LocationFix? = null
     private var generation: Int = 0
@@ -118,19 +123,20 @@ private class ReadingThrottle(
 
     private suspend fun handleFix(reading: LocationReading.Available) {
         val previousFix: LocationFix? = lastEmittedFix
-        val previousAt: TimeMark? = lastEmittedAt
-        if (previousFix == null || previousAt == null) {
-            emitFix(reading.fix)
+        if (previousFix == null) {
+            emitFix(reading.fix, asSeed = isSeed(reading))
             return
         }
         val farEnough: Boolean =
             previousFix.coordinates.distanceInMetersTo(reading.fix.coordinates) >= minDistanceMeters
+        // No emission time means the reference is a seed: the interval has not started.
+        val previousAt: TimeMark? = lastEmittedAt
         when {
             !farEnough -> {
                 cancelTimer()
                 pending = null
             }
-            previousAt.elapsedNow() >= minInterval -> emitFix(reading.fix)
+            previousAt == null || previousAt.elapsedNow() >= minInterval -> emitFix(reading.fix, asSeed = isSeed(reading))
             else -> {
                 pending = reading.fix
                 startTimerIfIdle(previousAt)
@@ -138,11 +144,11 @@ private class ReadingThrottle(
         }
     }
 
-    private suspend fun emitFix(fix: LocationFix) {
+    private suspend fun emitFix(fix: LocationFix, asSeed: Boolean = false) {
         cancelTimer()
         pending = null
         lastEmittedFix = fix
-        lastEmittedAt = timeSource.markNow()
+        lastEmittedAt = if (asSeed) null else timeSource.markNow()
         out.emit(LocationReading.Available(fix))
     }
 
@@ -174,12 +180,16 @@ private class ReadingThrottle(
  * see [ReadingThrottle] for the rules. Cold: each collection starts with no reference fix, so the
  * first fix of every collection is emitted at once.
  *
+ * @param isSeed marks the cached first fix of a stream (default: nothing is a seed). A seed is emitted
+ * like any first fix but starts no interval, so the first far-enough live fix after it is not held
+ * behind a cached position; platform providers pass `{ reading -> reading === seed }`.
  * @param timeSource the clock the interval is measured on; tests pass the test scheduler's, so the
  * timer (`delay`, virtual in `runTest`) and the clock agree.
  */
 internal fun Flow<LocationReading>.throttledBy(
     options: LocationUpdatesOptions,
     timeSource: TimeSource = TimeSource.Monotonic,
+    isSeed: (LocationReading) -> Boolean = { false },
 ): Flow<LocationReading> {
     val upstream: Flow<LocationReading> = this
     return flow {
@@ -192,6 +202,7 @@ internal fun Flow<LocationReading>.throttledBy(
                 minDistanceMeters = options.minUpdateDistanceMeters,
                 minInterval = options.minUpdateInterval,
                 timeSource = timeSource,
+                isSeed = isSeed,
             )
             // An upstream failure cancels this scope and is rethrown by it; no catch is needed.
             val pump: Job = launch {

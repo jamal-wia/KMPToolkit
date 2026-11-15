@@ -78,11 +78,12 @@ class ReadingThrottleTest {
     /** Runs [script] as the upstream until it completes and returns what left the throttle, with the virtual time of each. */
     private suspend fun TestScope.runTimed(
         options: LocationUpdatesOptions,
+        isSeed: (LocationReading) -> Boolean = { false },
         script: suspend Script.() -> Unit,
     ): List<Timed> {
         val scheduler: TestCoroutineScheduler = testScheduler
         return flow { Script(scheduler, this).script() }
-            .throttledBy(options, scheduler.timeSource)
+            .throttledBy(options, scheduler.timeSource, isSeed)
             .map { reading: LocationReading -> Timed(scheduler.currentTime, reading) }
             .toList()
     }
@@ -205,8 +206,8 @@ class ReadingThrottleTest {
     }
 
     @Test
-    fun `a live fix soon after a cached seed is not lost behind the seed`() = runTest {
-        // The seed (a cached fix) is emitted first; the live fix 1 s later must still arrive when the interval ends.
+    fun `without a seed marker the first fix starts the interval and a live fix soon after waits for its end`() = runTest {
+        // The default: nothing is a seed, so a first fix is an ordinary emission. The fix is held, not lost.
         val result: List<Timed> = runTimed(options(interval = 30.seconds)) {
             emitAt(0, at(1.0))
             emitAt(1_000, at(2.0))
@@ -239,6 +240,91 @@ class ReadingThrottleTest {
 
         assertEquals(listOf(Timed(0, at(1.0)), Timed(5_000, at(2.0))), result)
         assertEquals(5_000L, completedAt, "the stream completes right after the held fix, not before it")
+    }
+
+    // endregion
+
+    // region seed (D-21): a cached seed sets the distance reference but starts no interval
+
+    @Test
+    fun `the first live fix after a seed passes at once even inside the interval`() = runTest {
+        val seed: LocationReading = at(1.0)
+        val result: List<Timed> = runTimed(options(interval = 30.seconds), isSeed = { reading: LocationReading -> reading === seed }) {
+            emitAt(0, seed)
+            emitAt(1_000, at(2.0)) // a fresh fix beats the cached one: no wait
+            emitAt(2_000, at(3.0)) // the interval started with the live fix: held until 31 000
+        }
+
+        assertEquals(listOf(Timed(0, seed), Timed(1_000, at(2.0)), Timed(31_000, at(3.0))), result)
+    }
+
+    @Test
+    fun `a live fix too close to the seed is dropped and a far one later still passes at once`() = runTest {
+        val seed: LocationReading = at(0.0)
+        val result: List<Timed> = runTimed(
+            options(distanceMeters = 100.0, interval = 30.seconds),
+            isSeed = { reading: LocationReading -> reading === seed },
+        ) {
+            emitAt(0, seed)
+            emitAt(1_000, at(0.0001)) // 11 m from the seed: dropped, nothing held (no interval is running)
+            emitAt(5_000, at(0.002)) // 222 m: passes at once
+            idleUntil(60_000)
+        }
+
+        assertEquals(listOf(Timed(0, seed), Timed(5_000, at(0.002))), result)
+    }
+
+    @Test
+    fun `only the marked reading is a seed`() = runTest {
+        val seed: LocationReading = at(1.0)
+        val result: List<Timed> = runTimed(options(interval = 30.seconds), isSeed = { reading: LocationReading -> reading === seed }) {
+            emitAt(0, at(1.0)) // equal to the seed but not the marked instance: an ordinary first fix
+            emitAt(1_000, at(2.0))
+        }
+
+        assertEquals(listOf(Timed(0, at(1.0)), Timed(30_000, at(2.0))), result)
+    }
+
+    @Test
+    fun `a reason after a seed passes at once and the next fix passes at once too`() = runTest {
+        val seed: LocationReading = at(1.0)
+        val result: List<Timed> = runTimed(options(interval = 30.seconds), isSeed = { reading: LocationReading -> reading === seed }) {
+            emitAt(0, seed)
+            emitAt(500, unavailable(LocationUnavailability.SERVICE_DISABLED))
+            emitAt(1_000, at(2.0))
+        }
+
+        assertEquals(
+            listOf(Timed(0, seed), Timed(500, unavailable(LocationUnavailability.SERVICE_DISABLED)), Timed(1_000, at(2.0))),
+            result,
+        )
+    }
+
+    @Test
+    fun `cancelling after a seed and a held live fix releases the upstream and leaves no timer behind`() = runTest {
+        val scheduler: TestCoroutineScheduler = testScheduler
+        val seed: LocationReading = at(1.0)
+        val upstream = ScriptedUpstream(scheduler, listOf(0L to seed, 100L to at(2.0), 200L to at(3.0)))
+        val received: MutableList<Timed> = mutableListOf()
+        val job: Job = launch {
+            upstream.flow.throttledBy(options(interval = 1.hours), scheduler.timeSource) { reading: LocationReading -> reading === seed }
+                .collect { reading: LocationReading -> received += Timed(currentTime, reading) }
+        }
+
+        advanceTimeBy(300)
+        runCurrent()
+        // Control: the seed and the first live fix are out, the second live fix is held behind an hour-long interval.
+        assertEquals(listOf(Timed(0, seed), Timed(100, at(2.0))), received)
+        assertEquals(0, upstream.released)
+        assertTrue(job.isActive)
+
+        job.cancelAndJoin()
+
+        assertEquals(1, upstream.released)
+        val before: Long = currentTime
+        testScheduler.advanceUntilIdle()
+        assertEquals(before, currentTime, "no timer is left")
+        assertEquals(2, received.size, "the held fix is not delivered after the cancellation")
     }
 
     // endregion
@@ -518,7 +604,8 @@ class ReadingThrottleTest {
 
     // region storms against a reference model
 
-    private class Step(val atMillis: Long, val reading: LocationReading)
+    /** One scripted arrival; [seed] marks the first reading as a cached seed (D-21). */
+    private class Step(val atMillis: Long, val reading: LocationReading, val seed: Boolean = false)
 
     /**
      * The straight-line statement of the rules on absolute time, written independently of the operator:
@@ -558,7 +645,8 @@ class ReadingThrottleTest {
             if (reference == null) {
                 out += Timed(step.atMillis, reading)
                 lastFix = fix
-                lastAt = step.atMillis
+                // A seed sets the distance reference but starts no interval.
+                lastAt = if (step.seed) Long.MIN_VALUE / 4 else step.atMillis
                 held = null
             } else if (reference.coordinates.distanceInMetersTo(fix.coordinates) < distanceMeters) {
                 held = null
@@ -577,7 +665,7 @@ class ReadingThrottleTest {
 
     private fun script(rng: Random, length: Int): List<Step> {
         var now: Long = 0
-        return List(length) {
+        val steps: MutableList<Step> = MutableList(length) {
             now += rng.nextInt(0, 3_000)
             val reading: LocationReading = if (rng.nextInt(10) == 0) {
                 unavailable(LocationUnavailability.entries[rng.nextInt(LocationUnavailability.entries.size)])
@@ -588,6 +676,10 @@ class ReadingThrottleTest {
             }
             Step(now, reading)
         }
+        // Half of the scripts start with a cached seed.
+        val first: Step = steps[0]
+        if (first.reading is LocationReading.Available && rng.nextBoolean()) steps[0] = Step(first.atMillis, first.reading, seed = true)
+        return steps
     }
 
     @Test
@@ -608,7 +700,8 @@ class ReadingThrottleTest {
                     // The work is finite (a scripted upstream that completes), so draining the scheduler is bounded.
                     val worldOfWorker = TestScope()
                     val collected: Deferred<List<Timed>> = worldOfWorker.async {
-                        worldOfWorker.runTimed(options(distance, interval)) {
+                        val seedReading: LocationReading? = steps.firstOrNull { step: Step -> step.seed }?.reading
+                        worldOfWorker.runTimed(options(distance, interval), isSeed = { reading: LocationReading -> reading === seedReading }) {
                             for (step: Step in steps) emitAt(step.atMillis, step.reading)
                         }
                     }
