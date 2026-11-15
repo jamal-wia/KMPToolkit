@@ -275,7 +275,7 @@ class FakeLocationProviderTest {
     // ---- the hold ------------------------------------------------------------------------------
 
     @Test
-    fun `a hold keeps every call suspended until released, then ends`() = runTest(UnconfinedTestDispatcher()) {
+    fun `a hold keeps every call suspended until released and then ends`() = runTest(UnconfinedTestDispatcher()) {
         val provider = FakeLocationProvider()
         provider.holdCurrentLocation()
 
