@@ -541,16 +541,19 @@ sees the interrupt; a caller resumed on another thread does not. Only an `Interr
 that the JDK wraps (an SPI constructor that throws while `getInstance` makes the engine leaves as a `NoSuchAlgorithmException` with it as
 the cause) or that another exception carries as its cause is typed like any other failure and leaves the status alone, because a cause can
 be an exception that came from another thread and inventing an interrupt is worse than missing one that a provider constructor hid. Whatever the random source had written when it failed is wiped. Two scans
-of the build enforce that nothing else of the desktop code touches the JCA: one reads the constant pools of the compiled classes (commonMain and
-jvmMain, and the `jvmFfm` output wherever that source set exists), so it
+of the build enforce that nothing else of the desktop code touches the JCA: one reads the constant pools of EVERY compiled output of the jvm
+main code that exists (commonMain and jvmMain, the `jvmFfm` output wherever that source set exists, and the javac output of Java sources
+such as `src/jvmMain/java`; all found by walking Gradle's `classes` tree, none listed by name, so a new source set or language cannot hide), so it
 sees a use however the source spells it and a call on the random source the boundary hands out (also through `java.util.Random`,
 `RandomGenerator` or `asKotlinRandom()`, which no main code uses today). The boundary is exempt by its exact class name and by nothing
 else: the class has no nested class, a class whose name only starts with `Jca$` (a back-quoted name, a renamed file facade) fails the
 scan for that name whatever file it was compiled from (the file name a class carries is only a base name and proves nothing), and a
-second class with the boundary's name in another output location fails it too. The other scan reads the source files of `jvmMain` and,
-where it exists, `jvmFfm`. Neither sees reflection by a string built at run time, or a helper of another module that reaches the JCA
-inside its own code; the bytecode scan does not read classes compiled from Java sources of `jvmFfm` (there are none) and does not
-flag the `toString()` of a provider's random engine that a caller reaches through `Object`. The one
+second class with the boundary's name in another output location fails it too. The other scan reads every `.kt` and `.java` file under every
+`jvm*` source directory of the module that is not a test source set (`jvmMain`, `jvmFfm` where it exists, a set that does not exist yet; found
+by walking `src/`). Neither sees reflection by a string built at run time, or a helper of another module that reaches the JCA
+inside its own code; the bytecode scan does not flag the `toString()` of a provider's random engine that a caller reaches through `Object`.
+(A Java source under `src/jvmFfm/java` is not a gap: the build refuses it on a branch that has that source set, because the Java and Kotlin
+compile tasks of its compilation disagree on the JVM target, so no such class ships.) The one
 thing it never types is an `Error`: the JDK's DRBG `SecureRandom` (the default on Windows, and on Linux wherever `securerandom.source` is not exactly `/dev/random` or
 `/dev/urandom`, for example with `-Djava.security.egd=file:/dev/./urandom`) reports a seed source it cannot read as an `InternalError`, a
 `VirtualMachineError` that the library does not catch: that call throws it, and nothing is created, moved or held when it does. (The plain store derives its lock-file and temporary-file names from the file name and
