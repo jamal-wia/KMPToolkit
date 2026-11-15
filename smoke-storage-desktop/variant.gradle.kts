@@ -49,6 +49,10 @@ val consumerRules: TaskProvider<Sync> = tasks.register<Sync>("collectConsumerPro
     dependsOn(runtimeClasspath)
     // Two jars shipping a file of the same name would silently drop one rule file: fail instead.
     duplicatesStrategy = DuplicatesStrategy.FAIL
+    // Never up to date: the copy spec is only partly part of Gradle's up-to-date check (a filter closure is not, and a changed
+    // exclude was seen to be missed), and the rules handed to ProGuard are what this release gate stands on, so they must always
+    // mirror the jars as they are now. The copy costs a few small files.
+    outputs.upToDateWhen { false }
     from({ runtimeClasspath.files.filter { it.name.endsWith(".jar") }.map { zipTree(it).matching { include("META-INF/proguard/*.pro") } } })
     eachFile { path = name }
     includeEmptyDirs = false
