@@ -493,11 +493,16 @@ a key derived from what your app provides.
   UTF-8 form, and the JDK would silently turn it into `?`, so two different passphrases would open one store) or a raw key that is
   not 32 bytes is `AccessDenied`; the cause never contains the secret. A provider that throws is `Unavailable(cause)`;
   `CancellationException` propagates. The provider is called at most once per operation, and every array it returned is wiped
-  as soon as it has been used, so it must return a fresh array on every call. A passphrase in which every character is below U+0300
-  (ASCII, Latin-1 and Latin Extended: the usual typed text, which is already NFC) is only copied into an array that is wiped; a
-  passphrase with any character from U+0300 up (Cyrillic, Arabic, CJK, a combining mark, an emoji) passes through immutable
-  `String`s made by the JDK's normalizer (a copy of the input and the result), which cannot be wiped and stay on the heap
-  until they are collected (the JDK has no normalizer that works on a caller-owned buffer). A re-key with the key object the instance already uses asks its provider once.
+  as soon as it has been used, so it must return a fresh array on every call. Wiping is best effort and stops where the JDK stops. The arrays this library makes (the NFC copy of
+  the passphrase, its UTF-8 encoding, the derived key) are wiped as soon as they are used, and every UTF-8 encoding is written
+  once into an array of exactly its size, so no larger copy is dropped unwiped. But the JDK's PBKDF2 implementation keeps its
+  own copy of the passphrase characters and of the derived key-encryption key inside its key object and clears them only when
+  that object is garbage collected; no public API clears them sooner. That holds for **every** passphrase, ASCII included,
+  so until a collection the heap holds them besides the wiped arrays. A passphrase with any character from U+0300 up
+  (Cyrillic, Arabic, CJK, a combining mark, an emoji) additionally passes through immutable `String`s made by the JDK's
+  normalizer (a copy of the input and the result), which cannot be wiped either (the JDK has no normalizer that works on a
+  caller-owned buffer); a passphrase in which every character is below U+0300 (ASCII, Latin-1 and Latin Extended: the usual
+  typed text, which is already NFC) is only copied into an array and spares just that part. A re-key with the key object the instance already uses asks its provider once.
 - **Every operation verifies the key first**, a `get` of an absent key and `clear()` included, on an existing file: a wrong
   passphrase never reads as "absent", and a wrong key never changes a byte. With no file there is nothing to verify: `get`,
   `remove` and `clear()` answer `Success` without calling the provider.

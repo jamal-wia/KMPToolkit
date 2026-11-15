@@ -35,7 +35,8 @@ internal object Pbkdf2 {
      * form, so such text is only copied into the returned array and no `String` is made. Any other text goes through
      * `java.text.Normalizer`, which works on immutable `String`s (it copies its input into one and returns another): those
      * copies of the passphrase cannot be wiped and stay on the heap until they are collected (the JDK has no normalizer
-     * that works on a caller-owned buffer). Only the caller's array and this method's result array are wiped.
+     * that works on a caller-owned buffer). Only the caller's array and this method's result array are wiped. (The JDK's PBKDF2
+     * keeps a copy of the passphrase too, for every passphrase: see [derive].)
      */
     fun normalized(passphrase: CharArray): CharArray {
         if (passphrase.all { char: Char -> char < FIRST_CHAR_THAT_CAN_CHANGE_UNDER_NFC }) return passphrase.copyOf()
@@ -59,6 +60,13 @@ internal object Pbkdf2 {
     /**
      * Raw PBKDF2-HMAC-SHA256 of [password] (no normalisation, no range check: the known-answer tests use RFC 7914 counts).
      * Blocking and not cancellable; a caller runs it off the caller's thread.
+     *
+     * Not everything this call holds can be wiped. The JDK's key object (`PBKDF2KeyImpl`) clones [password] into a field of
+     * its own and keeps the derived key in another, and clears both only when the object is garbage collected (a cleaner); no
+     * public API clears them sooner, and `PBEKeySpec.clearPassword` wipes only the spec's copy. This holds for every
+     * passphrase, ASCII included: until a collection the heap holds the NFC characters and the 32-byte key-encryption key
+     * besides the arrays this class wipes. Re-implementing PBKDF2 over `Mac` would not help (HMAC keeps pads equivalent to
+     * the key), so this is stated, not fixed.
      */
     fun derive(password: CharArray, salt: ByteArray, iterations: Int, lengthBytes: Int): ByteArray {
         val spec = PBEKeySpec(password, salt, iterations, lengthBytes * 8)
@@ -72,7 +80,8 @@ internal object Pbkdf2 {
     /**
      * The 32-byte key-encryption key of a passphrase store: NFC, then PBKDF2 with [salt] and [iterations].
      * [passphrase] is not modified and not wiped (the caller owns it); the normalised character array made here is wiped.
-     * Text with a character from U+0300 up also passes through immutable `String`s of `Normalizer` that cannot be wiped (see [normalized]).
+     * Text with a character from U+0300 up also passes through immutable `String`s of `Normalizer` that cannot be wiped (see [normalized]),
+     * and the JDK's PBKDF2 keeps a copy of the passphrase and of the derived key until garbage collection for every passphrase (see [derive]).
      *
      * @throws IllegalArgumentException for an empty passphrase, a passphrase with an unpaired surrogate (it has no UTF-8
      *   form, and the JDK would silently turn it into `?`, so two different passphrases would derive one key), a salt that

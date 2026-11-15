@@ -3,6 +3,8 @@ package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
 import java.nio.ByteBuffer
 import java.nio.CharBuffer
 import java.nio.charset.CharacterCodingException
+import java.nio.charset.CharsetEncoder
+import java.nio.charset.CoderResult
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 
@@ -14,19 +16,33 @@ import java.nio.charset.StandardCharsets
  * (`String.toByteArray`, `Charset.encode`, PBEKeySpec) silently replace an unencodable character with `?`, which would
  * make `x?` and `x\uD800` one name or one key; this is the only conversion the format layer uses, so that can never
  * happen. The message never contains the text (it may be a passphrase). The returned array is owned by the caller.
+ *
+ * Exactly one array is ever made: its size is counted first ([strictUtf8Length]) and the encoder writes straight into it.
+ * `CharsetEncoder.encode(CharBuffer)` would grow its buffer by copying and drop the smaller copies unwiped, which for a
+ * secret leaves bytes of it on the heap that nothing can reach. A text that has no UTF-8 form wipes the array before it is
+ * dropped, so no partial encoding of a secret survives the failure.
  */
 internal fun CharSequence.toStrictUtf8(): ByteArray {
+    val size: Long = strictUtf8Length()
+    require(size <= Int.MAX_VALUE) { "The text is too long to encode" }
+    val bytes = ByteArray(size.toInt())
     try {
-        val encoded: ByteBuffer = StandardCharsets.UTF_8.newEncoder()
+        val input: CharBuffer = CharBuffer.wrap(this)
+        val output: ByteBuffer = ByteBuffer.wrap(bytes)
+        val encoder: CharsetEncoder = StandardCharsets.UTF_8.newEncoder()
             .onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT)
-            .encode(CharBuffer.wrap(this))
-        val bytes = ByteArray(encoded.remaining())
-        encoded.get(bytes)
-        if (encoded.hasArray()) encoded.array().fill(0)
+        var result: CoderResult = encoder.encode(input, output, true)
+        if (result.isUnderflow) result = encoder.flush(output)
+        if (result.isError) result.throwException()
+        check(result.isUnderflow && !input.hasRemaining() && !output.hasRemaining()) { "The UTF-8 length of the text changed while it was encoded" }
         return bytes
     } catch (_: CharacterCodingException) {
+        bytes.fill(0)
         throw IllegalArgumentException("The text holds an unpaired UTF-16 surrogate and has no UTF-8 form")
+    } catch (error: Throwable) {
+        bytes.fill(0)
+        throw error
     }
 }
 
