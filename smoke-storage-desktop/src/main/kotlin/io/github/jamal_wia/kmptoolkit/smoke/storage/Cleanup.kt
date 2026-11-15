@@ -70,7 +70,7 @@ internal object NoKeyItem : KeyItemRemoval {
 
 /**
  * The macOS identity of a secure store's key item, as the library derives it: the service is the store file's name without its
- * `.bin` suffix (`<name>.kmptoolkit.securestorage`), the account is `dir-` plus the first 128 bits of SHA-256 over the NFC-normalized
+ * `.bin` suffix, NFC-normalized (`<name>.kmptoolkit.securestorage`), the account is `dir-` plus the first 128 bits of SHA-256 over the NFC-normalized
  * canonical path of the store file's directory, as 32 lowercase hex characters. This copies the library's derivation because it is
  * internal; [MacKeyItemRemoval] therefore checks, on every successful run, that the item is found at this identity, and a drift
  * fails the run instead of leaving an item behind unnoticed.
@@ -85,11 +85,14 @@ internal class MacKeyItem(val service: String, val account: String) {
 
         /** The identity of the store [storeName] whose file's directory has the canonical path [canonicalDirectory]. */
         fun ofCanonical(storeName: String, canonicalDirectory: String): MacKeyItem {
-            val normalized: String = Normalizer.normalize(canonicalDirectory, Normalizer.Form.NFC)
+            val normalized: String = nfc(canonicalDirectory)
             val digest: ByteArray = MessageDigest.getInstance("SHA-256").digest(normalized.toByteArray(StandardCharsets.UTF_8))
             val hex: String = digest.take(DIRECTORY_HEX_BYTES).joinToString("") { "%02x".format(it) }
-            return MacKeyItem(service = storeName + SERVICE_SUFFIX, account = "dir-$hex")
+            // The service is NFC too, like the library's (macOS compares names byte for byte, and a decomposed store name would miss the item).
+            return MacKeyItem(service = nfc(storeName) + SERVICE_SUFFIX, account = "dir-$hex")
         }
+
+        private fun nfc(text: String): String = Normalizer.normalize(text, Normalizer.Form.NFC)
     }
 
     override fun toString(): String = "service=$service account=$account"

@@ -116,6 +116,14 @@ class CleanupTest {
     }
 
     @Test
+    fun `the service is normalized to NFC like the library does on macOS`() {
+        val composed: MacKeyItem = MacKeyItem.ofCanonical("caf\u00e9", "/tmp/d")
+        val decomposed: MacKeyItem = MacKeyItem.ofCanonical("cafe\u0301", "/tmp/d")
+        assertEquals("caf\u00e9.kmptoolkit.securestorage", decomposed.service, "a decomposed store name is spelled composed")
+        assertEquals(composed.toString(), decomposed.toString())
+    }
+
+    @Test
     fun `two runs never share an identity and a link resolves to its target`() {
         assumeFalse("symbolic links need a privilege on Windows", System.getProperty("os.name").orEmpty().startsWith("Windows"))
         val real: File = Files.createTempDirectory("smoke-identity-").toFile()
