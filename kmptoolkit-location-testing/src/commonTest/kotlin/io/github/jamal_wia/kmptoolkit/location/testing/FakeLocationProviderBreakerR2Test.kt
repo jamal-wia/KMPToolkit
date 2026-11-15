@@ -66,7 +66,7 @@ class FakeLocationProviderBreakerR2Test {
      * terminal is chosen, or anything is delivered after the terminal reading.
      */
     @Test
-    fun `every short script, start point and interleaving ends the collection as the KDoc rules say`() = runTest(timeout = 300.seconds) {
+    fun `every short script with every start point and interleaving ends the collection as the KDoc rules say`() = runTest(timeout = 300.seconds) {
         val alphabet: List<Int> = listOf(KIND_AVAILABLE, KIND_NO_FIX, KIND_PERMISSION, KIND_UNSUPPORTED)
         val seeds: List<LocationReading> = listOf(noFix, permissionMissing, unsupported)
         var cases = 0
@@ -316,7 +316,7 @@ class FakeLocationProviderBreakerR2Test {
      * mark let readings after a terminal through.
      */
     @Test
-    fun `emitters racing collectors with different progress keep order, end every collection on a terminal and leak nothing after it`() = runTest(timeout = 120.seconds) {
+    fun `emitters racing collectors with different progress keep order and end every collection on a terminal and leak nothing after it`() = runTest(timeout = 120.seconds) {
         val seed: Long = FAKE_TEST_SEED + 202
         val emitters = 4
         val perEmitter = 20_000
