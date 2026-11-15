@@ -22,8 +22,11 @@ import java.io.PrintStream
  * two events cannot interleave there either. The monitor taken is the one `Throwable.printStackTrace` takes on
  * such a stream while it calls the throwable's `getMessage` and `toString`, so there is a single lock and no
  * order to invert: a throwable whose getter logs does not deadlock. The sink never takes a lock of its own, which
- * would. Output written to standard error by anything else (`System.err` elsewhere, a logging framework) is not
- * ordered against the sink's events.
+ * would. For a subclass the sink locks exactly as `System.err.println` does (the stream's monitor, then whatever
+ * the stream's `print` takes), so it can deadlock only where `System.err.println` on the same stream would: for
+ * example a subclass whose `print` forwards to another stream on which a trace whose getter logs is being
+ * printed. Output written to standard error by anything else (`System.err` elsewhere, a logging framework) is
+ * not ordered against the sink's events.
  */
 public actual fun platformLogSink(): LogSink = LogSink { level, tag, message, throwable ->
     val header: String = "${level.name.first()}/$tag: $message"

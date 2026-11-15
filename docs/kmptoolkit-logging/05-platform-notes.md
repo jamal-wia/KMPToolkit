@@ -119,110 +119,17 @@ Things to know:
 - **One write per event, no lock of the sink's own.** Each event, its line and its stack trace, is
   written with a single `print(String)` call on standard error, so loggers on several threads never
   glue lines together or separate a trace from its event. When standard error is the JDK's own
-  `PrintStream`, that call is one write under the stream's own lock. When an app has replaced it with
-  a subclass that hands a text on line by line (a line-buffering or capturing stream; Gradle's test
-  worker installs one), the sink holds that stream's own monitor for the call, so the lines of two
-  events do not interleave there either. That monitor is the one `Throwable.printStackTrace` holds on
-  such a stream while it runs the throwable's `getMessage`, so there is only one lock and a throwable
-  whose getter logs does not deadlock against a concurrent event. The sink takes no lock of its own,
-  because a second lock taken before the stream's would. Output written to standard error by anything
-  else (`System.err` elsewhere, a logging framework) is not ordered against the sink's events. A
-  `message`, `toString` or `cause` override never runs while the sink's own text is being written.
-- **A chain with an `UnknownHostException` is rendered by the module, not by logcat.**
-  `android.util.Log.getStackTraceString` returns an empty string for any throwable that has an
-  `UnknownHostException` anywhere in its cause chain, so a plain `Log.e(tag, message, throwable)`
-  prints the message and no trace. For such a throwable the sink appends
-  `throwable.stackTraceToString()` (the whole chain, causes included) to the message on its own
-  lines and passes no `Throwable` to `android.util.Log`; every other throwable is passed through
-  unchanged. The whole chain is searched however long it is, and a cyclic chain (a throwable that is
-  its own indirect cause, which `initCause` can build) is rendered the same way, because
-  `android.util.Log.getStackTraceString` never returns on a cycle and `stackTraceToString()` prints
-  `CIRCULAR REFERENCE` for the repeated throwable and stops. The trace is then part of the message
-  text, so logcat shows it on several lines and, like any long message, it is subject to logcat's
-  per-entry length limit.
-- **Logcat has its own filter.** `android.util.Log` applies the device's per-tag log level on top of
-  this module's `minLevel`. An event this module passes can still be dropped by the platform —
-  historically `VERBOSE` and `DEBUG` were suppressed unless enabled with
-  `adb shell setprop log.tag.<tag> DEBUG`. If a line you expect is missing, check there before
-  suspecting the sink.
-- **Tag length.** Before API 26 the platform truncated tags longer than 23 characters. `minSdk` here
-  is 24, so two API levels are affected; keep tags short if you support them.
-- **Rate limiting.** Logcat's buffer is a fixed-size ring and chatty logging drops *other* apps'
-  lines as well as your own. A `VERBOSE` line inside a per-frame loop is a real cost, even though
-  building its message is not.
-- **`android.util.Log` is not available on a plain JVM.** In a local unit test without Robolectric,
-  calling it throws `"not mocked"`. That is a property of the Android sink only: the desktop `jvm`
-  target has its own sink over `System.err` (see [Desktop JVM](#desktop-jvm)). Tests should use their
-  own sink or an empty sink list — this module's common tests never touch `platformLogSink()` for
-  exactly this reason. The tests that
-  create it are the Android host tests (`PlatformLogSinkStackTraceTest`, `PlatformLogSinkLongChainTest`),
-  which run under Robolectric, where `android.util.Log` is a working shadow that records what the sink
-  passes to it, and the iOS tests: `PlatformLogSinkIosChainTest` calls it and checks only that it
-  returns, `PlatformLogSinkIosConcurrencyTest` redirects standard output to a file and reads what it wrote.
-
-## iOS
-
-`platformLogSink()` writes to standard output with `println`:
-
-```
-D/UserRepository: loading user 42
-```
-
-The prefix is the level's initial (`V`, `D`, `I`, `W`, `E`), then the tag, then the message. A
-non-null `Throwable` is followed by `throwable.stackTraceToString()` on its own lines.
-
-Each event, its line and its stack trace, is written in one step under a lock shared by every
-instance of the sink, so loggers on several threads never glue lines together or separate a trace
-from its event. Anything else that writes to standard output (`println` elsewhere in the app,
-`NSLog`) does not take that lock, so its output is not ordered against the sink's.
-
-**Why `println` and not `NSLog` or `os_log`:**
-
-- `NSLog` takes a C format string. Passing a caller-supplied message through it means either
-  escaping every `%` or risking a stray `%s` being interpreted as a format specifier — a
-  correctness and safety problem in a library that has no idea what its consumer will log.
-- `os_log` would mean an interop dependency in a module whose entire selling point is having none.
-
-The consequence: output goes to the Xcode debug console, and it is **not** captured by the unified
-logging system — so it does not appear in Console.app, is not retained on device, and is not
-collected in a sysdiagnose. If you need any of that, write a sink over `os_log` in your iOS layer
-and install it alongside (or instead of) the platform one:
-
-```kotlin
-createLoggerFactory(minLevel = LogLevel.INFO, sinks = listOf(osLogSink))
-```
-
-The sink interface exists precisely so this stays your decision rather than the library's.
-
-## Desktop JVM
-
-The `jvm` target is real, not a stub. The suite publishes it because `Logger` is a `commonMain`
-parameter of other modules, so a consumer's shared code that also builds for desktop would not
-compile without it (the bar for a desktop target is in
-[`../01-architecture.md`](../01-architecture.md#desktop-targets)). It adds no dependency.
-
-`platformLogSink()` writes to standard error (`System.err`) with the same shape as the iOS sink:
-
-```
-D/UserRepository: loading user 42
-```
-
-The prefix is the level's initial (`V`, `D`, `I`, `W`, `E`), then the tag, then the message. A
-non-null `Throwable` is followed by `throwable.stackTraceToString()` on its own lines, the cause
-chain included, with no blank line after it. The platform's line separator is used between the
-line and the trace.
-
-Things to know:
-
-- **Standard error, not standard output.** A desktop app that pipes its output elsewhere keeps its
-  log lines out of that data stream. `System.err` is read at every event, so an app that redirects
-  it with `System.setErr` is followed.
-- **One write per event, no lock of the sink's own.** Each event, its line and its stack trace, is
-  written with a single `print(String)` call on standard error, so loggers on several threads never
-  glue lines together or separate a trace from its event: that call is one write under the stream's
-  own lock. The sink takes no second lock on purpose, because `Throwable.printStackTrace` holds the
-  stream's lock while it runs the throwable's `getMessage`, and a throwable whose getter logs would
-  otherwise deadlock against a concurrent event. Output written to standard error by anything else
+  `PrintStream`, that call is one write under the stream's own lock and the sink adds nothing. When an
+  app has replaced it with a subclass that hands a text on line by line (a line-buffering or capturing
+  stream; Gradle's test worker installs one), the sink holds that stream's own monitor for the call, so
+  the lines of two events do not interleave there either. That monitor is the one
+  `Throwable.printStackTrace` holds on such a stream while it runs the throwable's `getMessage`, so
+  there is only one lock and a throwable whose getter logs does not deadlock against a concurrent
+  event. The sink never takes a lock of its own, because a second lock taken before the stream's
+  would. For a subclass the sink locks exactly as `System.err.println` does (the stream's monitor,
+  then whatever the stream's `print` takes), so it can deadlock only where `System.err.println` on
+  the same stream would: for example a subclass whose `print` forwards to another stream on which a
+  trace whose getter logs is being printed. Output written to standard error by anything else
   (`System.err` elsewhere, a logging framework) is not ordered against the sink's events. A `message`,
   `toString` or `cause` override never runs while the sink's own text is being written.
 - **A chain with an `UnknownHostException` is rendered in full**, unlike on Android: the JDK's own
