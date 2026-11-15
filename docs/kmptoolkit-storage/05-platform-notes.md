@@ -352,6 +352,14 @@ app sharing that code with desktop could not compile it for desktop without the 
     OS (the keychain add, the Secret Service store, the DPAPI protect) is wiped by the native thread when the call returns, and by the
     caller when the call can no longer start (withdrawn from the queue, executor closed), so a call that never ran leaves no live copy
     behind. After the executor is closed no thread is made.
+  - **Known limit (Linux, between two processes; documented, not coded).** A `store` call that is already running when its 10 s limit passes
+    cannot be stopped and may still land after another process's successful create of the key: the Secret Service replaces an item that
+    has the same attributes (`secret_password_store`), so the winner's key is overwritten and the winner's file can no longer be read once
+    the winner has to fetch its key again (after a restart). macOS is not affected (`SecItemAdd` refuses a duplicate item), and inside one
+    process the single native thread runs the late write before the next create. It needs a stalled keyring for more than 10 s at the moment
+    two processes race to create the first key of one store, and the D-Bus daemon's order of arrival normally decides it for the first
+    request; no code at this level can force the order, so an application that runs several processes over one store should create its key
+    once (`ensureKey`) before it starts them.
 
 - **Encrypted file format v1 (internal, for the desktop encrypted stores).** The encrypted desktop stores keep one binary
   file that is rewritten as a whole: magic `KTSS`, format version `1`, a kind byte (1 = an OS item holds the data key,
