@@ -268,6 +268,42 @@ app sharing that code with desktop could not compile it for desktop without the 
     be stopped: its late result is discarded and the key bytes in it are wiped. A call that may show a dialog has no limit but
     stays cancellable. No store lock is held while a native call that can prompt is awaited.
 
+- **The optional JNA artifact `kmptoolkit-storage-jna` (internal, a bridge for JDK 21).** It implements the seam above with JNA, for
+  applications that cannot run on JDK 22 or newer; on JDK 22+ the FFM binding inside `kmptoolkit-storage` serves and this artifact
+  is ignored. It has no public API for apps: adding the dependency is the whole opt-in (the library finds
+  `io.github.jamal_wia.kmptoolkit.storage.jna.JnaNativeKeyStoreBinding` by its fixed name). It is deprecated once the suite's
+  desktop baseline reaches JDK 22.
+  - **Dependency.** Only `net.java.dev.jna:jna-jpms` core, at the version `kmptoolkit-video-player-vlcj` already resolves
+    (5.16.0, one catalog entry moved together with vlcj); never `jna-platform`. The jar carries about 30 prebuilt `libjnidispatch`
+    binaries, extracted to a temporary directory on first use (set `jna.tmpdir` where the temporary directory is `noexec`, or the
+    secure store answers `Unsupported(NATIVE_ACCESS_UNAVAILABLE)`). A notarised macOS app that adds this artifact must sign the
+    nested `libjnidispatch.jnilib`. An app that also has plain `jna` (OSHI, Testcontainers) gets duplicate `com.sun.jna` classes:
+    exclude one of the two artifacts. From JDK 24 the JDK prints a native-access warning for JNA (JEP 472) unless the app passes
+    `--enable-native-access=ALL-UNNAMED`.
+  - **Loading.** Constructing the binding and asking it for a platform's calls touch no library and make no operating-system
+    call; JNA's native library and the system libraries load on the first call, on the native-executor thread. Plain-store apps
+    never load any of it.
+  - **Libraries, by absolute path or soname:** `/System/Library/Frameworks/Security.framework/Security` and CoreFoundation
+    (macOS), `%SystemRoot%\System32\crypt32.dll` and `kernel32.dll` (Windows), `libsecret-1.so.0`, `libglib-2.0.so.0`,
+    `libgobject-2.0.so.0` and `libgio-2.0.so.0` (Linux).
+  - **Every raw call frees what the OS allocated and zeroes its native copy of the key** (`CFRelease`, `LocalFree`,
+    `g_error_free`, `g_free`, `g_list_free`, `g_object_unref`, `secret_value_unref`).
+  - **libsecret older than 0.19** (a missing library, or any missing symbol the binding uses, `secret_password_search_sync` first)
+    answers every Linux call with the dedicated `SYMBOL_MISSING` status, never an exception, so the secure store reports
+    `Unsupported(NO_KEY_STORE)`. Only that one load step catches an `UnsatisfiedLinkError`; a JNA that cannot load at all is a
+    `LinkageError`, which is `NATIVE_ACCESS_UNAVAILABLE`.
+  - **macOS.** `kSecUseDataProtectionKeychain = false` is set on every query; with `allowUi = false` the calls pass
+    `kSecUseAuthenticationUI = kSecUseAuthenticationUIFail`, and on a macOS that has no such constant a non-interactive call
+    answers `errSecNotAvailable` (-25291) without calling the keychain. The probe never prompts, whatever `allowUi` says.
+  - **Linux.** An absent default collection counts as locked (using it needs the service to create one, which can show a
+    prompt). The portal is recognised by libsecret selecting its file backend.
+  - **ProGuard / R8.** The jar ships `META-INF/proguard/kmptoolkit-storage-jna.pro`, which keeps the binding class, the JNA
+    interfaces of the package (bound to the C functions by method name) and `com.sun.jna.**`. Copy it by hand only if your tool
+    ignores `META-INF/proguard`.
+  - **Real-store suites** (opt-in, run on JDK 21 with this artifact): `-Pkmptoolkit.secretstore=macos|windows|linux`, with
+    `-Pkmptoolkit.secretstore.required=true` to turn a skip into a failure; the Linux suite also takes
+    `-Pkmptoolkit.secretstore.scenario=unlocked|nobus|noservice`.
+
 - **No secure store.** The JVM has no platform key store this module could keep a key in without
   inventing its own — and a key kept next to the data it encrypts protects nothing. Desktop apps that
   need a secret at rest should use the operating system's credential store directly.
