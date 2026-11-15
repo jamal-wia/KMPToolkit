@@ -284,6 +284,44 @@ internal object ClassFileScan {
         }
     }
 
+    /** The system property the build gives `jvmTest`: the absolute path of the built jvm jar (`kmptoolkit-storage/build.gradle.kts`). */
+    const val JVM_JAR_PROPERTY: String = "kmptoolkit.test.jvmJar"
+
+    /**
+     * The built jvm jar named by [path] (the value of [JVM_JAR_PROPERTY]): the one artifact that ships. Fails, never passes, when the
+     * property is missing or blank (a test run that the build did not start, an IDE run without the jar), when the file does not
+     * exist or is not a regular file.
+     */
+    fun shippedJar(path: String?): Path {
+        check(!path.isNullOrBlank()) { "the system property $JVM_JAR_PROPERTY is not set: the jar that ships cannot be scanned (it must not pass silently); run the test through Gradle" }
+        val jar: Path = Paths.get(path)
+        check(jar.isRegularFile()) { "the jvm jar $jar named by $JVM_JAR_PROPERTY does not exist or is not a file: the jar that ships cannot be scanned (it must not pass silently)" }
+        return jar
+    }
+
+    /**
+     * Every `.class` entry of [jar], whatever its path (a class in the processed resources, in a multi-release directory, anywhere): what
+     * the jar holds is what ships, so there is nothing to discover and nothing to classify. Fails, never passes, when the jar is not
+     * a readable archive, holds no class entry, or holds an archive of its own (`.jar`, `.war`, `.ear`, `.zip`): a class inside a nested
+     * archive is invisible to this read, and no class loader of a plain consumer opens one, so a nested archive is refused instead of
+     * being counted as scanned. The same entry name twice (which Gradle's `Jar` task refuses to write, and `java.util.zip` lists
+     * as two entries) fails too, so no class can hide behind another of its name.
+     */
+    fun shippedClassBytes(jar: Path): List<ByteArray> =
+        JarFile(jar.toFile()).use { archive: JarFile ->
+            val entries: List<java.util.jar.JarEntry> = archive.entries().asSequence().filter { entry -> !entry.isDirectory }.toList()
+            val names: List<String> = entries.map { entry -> entry.name }
+            val twice: List<String> = names.groupingBy { name: String -> name }.eachCount().filterValues { count: Int -> count > 1 }.keys.sorted()
+            check(twice.isEmpty()) { "the jar $jar lists these entries more than once: $twice (a class could hide behind another of its name)" }
+            val nested: List<String> = names.filter { name: String -> NESTED_ARCHIVES.any { suffix: String -> name.lowercase().endsWith(suffix) } }
+            check(nested.isEmpty()) { "the jar $jar holds the archives $nested: the classes inside them are not read by this scan, so it refuses them" }
+            val classes: List<java.util.jar.JarEntry> = entries.filter { entry -> entry.name.endsWith(".class") }
+            check(classes.isNotEmpty()) { "the jar $jar holds no class entry (${names.size} entries): the scan has nothing to read, so it fails" }
+            classes.map { entry -> archive.getInputStream(entry).use { stream -> stream.readBytes() } }
+        }
+
+    private val NESTED_ARCHIVES: List<String> = listOf(".jar", ".war", ".ear", ".zip")
+
     /** Skips a `fields` or `methods` table: access flags, name, descriptor and the attributes of each member. */
     private fun skipMembers(input: DataInputStream) {
         repeat(input.readUnsignedShort()) {

@@ -1,3 +1,6 @@
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.process.CommandLineArgumentProvider
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 
 plugins {
@@ -76,4 +79,22 @@ kotlin {
             implementation(project(":test-support"))
         }
     }
+}
+
+// The JCA bytecode scan (JcaBytecodeScanTest, decisions D-P12) reads the jar this module SHIPS, not the directories it is built from:
+// the jvm jar is by definition every class that ships, wherever its inputs live (class directories, processed resources, any
+// `from(...)` a later change adds). The test task builds the jar first and is told where it is through a system property whose name
+// is the scan's own (it must not collide with the `kmptoolkit.test.targetJar` that the ffm build logic sets on the same task). The jar
+// is a task input (content only), so a changed jar reruns the scan; the machine-specific path is not.
+tasks.withType<Test>().matching { it.name == "jvmTest" }.configureEach {
+    val jvmJar: TaskProvider<Jar> = tasks.named<Jar>("jvmJar")
+    dependsOn(jvmJar)
+    val jarFile: Provider<RegularFile> = jvmJar.flatMap { it.archiveFile }
+    inputs.file(jarFile).withPropertyName("shippedJvmJar").withPathSensitivity(PathSensitivity.NONE)
+    jvmArgumentProviders.add(ShippedJvmJarProperty(jarFile.map { it.asFile.path }))
+}
+
+/** `-Dkmptoolkit.test.jvmJar=<path of the built jvm jar>`, computed when the test JVM starts; the path is machine-specific, so it is no task input. */
+private class ShippedJvmJarProperty(@get:Internal val jar: Provider<String>) : CommandLineArgumentProvider {
+    override fun asArguments(): Iterable<String> = listOf("-Dkmptoolkit.test.jvmJar=${jar.get()}")
 }

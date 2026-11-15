@@ -10,9 +10,11 @@ import java.util.jar.JarEntry
 import java.util.jar.JarOutputStream
 import kotlin.io.path.deleteRecursively
 import kotlin.io.path.isDirectory
+import kotlin.io.path.readBytes
 import kotlin.io.path.writeBytes
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
@@ -51,8 +53,10 @@ class JcaBytecodeScanTest {
         type.protectionDomain?.codeSource?.location ?: error("no code source for ${type.name}: the scan cannot find the compiled classes (it must not pass silently)")
 
     /** The facts of the compiled main classes of every output location, after the controls that make an empty or wrong location a failure. */
-    private fun mainClasses(locations: List<URL>): List<ClassFileScan.Facts> {
-        val all: List<ClassFileScan.Facts> = ClassFileScan.classBytes(locations).map(ClassFileScan::parse)
+    private fun mainClasses(locations: List<URL>): List<ClassFileScan.Facts> = controlled(ClassFileScan.classBytes(locations).map(ClassFileScan::parse), locations)
+
+    /** The controls of [mainClasses] on classes that were already read from [locations] (directories, or the entries of the shipped jar). */
+    private fun controlled(all: List<ClassFileScan.Facts>, locations: Any): List<ClassFileScan.Facts> {
         check(all.size > MIN_CLASSES) { "only ${all.size} classes under $locations: the scan must see the module's compiled main classes" }
         val boundaries: Int = all.count { facts: ClassFileScan.Facts -> facts.name == boundaryName }
         check(boundaries >= 1) { "the boundary class $boundaryName is not under $locations" }
@@ -274,6 +278,123 @@ class JcaBytecodeScanTest {
             @OptIn(kotlin.io.path.ExperimentalPathApi::class)
             directory.deleteRecursively()
         }
+    }
+
+    // ---- the PRIMARY scan: the entries of the built jvm jar, which is exactly what ships ----
+
+    private fun shippedJar(): Path = ClassFileScan.shippedJar(System.getProperty(ClassFileScan.JVM_JAR_PROPERTY))
+
+    @Test
+    fun `no class that the built jvm jar ships touches the JCA outside the boundary`() {
+        val jar: Path = shippedJar()
+        val all: List<ClassFileScan.Facts> = controlled(ClassFileScan.shippedClassBytes(jar).map(ClassFileScan::parse), jar)
+        val boundary: List<ClassFileScan.Facts> = all.filter(ClassFileScan::isBoundaryClass)
+        assertEquals(1, boundary.size, "control: the boundary class is in the jar exactly once")
+        assertTrue(ClassFileScan.violations(boundary.single()).isNotEmpty(), "control: the same scan flags the boundary, so it sees JCA code")
+        assertTrue(jar.fileName.toString().endsWith(".jar") && "jvm" in jar.fileName.toString(), "control: this is the jvm jar ($jar)")
+        val offenders: List<String> = all.filterNot(ClassFileScan::isBoundaryClass).flatMap(ClassFileScan::violations)
+        assertEquals(emptyList(), offenders, "a class the jvm jar ships touches the JCA outside Jca, from whatever input of the jar: route it through the boundary (D-P12)")
+    }
+
+    @Test
+    fun `a class that the jar packs from any path is read and flagged`() {
+        val directory: Path = Files.createTempDirectory("kmptoolkit-classscan")
+        try {
+            val clean: ByteArray = SyntheticClass.build("a/A") { pool: SyntheticClass.Pool -> pool.classOf("java/nio/file/Files") }
+            val jar: Path = jarOf(directory, "shipped.jar", "a/A.class" to clean)
+            assertEquals(emptyList(), ClassFileScan.shippedClassBytes(jar).map(ClassFileScan::parse).flatMap(ClassFileScan::violations), "control: a clean jar is clean")
+            // Where the entry sits means nothing: a processed resource, a multi-release directory, a path that is no package.
+            val hidden: Path = jarOf(
+                directory, "hidden.jar",
+                "a/A.class" to clean,
+                "scratch/ResourceUse.class" to SyntheticClass.build("scratch/ResourceUse") { pool: SyntheticClass.Pool -> pool.classOf("java/security/MessageDigest") },
+                "META-INF/versions/17/x/Y.class" to SyntheticClass.build("x/Y") { pool: SyntheticClass.Pool -> pool.classOf("javax/crypto/Cipher") },
+                "data/not-a-package/Z.class" to SyntheticClass.build("z/Z") { pool: SyntheticClass.Pool -> pool.string("java.security.SecureRandom") },
+                "readme.txt" to "text".toByteArray(Charsets.UTF_8),
+            )
+            val violations: List<String> = ClassFileScan.shippedClassBytes(hidden).map(ClassFileScan::parse).flatMap(ClassFileScan::violations).sorted()
+            assertEquals(
+                listOf(
+                    "scratch/ResourceUse names the class java/security/MessageDigest",
+                    "x/Y names the class javax/crypto/Cipher",
+                    "z/Z holds the string \"java.security.SecureRandom\"",
+                ),
+                violations,
+                "every class entry of the jar is read, whatever its path",
+            )
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a jar scan that cannot read the jar fails and never passes`() {
+        val directory: Path = Files.createTempDirectory("kmptoolkit-classscan")
+        try {
+            val clean: ByteArray = SyntheticClass.build("a/A") { pool: SyntheticClass.Pool -> pool.classOf("java/nio/file/Files") }
+            val good: Path = jarOf(directory, "good.jar", "a/A.class" to clean)
+            assertEquals(good, ClassFileScan.shippedJar(good.toString()), "control: a jar that exists is accepted")
+            assertFailsWith<IllegalStateException>("a property that is not set") { ClassFileScan.shippedJar(null) }
+            assertFailsWith<IllegalStateException>("a property that is blank") { ClassFileScan.shippedJar("  ") }
+            assertFailsWith<IllegalStateException>("a jar that does not exist") { ClassFileScan.shippedJar(directory.resolve("absent.jar").toString()) }
+            assertFailsWith<IllegalStateException>("a directory is no jar") { ClassFileScan.shippedJar(directory.toString()) }
+            val noClasses: Path = jarOf(directory, "none.jar", "readme.txt" to "text".toByteArray(Charsets.UTF_8))
+            assertFailsWith<IllegalStateException>("a jar without a class entry has nothing to scan") { ClassFileScan.shippedClassBytes(noClasses) }
+            val nested: Path = jarOf(directory, "nested.jar", "a/A.class" to clean, "lib/inner.JAR" to good.readBytes())
+            assertFailsWith<IllegalStateException>("a nested archive hides its classes from the scan") { ClassFileScan.shippedClassBytes(nested) }
+            val notAnArchive: Path = directory.resolve("bad.jar").also { file: Path -> file.writeBytes(ByteArray(64)) }
+            assertFails("a file that is no archive") { ClassFileScan.shippedClassBytes(notAnArchive) }
+            val broken: Path = jarOf(directory, "broken.jar", "a/A.class" to clean.copyOf(clean.size - TAIL_AFTER_POOL + 2))
+            assertFailsWith<ClassFileScan.MalformedClass>("a class entry that is not a class") { ClassFileScan.shippedClassBytes(broken).map(ClassFileScan::parse) }
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `an entry name that the jar lists twice fails the scan`() {
+        val directory: Path = Files.createTempDirectory("kmptoolkit-classscan")
+        try {
+            val first: ByteArray = SyntheticClass.build("a/A") { pool: SyntheticClass.Pool -> pool.classOf("java/nio/file/Files") }
+            val second: ByteArray = SyntheticClass.build("a/B") { pool: SyntheticClass.Pool -> pool.classOf("java/security/MessageDigest") }
+            val honest: Path = jarOf(directory, "honest.jar", "a/Ax.class" to first, "a/Ay.class" to second)
+            // `java.util.zip` refuses to write one name twice: the second name is renamed in the archive bytes (same length, so every offset stays right).
+            val bytes: ByteArray = honest.readBytes()
+            val target: ByteArray = "a/Ay.class".toByteArray(Charsets.UTF_8)
+            val replacement: ByteArray = "a/Ax.class".toByteArray(Charsets.UTF_8)
+            var renamed = 0
+            var at = 0
+            while (at <= bytes.size - target.size) {
+                if (target.indices.all { index: Int -> bytes[at + index] == target[index] }) {
+                    replacement.copyInto(bytes, at)
+                    renamed++
+                    at += target.size
+                } else {
+                    at++
+                }
+            }
+            assertEquals(2, renamed, "control: the name is in the local header and in the central directory, and both were renamed")
+            val twice: Path = directory.resolve("twice.jar").also { file: Path -> file.writeBytes(bytes) }
+            val failure: IllegalStateException = assertFailsWith<IllegalStateException>("the same entry name twice") { ClassFileScan.shippedClassBytes(twice) }
+            assertTrue("a/Ax.class" in failure.message.orEmpty(), "the failure names the entry: ${failure.message}")
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            directory.deleteRecursively()
+        }
+    }
+
+    private fun jarOf(directory: Path, name: String, vararg entries: Pair<String, ByteArray>): Path {
+        val jar: Path = directory.resolve(name)
+        JarOutputStream(Files.newOutputStream(jar)).use { out: JarOutputStream ->
+            for ((entryName: String, content: ByteArray) in entries) {
+                out.putNextEntry(JarEntry(entryName))
+                out.write(content)
+                out.closeEntry()
+            }
+        }
+        return jar
     }
 
     @Test
