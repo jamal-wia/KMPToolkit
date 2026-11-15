@@ -183,6 +183,9 @@ internal class FakeIosLocationEnvironment(scheduler: TestCoroutineScheduler) : I
     var backgroundMode: Boolean = false
     var servicesReads: Int = 0
     var statusReads: Int = 0
+
+    /** Authorization status reads made while no task of the main dispatcher was running. */
+    var statusReadsOffMain: Int = 0
     var settingsOpened: Int = 0
     val managers: MutableList<FakeIosLocationManager> = mutableListOf()
     val activeListeners: MutableList<() -> Unit> = mutableListOf()
@@ -192,6 +195,7 @@ internal class FakeIosLocationEnvironment(scheduler: TestCoroutineScheduler) : I
 
     override fun authorizationStatus(): Int {
         statusReads++
+        if (!main.isRunning) statusReadsOffMain++
         return status
     }
 

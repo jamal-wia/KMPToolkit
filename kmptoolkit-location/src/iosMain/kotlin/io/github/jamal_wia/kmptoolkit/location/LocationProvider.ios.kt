@@ -28,12 +28,17 @@ import platform.CoreLocation.kCLDistanceFilterNone
  * `NSLocationAlwaysAndWhenInUseUsageDescription`) in `Info.plist` and request authorization itself,
  * for example through `kmptoolkit-permission`; see `docs/kmptoolkit-location/05-platform-notes.md`.
  *
- * Every `CLLocationManager` is created, started and released on the **main queue** (CoreLocation
- * delivers its delegate callbacks on the run loop of the thread that created the manager), whichever
- * thread the caller is on. The manager's delegate is held strongly until the call or the stream ends
+ * Every `CLLocationManager` (the one that only reads the authorization status included) is created,
+ * started and released on the **main queue** (CoreLocation delivers its delegate callbacks on the run
+ * loop of the thread that created the manager), whichever thread the caller is on. The manager's delegate is held strongly until the call or the stream ends
  * (CoreLocation keeps it weakly) and set to nil before the manager is dropped. When a collection
  * ends or is cancelled the manager is already stopped and released: the collector is not resumed
  * until the main-queue release has run.
+ *
+ * The minimum is iOS 15: that is what Kotlin/Native 2.4.21 links for every iOS target by default
+ * (`minVersion.ios = 15.0` in its `konan.properties`), so the iOS 14 APIs `authorizationStatus` and
+ * `accuracyAuthorization` are always present; the iOS 15 and 13.4 fix properties are still read behind
+ * a version check.
  *
  * Age is judged on a monotonic clock: at delivery the provider captures the age of the fix and the
  * system uptime, so a wall-clock correction later changes nothing (PLAN section 10, item 7).
@@ -103,7 +108,8 @@ internal class IosLocationProvider(
 
     /** Why no request can run now, or `null`; answered at once, never after a timeout. */
     private suspend fun blockingReason(): LocationUnavailability? {
-        val status: Int = env.authorizationStatus()
+        // On the main queue: even the status read creates a CLLocationManager, which must live there.
+        val status: Int = withContext(env.mainDispatcher) { env.authorizationStatus() }
         val servicesOn: Boolean = if (decidesWithoutServices(status)) true else servicesEnabled()
         return authorizationReason(status, servicesOn)
     }

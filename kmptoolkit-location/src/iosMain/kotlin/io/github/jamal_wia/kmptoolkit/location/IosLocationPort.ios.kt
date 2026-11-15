@@ -120,7 +120,10 @@ internal interface IosLocationEnvironment {
     /** The clock the common throttle measures `minUpdateInterval` on. */
     val timeSource: TimeSource
 
-    /** The authorization status, read on the calling thread (hopping to main would deadlock a caller that blocks it). */
+    /**
+     * The authorization status (`CLLocationManager.authorizationStatus`, iOS 14+). Even a status read
+     * creates a `CLLocationManager`, so call it on [mainDispatcher] like every other manager access.
+     */
     fun authorizationStatus(): Int
 
     /** `CLLocationManager.locationServicesEnabled()`; call it off the main thread. */
@@ -159,7 +162,8 @@ internal object SystemIosLocationEnvironment : IosLocationEnvironment {
     override val clock: IosClock = SystemIosClock
     override val timeSource: TimeSource = TimeSource.Monotonic
 
-    // Read on the calling thread, like kmptoolkit-permission does: a status read needs no delegate.
+    // The provider calls this on the main queue: a status read needs no delegate, but the manager it
+    // creates must still live on the main queue (Xcode warns about one created elsewhere).
     override fun authorizationStatus(): Int = CLLocationManager().authorizationStatus
 
     override fun locationServicesEnabled(): Boolean = CLLocationManager.locationServicesEnabled()
