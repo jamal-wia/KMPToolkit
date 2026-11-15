@@ -541,8 +541,11 @@ internal class AndroidLocationProvider(
         fun start() {
             gate.exclusive {
                 val disabled: Boolean = isDisabled(platform, deliverable)
+                // The reading is built BEFORE the state is recorded: a failing platform read while building it must not
+                // leave a recorded state whose reading was never sent.
+                val seed: StreamReading = StreamReading.seed(currentReading(platform, deliverable, options.maxSeedAge, disabled))
                 disabledNow = disabled
-                out.trySend(StreamReading.seed(currentReading(platform, deliverable, options.maxSeedAge, disabled)))
+                out.trySend(seed)
                 var accepted: List<String> = register(selected, firstOnly)
                 if (accepted.isEmpty()) {
                     // A grant that landed after the platform's refusal is not a missing grant: refusals met under another
@@ -685,14 +688,16 @@ internal class AndroidLocationProvider(
             }
             val disabled: Boolean = isDisabled(platform, deliverable)
             if (disabled == disabledNow) return
+            // Build the reading, then record the state, then send: a reading that fails to build (a failing grant or
+            // cache read) leaves the old state recorded, so the next event runs this transition again instead of
+            // finding "already reported" for a reading that was never sent.
+            val reading: StreamReading = if (disabled) {
+                StreamReading.live(unavailable(LocationUnavailability.SERVICE_DISABLED))
+            } else {
+                StreamReading.seed(currentReading(platform, deliverable, options.maxSeedAge, disabled = false))
+            }
             disabledNow = disabled
-            out.trySend(
-                if (disabled) {
-                    StreamReading.live(unavailable(LocationUnavailability.SERVICE_DISABLED))
-                } else {
-                    StreamReading.seed(currentReading(platform, deliverable, options.maxSeedAge, disabled = false))
-                },
-            )
+            out.trySend(reading)
         }
 
         /**
