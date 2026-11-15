@@ -69,3 +69,17 @@ kotlin {
         }
     }
 }
+
+// LocationDocsSamplesInSyncTest reads the docs pages and the test sources of both location modules as text.
+// Gradle cannot see those reads, so without these inputs a docs-only edit would leave the cached result green.
+tasks.named<Test>("jvmTest") {
+    inputs.dir(rootProject.layout.projectDirectory.dir("docs/kmptoolkit-location"))
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+        .withPropertyName("locationDocs")
+    inputs.dir(rootProject.layout.projectDirectory.dir("kmptoolkit-location-testing/src"))
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+        .withPropertyName("locationTestingSources")
+    inputs.dir(layout.projectDirectory.dir("src"))
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+        .withPropertyName("locationSources")
+}
