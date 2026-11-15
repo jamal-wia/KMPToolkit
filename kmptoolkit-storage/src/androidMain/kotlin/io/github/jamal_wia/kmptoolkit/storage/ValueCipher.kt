@@ -431,8 +431,12 @@ internal interface AliasedKeyStore {
     /** The security level the platform reports for [key]; a store that cannot say answers UNKNOWN. */
     fun securityLevel(key: SecretKey): AndroidKeySecurityLevel = AndroidKeySecurityLevel.UNKNOWN
 
-    /** Deletes whatever [alias] holds; a no-op when it holds nothing. */
-    fun deleteKey(alias: String)
+    /**
+     * Deletes whatever [alias] holds; a no-op when it holds nothing. The default is for a test double that has no use
+     * for it and must fail loudly if a key is ever deleted through it.
+     */
+    fun deleteKey(alias: String): Unit =
+        throw UnsupportedOperationException("this key store does not delete keys")
 }
 
 /** [AliasedKeyStore] over the real AndroidKeyStore. */
