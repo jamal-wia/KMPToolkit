@@ -389,9 +389,11 @@ class DesktopSecureStoreRound4Test {
         val limit = 4_096L
         val store: JvmSecureKeyValueStorage = store(maxStoreBytes = limit)
 
-        // Longer than the limit in characters: refused before any lock; just under it: refused after sealing, before creating.
+        // Longer than the limit in characters, and an entry that alone passes it: refused before any lock; an entry that fits
+        // alone but not with the 57-byte header of the file (4 026 characters: 4 061 + 57 > 4 096): refused after the key is prepared, before it is created.
         assertIs<StorageError.InvalidValue>(failure(store.put("k", "v".repeat(limit.toInt() + 1))))
         assertIs<StorageError.InvalidValue>(failure(store.put("k", "v".repeat(limit.toInt() - 10))))
+        assertIs<StorageError.InvalidValue>(failure(store.put("k", "v".repeat(limit.toInt() - 70))))
 
         assertTrue(fileNames().none { it.endsWith(".bin") }, "no store file: ${fileNames()}")
         assertTrue(fake.macItems.isEmpty(), "no item")

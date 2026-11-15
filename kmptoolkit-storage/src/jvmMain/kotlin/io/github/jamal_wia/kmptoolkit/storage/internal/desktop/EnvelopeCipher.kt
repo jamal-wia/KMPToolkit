@@ -17,8 +17,10 @@ import javax.crypto.spec.SecretKeySpec
  * never mistaken for lost data (that verdict makes an app delete things).
  *
  * Stateless apart from [random]; safe from any thread. Key arguments are borrowed, never kept and never wiped here.
+ * The class and [sealEntry] are open only so that a test can count how many values were sealed (the proof that a refused
+ * value was never encoded); nothing in the library overrides them.
  */
-internal class EnvelopeCipher(private val random: SecureRandom = SecureRandom()) {
+internal open class EnvelopeCipher(private val random: SecureRandom = SecureRandom()) {
 
     /** A fresh random 256-bit data key. The caller owns and wipes it. */
     fun newDataKey(): ByteArray = ByteArray(SecureFileFormat.DATA_KEY_BYTES).also(random::nextBytes)
@@ -27,7 +29,7 @@ internal class EnvelopeCipher(private val random: SecureRandom = SecureRandom())
     fun newSalt(): ByteArray = ByteArray(SecureFileFormat.SALT_BYTES).also(random::nextBytes)
 
     /** Seals [value] under [dataKey] for the entry [key] of a file of [kind]; the entry name is authenticated. */
-    fun sealEntry(dataKey: ByteArray, kind: StoreKind, key: String, value: ByteArray): EncryptedEntry {
+    open fun sealEntry(dataKey: ByteArray, kind: StoreKind, key: String, value: ByteArray): EncryptedEntry {
         val nonce: ByteArray = newNonce()
         val sealed: ByteArray = gcmEncrypt(dataKey, nonce, SecureFileFormat.entryAad(kind, key.toStrictUtf8()), value)
         return EncryptedEntry(key, nonce, sealed)

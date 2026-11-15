@@ -152,8 +152,11 @@ internal abstract class EncryptedStoreEngine(
                     StorageError.InvalidValue(op.key, IllegalArgumentException("The key is longer than 65535 UTF-8 bytes")),
                 )
             }
-            // Cheap bound before any lock: a text has at least one UTF-8 byte per char, so this value cannot fit a store file.
-            if (op.value.length.toLong() >= guard.maxStoreBytes) return@withContext StorageResult.Failure(tooLarge(op.key))
+            // Bound before any lock and before anything is encoded: an entry of this size alone passes the limit, so no file
+            // holding it can be read back. Counted, not encoded: a value of 90 million three-byte characters never allocates.
+            if (SecureFileFormat.entrySize(op.key, op.value.strictUtf8Length()) > guard.maxStoreBytes) {
+                return@withContext StorageResult.Failure(tooLarge(op.key))
+            }
         }
         unavailableReason()?.let { return@withContext StorageResult.Failure(it) }
         // A store whose directory does not exist holds nothing: reading, removing or clearing it creates no directory and no lock file.
@@ -243,11 +246,12 @@ internal abstract class EncryptedStoreEngine(
                 }
             }
             is Op.Put -> {
-                val sealed: EncryptedEntry = sealValue(dataKey, file.kind, op.key!!, op.value)
-                val entries: List<EncryptedEntry> = file.entries.filter { it.key != op.key } + sealed
-                // Refused before anything is written: a file over the read limit would be unparsable, and the next put would quarantine it.
-                if (SecureFileFormat.encodedSize(file.header, entries) > guard.maxStoreBytes) return fail(tooLarge(op.key))
-                writeEntries(store, file, entries)
+                val others: List<EncryptedEntry> = file.entries.filter { it.key != op.key }
+                // Measured before the value is encoded and sealed, and refused before anything is written: a file over the
+                // read limit would be unparsable, and the next put would quarantine it.
+                val size: Long = SecureFileFormat.encodedSize(file.header, others) + SecureFileFormat.entrySize(op.key!!, op.value.strictUtf8Length())
+                if (size > guard.maxStoreBytes) return fail(tooLarge(op.key))
+                writeEntries(store, file, others + sealValue(dataKey, file.kind, op.key, op.value))
                 ok()
             }
             is Op.Remove -> {
@@ -300,9 +304,13 @@ internal abstract class EncryptedStoreEngine(
             is CreatePlan.Ready -> built
         }
         try {
-            // Sealed and measured BEFORE anything is created: a value that cannot fit a store file creates no key and no file.
+            // Measured BEFORE the value is sealed and before anything is created: a value that cannot fit a store file creates
+            // no key and no file, and is never encoded.
+            if (op is Op.Put) {
+                val size: Long = SecureFileFormat.encodedSize(plan.header, emptyList()) + SecureFileFormat.entrySize(op.key!!, op.value.strictUtf8Length())
+                if (size > guard.maxStoreBytes) return fail(tooLarge(op.key))
+            }
             val sealed: EncryptedEntry? = if (op is Op.Put) sealValue(plan.dataKey, plan.header.kind, op.key!!, op.value) else null
-            if (sealed != null && SecureFileFormat.encodedSize(plan.header, listOf(sealed)) > guard.maxStoreBytes) return fail(tooLarge(op.key))
             val emptyFile: ByteArray = SecureFileFormat.encode(plan.header, plan.keyCheck, emptyList())
             return when (val result: CreateResult = store.createFile(mode, emptyFile, plan.install)) {
                 CreateResult.Raced -> Step.Again

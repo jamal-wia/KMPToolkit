@@ -251,10 +251,17 @@ internal object SecureFileFormat {
     fun encodedSize(header: HeaderBody, entries: List<EncryptedEntry>): Long {
         var size: Long = FIXED_PREFIX_BYTES.toLong() + header.encode().size + KEY_CHECK_BYTES + 4
         for (entry: EncryptedEntry in entries) {
-            size += 2 + entry.key.toStrictUtf8().size + NONCE_BYTES + 4 + entry.sealed.size
+            size += entrySize(entry.key, entry.sealed.size - TAG_BYTES.toLong())
         }
         return size
     }
+
+    /**
+     * The bytes an entry named [key] whose plaintext is [plainLength] bytes adds to a file (the sealed value is the plaintext
+     * plus the tag), computed before anything is sealed. [encodedSize] and the checks that run before a value is encoded
+     * both go through it, so they cannot disagree.
+     */
+    fun entrySize(key: String, plainLength: Long): Long = 2 + key.toStrictUtf8().size + NONCE_BYTES + 4 + plainLength + TAG_BYTES
 
     /** Parses [bytes]; never throws for any input. */
     fun parse(bytes: ByteArray): ParseResult {

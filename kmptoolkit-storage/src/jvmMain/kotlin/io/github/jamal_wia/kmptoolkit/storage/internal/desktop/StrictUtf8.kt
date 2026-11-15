@@ -30,6 +30,31 @@ internal fun CharSequence.toStrictUtf8(): ByteArray {
     }
 }
 
+/**
+ * How many bytes [toStrictUtf8] returns for this text, counted without building them (a size limit must be checked before a
+ * large value is encoded, sealed and copied). Text that has a UTF-8 form is counted exactly; a character that has none (an
+ * unpaired surrogate, which callers refuse separately) counts 3 bytes, so the answer is never below the real size of
+ * the nearest encodable text.
+ */
+internal fun CharSequence.strictUtf8Length(): Long {
+    var bytes: Long = 0
+    var index = 0
+    while (index < length) {
+        val char: Char = this[index]
+        when {
+            char.code < 0x80 -> bytes += 1
+            char.code < 0x800 -> bytes += 2
+            char.isHighSurrogate() && index + 1 < length && this[index + 1].isLowSurrogate() -> {
+                bytes += 4
+                index++
+            }
+            else -> bytes += 3
+        }
+        index++
+    }
+    return bytes
+}
+
 /** The text these bytes are as strict UTF-8, or `null` when they are not valid UTF-8 (a replacement would change the value). */
 internal fun ByteArray.decodeStrictUtf8(): String? = try {
     StandardCharsets.UTF_8.newDecoder()
