@@ -40,32 +40,29 @@ public interface FileSystemOps {
     /** Entry names except "." and "..", in any order; `null` when absent; NotADirectory when not a directory. */
     public fun list(directory: String): List<String>?
 
-    /** Creates exactly one directory level. AlreadyExists when anything is at [path]; NotFound when the parent is missing. */
-    public fun createDirectory(path: String)
+    /**
+     * Creates exactly one directory level. AlreadyExists when anything is at [path]; NotFound when the parent is missing.
+     *
+     * With [ownerOnly] the directory is given owner-only access at creation (POSIX 0700; Windows an explicit DACL of
+     * the current user and SYSTEM), never by a change after it exists. The engine always passes the flag, so every
+     * implementation decides explicitly: one on a file system without permissions, or one that models none (Android,
+     * an in-memory fake), accepts it and may ignore it, but must not fail because of it.
+     *
+     * @since 6.0.0 for [ownerOnly]; the one-argument form of 5.0.0 is gone
+     */
+    public fun createDirectory(path: String, ownerOnly: Boolean)
 
     /**
-     * [createDirectory] that, with [ownerOnly], gives the directory owner-only access at creation (POSIX 0700; Windows a
-     * protected DACL for the current user and SYSTEM), never by a change after it exists. An implementation on a file
-     * system without permissions ignores [ownerOnly]. The default ignores it, for ops that model no permissions.
+     * Creates a new empty regular file exclusively (O_CREAT|O_EXCL) and opens it for writing. AlreadyExists on a clash.
      *
-     * @since 5.1.0
-     */
-    public fun createDirectory(path: String, ownerOnly: Boolean) {
-        createDirectory(path)
-    }
-
-    /** Creates a new empty regular file exclusively (O_CREAT|O_EXCL) and opens it for writing. AlreadyExists on a clash. */
-    public fun createNew(path: String, protection: FileProtection): WritableFile
-
-    /**
-     * [createNew] that, with [ownerOnly], gives the file owner-only access at creation (POSIX 0600; Windows a protected
-     * DACL for the current user and SYSTEM), never by a change after it exists. An implementation on a file system
-     * without permissions ignores [ownerOnly]. The default ignores it, for ops that model no permissions.
+     * With [ownerOnly] the file is given owner-only access at creation (POSIX 0600; Windows an explicit DACL of the
+     * current user and SYSTEM), never by a change after it exists. The engine always passes the flag, so every
+     * implementation decides explicitly: one on a file system without permissions, or one that models none (Android,
+     * an in-memory fake), accepts it and may ignore it, but must not fail because of it.
      *
-     * @since 5.1.0
+     * @since 6.0.0 for [ownerOnly]; the two-argument form of 5.0.0 is gone
      */
-    public fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile =
-        createNew(path, protection)
+    public fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile
 
     /** Opens an existing file for reading, following links. */
     public fun openForRead(path: String): ReadableFile

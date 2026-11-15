@@ -458,10 +458,8 @@ public final class io/github/jamal_wia/kmptoolkit/files/spi/FileOpException : ja
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/files/spi/FileSystemOps {
-	public abstract fun createDirectory (Ljava/lang/String;)V
-	public fun createDirectory (Ljava/lang/String;Z)V
-	public abstract fun createNew (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/FileProtection;)Lio/github/jamal_wia/kmptoolkit/files/spi/WritableFile;
-	public fun createNew (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/FileProtection;Z)Lio/github/jamal_wia/kmptoolkit/files/spi/WritableFile;
+	public abstract fun createDirectory (Ljava/lang/String;Z)V
+	public abstract fun createNew (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/FileProtection;Z)Lio/github/jamal_wia/kmptoolkit/files/spi/WritableFile;
 	public abstract fun getWindowsPaths ()Z
 	public abstract fun link (Ljava/lang/String;Ljava/lang/String;)V
 	public abstract fun list (Ljava/lang/String;)Ljava/util/List;
@@ -472,11 +470,6 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/files/spi/FileSys
 	public abstract fun rename (Ljava/lang/String;Ljava/lang/String;)V
 	public abstract fun syncDirectory (Ljava/lang/String;Z)V
 	public abstract fun usableSpace (Ljava/lang/String;)Ljava/lang/Long;
-}
-
-public final class io/github/jamal_wia/kmptoolkit/files/spi/FileSystemOps$DefaultImpls {
-	public static fun createDirectory (Lio/github/jamal_wia/kmptoolkit/files/spi/FileSystemOps;Ljava/lang/String;Z)V
-	public static fun createNew (Lio/github/jamal_wia/kmptoolkit/files/spi/FileSystemOps;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/files/FileProtection;Z)Lio/github/jamal_wia/kmptoolkit/files/spi/WritableFile;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/files/spi/FileSystemOpsKt {

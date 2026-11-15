@@ -128,13 +128,12 @@ internal class PosixFileSystemOps : FileSystemOps {
         return names
     }
 
-    override fun createDirectory(path: String) {
+    // ownerOnly is ignored: the app sandbox of iOS already hides the files, as documented on WriteOptions.ownerOnly.
+    override fun createDirectory(path: String, ownerOnly: Boolean) {
         if (retryInterrupted { mkdir(path, DIRECTORY_MODE.convert()) } != 0) throw FileOpException(posixError(errno, path))
     }
 
-    // The inherited createDirectory(path, ownerOnly) and createNew(path, protection, ownerOnly) ignore ownerOnly: the
-    // app sandbox of iOS already hides the files, as documented on WriteOptions.ownerOnly.
-    override fun createNew(path: String, protection: FileProtection): WritableFile {
+    override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile {
         val descriptor: Int = retryInterrupted { open(path, O_WRONLY or O_CREAT or O_EXCL or O_CLOEXEC, FILE_MODE) }
         if (descriptor < 0) throw FileOpException(posixError(errno, path))
         val file: PosixWritableFile = PosixWritableFile(descriptor, path)

@@ -20,6 +20,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.concurrent.atomics.AtomicInt
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
@@ -191,17 +192,21 @@ class OwnerOnlyPosixT10Test {
 
     @Test
     fun `without ownerOnly the mode is the one the process umask gives, not forced`() {
-        // The reference is a file made by plain java.nio in the same directory, so the umask of the test machine cancels out.
+        // The references are made by plain java.nio in the same directory, so the umask of the test machine cancels out.
         val reference: Path = Files.createFile(f("reference").toPath())
         // path-hygiene-ignore: PH2 a POSIX-only test: setUp skips it on Windows (TestHost.assumePosixFileSemantics)
         val referenceMode: String = PosixFilePermissions.toString(Files.getPosixFilePermissions(reference))
+        val referenceDirectory: Path = Files.createDirectory(f("reference-dir").toPath())
+        // path-hygiene-ignore: PH2 a POSIX-only test: setUp skips it on Windows (TestHost.assumePosixFileSemantics)
+        val referenceDirectoryMode: String = PosixFilePermissions.toString(Files.getPosixFilePermissions(referenceDirectory))
+        // With a umask of 077 the plain result is owner-only already and the control proves nothing.
+        Assume.assumeFalse("umask 077: a plain file is already 0600", referenceMode == "rw-------")
+        Assume.assumeFalse("umask 077: a plain directory is already 0700", referenceDirectoryMode == "rwx------")
         val files: FileAccess = createFileAccess()
         assertTrue(files.writeAtomically(p("plain"), byteArrayOf(1)).isSuccess)
-        val referenceDirectory: Path = Files.createDirectory(f("reference-dir").toPath())
         assertTrue(files.createDirectories(p("plain-dir")).isSuccess)
-        // java.nio creates a file 0666 and a directory 0777 before the umask, as the engine does; the file modes agree.
-        assertEquals(referenceMode, mode(f("plain")).let { if (it == "rw-------") referenceMode else it })
-        assertTrue(Files.exists(referenceDirectory))
+        assertEquals(referenceMode, mode(f("plain")), "a write without ownerOnly keeps the umask mode")
+        assertEquals(referenceDirectoryMode, mode(f("plain-dir")), "a directory without ownerOnly keeps the umask mode")
     }
 
     @Test
@@ -211,15 +216,15 @@ class OwnerOnlyPosixT10Test {
         val ignoredFile: String = p("ignored")
         val plainFile: String = p("plain")
         ignoring.createNew(ignoredFile, FileProtection.Default, true).close()
-        plain.createNew(plainFile, FileProtection.Default).close()
+        plain.createNew(plainFile, FileProtection.Default, false).close()
         assertEquals(mode(f("plain")), mode(f("ignored")), "the same mode as a file made without the request")
         ignoring.createDirectory(p("ignored-dir"), true)
-        plain.createDirectory(p("plain-dir"))
+        plain.createDirectory(p("plain-dir"), false)
         assertEquals(mode(f("plain-dir")), mode(f("ignored-dir")))
     }
 
     @Test
-    fun `a file system that exposes no permission view is ignored, the write succeeds`() {
+    fun `a provider that reports neither a posix nor an acl view is ignored, the write succeeds`() {
         val attributes: OwnerOnlyAttributes = object : OwnerOnlyAttributes(true) {
             override fun supportedViews(path: Path): Set<String> = setOf("basic")
         }
@@ -233,9 +238,9 @@ class OwnerOnlyPosixT10Test {
     }
 
     @Test
-    fun `a file system that refuses the permission attribute is ignored, never an exception`() {
+    fun `a provider that refuses the permission attribute fails closed and creates nothing, never a wider file`() {
         // The attribute a POSIX provider cannot take as an initial attribute: UnsupportedOperationException, as on a
-        // provider without that view.
+        // provider without that view. There is no retry without it: that could only create the entry with wider access.
         val refused: FileAttribute<String> = object : FileAttribute<String> {
             override fun name(): String = "acl:acl"
             override fun value(): String = "not supported here"
@@ -246,10 +251,29 @@ class OwnerOnlyPosixT10Test {
         }
         val files = fileAccessOver(NioFileSystemOps(attributes))
         val written: FileResult<Unit> = files.writeAtomically(p("v", "f"), byteArrayOf(8), WriteOptions(createParentDirectories = true, ownerOnly = true))
-        assertTrue(written.isSuccess, "$written")
-        assertTrue(files.createDirectories(p("w", "x"), ownerOnly = true).isSuccess)
-        assertContentEquals(byteArrayOf(8), f("v", "f").readBytes())
-        assertTrue(f("w", "x").isDirectory)
+        assertTrue(written is FileResult.Failure && written.error is FileError.Unsupported, "$written")
+        assertFalse(f("v").exists(), "the directory the attribute was refused for was not created without it")
+        val made: FileResult<Unit> = files.createDirectories(p("w", "x"), ownerOnly = true)
+        assertTrue(made is FileResult.Failure && made.error is FileError.Unsupported, "$made")
+        assertFalse(f("w").exists())
+        val direct: FileResult<Unit> = files.writeAtomically(p("g"), byteArrayOf(1), WriteOptions(ownerOnly = true))
+        assertTrue(direct is FileResult.Failure && direct.error is FileError.Unsupported, "$direct")
+        assertEquals(listOf<String>(), root.list()!!.toList(), "no temp file is left behind")
+    }
+
+    @Test
+    fun `the ownerOnly request reaches the real ops through a decorating ops`() {
+        // FaultOps decorates by overriding, not by delegating: with the optional overloads of the first draft the engine's
+        // three-argument call fell to a default and never reached the real ops.
+        val files: FileAccess = fileAccessOver(FaultOps(NioFileSystemOps()))
+        val options: WriteOptions = WriteOptions(createParentDirectories = true, tempDirectory = p("scratch"), ownerOnly = true)
+        assertTrue(files.writeAtomically(p("d", "e", "f"), byteArrayOf(1), options).isSuccess)
+        assertEquals("rw-------", mode(f("d", "e", "f")))
+        assertEquals("rwx------", mode(f("d")))
+        assertEquals("rwx------", mode(f("d", "e")))
+        assertEquals("rwx------", mode(f("scratch")))
+        assertTrue(files.createDirectories(p("g", "h"), ownerOnly = true).isSuccess)
+        assertEquals("rwx------", mode(f("g", "h")))
     }
 
     @Test
@@ -260,7 +284,7 @@ class OwnerOnlyPosixT10Test {
     }
 
     @Test
-    fun `an owner only creation that clashes is AlreadyExists, not swallowed by the attribute fallback`() {
+    fun `an owner only creation that clashes is AlreadyExists`() {
         val ops: NioFileSystemOps = NioFileSystemOps()
         ops.createNew(p("taken"), FileProtection.Default, true).close()
         val thrown: FileOpException = org.junit.Assert.assertThrows(FileOpException::class.java) {

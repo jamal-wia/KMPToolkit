@@ -96,6 +96,7 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         createDirectoriesOverAFileIsNotADirectory()
         createDirectoriesByConcurrentCreatorsAllSucceed()
         createDirectoriesDurableGivesTheSameResults()
+        createDirectoriesOwnerOnlyGivesTheSameResults()
         readBytesOfAnAbsentFileIsNotFound()
         readBytesOfADirectoryIsADirectory()
         readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead()
@@ -104,6 +105,7 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         writeAtomicallyAcceptsEmptyContent()
         writeAtomicallyWithAMissingParentIsNotFound()
         writeAtomicallyCreatesParentDirectoriesWhenAsked()
+        writeAtomicallyOwnerOnlyGivesTheSameResults()
         writeAtomicallyOverADirectoryIsADirectory()
         writeAtomicallyWithFailRefusesAnExistingTarget()
         writeAtomicallyWithFailRefusesADanglingLink()
@@ -297,6 +299,34 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(files.metadata(shared)?.kind == FileKind.Directory, "the directory exists afterwards")
     }
 
+    /**
+     * `createDirectories(ownerOnly = true)` is observably the same as without it in everything but access: it creates
+     * every missing parent, is idempotent, a file at the path or in the way is [FileError.NotADirectory], concurrent
+     * creators all succeed, and the creator can still list and use what it created. Whether the access is restricted is
+     * not observable through [FileAccess], and an implementation that cannot restrict access still passes.
+     */
+    public fun createDirectoriesOwnerOnlyGivesTheSameResults(): Unit = scenario("createDirectoriesOwnerOnlyGivesTheSameResults") {
+        val deep: String = p("oa", "ob", "oc")
+        ok(files.createDirectories(deep, ownerOnly = true), "owner-only createDirectories")
+        ok(files.createDirectories(deep, ownerOnly = true), "owner-only createDirectories again")
+        ok(files.createDirectories(p("oa"), ownerOnly = true), "owner-only createDirectories of an existing parent")
+        expect(files.metadata(deep)?.kind == FileKind.Directory, "the deepest level is a directory")
+        expect(files.metadata(p("oa"))?.kind == FileKind.Directory, "the first level is a directory")
+        expect(files.list(p("oa", "ob")).getOrNull() == listOf("oc"), "the creator can list what it created")
+        write("of", "x")
+        failure<FileError.NotADirectory>(files.createDirectories(p("of"), ownerOnly = true), "owner-only createDirectories over a file")
+        failure<FileError.NotADirectory>(files.createDirectories(p("of", "x"), ownerOnly = true), "owner-only createDirectories below a file")
+        expect(text("of") == "x", "the file is untouched")
+        val shared: String = p("ox", "oy", "oz")
+        val problems: Array<String?> = arrayOfNulls(WORKERS)
+        runConcurrently(WORKERS) { index ->
+            val result: FileResult<Unit> = files.createDirectories(shared, ownerOnly = true)
+            if (!result.isSuccess) problems[index] = "worker $index got $result"
+        }
+        expect(problems.all { it == null }, "every concurrent owner-only creator must succeed: ${problems.filterNotNull()}")
+        expect(files.metadata(shared)?.kind == FileKind.Directory, "the directory exists afterwards")
+    }
+
     // ---- readBytes --------------------------------------------------------------------------------
 
     /** An absent file is [FileError.NotFound], naming the path. */
@@ -361,6 +391,23 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         ok(files.writeAtomically(p("a", "b", "f"), "v".encodeToByteArray(), WriteOptions(createParentDirectories = true)), "writeAtomically")
         expect(text("a", "b", "f") == "v", "the file is there")
         expect(names(p("a", "b")) == listOf("f"), "and nothing else beside it")
+    }
+
+    /**
+     * `WriteOptions(ownerOnly = true)` is observably the same as without it in everything but access: the content
+     * replaces the old one, the creator reads it back, missing parents are created when asked, and no temporary file is
+     * left. Whether the access is restricted is not observable through [FileAccess], and an implementation that cannot
+     * restrict access still passes.
+     */
+    public fun writeAtomicallyOwnerOnlyGivesTheSameResults(): Unit = scenario("writeAtomicallyOwnerOnlyGivesTheSameResults") {
+        val options: WriteOptions = WriteOptions(ownerOnly = true)
+        ok(files.writeAtomically(p("f"), "one".encodeToByteArray(), options), "owner-only writeAtomically")
+        ok(files.writeAtomically(p("f"), "two".encodeToByteArray(), options), "owner-only writeAtomically over the old file")
+        expect(text("f") == "two", "the new content replaced the old one, was ${text("f")}")
+        ok(files.writeAtomically(p("a", "b", "g"), "v".encodeToByteArray(), options.copy(createParentDirectories = true)), "owner-only writeAtomically with parents")
+        expect(text("a", "b", "g") == "v", "the file with created parents is there")
+        expect(names(p("a", "b")) == listOf("g"), "and nothing else beside it")
+        expect(names(root).sorted() == listOf("a", "f"), "no temporary file is left, was ${names(root)}")
     }
 
     /** A directory at the path is [FileError.IsADirectory] and stays. */

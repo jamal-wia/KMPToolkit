@@ -104,8 +104,8 @@ abstract interface io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps { // i
     abstract val windowsPaths // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.windowsPaths|{}windowsPaths[0]
         abstract fun <get-windowsPaths>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.windowsPaths.<get-windowsPaths>|<get-windowsPaths>(){}[0]
 
-    abstract fun createDirectory(kotlin/String) // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.createDirectory|createDirectory(kotlin.String){}[0]
-    abstract fun createNew(kotlin/String, io.github.jamal_wia.kmptoolkit.files/FileProtection): io.github.jamal_wia.kmptoolkit.files.spi/WritableFile // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.createNew|createNew(kotlin.String;io.github.jamal_wia.kmptoolkit.files.FileProtection){}[0]
+    abstract fun createDirectory(kotlin/String, kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.createDirectory|createDirectory(kotlin.String;kotlin.Boolean){}[0]
+    abstract fun createNew(kotlin/String, io.github.jamal_wia.kmptoolkit.files/FileProtection, kotlin/Boolean): io.github.jamal_wia.kmptoolkit.files.spi/WritableFile // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.createNew|createNew(kotlin.String;io.github.jamal_wia.kmptoolkit.files.FileProtection;kotlin.Boolean){}[0]
     abstract fun link(kotlin/String, kotlin/String) // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.link|link(kotlin.String;kotlin.String){}[0]
     abstract fun list(kotlin/String): kotlin.collections/List<kotlin/String>? // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.list|list(kotlin.String){}[0]
     abstract fun metadata(kotlin/String, kotlin/Boolean): io.github.jamal_wia.kmptoolkit.files/FileMetadata? // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.metadata|metadata(kotlin.String;kotlin.Boolean){}[0]
@@ -115,8 +115,6 @@ abstract interface io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps { // i
     abstract fun rename(kotlin/String, kotlin/String) // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.rename|rename(kotlin.String;kotlin.String){}[0]
     abstract fun syncDirectory(kotlin/String, kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.syncDirectory|syncDirectory(kotlin.String;kotlin.Boolean){}[0]
     abstract fun usableSpace(kotlin/String): kotlin/Long? // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.usableSpace|usableSpace(kotlin.String){}[0]
-    open fun createDirectory(kotlin/String, kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.createDirectory|createDirectory(kotlin.String;kotlin.Boolean){}[0]
-    open fun createNew(kotlin/String, io.github.jamal_wia.kmptoolkit.files/FileProtection, kotlin/Boolean): io.github.jamal_wia.kmptoolkit.files.spi/WritableFile // io.github.jamal_wia.kmptoolkit.files.spi/FileSystemOps.createNew|createNew(kotlin.String;io.github.jamal_wia.kmptoolkit.files.FileProtection;kotlin.Boolean){}[0]
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.files.spi/ReadableFile { // io.github.jamal_wia.kmptoolkit.files.spi/ReadableFile|null[0]

@@ -324,3 +324,8 @@ public fun createAppDirectories(
 `public` and `@ToolkitInternalApi`: they let `kmptoolkit-files-testing` run the real engine over an
 in-memory file system. They are **not** part of the contract, may change in any release, and need an
 explicit `@OptIn(ToolkitInternalApi::class)`. Do not implement `FileSystemOps` in application code.
+
+Since 6.0.0 the abstract members `createDirectory(path, ownerOnly)` and `createNew(path, protection, ownerOnly)`
+replace `createDirectory(path)` and `createNew(path, protection)`: the engine always passes the flag, so every
+implementation (a decorator included) decides explicitly what `ownerOnly` means for its file system, and none is
+silently bypassed. An implementation that models no permissions accepts the flag and ignores it.

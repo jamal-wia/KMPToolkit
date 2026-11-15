@@ -62,13 +62,12 @@ internal class LegacyAndroidFileSystemOps : FileSystemOps {
         throw FileOpException(FileError.AccessDenied(directory))
     }
 
-    override fun createDirectory(path: String) {
+    // ownerOnly is ignored: the app sandbox of Android already hides the files, as documented on WriteOptions.ownerOnly.
+    override fun createDirectory(path: String, ownerOnly: Boolean) {
         os(path) { Os.mkdir(path, DIRECTORY_MODE) }
     }
 
-    // The inherited createDirectory(path, ownerOnly) and createNew(path, protection, ownerOnly) ignore ownerOnly: the
-    // app sandbox of Android already hides the files, as documented on WriteOptions.ownerOnly.
-    override fun createNew(path: String, protection: FileProtection): WritableFile {
+    override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile {
         val descriptor: FileDescriptor =
             os(path) { Os.open(path, OsConstants.O_CREAT or OsConstants.O_EXCL or OsConstants.O_WRONLY, FILE_MODE) }
         return OsWritableFile(descriptor, path)

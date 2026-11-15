@@ -206,8 +206,7 @@ internal class FileEngine(
             }
             for (level: String in missing) {
                 try {
-                    // The two-argument form when nothing is asked: a decorator that overrides only that one still sees the call.
-                    if (ownerOnly) ops.createDirectory(level, true) else ops.createDirectory(level)
+                    ops.createDirectory(level, ownerOnly)
                     created += level
                 } catch (e: FileOpException) {
                     if (e.error !is FileError.AlreadyExists) throw e
@@ -278,8 +277,7 @@ internal class FileEngine(
         repeat(MAX_TEMP_ATTEMPTS) {
             val temp: String = rules.join(directory, newTempName(prefix))
             try {
-                // The two-argument form when nothing is asked: a decorator that overrides only that one still sees the call.
-                return temp to (if (ownerOnly) ops.createNew(temp, protection, true) else ops.createNew(temp, protection))
+                return temp to ops.createNew(temp, protection, ownerOnly)
             } catch (e: FileOpException) {
                 if (e.error !is FileError.AlreadyExists) throw e
             }

@@ -38,19 +38,9 @@ class OwnerOnlyEngineT10Test {
         val directories: MutableList<Pair<String, Boolean>> = mutableListOf()
         val files: MutableList<Pair<String, Boolean>> = mutableListOf()
 
-        override fun createDirectory(path: String) {
-            directories += path to false
-            real.createDirectory(path)
-        }
-
         override fun createDirectory(path: String, ownerOnly: Boolean) {
             directories += path to ownerOnly
             real.createDirectory(path, ownerOnly)
-        }
-
-        override fun createNew(path: String, protection: FileProtection): WritableFile {
-            files += path to false
-            return real.createNew(path, protection)
         }
 
         override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile {

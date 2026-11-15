@@ -145,6 +145,19 @@ keep working after a crash:
 files.entries() // Map<String, FakeEntry>: "/d/f" -> FakeEntry.File(bytes), "/d" -> Directory, links -> SymbolicLink(target)
 ```
 
+`isOwnerOnly(path)` (since 6.0.0) answers whether an entry was created with `ownerOnly = true`: the temporary file of a
+`writeAtomically(..., WriteOptions(ownerOnly = true))` (a rename carries the flag to the final name, a replace gives it
+to the path, hard links share it) and the directories of `createDirectories(..., ownerOnly = true)` or
+`createParentDirectories`. The fake only records it, it never enforces it: it has no users, so every caller can still
+read every entry. Seeded entries answer `false`, a path with nothing there throws `IllegalArgumentException`, and the
+flag survives `restartAfterCrash`:
+
+```kotlin
+files.writeAtomically("/d/key", bytes, WriteOptions(createParentDirectories = true, ownerOnly = true))
+assertTrue(files.isOwnerOnly("/d/key")) // the file
+assertTrue(files.isOwnerOnly("/d"))     // the directory the call created
+```
+
 What the engine guarantees at each crash point, and which `Durability` it takes, is pinned by this
 module's own suite: a crash after `CreateNew`, `Write`, `Sync` or `Close` leaves the old content and
 exactly one temporary file; after `Rename` the new content; a `Buffered` write followed by power loss

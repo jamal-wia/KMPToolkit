@@ -186,6 +186,19 @@ public class FakeFileAccess private constructor(
      * file listed with the same content. Symbolic links are not followed. Works after a crash.
      */
     public fun entries(): Map<String, FakeEntry> = ops.snapshotEntries()
+
+    /**
+     * Whether the entry at [path] was created with `ownerOnly = true`: a file through `WriteOptions.ownerOnly` (the
+     * temporary file of the write, which a rename carries to the final name and a replace gives to it), a directory
+     * through `createDirectories(path, ownerOnly = true)` or `WriteOptions.createParentDirectories`. It is recorded,
+     * never enforced: the fake has no users, so every caller can still read every entry. Hard links of one file share
+     * the answer. Entries seeded with [createFile], [createDirectory] or [createSymbolicLink] answer `false`. A final
+     * symbolic link is asked itself, not its target. Works after a crash and survives [restartAfterCrash].
+     * @throws IllegalArgumentException when [path] is not absolute or nothing exists there.
+     * @since 6.0.0
+     */
+    public fun isOwnerOnly(path: String): Boolean =
+        requireNotNull(ops.ownerOnlyOf(path)) { "'$path' does not exist" }
 }
 
 /**

@@ -43,6 +43,8 @@ internal class NioFileSystemOps(private val ownerOnlyAttributes: OwnerOnlyAttrib
     internal companion object {
         /** Shared by every FileAccess of the process; used only by ops with Windows path syntax. */
         val gate: PathAccessGate = PathAccessGate()
+
+        private val NO_ATTRIBUTES: Array<FileAttribute<*>> = emptyArray()
     }
 
     override fun nowMillis(): Long = System.currentTimeMillis()
@@ -101,40 +103,20 @@ internal class NioFileSystemOps(private val ownerOnlyAttributes: OwnerOnlyAttrib
         return names
     }
 
-    override fun createDirectory(path: String) {
-        createDirectory(path, ownerOnly = false)
-    }
-
     override fun createDirectory(path: String, ownerOnly: Boolean) {
         val p: Path = pathOf(path)
-        if (!ownerOnly) {
-            nio(path) { Files.createDirectory(p) }
-            return
-        }
-        val attributes: Array<FileAttribute<*>> = ownerOnlyAttributes.forDirectory(p)
-        try {
-            nio(path) { Files.createDirectory(p, *attributes) }
-        } catch (e: FileOpException) {
-            if (attributes.isEmpty() || e.error !is FileError.Unsupported) throw e
-            // A file system that refuses the permission attribute stores none: documented as ignored.
-            nio(path) { Files.createDirectory(p) }
-        }
+        // The attribute goes to the creating call. A refusal (UnsupportedOperationException, FileError.Unsupported) fails
+        // closed: no retry without the attribute, which could only create the directory with wider access.
+        val attributes: Array<FileAttribute<*>> = if (ownerOnly) ownerOnlyAttributes.forDirectory(p) else NO_ATTRIBUTES
+        nio(path) { Files.createDirectory(p, *attributes) }
     }
-
-    override fun createNew(path: String, protection: FileProtection): WritableFile =
-        createNew(path, protection, ownerOnly = false)
 
     override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile {
         val p: Path = pathOf(path)
         val options: Set<OpenOption> = setOf(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-        val attributes: Array<FileAttribute<*>> = if (ownerOnly) ownerOnlyAttributes.forFile(p) else emptyArray()
-        val channel: FileChannel = try {
-            nio(path) { FileChannel.open(p, options, *attributes) }
-        } catch (e: FileOpException) {
-            if (attributes.isEmpty() || e.error !is FileError.Unsupported) throw e
-            // A file system that refuses the permission attribute stores none: documented as ignored.
-            nio(path) { FileChannel.open(p, options) }
-        }
+        // Same as createDirectory: the attribute goes to the creating call and a refusal is never retried without it.
+        val attributes: Array<FileAttribute<*>> = if (ownerOnly) ownerOnlyAttributes.forFile(p) else NO_ATTRIBUTES
+        val channel: FileChannel = nio(path) { FileChannel.open(p, options, *attributes) }
         return NioWritableFile(channel, path)
     }
 
