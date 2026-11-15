@@ -237,7 +237,9 @@ values you want to keep, or clear the app's data.
   message, a `KeyStoreException` as its cause) and only for a store opened with `unlockedDeviceRequired`. The price there:
   another refusal of the same shape for such a store (a rate limit, a system error) also answers `Unavailable` and keeps
   the key, which is a "retry later" answer, never a lost-value one. A store without `unlockedDeviceRequired` takes
-  nothing for a locked device on 31 and 32. The API 31+ form comes from the platform source and the framework bytecode
+  nothing for a locked device on 31 and 32: if its alias holds a key that was generated with the option (an earlier version of the
+  app, or another store of the same name), a read while the device is locked answers `Undecryptable(key)` there, so open every
+  store of one name with the same options. The API 31+ form comes from the platform source and the framework bytecode
   and is not observed on a device.
 
 ### User authentication
