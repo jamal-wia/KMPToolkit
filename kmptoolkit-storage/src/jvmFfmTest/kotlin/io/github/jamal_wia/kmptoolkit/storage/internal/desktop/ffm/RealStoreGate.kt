@@ -15,6 +15,13 @@ internal object RealStoreGate {
     /** Whether `-Pkmptoolkit.secretstore.required=true` was given. */
     val required: Boolean get() = System.getProperty("kmptoolkit.secretstore.required") == "true"
 
+    /**
+     * Whether `-Pkmptoolkit.secretstore.oldLibsecret=true` was given: the run is on a libsecret older than 0.19 (RHEL 8's 0.18.6),
+     * where the Linux binding is expected to answer SYMBOL_MISSING on every call. Without it a SYMBOL_MISSING answer from a real
+     * libsecret is a defect of the binding, never a reason to skip.
+     */
+    val oldLibsecret: Boolean get() = System.getProperty("kmptoolkit.secretstore.oldLibsecret") == "true"
+
     /** Runs the calling test when the suite of [os] is selected; skips it, or fails it when required and nothing was selected. */
     fun require(os: String) {
         if (selected == os) return

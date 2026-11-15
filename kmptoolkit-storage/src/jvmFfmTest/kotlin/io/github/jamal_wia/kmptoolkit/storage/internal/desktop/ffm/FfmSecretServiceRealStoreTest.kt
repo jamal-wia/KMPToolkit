@@ -8,6 +8,7 @@ import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
 import java.util.Base64
 import java.util.Random
 import java.util.concurrent.atomic.AtomicInteger
+import org.junit.Assume
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -23,7 +24,8 @@ import kotlin.test.assertTrue
  *
  * Every item it creates has a unique `service` attribute (`kmptoolkit-storage.test.ffm-<pid>-<n>`) and is cleared in
  * `@AfterTest`; no other item is touched. An environment without a Secret Service skips the suite (fails it with
- * `-Pkmptoolkit.secretstore.required=true`). Daemon-manipulating cases (locked collection, killed daemon, dismissed prompt) and
+ * `-Pkmptoolkit.secretstore.required=true`); a binding that answers SYMBOL_MISSING on a libsecret that should work fails it
+ * always. Run it with `-Pkmptoolkit.secretstore.required=true`, as every lead command does. Daemon-manipulating cases (locked collection, killed daemon, dismissed prompt) and
  * the old-libsecret container run are manual runs of the lead and need a scripted environment this suite does not own.
  */
 class FfmSecretServiceRealStoreTest {
@@ -38,6 +40,16 @@ class FfmSecretServiceRealStoreTest {
         calls = FfmNativeKeyStoreBinding(Foreign.system(), ledger, FfmOs.LINUX).linux()
         val probe: RawResult<SecretLookup> = calls.lookup(newAttributes(), allowUi = false)
         if (probe is RawResult.Failure) {
+            if (probe.status.isSymbolMissing) {
+                // A real libsecret that cannot be bound is a defect of the binding (the missing synchronous backend call was one), not an
+                // environment problem: it fails the suite even without `required`. Only the explicit old-libsecret run expects it, and
+                // that run is the job of FfmSecretServiceOldLibsecretRealStoreTest.
+                if (RealStoreGate.oldLibsecret) Assume.assumeTrue("old-libsecret run: see FfmSecretServiceOldLibsecretRealStoreTest", false)
+                throw AssertionError(
+                    "the binding answers SYMBOL_MISSING on this Linux: libsecret 0.19 or newer exists here, so a symbol the binding " +
+                        "binds is missing from the real libraries (pass -Pkmptoolkit.secretstore.oldLibsecret=true only on libsecret older than 0.19)",
+                )
+            }
             RealStoreGate.environmentUnavailable("linux", "the Secret Service answered ${probe.status}")
         }
     }
