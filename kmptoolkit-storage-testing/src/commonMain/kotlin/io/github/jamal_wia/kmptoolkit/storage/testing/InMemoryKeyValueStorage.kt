@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.storage.testing
 
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.SecureKeyValueStorage
+import io.github.jamal_wia.kmptoolkit.storage.SecureStorageProtection
 import io.github.jamal_wia.kmptoolkit.storage.StorageError
 import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 
@@ -37,7 +38,10 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
  * synchronized for parallel threads: drive it from one thread, which is what `runTest` already does.
  * Testing what the real stores do under parallel threads is the real stores' own test suite's job.
  */
-public class InMemoryKeyValueStorage : SecureKeyValueStorage {
+public class InMemoryKeyValueStorage(
+    /** What the fake claims; [SecureStorageProtection.NONE], the truth about a map, unless a test needs another value. */
+    override val protection: SecureStorageProtection = SecureStorageProtection.NONE,
+) : SecureKeyValueStorage {
 
     private val entries: MutableMap<String, String> = mutableMapOf()
 
@@ -97,6 +101,9 @@ public class InMemoryKeyValueStorage : SecureKeyValueStorage {
         entries.clear()
         return StorageResult.Success(Unit)
     }
+
+    /** Succeeds unless a failure is armed; there is no key and nothing to prompt for. */
+    override suspend fun ensureKey(): StorageResult<Unit> = scripted() ?: StorageResult.Success(Unit)
 
     /** Consumes [failNextOperationWith] if it is armed, so the next call runs normally again. */
     private fun scripted(): StorageResult.Failure? {

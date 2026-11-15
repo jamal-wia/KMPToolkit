@@ -1,12 +1,12 @@
 package io.github.jamal_wia.kmptoolkit.storage.testing
 
 import io.github.jamal_wia.kmptoolkit.storage.DeviceIdProvider
+import io.github.jamal_wia.kmptoolkit.storage.SecureStorageProtection
 import io.github.jamal_wia.kmptoolkit.storage.StorageError
 import io.github.jamal_wia.kmptoolkit.storage.StorageOperation
 import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import io.github.jamal_wia.kmptoolkit.storage.errorOrNull
 import io.github.jamal_wia.kmptoolkit.storage.getOrNull
-import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
 import io.github.jamal_wia.kmptoolkit.storage.isSuccess
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -94,7 +94,7 @@ class InMemoryKeyValueStorageTest {
 
         storage.put("k", "mine")
 
-        assertNull(other.getStringOrNull("k"))
+        assertNull(other.get("k").getOrNull())
     }
 
     @Test
@@ -244,6 +244,25 @@ class InMemoryKeyValueStorageTest {
 
         assertEquals(mapOf("k" to "old"), storage.contents)
         assertEquals(listOf("k"), storage.writes)
+    }
+
+    @Test
+    fun `protection defaults to NONE and takes the value a test gives it`() {
+        assertEquals(SecureStorageProtection.NONE, storage.protection)
+        assertEquals(
+            SecureStorageProtection.OS_KEY_STORE_USER_SCOPED,
+            InMemoryKeyValueStorage(SecureStorageProtection.OS_KEY_STORE_USER_SCOPED).protection,
+        )
+    }
+
+    @Test
+    fun `ensureKey succeeds and follows an armed failure then clears it`() = runTest {
+        assertEquals(StorageResult.Success(Unit), storage.ensureKey())
+
+        storage.failNextOperationWith = StorageError.AccessDenied()
+
+        assertEquals(StorageError.AccessDenied(), storage.ensureKey().errorOrNull())
+        assertEquals(StorageResult.Success(Unit), storage.ensureKey())
     }
 
     @Test

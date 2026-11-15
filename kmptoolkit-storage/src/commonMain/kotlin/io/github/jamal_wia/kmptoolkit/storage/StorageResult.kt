@@ -42,3 +42,18 @@ public val StorageResult<*>.isSuccess: Boolean
  * which is the exact distinction a "your session ended, log in again" path needs.
  */
 public suspend fun KeyValueStorage.getStringOrNull(key: String): String? = get(key).getOrNull()
+
+/**
+ * Deprecated on encrypted stores: a default hides [StorageError.AccessDenied],
+ * [StorageError.Unavailable] and [StorageError.Undecryptable] — it turns "unreadable" into "absent",
+ * which a "signed out" path then acts on. Use [KeyValueStorage.get] and handle
+ * [StorageResult.Failure].
+ */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getStringOrNull(key: String): String? {
+    val plain: KeyValueStorage = this
+    return plain.getStringOrNull(key)
+}

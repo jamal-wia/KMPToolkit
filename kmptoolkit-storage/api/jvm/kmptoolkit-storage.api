@@ -21,7 +21,7 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/storage/KeyValueS
 	public abstract fun remove (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
-public abstract interface class io/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage : io/github/jamal_wia/kmptoolkit/storage/KeyValueStorage {
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage : io/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage {
 }
 
 public final class io/github/jamal_wia/kmptoolkit/storage/SecureStorageProtection : java/lang/Enum {
@@ -181,17 +181,22 @@ public final class io/github/jamal_wia/kmptoolkit/storage/StorageResult$Success 
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageResultKt {
 	public static final fun errorOrNull (Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;)Lio/github/jamal_wia/kmptoolkit/storage/StorageError;
 	public static final fun getOrNull (Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;)Ljava/lang/Object;
+	public static final fun getStringOrNull (Lio/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getStringOrNull (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun isSuccess (Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;)Z
 }
 
 public final class io/github/jamal_wia/kmptoolkit/storage/TypedAccessKt {
 	public static final fun getBoolean (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun getBooleanOr (Lio/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage;Ljava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getBooleanOr (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getInt (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun getIntOr (Lio/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage;Ljava/lang/String;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getIntOr (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getLong (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun getLongOr (Lio/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getLongOr (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun getStringOr (Lio/github/jamal_wia/kmptoolkit/storage/EncryptedKeyValueStorage;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getStringOr (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun putBoolean (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun putInt (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;ILkotlin/coroutines/Continuation;)Ljava/lang/Object;

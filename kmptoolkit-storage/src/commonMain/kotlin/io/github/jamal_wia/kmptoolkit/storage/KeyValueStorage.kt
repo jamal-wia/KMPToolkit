@@ -34,7 +34,7 @@ package io.github.jamal_wia.kmptoolkit.storage
  * has to provide it — a `Mutex` around its own logic.
  *
  * Nothing here is encrypted. For values that must not be readable from a device backup or a rooted
- * phone, use [SecureKeyValueStorage].
+ * phone, use an [EncryptedKeyValueStorage] — [SecureKeyValueStorage] where an OS key store holds the key.
  */
 public interface KeyValueStorage {
 
@@ -71,11 +71,13 @@ public interface KeyValueStorage {
 }
 
 /**
- * A [KeyValueStorage] whose values are encrypted at rest by the platform's own key store.
+ * An [EncryptedKeyValueStorage] whose key — on iOS, whose values — an OS key store holds: the Android
+ * Keystore, the iOS Keychain, or a desktop OS's key store. [protection] is one of the
+ * `OS_KEY_STORE_*` values (a test double may report [SecureStorageProtection.NONE]).
  *
- * The interface is deliberately identical to [KeyValueStorage] — the difference is a guarantee, not
- * a shape, so shared code can take either and a test can substitute one for the other. What the
- * guarantee covers, and equally what it does not, is stated in
+ * The interface adds nothing to [EncryptedKeyValueStorage]: the difference from [KeyValueStorage] is a
+ * guarantee, not a shape, so shared code can take either and a test can substitute one for the other.
+ * What the guarantee covers, and equally what it does not, is stated in
  * `docs/kmptoolkit-storage/05-platform-notes.md`; the short version:
  *
  * - **Values are encrypted; key names are not.** A key name is a program constant, not a secret.
@@ -90,4 +92,4 @@ public interface KeyValueStorage {
  * Every operation is slower than the plain store's — a Keystore cipher round trip on Android, an
  * IPC hop to `securityd` on iOS. Store a handful of secrets in it, not a working set.
  */
-public interface SecureKeyValueStorage : KeyValueStorage
+public interface SecureKeyValueStorage : EncryptedKeyValueStorage

@@ -59,6 +59,49 @@ public suspend fun KeyValueStorage.getBooleanOr(key: String, default: Boolean): 
     getBoolean(key).getOrNull() ?: default
 
 /**
+ * Deprecated on encrypted stores, as [getStringOrNull]: [default] replaces an unreadable store as well
+ * as an absent key. Use [KeyValueStorage.get] and handle [StorageResult.Failure].
+ */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getStringOr(key: String, default: String): String {
+    val plain: KeyValueStorage = this
+    return plain.getStringOr(key, default)
+}
+
+/** Deprecated on encrypted stores, as [getStringOrNull]. Use [getInt] and handle [StorageResult.Failure]. */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getIntOr(key: String, default: Int): Int {
+    val plain: KeyValueStorage = this
+    return plain.getIntOr(key, default)
+}
+
+/** Deprecated on encrypted stores, as [getStringOrNull]. Use [getLong] and handle [StorageResult.Failure]. */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getLongOr(key: String, default: Long): Long {
+    val plain: KeyValueStorage = this
+    return plain.getLongOr(key, default)
+}
+
+/** Deprecated on encrypted stores, as [getStringOrNull]. Use [getBoolean] and handle [StorageResult.Failure]. */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getBooleanOr(key: String, default: Boolean): Boolean {
+    val plain: KeyValueStorage = this
+    return plain.getBooleanOr(key, default)
+}
+
+/**
  * Exactly the form the `put` side writes — an optional minus and ASCII digits. `String.toInt` alone would
  * also take a leading `+` and, on the JVM, non-ASCII digits.
  */

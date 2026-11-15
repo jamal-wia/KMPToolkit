@@ -48,6 +48,16 @@ class IosSecureKeyValueStorageTest {
     }
 
     @Test
+    fun `the store reports the app-isolated OS key store protection without touching the Keychain`() {
+        assertEquals(SecureStorageProtection.OS_KEY_STORE_APP_ISOLATED, storage.protection)
+    }
+
+    @Test
+    fun `ensureKey without a Keychain is a typed failure rather than a crash`() = runTest {
+        assertEquals(StorageError.Unavailable(), storage.ensureKey().errorOrNull())
+    }
+
+    @Test
     fun `a remove without a Keychain is a typed failure rather than a crash`() = runTest {
         assertEquals(StorageError.Unavailable(), storage.remove("k").errorOrNull())
     }

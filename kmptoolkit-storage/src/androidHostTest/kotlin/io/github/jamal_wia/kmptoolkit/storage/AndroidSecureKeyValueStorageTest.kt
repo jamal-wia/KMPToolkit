@@ -4,7 +4,11 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import android.content.SharedPreferences
 import android.util.Base64
+import javax.crypto.SecretKey
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
@@ -175,6 +179,64 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
 
         assertEquals(StorageError.Unavailable::class, error!!::class)
         assertNull(rawValue("k"))
+    }
+
+    @Test
+    fun `the store is an encrypted store whose key the Android Keystore holds`() {
+        val storage: EncryptedKeyValueStorage = secure()
+
+        assertEquals(SecureStorageProtection.OS_KEY_STORE_APP_ISOLATED, storage.protection)
+    }
+
+    @Test
+    fun `ensureKey resolves the key and writes no entry`() = runTest {
+        val storage: SecureKeyValueStorage = secure()
+
+        assertEquals(StorageResult.Success(Unit), storage.ensureKey())
+
+        assertEquals(emptySet(), preferences(NAME).all.keys)
+        assertEquals(StorageResult.Success(null), storage.get("k"))
+    }
+
+    @Test
+    fun `ensureKey with a key store that will not open is unavailable and stores nothing`() = runTest {
+        val storage = AndroidSecureKeyValueStorage(
+            preferences = preferences(NAME),
+            cipher = KeystoreValueCipher(TestKeys.unavailableSource()),
+            dispatcher = dispatcher,
+        )
+
+        assertEquals(StorageError.Unavailable::class, storage.ensureKey().errorOrNull()!!::class)
+        assertEquals(emptySet(), preferences(NAME).all.keys)
+    }
+
+    @Test
+    fun `ensureKey cancelled while the key is being resolved propagates the cancellation and stores nothing`() = runTest {
+        val gate: CompletableDeferred<Unit> = CompletableDeferred()
+        val storage = AndroidSecureKeyValueStorage(
+            preferences = preferences(NAME),
+            cipher = KeystoreValueCipher(
+                object : SecretKeySource {
+                    override suspend fun key(): SecretKey {
+                        gate.await()
+                        return TestKeys.generate()
+                    }
+                },
+            ),
+            dispatcher = dispatcher,
+        )
+        var outcome: StorageResult<Unit>? = null
+        val job: Job = launch(UnconfinedTestDispatcher(testScheduler)) { outcome = storage.ensureKey() }
+
+        job.cancel()
+        job.join()
+
+        assertEquals(true, job.isCancelled)
+        assertNull(outcome, "a cancelled ensureKey must not report a result")
+        assertEquals(emptySet(), preferences(NAME).all.keys)
+        // The store is usable afterwards: nothing was left half-done.
+        gate.complete(Unit)
+        assertEquals(StorageResult.Success(Unit), storage.ensureKey())
     }
 
     @Test
