@@ -446,8 +446,11 @@ class AndroidLocationProviderBreakerR4Test {
             val seen: MutableList<LocationReading> = mutableListOf()
             val job: Job = backgroundScope.launch { providerOver(backend).observeLocation(balanced).collect { seen += it } }
             runCurrent()
-            assertEquals(listOf(network), providersOf(fake), "control: gps refused at start, the off network registered")
-            assertEquals(serviceDisabled, seen.last(), "control: $seen")
+            // Breaker round 5 ruling: the grant landed during the start, so the start may already retry gps under it
+            // ([gps]) or leave that to the next event ([network], reading SERVICE_DISABLED); both are allowed here.
+            val afterStart: List<String> = providersOf(fake)
+            assertTrue(afterStart == listOf(network) || afterStart == listOf(gps), "control: gps refused at start: $afterStart")
+            if (afterStart == listOf(network)) assertEquals(serviceDisabled, seen.last(), "control: $seen")
 
             repeat(3) {
                 fake.setDeviceLocationEnabled(true)
