@@ -138,7 +138,8 @@ public sealed interface StorageError {
      * stored value. For a `put` nothing was changed.
      *
      * @param key the key the rejected value was read from or written to.
-     * @param cause the parse exception or the rejection reason, if any.
+     * @param cause the rejection reason, if any. It names the key's expected type or the rule that was
+     *   broken and never contains the value, so it is safe to log even for an encrypted store.
      */
     public data class InvalidValue(
         public val key: String,

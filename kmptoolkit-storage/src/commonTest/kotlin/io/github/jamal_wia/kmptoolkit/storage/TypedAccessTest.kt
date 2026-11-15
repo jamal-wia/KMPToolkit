@@ -2,7 +2,9 @@ package io.github.jamal_wia.kmptoolkit.storage
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlinx.coroutines.test.runTest
 
 /**
@@ -94,5 +96,30 @@ class TypedAccessTest {
 
         assertEquals("", storage.getStringOr("s", "fallback"))
         assertEquals(3, storage.getIntOr("i", 7))
+    }
+
+    @Test
+    fun `the InvalidValue cause names the requested type and carries neither the value nor another exception`() = runTest {
+        // One value per rejection path: not a decimal, not a boolean, a decimal the platform parse rejects.
+        val notDecimal = "hunter2-secret"
+        val overflowing = "99999999999999999999"
+        storage.entries["word"] = notDecimal
+        storage.entries["digits"] = overflowing
+
+        val cases: List<Triple<StorageResult<*>, String, String>> = listOf(
+            Triple(storage.getInt("word"), notDecimal, "Int"),
+            Triple(storage.getLong("word"), notDecimal, "Long"),
+            Triple(storage.getBoolean("word"), notDecimal, "Boolean"),
+            Triple(storage.getInt("digits"), overflowing, "Int"),
+            Triple(storage.getLong("digits"), overflowing, "Long"),
+        )
+        for ((result: StorageResult<*>, value: String, type: String) in cases) {
+            val error: StorageError.InvalidValue = assertIs(result.errorOrNull(), "$type of a rejected value")
+            val cause: Throwable = assertIs<IllegalArgumentException>(error.cause)
+            assertNull(cause.cause, "$type: the platform parse exception is not chained")
+            assertEquals(true, cause.message?.contains(type), "$type: the cause names the requested type: ${cause.message}")
+            assertFalse(error.toString().contains(value), "$type: toString of the error holds the value: $error")
+            assertFalse(cause.toString().contains(value), "$type: toString of the cause holds the value: $cause")
+        }
     }
 }
