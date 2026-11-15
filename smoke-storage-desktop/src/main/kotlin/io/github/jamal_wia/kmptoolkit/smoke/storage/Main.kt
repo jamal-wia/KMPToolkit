@@ -127,6 +127,7 @@ public fun main(args: Array<String>) {
 private suspend fun run(options: Options, directory: File, say: (String) -> Unit): SecureOutcome {
     checkRunOptions(options.secureRequired, options.probeOnly)
     checkPackaging(options.variant, say)
+    checkRemovalSeam(options.variant, say)
     plainRoundTrip(directory, say)
     return secureRoundTrip(directory, options, say)
 }
@@ -152,6 +153,17 @@ private fun checkPackaging(variant: String, say: (String) -> Unit) {
         }
         else -> throw SmokeFailure("unknown variant '$variant'")
     }
+}
+
+/**
+ * On macOS, the seam the cleanup uses must work in the shrunk, renamed image too: the binding is created by name and its raw calls are
+ * reached through the interface. Checked before any store call, and with no call into the keychain (creating the binding and asking it for
+ * its calls does not touch the OS), so a probe-only run proves the removal path is packaged right before a real run needs it.
+ */
+private fun checkRemovalSeam(variant: String, say: (String) -> Unit) {
+    if (!System.getProperty("os.name").orEmpty().startsWith("Mac")) return
+    loadMacCalls(variant)
+    say("packaging: the key item removal seam of the $variant binding is reachable")
 }
 
 private fun isLoadable(name: String): Boolean = try {
