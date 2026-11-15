@@ -268,6 +268,25 @@ app sharing that code with desktop could not compile it for desktop without the 
     be stopped: its late result is discarded and the key bytes in it are wiped. A call that may show a dialog has no limit but
     stays cancellable. No store lock is held while a native call that can prompt is awaited.
 
+- **Encrypted file format v1 (internal, for the desktop encrypted stores).** The encrypted desktop stores keep one binary
+  file that is rewritten as a whole: magic `KTSS`, format version `1`, a kind byte (1 = an OS item holds the data key,
+  2 = DPAPI-wrapped, 3 = passphrase, 4 = raw app key), a 2-byte header length and the header body, a 28-byte key-check
+  (AES-256-GCM over an empty plaintext, authenticating every header byte before it), a 4-byte entry count, and the entries
+  (name length, the name in UTF-8, a 12-byte nonce, a 4-byte length, the ciphertext with its 16-byte tag). **Entry names and
+  the entry count are plaintext; only values are encrypted.** Every entry is authenticated together with the magic, the
+  version, the kind and its own name, so an entry moved to another name, a downgraded version or a swapped kind fails its
+  tag instead of reading as another value. Changing any header byte breaks the key-check (kinds 1 and 2) or the unwrapping of
+  the data key (kinds 3 and 4, where it is indistinguishable from a wrong key). Whole-file rollback by someone who can write the
+  file is possible and accepted; keep the directory owner-only.
+  - Frozen by v1: the data key is 256 random bits from `SecureRandom`; every AES-GCM encryption (entry, key-check, key
+    wrapping) uses a fresh 96-bit random nonce, never a counter or a derived value; a passphrase is Unicode NFC-normalised and then
+    UTF-8 encoded before PBKDF2-HMAC-SHA256, so the same text typed composed or decomposed opens the same file; the
+    iteration count accepted on open is 600,000 to 10,000,000 and the lower bound never rises within v1 (a raised default
+    applies to newly written or re-keyed files only). A count outside the range is refused before any derivation, because
+    `javax.crypto` PBKDF2 cannot be cancelled.
+  - The parser checks every length against the bytes that remain before it allocates, rejects duplicate or non-UTF-8 entry
+    names and trailing bytes, and never throws for any input. A file that fails to parse is not a store: it is reported as
+    unreadable (`Undecryptable`), never as a wrong value.
 - **No secure store.** The JVM has no platform key store this module could keep a key in without
   inventing its own — and a key kept next to the data it encrypts protects nothing. Desktop apps that
   need a secret at rest should use the operating system's credential store directly.
