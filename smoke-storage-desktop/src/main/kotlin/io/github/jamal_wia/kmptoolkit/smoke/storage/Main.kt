@@ -110,7 +110,9 @@ public fun main(args: Array<String>) {
         }
         exitCode = 0
     } catch (failure: Throwable) {
-        verdict = "SMOKE-RESULT: FAIL ${failure::class.java.name}: ${failure.message}"
+        // Every failure that was attached while the run unwound (a cleanup that failed too) is printed: a leftover key item must never be silent.
+        failureDetails(failure).forEach(::say)
+        verdict = failureVerdict(failure)
         exitCode = 1
     } finally {
         directory.deleteRecursively()
@@ -215,24 +217,11 @@ private suspend fun secureRoundTrip(directory: File, run: Options, say: (String)
     val secureDirectory: File = File(directory, "secure")
     val storeName: String = "$SECURE_STORE_NAME_PREFIX.${UUID.randomUUID().toString().replace("-", "").take(RUN_ID_CHARS)}"
     val store: SecureKeyValueStorage = createSecureKeyValueStorage(secureDirectory, StorageConfig(storeName), options)
-    // Nothing is left behind on any way out: the data (clear) and the key item the store made in the OS key store, which clear() keeps
-    // by contract. A failed run removes what it made too, and a failing cleanup never hides the failure that came first.
-    guarded(
-        body = {
-            store.put("token", "s3cret").orFail("secure put")
-            expect("secure get", "s3cret", store.get("token").orFail("secure get"))
-            // A second instance: the key comes back from the OS key store (or its in-process cache) and opens the file on disk.
-            val second: SecureKeyValueStorage = createSecureKeyValueStorage(secureDirectory, StorageConfig(storeName), options)
-            expect("secure get (new instance)", "s3cret", second.get("token").orFail("secure get (new instance)"))
-            store.remove("token").orFail("secure remove")
-            expect("secure get after remove", null, store.get("token").orFail("secure get after remove"))
-        },
-        cleanup = { succeeded: Boolean ->
-            runAll(
-                { store.clear().orFail("secure clear") },
-                { keyItemRemovalFor(run.variant, keyStore, storeName, secureDirectory).remove(expectPresent = succeeded) },
-            )
-        },
+    // Nothing is left behind on any way out (the data and the key item), and a failing cleanup never hides the first failure: see SecureRun.kt.
+    runSecureRoundTrip(
+        store = store,
+        openSecond = { createSecureKeyValueStorage(secureDirectory, StorageConfig(storeName), options) },
+        removal = keyItemRemovalFor(run.variant, keyStore, storeName, secureDirectory),
     )
     say("cleanup: the store's data and its key item (where $keyStore has one) are removed and the item's absence is confirmed")
     return SecureOutcome.Passed(keyStore)
@@ -258,13 +247,4 @@ private fun loadMacCalls(variant: String): MacKeychainCalls {
     val className: String = if (variant == "ffm") FFM_BINDING_CLASS else JNA_BINDING_CLASS
     val binding: NativeKeyStoreBinding = Class.forName(className).getDeclaredConstructor().newInstance() as NativeKeyStoreBinding
     return binding.macOs()
-}
-
-private fun <T> StorageResult<T>.orFail(step: String): T = when (this) {
-    is StorageResult.Success -> value
-    is StorageResult.Failure -> throw SmokeFailure("$step failed: $error")
-}
-
-private fun expect(step: String, expected: String?, actual: String?) {
-    if (expected != actual) throw SmokeFailure("$step: expected ${expected?.let { "a value" } ?: "no value"}, got ${actual?.let { "a different value" } ?: "no value"}")
 }

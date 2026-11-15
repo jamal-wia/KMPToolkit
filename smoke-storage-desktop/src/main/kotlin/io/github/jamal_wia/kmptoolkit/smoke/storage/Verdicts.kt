@@ -54,3 +54,25 @@ internal fun checkRunOptions(secureRequired: Boolean, probeOnly: Boolean) {
         throw SmokeFailure("--secure-required and --probe-only contradict each other: a probe-only run never runs the secure round trip")
     }
 }
+
+/** The verdict line of a failed run: the FIRST failure only, so the reason named is the cause and never a consequence of the cleanup. */
+internal fun failureVerdict(failure: Throwable): String = "SMOKE-RESULT: FAIL ${failure::class.java.name}: ${failure.message}"
+
+/**
+ * The failures that were attached to [failure] while the run unwound, one line each, nested ones indented: a cleanup that failed after
+ * the run did (the key item that could not be removed, the data that could not be cleared) never changes the verdict's reason, but it is
+ * shown, because it may mean something was left behind. Empty when nothing was suppressed.
+ */
+internal fun failureDetails(failure: Throwable): List<String> {
+    val lines: MutableList<String> = mutableListOf()
+    val seen: MutableSet<Throwable> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
+    fun walk(parent: Throwable, depth: Int) {
+        if (!seen.add(parent)) return
+        for (suppressed: Throwable in parent.suppressed) {
+            lines += "${"  ".repeat(depth)}ALSO FAILED while cleaning up (something may be left behind): ${suppressed::class.java.name}: ${suppressed.message}"
+            walk(suppressed, depth + 1)
+        }
+    }
+    walk(failure, 0)
+    return lines
+}
