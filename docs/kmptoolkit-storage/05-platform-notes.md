@@ -253,9 +253,11 @@ app sharing that code with desktop could not compile it for desktop without the 
 - **Concurrency.** Instances over the same file in one process share a lock (a `KeyedMutex` keyed by the
   case- and Unicode-folded canonical path). Writes are also coordinated **across processes**: after the in-process
   lock, a `put`, `remove` or `clear()` takes `FileChannel.tryLock` on a separate sibling,
-  `<file name>.lock`, so two app instances or two parallel tools never lose each other's updates. A write that cannot
-  get the lock within 10 seconds (polled every 25 ms) answers `StorageError.Unavailable` and changes nothing; the file
-  is never touched without the lock. A lock dies with its process, so a killed holder never wedges the store.
+  `<file name>.lock`, so two app instances or two parallel tools never lose each other's updates. One budget of 10
+  seconds covers both waits of a write, the in-process one and the file lock (polled every 25 ms): a write that cannot get
+  both within it answers `StorageError.Unavailable` and changes nothing, however many writes queue in front of it, and the
+  file is never touched without the lock. Only the waiting is timed, never the write itself. A lock dies with its process,
+  so a killed holder never wedges the store.
   - The lock file is empty, is created the first time a write needs it (a read never creates it, and neither does a
     `clear()` of a store whose directory does not exist) through an atomic create-if-absent, owner-only from the moment
     it exists (POSIX 0600; the Windows owner-and-SYSTEM ACL), and is never renamed and never deleted by the library.
@@ -264,10 +266,17 @@ app sharing that code with desktop could not compile it for desktop without the 
     boundary and `~`, 16 hex characters of its SHA-256 and `.lock` follow.
   - The lock is on the sibling and never on the data file because on Windows a mandatory lock on the data file would block
     the atomic rename.
-  - A lock file the process cannot create, open or lock (a read-only directory, a lock path that is a directory, a file
-    system that refuses `tryLock`) fails the write with `OperationFailed`. Reads are unaffected.
-  - Reads take no file lock (the atomic rename already gives a read a whole file), but they do pass the in-process lock, so a
-    read can wait behind an in-process write that is itself waiting for another process, for at most that write's 10 s.
+  - A lock file the process cannot create or open (a read-only directory, a lock path that is a directory) fails the write
+    with `OperationFailed`. Reads are unaffected.
+  - **A file system that refuses file locks** (the lock file opens but `FileChannel.tryLock` itself throws an
+    `IOException`: NFS without a reachable lock daemon, some FUSE mounts) does not stop the plain store: such a write is
+    coordinated within this process only, as before 6.0.0, and is still atomic, so a second process can lose an update there.
+    The encrypted stores never degrade this way: they answer `OperationFailed` with the `IOException` as the cause and touch
+    nothing. There is no signal to the caller for the plain store's degrade; keep a store on a local volume.
+  - **Plain reads never wait.** A read takes no lock at all: every write publishes by atomic rename and `clear()` by one
+    unlink, and a read opens the file once, so it sees a whole old or a whole new file, and a read racing a `clear()` sees the
+    file or no file. The read opens the file with share-delete semantics, so on Windows an open reader never makes another
+    process's rename fail. Every write answers within the 10 s budget above.
   - Network file systems (NFS, SMB) may grant or refuse `tryLock` unreliably; keep a store on a local volume. Writes still
     never produce a torn file there, because every write is an atomic replace.
 - **Native key-store calls (internal, for the desktop secure store).** The OS key stores are reached through one
@@ -336,8 +345,8 @@ call from the main thread and from any number of coroutines at once:
   access group — make the loser's `SecItemAdd` fail with `errSecDuplicateItem`; the store then
   updates the item instead, so neither write reports a failure.
 - **Desktop.** Instances over the same file share a coroutine lock (`KeyedMutex` of `kmptoolkit-files`), so their read-modify-write
-  cycles over the file never interleave; a write then takes the cross-process file lock (see "Concurrency" above), the only
-  thing it ever waits for while holding the in-process lock, with a bound of 10 s and cancellable. The lock is keyed by the path in Unicode NFC with the full
+  cycles over the file never interleave (a read does not take it); a write then takes the cross-process file lock (see "Concurrency" above), the only
+  thing it ever waits for while holding the in-process lock, within the same 10 s budget as the wait for the in-process lock itself, and cancellable. Reads take neither lock. The lock is keyed by the path in Unicode NFC with the full
   case mapping (`ß`, `ẞ` and `ss`, the Greek sigma forms, `Settings` and `settings` share it), so two
   spellings of one name share it on a volume that folds case (macOS, Windows); on a case-sensitive volume they are two files behind one lock. A file that
   cannot be parsed, including one that is not valid UTF-8, fails every operation on it, writes included, and is never replaced; `clear()` is

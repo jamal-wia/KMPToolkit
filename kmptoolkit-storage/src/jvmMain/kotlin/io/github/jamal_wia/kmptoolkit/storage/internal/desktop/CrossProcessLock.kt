@@ -50,6 +50,15 @@ internal sealed interface LockAcquisition {
     class Failed(val cause: IOException) : LockAcquisition {
         override fun toString(): String = "Failed(${cause::class.java.simpleName})"
     }
+
+    /**
+     * The lock file opened fine but `tryLock` itself threw an `IOException`: the file system does not support locks
+     * (NFS without a reachable lock daemon, some FUSE mounts). The plain store coordinates within this process only
+     * there, as before 6.0.0; the secure stores answer `OperationFailed` with [cause] and touch nothing.
+     */
+    class NotSupported(val cause: IOException) : LockAcquisition {
+        override fun toString(): String = "NotSupported(${cause::class.java.simpleName})"
+    }
 }
 
 /**
@@ -69,15 +78,27 @@ internal sealed interface LockAcquisition {
  *   cancellation is released before the cancellation propagates.
  * - **No half state.** Acquiring writes nothing but the empty lock file; the data file is the caller's.
  * - **Network file systems** may grant or refuse `tryLock` unreliably; the atomic create-if-absent of the data file is the
- *   backstop, documented in `05-platform-notes.md`. A file system that refuses `tryLock` outright is [LockAcquisition.Failed].
+ *   backstop, documented in `05-platform-notes.md`. A lock file that opens but whose `tryLock` throws an `IOException`
+ *   is [LockAcquisition.NotSupported] (structural: never decided on message text); a lock file that cannot be created or
+ *   opened at all is [LockAcquisition.Failed], because the data write would fail the same way.
+ * - **Budget.** [acquire] takes the budget that is left of the caller's one deadline (the in-process wait has already
+ *   spent part of it), so a write never waits longer than [deadline] in all, however many callers queue in front of it.
+ * - **Creation race.** The creation temp carries the store's own temp prefix, so another process's `clear()` can sweep it
+ *   between its write and its rename, which the file layer reports as `NotFound`. That failure is re-checked: if the lock
+ *   file exists now, locking goes on; otherwise creation is retried on the next poll until the budget ends, and only then
+ *   answered [LockAcquisition.Failed] with the last cause. Every other failure (an I/O error, access denied, no space, a
+ *   name too long, a path that is not a directory) is answered at once: it would repeat, and a write must not take the
+ *   whole budget to say so.
  *
  * Blocking I/O: call it from the store's I/O dispatcher. The deadline and poll interval are constructor parameters so a
- * test can shorten them; production uses [LOCK_DEADLINE] and [POLL_INTERVAL].
+ * test can shorten them; production uses [LOCK_DEADLINE] and [POLL_INTERVAL]. [tryLock] is a test seam (the only way to
+ * make a file system refuse locks on a machine without one); production uses `FileChannel.tryLock`.
  */
 internal class CrossProcessLock(
     private val files: FileAccess = createFileAccess(),
-    private val deadline: Duration = LOCK_DEADLINE,
+    val deadline: Duration = LOCK_DEADLINE,
     private val pollInterval: Duration = POLL_INTERVAL,
+    private val tryLock: (FileChannel) -> FileLock? = { channel: FileChannel -> channel.tryLock() },
 ) {
     init {
         require(deadline > Duration.ZERO && pollInterval > Duration.ZERO) { "deadline and pollInterval must be positive" }
@@ -89,18 +110,30 @@ internal class CrossProcessLock(
         data object Busy : Attempt
 
         class Broke(val cause: IOException) : Attempt
+
+        class Unsupported(val cause: IOException) : Attempt
+
+        class CreationRetry(val cause: IOException) : Attempt
+    }
+
+    /** A creation failure that can pass by itself (the temp vanished under a neighbour's `clear()`): see "Creation race". */
+    private class TransientCreationFailure(val error: FileError) : Exception() {
+        fun asIOException(): IOException = IOException(error.toString(), (error as? FileError.Io)?.cause)
     }
 
     /**
-     * Takes the lock of [lockFile] within the deadline. [tempPrefix] names the temporary file of the one-time creation of
-     * the lock file (the owning store's own prefix, so the store's `clear()` also removes a leftover of a creation that was
-     * killed). Never throws for I/O problems; propagates cancellation.
+     * Takes the lock of [lockFile] within [budget] (default: the whole [deadline]). A budget that is zero or negative
+     * answers [LockAcquisition.TimedOut] without an attempt. [tempPrefix] names the temporary file of the one-time
+     * creation of the lock file (the owning store's own prefix, so the store's `clear()` also removes a leftover of a
+     * creation that was killed). Never throws for I/O problems; propagates cancellation.
      */
-    suspend fun acquire(lockFile: File, tempPrefix: String): LockAcquisition {
+    suspend fun acquire(lockFile: File, tempPrefix: String, budget: Duration = deadline): LockAcquisition {
         var held: LockAcquisition.Held? = null
         var broke: IOException? = null
+        var unsupported: IOException? = null
+        var lastCreationFailure: IOException? = null
         try {
-            withTimeoutOrNull(deadline) {
+            withTimeoutOrNull(minOf(budget, deadline)) {
                 while (true) {
                     when (val attempt: Attempt = attempt(lockFile, tempPrefix)) {
                         is Attempt.Got -> {
@@ -111,7 +144,18 @@ internal class CrossProcessLock(
                             broke = attempt.cause
                             return@withTimeoutOrNull
                         }
-                        Attempt.Busy -> delay(pollInterval)
+                        is Attempt.Unsupported -> {
+                            unsupported = attempt.cause
+                            return@withTimeoutOrNull
+                        }
+                        is Attempt.CreationRetry -> {
+                            lastCreationFailure = attempt.cause
+                            delay(pollInterval)
+                        }
+                        Attempt.Busy -> {
+                            lastCreationFailure = null
+                            delay(pollInterval)
+                        }
                     }
                 }
             }
@@ -121,12 +165,19 @@ internal class CrossProcessLock(
         }
         held?.let { return it }
         broke?.let { return LockAcquisition.Failed(it) }
+        unsupported?.let { return LockAcquisition.NotSupported(it) }
+        lastCreationFailure?.let { return LockAcquisition.Failed(it) }
         return LockAcquisition.TimedOut
     }
 
     private fun attempt(lockFile: File, tempPrefix: String): Attempt {
         try {
-            ensureLockFile(lockFile, tempPrefix)
+            try {
+                ensureLockFile(lockFile, tempPrefix)
+            } catch (error: TransientCreationFailure) {
+                // The creation temp may have been swept by another process's clear(): fine if the lock file is there now.
+                if (files.metadata(lockFile.absolutePath) == null) return Attempt.CreationRetry(error.asIOException())
+            }
             val channel: FileChannel = try {
                 FileChannel.open(lockFile.toPath(), StandardOpenOption.WRITE)
             } catch (_: NoSuchFileException) {
@@ -134,12 +185,12 @@ internal class CrossProcessLock(
                 return Attempt.Busy
             }
             val lock: FileLock? = try {
-                channel.tryLock()
+                tryLock(channel)
             } catch (_: OverlappingFileLockException) {
                 null
             } catch (error: IOException) {
                 channel.close()
-                return Attempt.Broke(error)
+                return Attempt.Unsupported(error)
             } catch (error: Throwable) {
                 channel.close()
                 throw error
@@ -175,6 +226,7 @@ internal class CrossProcessLock(
             // No hard links, so no atomic create-if-absent: such a volume (FAT, exFAT) has no permissions to set either.
             is FileError.Unsupported ->
                 FileChannel.open(lockFile.toPath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE).close()
+            is FileError.NotFound -> throw TransientCreationFailure(error)
             else -> throw IOException(error.toString(), (error as? FileError.Io)?.cause)
         }
     }

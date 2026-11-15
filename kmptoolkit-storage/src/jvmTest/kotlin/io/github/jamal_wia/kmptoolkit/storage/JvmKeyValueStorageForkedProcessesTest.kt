@@ -58,8 +58,12 @@ class JvmKeyValueStorageForkedProcessesTest {
         assertTrue(process.waitFor(HANG_BOUND_SECONDS, TimeUnit.SECONDS), "$what did not exit within $HANG_BOUND_SECONDS s")
     }
 
-    private fun storage(dispatcher: kotlinx.coroutines.CoroutineDispatcher, deadline: kotlin.time.Duration = 3.seconds): JvmKeyValueStorage =
-        JvmKeyValueStorage(dataFile, dispatcher, crossProcessLock = CrossProcessLock(deadline = deadline))
+    private fun storage(
+        dispatcher: kotlinx.coroutines.CoroutineDispatcher,
+        deadline: kotlin.time.Duration = 3.seconds,
+        timeSource: kotlin.time.TimeSource.WithComparableMarks = kotlin.time.TimeSource.Monotonic,
+    ): JvmKeyValueStorage =
+        JvmKeyValueStorage(dataFile, dispatcher, crossProcessLock = CrossProcessLock(deadline = deadline), timeSource = timeSource)
 
     private fun awaitHeld(child: Process): java.io.BufferedReader {
         val reader = BufferedReader(InputStreamReader(child.inputStream))
@@ -70,7 +74,7 @@ class JvmKeyValueStorageForkedProcessesTest {
 
     @Test
     fun `a write waits for the lock another process holds, answers Unavailable at the deadline and changes nothing`() = runTest {
-        val storage: JvmKeyValueStorage = storage(StandardTestDispatcher(testScheduler), deadline = 10.seconds)
+        val storage: JvmKeyValueStorage = storage(StandardTestDispatcher(testScheduler), deadline = 10.seconds, timeSource = testScheduler.timeSource)
         assertEquals(StorageResult.Success(Unit), storage.put("a", "1"))
         val child: Process = spawn(LockHolderChild::class.java.name, CrossProcessLock.lockFileOf(dataFile).path, "p")
         awaitHeld(child)
@@ -93,7 +97,7 @@ class JvmKeyValueStorageForkedProcessesTest {
 
     @Test
     fun `the lock dies with its process, so a killed holder never wedges the store`() = runTest {
-        val storage: JvmKeyValueStorage = storage(StandardTestDispatcher(testScheduler))
+        val storage: JvmKeyValueStorage = storage(StandardTestDispatcher(testScheduler), timeSource = testScheduler.timeSource)
         val child: Process = spawn(LockHolderChild::class.java.name, CrossProcessLock.lockFileOf(dataFile).path, "p")
         awaitHeld(child)
         assertIs<StorageError.Unavailable>(assertIs<StorageResult.Failure>(storage.put("a", "1"), "control: held, so it times out").error)
