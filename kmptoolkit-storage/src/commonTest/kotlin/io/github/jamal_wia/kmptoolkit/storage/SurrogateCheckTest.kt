@@ -62,4 +62,15 @@ class SurrogateCheckTest {
         assertNull(unpairedSurrogateFailure("k", "😀"))
         assertNull(unpairedSurrogateFailure("", ""))
     }
+
+    @Test
+    fun `the failure of a put never carries the value`() {
+        val value = "secret-token\uD800"
+
+        val error: StorageError.InvalidValue = assertIs(unpairedSurrogateFailure("k", value)?.error)
+
+        assertFalse(error.toString().contains("secret-token"), "error: $error")
+        assertFalse(error.cause.toString().contains("secret-token"), "cause: ${error.cause}")
+        assertNull(error.cause?.cause)
+    }
 }
