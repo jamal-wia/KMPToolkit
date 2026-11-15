@@ -790,8 +790,8 @@ What each call does (decided under the locks; every answer after the key has bee
 | file does not parse (bad magic, truncated, wrong kind, absurd lengths, ...) | `Undecryptable(null)` | `Undecryptable(null)`, untouched | quarantines it, creates a new key | quarantines it, creates nothing | `Undecryptable(null)` |
 | file of a **newer** format version | `Undecryptable(null)` | `Undecryptable(null)` | `Undecryptable(null)`, untouched | quarantines it | `Undecryptable(null)` |
 
-`clear()` never calls the OS: it works while the keychain is locked, which is what makes `remove` and `clear()` the way out of
-an `Undecryptable` store.
+`clear()` never calls the OS: it works while the keychain is locked, which is what makes `clear()` (and, when only the key is lost,
+`remove`) the way out of an `Undecryptable` store.
 
 **Creating a key** happens inside both locks and in this order: the OS part that can fail without side effects first (Linux:
 the session check, the collection-locked check when no dialog is allowed; Windows: the DPAPI call), then the empty sealed file

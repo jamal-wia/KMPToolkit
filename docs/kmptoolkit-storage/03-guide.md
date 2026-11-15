@@ -149,9 +149,11 @@ module, so `storage.remove(error.key)` does not compile for the nullable key. Th
 return-value checker satisfied.
 
 **`Undecryptable(key)` against `Undecryptable(null)`.** A named key means one entry cannot be read: remove it and ask again for
-what it held. A `null` key means the whole store's key is lost or replaced (a desktop key item that was deleted, a file the library
-cannot parse). On an OS-key store `remove` and `clear()` still succeed then, and the next `put` or `ensureKey()` starts a fresh
-key. The way out of it is `clear()` (or `remove` of every key you know), then writing again.
+what it held. A `null` key means the whole store cannot be read: its key is lost or replaced (a deleted key item), or the file itself
+does not parse or was written by a newer library version. The way out is `clear()`, then writing again: `clear()` always works on an
+OS-key store (it empties a file whose key is lost and moves aside a file it cannot parse). When only the key is lost, `remove` also
+works and the next `put` starts a fresh key; on a file that does not parse, `remove` and `ensureKey()` answer `Undecryptable(null)`
+until `clear()` or a `put` moves the file aside, and a file of a newer version is touched only by `clear()`.
 
 A few habits are worth forming:
 

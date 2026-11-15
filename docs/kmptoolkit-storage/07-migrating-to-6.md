@@ -17,7 +17,7 @@ suspend fun react(storage: EncryptedKeyValueStorage, result: StorageResult.Failu
         is StorageError.AccessDenied -> askAgainOnUserAction()          // never loop, never delete
         is StorageError.Unsupported -> fallBackExplicitly(error.reason)  // e.g. keep the session in memory
         is StorageError.Undecryptable -> when (val key: String? = error.key) {
-            null -> storeLost()                       // the store's key is gone: sign in again (remove/clear work, see 05-platform-notes)
+            null -> storeLost()                       // the store cannot be read: sign in again (clear() then works, see 05-platform-notes)
             else -> storage.remove(key).also(::logIfFailure)
         }
         is StorageError.OperationFailed -> log(error)                   // retryable I/O
@@ -84,7 +84,7 @@ Behaviour changes with no compile error: `accessibility` now applies on **every*
 
 ## 4. `Undecryptable.key`
 
-`key` is `String?`. `null` means the whole store's key is lost or replaced: ask the user to sign in again. On an OS-key store `remove` and `clear()` still succeed then, and the next `put` or `ensureKey()` starts a
+`key` is `String?`. `null` means the whole store cannot be read (its key is lost or replaced, or the file does not parse): ask the user to sign in again. On an OS-key store `clear()` then works and the next `put` starts a
 fresh key. Android and iOS keep naming the entry.
 
 ## 5. Code retrying `OperationFailed`

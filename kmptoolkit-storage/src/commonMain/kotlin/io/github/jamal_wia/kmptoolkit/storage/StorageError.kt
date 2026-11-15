@@ -92,10 +92,10 @@ public sealed interface StorageError {
      * survived: on Android the Keystore entry is dropped when the user adds, changes, or removes
      * the device lock, and an app restored to a new device from a backup carries the ciphertext
      * without the key. Treat the value as permanently lost — remove the affected keys (or call
-     * [KeyValueStorage.clear]) and re-acquire whatever they held. On an OS-key store `remove` and
-     * `clear` always work, even when [key] is `null`, and the next `put` or
-     * [EncryptedKeyValueStorage.ensureKey] starts a fresh key. Only an [EncryptedKeyValueStorage]
-     * produces this.
+     * [KeyValueStorage.clear]) and re-acquire whatever they held. On an OS-key store `clear` always
+     * works, even when [key] is `null` (it empties the file or moves an unparsable one aside), and
+     * then the next `put` starts a fresh key; `remove` also works when only the key is lost. Only an
+     * [EncryptedKeyValueStorage] produces this.
      *
      * @param key the entry that cannot be read, or `null` when the whole store cannot be (Android and
      *   iOS always name the entry; a store with one key for all its values reports `null` when that

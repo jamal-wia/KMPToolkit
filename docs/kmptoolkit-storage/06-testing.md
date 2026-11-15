@@ -160,11 +160,10 @@ writing means the *write* fails. Set it again to fail more than one call, or use
   likewise only happen when scripted.
 - **No key and no prompt.** `ensureKey()` never creates or verifies anything; use the knobs to script
   what the real call can answer.
-- **No "key lost" state.** On an OS-key store, after `Undecryptable(null)` the `remove` and `clear()`
-  calls still work and the next `put` starts a fresh key; `failEveryOperationWith = Undecryptable(null)`
-  would fail `remove` and `clear()` as well. To test a recovery path (clear, then sign in again),
-  script the read with `failNextOperationWith = StorageError.Undecryptable(null)` and let `remove` and
-  `clear()` run normally.
+- **No "key lost" state.** A real OS-key store answers `Undecryptable(null)` and still lets `clear()` (and, when only
+  the key is lost, `remove`) through; `failEveryOperationWith = Undecryptable(null)` would fail `remove` and `clear()` as well.
+  To test a recovery path (clear, then sign in again), script the read with
+  `failNextOperationWith = StorageError.Undecryptable(null)` and let `clear()` run normally.
 
 It is safe from any number of threads: the contents and the knobs are immutable snapshots changed
 with compare-and-set, so no write is lost and an armed one-shot failure fails exactly one of any

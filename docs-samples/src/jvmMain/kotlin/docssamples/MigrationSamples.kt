@@ -15,7 +15,7 @@ suspend fun react(storage: EncryptedKeyValueStorage, result: StorageResult.Failu
         is StorageError.AccessDenied -> askAgainOnUserAction()          // never loop, never delete
         is StorageError.Unsupported -> fallBackExplicitly(error.reason)  // e.g. keep the session in memory
         is StorageError.Undecryptable -> when (val key: String? = error.key) {
-            null -> storeLost()                       // the store's key is gone: sign in again (remove/clear work, see 05-platform-notes)
+            null -> storeLost()                       // the store cannot be read: sign in again (clear() then works, see 05-platform-notes)
             else -> storage.remove(key).also(::logIfFailure)
         }
         is StorageError.OperationFailed -> log(error)                   // retryable I/O
