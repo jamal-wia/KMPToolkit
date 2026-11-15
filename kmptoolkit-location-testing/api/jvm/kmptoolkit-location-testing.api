@@ -1,0 +1,45 @@
+public final class io/github/jamal_wia/kmptoolkit/location/testing/FakeFixKt {
+	public static final fun fakeFix (DDJLjava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Boolean;Ljava/lang/Boolean;Lio/github/jamal_wia/kmptoolkit/location/PlatformFixDetails;)Lio/github/jamal_wia/kmptoolkit/location/LocationFix;
+	public static synthetic fun fakeFix$default (DDJLjava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Boolean;Ljava/lang/Boolean;Lio/github/jamal_wia/kmptoolkit/location/PlatformFixDetails;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/LocationFix;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/testing/FakeHeadingProvider : io/github/jamal_wia/kmptoolkit/location/HeadingProvider {
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public synthetic fun <init> (ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun emit (Lio/github/jamal_wia/kmptoolkit/location/Heading;)V
+	public final fun getActiveDeclinationAt ()Ljava/util/List;
+	public final fun getActiveFilters ()Ljava/util/List;
+	public final fun getActiveObservers ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun getActiveScreenRotations ()Ljava/util/List;
+	public fun isAvailable ()Z
+	public fun observeHeading (DLio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;Lio/github/jamal_wia/kmptoolkit/location/ScreenRotation;)Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/testing/FakeLocationProvider : io/github/jamal_wia/kmptoolkit/location/LocationProvider {
+	public fun <init> ()V
+	public fun <init> (ZLio/github/jamal_wia/kmptoolkit/location/LocationReading;)V
+	public synthetic fun <init> (ZLio/github/jamal_wia/kmptoolkit/location/LocationReading;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun emit (Lio/github/jamal_wia/kmptoolkit/location/LocationReading;)V
+	public final fun getActiveObservers ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun getActiveUpdatesOptions ()Ljava/util/List;
+	public fun getCurrentLocation (Lio/github/jamal_wia/kmptoolkit/location/CurrentLocationOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getCurrentLocationAnswer ()Lio/github/jamal_wia/kmptoolkit/location/LocationReading;
+	public final fun getCurrentLocationCalls ()Ljava/util/List;
+	public final fun getLocationEnabled ()Z
+	public final fun getOpenSettingsCount ()I
+	public final fun getPendingCurrentLocationCalls ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun getPromptCount ()I
+	public final fun getServicePromptAnswer ()Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+	public final fun holdCurrentLocation ()V
+	public fun isLocationEnabled (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun observeLocation (Lio/github/jamal_wia/kmptoolkit/location/LocationUpdatesOptions;)Lkotlinx/coroutines/flow/Flow;
+	public fun observeLocationEnabled ()Lkotlinx/coroutines/flow/Flow;
+	public fun openLocationSettings ()V
+	public fun promptToEnableService (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun releaseCurrentLocation (Lio/github/jamal_wia/kmptoolkit/location/LocationReading;)V
+	public final fun setCurrentLocationAnswer (Lio/github/jamal_wia/kmptoolkit/location/LocationReading;)V
+	public final fun setLocationEnabled (Z)V
+	public final fun setServicePromptAnswer (Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;)V
+}
+
