@@ -45,8 +45,12 @@ internal sealed interface NativeOutcome<out T> {
  *   cancellable.
  * - **No lock is held across a call.** The executor owns no lock a binding call can wait on; callers never hold a
  *   store lock while they await a call that can prompt the user.
+ * - **The thread outlives what a call does to it.** The interrupt status a call leaves behind is cleared after every
+ *   call and an interrupt that is not [close] never ends the loop. A thread that cannot be made (a thread limit) answers
+ *   that one call [NativeOutcome.Threw] without queueing it, and the next call tries again.
  * - **Release is terminal.** [close] withdraws every queued call (each answers [NativeOutcome.Threw]), interrupts the
- *   thread and refuses new calls. A new executor is the way to start again.
+ *   thread and refuses new calls. A call that the thread had already taken from the queue when [close] ran may still run
+ *   and answer its real result. A new executor is the way to start again.
  *
  * The limit is enforced with `withTimeoutOrNull`, so a test controls it with virtual time. The shared process
  * instance is [NativeExecutor.shared].
@@ -115,8 +119,11 @@ internal class NativeExecutor(
     }
 
     private val queue: LinkedBlockingQueue<Task<*>> = LinkedBlockingQueue()
-    private val started: AtomicBoolean = AtomicBoolean(false)
     private val closed: AtomicBoolean = AtomicBoolean(false)
+
+    /** Guards the creation of [thread] only (short, never held across a suspension or a native call). */
+    private val startLock: Any = Any()
+
     @Volatile private var thread: Thread? = null
 
     /**
@@ -128,7 +135,15 @@ internal class NativeExecutor(
         if (closed.get()) return NativeOutcome.Threw(IllegalStateException("The native executor is closed"))
         val task: Task<T> = Task(block, discard)
         queue.put(task)
-        ensureStarted()
+        try {
+            ensureStarted()
+        } catch (error: Throwable) {
+            // The thread could not be made (a container's thread limit, an OutOfMemoryError): this call never runs, not
+            // now and not when a later call makes the thread, and the next call tries again.
+            task.abandon()
+            queue.remove(task)
+            return NativeOutcome.Threw(error)
+        }
         if (closed.get()) refuseQueued()
         try {
             val outcome: NativeOutcome<T>? =
@@ -164,19 +179,29 @@ internal class NativeExecutor(
     /** Whether [close] has run. */
     val isClosed: Boolean get() = closed.get()
 
+    /** Makes the native thread if there is none. A failed attempt leaves nothing behind, so the next call tries again. */
     private fun ensureStarted() {
-        if (!started.compareAndSet(false, true)) return
-        val created: Thread = threadFactory.newThread(::runLoop)
-        thread = created
-        created.start()
-        // close() may have run between the check in call() and the start: make the thread stop.
-        if (closed.get()) created.interrupt()
+        if (thread != null) return
+        synchronized(startLock) {
+            if (thread != null) return
+            val created: Thread = threadFactory.newThread(::runLoop)
+            created.start()
+            thread = created
+            // close() may have run between the check in call() and the start: make the thread stop.
+            if (closed.get()) created.interrupt()
+        }
     }
 
     private fun runLoop() {
         try {
             while (!closed.get()) {
-                val task: Task<*> = queue.take()
+                val task: Task<*> = try {
+                    queue.take()
+                } catch (_: InterruptedException) {
+                    // close() sets `closed` before it interrupts; any other interrupt (a binding call that restored its
+                    // thread's status) must not end the loop for good: nothing would ever make the thread again.
+                    continue
+                }
                 running.set(true)
                 try {
                     task.execute()
@@ -186,10 +211,11 @@ internal class NativeExecutor(
                     task.settleAfterEscape(error)
                 } finally {
                     running.set(false)
+                    // The next binding call must not start with its predecessor's interrupt status (an interruptible JDK
+                    // call would fail at once); close() is seen through `closed`, not through the status.
+                    Thread.interrupted()
                 }
             }
-        } catch (_: InterruptedException) {
-            // close() interrupts an idle thread.
         } finally {
             refuseQueued()
         }

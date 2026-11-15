@@ -13,9 +13,15 @@ import java.io.IOException
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
-import java.nio.file.NoSuchFileException
 import java.nio.charset.StandardCharsets
+import java.nio.file.FileAlreadyExistsException
+import java.nio.file.Files
+import java.nio.file.NoSuchFileException
+import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.FileAttribute
+import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -36,6 +42,8 @@ internal sealed interface LockAcquisition {
     class Held internal constructor(
         private val channel: FileChannel,
         private val lock: FileLock,
+        /** A parked channel (see [CrossProcessLock]) is never closed while the process lives: only its lock is released. */
+        private val keepChannelOpen: Boolean = false,
         private val releaseClaim: () -> Unit = {},
     ) : LockAcquisition, AutoCloseable {
         private val closed: AtomicBoolean = AtomicBoolean(false)
@@ -48,7 +56,7 @@ internal sealed interface LockAcquisition {
                 // Closing the channel releases the lock anyway.
             } finally {
                 try {
-                    channel.close()
+                    if (!keepChannelOpen) channel.close()
                 } catch (_: IOException) {
                     // The lock is gone either way, and a store call must answer a typed result, never throw.
                 } finally {
@@ -83,8 +91,8 @@ internal sealed interface LockAcquisition {
  *
  * - **Creation.** The lock file is created owner-only through `writeAtomically(ExistingFile.Fail)`, so the final name never
  *   exists with wider access; `AlreadyExists` counts as success (another process won). On a file system without hard links
- *   (`Unsupported`, FAT and exFAT, which have no permissions to protect either) the file is created with a plain open. It is
- *   never renamed and never deleted by the library.
+ *   (`Unsupported`: FAT and exFAT, or any mount that refuses links) the file is created with `CREATE_NEW` and, where the volume
+ *   has POSIX modes, mode 0600. It is never renamed and never deleted by the library.
  * - **Wait.** `tryLock` is polled every [pollInterval] until [deadline], then [LockAcquisition.TimedOut]. A handle is
  *   open only while one attempt runs, never while waiting, so a waiter holds no file descriptor. The wait is a coroutine
  *   `delay` and a `withTimeoutOrNull`, so it is cancellable and a test runs it on virtual time. A holder of the lock in
@@ -105,6 +113,15 @@ internal sealed interface LockAcquisition {
  *   serialize their callers per file with a `KeyedMutex`, so in production the claim is never contended; it makes the
  *   guarantee hold for any caller. Two spellings of one lock file that the folded canonical path does not join (a hard
  *   link) are outside it.
+ * - **A channel that met another handle of this JVM is parked, never closed.** The claim set is per class loader, so a
+ *   second copy of the library in one JVM (a plug-in host, an application server) does not see the first copy's claim:
+ *   its contender opens the file and meets the JDK's JVM-wide [OverlappingFileLockException]. Closing that channel would
+ *   drop the OS lock the other copy holds (POSIX), so it is kept open instead, in a map of this class loader with at most
+ *   one channel per lock file, and later attempts reuse it. The cost is one descriptor per such lock file for the life of
+ *   the process, only in that setup (never with one copy of the library). A parked channel whose file was replaced or
+ *   deleted behind it is dropped and closed (its inode no longer carries a lock anyone needs). A channel that found the
+ *   lock held by another PROCESS (`tryLock` answers `null`) is closed as before: no handle of this JVM can then hold it,
+ *   except in the nanoseconds before the close, in that same two-copies setup (documented in 05).
  * - **Budget.** [acquire] takes the budget that is left of the caller's one deadline (the in-process wait has already
  *   spent part of it), so a write never waits longer than [deadline] in all, however many callers queue in front of it.
  * - **Creation race.** The creation temp carries the store's own temp prefix, so another process's `clear()` can sweep it
@@ -200,7 +217,7 @@ internal class CrossProcessLock(
         if (!CLAIMS.add(claimKey)) return Attempt.Busy
         var keepClaim = false
         try {
-            val attempt: Attempt = tryOnce(lockFile, tempPrefix) { CLAIMS.remove(claimKey) }
+            val attempt: Attempt = tryOnce(lockFile, tempPrefix, claimKey) { CLAIMS.remove(claimKey) }
             keepClaim = attempt is Attempt.Got
             return attempt
         } finally {
@@ -208,7 +225,7 @@ internal class CrossProcessLock(
         }
     }
 
-    private fun tryOnce(lockFile: File, tempPrefix: String, releaseClaim: () -> Unit): Attempt {
+    private fun tryOnce(lockFile: File, tempPrefix: String, claimKey: String, releaseClaim: () -> Unit): Attempt {
         try {
             try {
                 ensureLockFile(lockFile, tempPrefix)
@@ -216,7 +233,8 @@ internal class CrossProcessLock(
                 // The creation temp may have been swept by another process's clear(): fine if the lock file is there now.
                 if (files.metadata(lockFile.absolutePath) == null) return Attempt.CreationRetry(error.asIOException())
             }
-            val channel: FileChannel = try {
+            val reused: ParkedChannel? = parkedFor(claimKey, lockFile)
+            val channel: FileChannel = reused?.channel ?: try {
                 FileChannel.open(lockFile.toPath(), StandardOpenOption.WRITE)
             } catch (_: NoSuchFileException) {
                 // Deleted behind our back since ensureLockFile: it is created again on the next attempt.
@@ -225,19 +243,21 @@ internal class CrossProcessLock(
             val lock: FileLock? = try {
                 tryLock(channel)
             } catch (_: OverlappingFileLockException) {
-                null
+                // Another handle of this JVM (a second copy of the library) holds it: keep this channel open, see the KDoc.
+                if (reused == null) PARKED[claimKey] = ParkedChannel(channel, fileKeyOf(lockFile))
+                return Attempt.Busy
             } catch (error: IOException) {
-                channel.close()
+                if (reused == null) channel.close()
                 return Attempt.Unsupported(error)
             } catch (error: Throwable) {
-                channel.close()
+                if (reused == null) channel.close()
                 throw error
             }
             if (lock == null) {
-                channel.close()
+                if (reused == null) channel.close()
                 return Attempt.Busy
             }
-            return Attempt.Got(LockAcquisition.Held(channel, lock, releaseClaim))
+            return Attempt.Got(LockAcquisition.Held(channel, lock, keepChannelOpen = reused != null, releaseClaim = releaseClaim))
         } catch (error: IOException) {
             return Attempt.Broke(error)
         } catch (error: SecurityException) {
@@ -261,15 +281,58 @@ internal class CrossProcessLock(
         if (result !is FileResult.Failure) return
         when (val error: FileError = result.error) {
             is FileError.AlreadyExists -> Unit
-            // No hard links, so no atomic create-if-absent: such a volume (FAT, exFAT) has no permissions to set either.
-            is FileError.Unsupported ->
-                FileChannel.open(lockFile.toPath(), StandardOpenOption.CREATE, StandardOpenOption.WRITE).close()
+            // No hard links, so no atomic create-if-absent. FAT and exFAT have no permissions to set, but a mount that only
+            // refuses links (sshfs, some SMB or FUSE mounts) keeps POSIX modes: the file is created owner-only there too.
+            is FileError.Unsupported -> createWithoutLinks(lockFile)
             is FileError.NotFound -> throw TransientCreationFailure(error)
             else -> throw IOException(error.toString(), (error as? FileError.Io)?.cause)
         }
     }
 
+    /** Creates the lock file with no-replace semantics and, where the volume has POSIX modes, mode 0600. An existing file is success. */
+    private fun createWithoutLinks(lockFile: File) {
+        val path: Path = lockFile.toPath()
+        val ownerOnly: Array<FileAttribute<*>> =
+            if ("posix" in path.fileSystem.supportedFileAttributeViews()) {
+                // path-hygiene-ignore: PH2 owner-only mode of the lock file on a volume that has POSIX modes (checked just above)
+                arrayOf(PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
+            } else {
+                emptyArray()
+            }
+        try {
+            FileChannel.open(path, setOf(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE), *ownerOnly).close()
+        } catch (_: FileAlreadyExistsException) {
+            // Another creator won: the file is there, which is all that is needed. Never replaced: another process may hold its lock.
+        }
+    }
+
+    /** The parked channel of [claimKey] if it is still the file at [lockFile]; a stale one is dropped and closed. */
+    private fun parkedFor(claimKey: String, lockFile: File): ParkedChannel? {
+        val parked: ParkedChannel = PARKED[claimKey] ?: return null
+        val current: Any? = fileKeyOf(lockFile)
+        if (parked.fileKey == null || parked.fileKey == current) return parked
+        if (PARKED.remove(claimKey, parked)) {
+            try {
+                parked.channel.close()
+            } catch (_: IOException) {
+                // A stale inode: nothing depends on it.
+            }
+        }
+        return null
+    }
+
+    private fun fileKeyOf(file: File): Any? = try {
+        Files.readAttributes(file.toPath(), BasicFileAttributes::class.java).fileKey()
+    } catch (_: IOException) {
+        null
+    }
+
+    private class ParkedChannel(val channel: FileChannel, val fileKey: Any?)
+
     internal companion object {
+        /** Channels that met another handle of this JVM and are therefore never closed (see the class KDoc); one per lock file. */
+        private val PARKED: MutableMap<String, ParkedChannel> = ConcurrentHashMap()
+
         /** The lock files this JVM holds or is trying right now, by folded canonical path (see the class KDoc). */
         private val CLAIMS: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
