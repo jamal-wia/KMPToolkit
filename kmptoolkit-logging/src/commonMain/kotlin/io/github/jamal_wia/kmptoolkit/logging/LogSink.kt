@@ -36,7 +36,7 @@ public fun interface LogSink {
 
 /**
  * The platform's own console sink: `android.util.Log` on Android, `println` on iOS (Xcode's console
- * and `NSLog`-style device logs both pick standard output up).
+ * and `NSLog`-style device logs both pick standard output up), `System.err` on the desktop JVM.
  *
  * Returns a new, stateless instance on every call. See `docs/kmptoolkit-logging/05-platform-notes.md`
  * for the exact per-platform output format and its limits.

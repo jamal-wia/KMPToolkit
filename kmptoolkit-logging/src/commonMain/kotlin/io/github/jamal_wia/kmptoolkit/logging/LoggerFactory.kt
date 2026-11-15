@@ -57,8 +57,8 @@ internal expect fun restoreInterruptFlag()
  *   when the event is filtered out.
  * - **A sink that throws cannot break the caller.** The throwable is swallowed and the remaining
  *   sinks still receive the event. That covers every `Exception` and the Errors a broken sink raises
- *   for its own reasons: an `AssertionError`, a `TODO()` sink's `NotImplementedError`, and on Android
- *   a `LinkageError` such as `NoSuchMethodError`. Two kinds reach the caller: a
+ *   for its own reasons: an `AssertionError`, a `TODO()` sink's `NotImplementedError`, and on the JVM
+ *   (Android and desktop) a `LinkageError` such as `NoSuchMethodError`. Two kinds reach the caller: a
  *   `CancellationException` is rethrown, but only after every sink has been offered the event, and
  *   any other `Error` (`StackOverflowError`, `OutOfMemoryError`) is rethrown at once, because
  *   swallowing it would hide a process that is already failing. A sink must not log through the factory it is installed in:
