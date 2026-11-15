@@ -150,8 +150,13 @@ writing means the *write* fails. Set it again to fail more than one call, or use
 
 It is safe from any number of threads: the contents and the knobs are immutable snapshots changed
 with compare-and-set, so no write is lost and an armed one-shot failure fails exactly one of any
-number of concurrent operations. Operations on different keys have no defined order, and no operation
-suspends, so a cancelled caller never leaves one half done.
+number of concurrent operations. Operations on different keys have no defined order.
+
+It also behaves like the real stores for a cancelled caller: each operation checks first whether its
+caller is still active, so a cancelled caller gets a `CancellationException` and nothing changes (no
+entry, no `writes` record, and an armed `failNextOperationWith` stays armed). A test that asserts
+"nothing is saved when the save is cancelled" therefore means the same against the fixture and
+against a real store.
 
 ## Testing the module itself
 

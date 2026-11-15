@@ -5,6 +5,8 @@ import io.github.jamal_wia.kmptoolkit.storage.SecureKeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.SecureStorageProtection
 import io.github.jamal_wia.kmptoolkit.storage.StorageError
 import io.github.jamal_wia.kmptoolkit.storage.StorageResult
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -53,8 +55,14 @@ import kotlinx.coroutines.flow.update
  * snapshots held in `MutableStateFlow`s and changed with `update` (compare-and-set), the idiom of the
  * suite's other fixtures: no call blocks, no write is lost, an armed [failNextOperationWith] fails
  * exactly one of any number of concurrent operations, and two puts never produce a half-written
- * state. Operations on different keys have no defined order. No operation suspends, so a caller that
- * is cancelled never leaves one half done: it either ran completely or not at all.
+ * state. Operations on different keys have no defined order.
+ *
+ * ### Cancellation
+ *
+ * Like every real store, each operation checks first whether its caller is still active: a cancelled
+ * caller gets a `CancellationException` and nothing changes — no entry, no [writes] record, and an
+ * armed [failNextOperationWith] stays armed. No operation suspends, so a caller that is not cancelled
+ * always sees an operation run completely.
  */
 public class InMemoryKeyValueStorage(
     /**
@@ -128,10 +136,15 @@ public class InMemoryKeyValueStorage(
     /** A snapshot of the current contents of the shared [Backing], for asserting on the store as a whole. */
     public val contents: Map<String, String> get() = shared.value.toMap()
 
-    override suspend fun get(key: String): StorageResult<String?> =
-        scripted() ?: StorageResult.Success(shared.value[key])
+    override suspend fun get(key: String): StorageResult<String?> {
+        currentCoroutineContext().ensureActive()
+        return scripted() ?: StorageResult.Success(shared.value[key])
+    }
 
     override suspend fun put(key: String, value: String): StorageResult<Unit> {
+        // First, as in the real stores (which enter their dispatcher before anything else): a cancelled
+        // caller gets a CancellationException, changes nothing and consumes no armed knob.
+        currentCoroutineContext().ensureActive()
         // Like the real stores, before anything else: a key or value with an unpaired surrogate cannot
         // be stored by any backend, so it fails with InvalidValue, changes nothing and does not
         // consume an armed failNextOperationWith.
@@ -150,12 +163,14 @@ public class InMemoryKeyValueStorage(
     }
 
     override suspend fun remove(key: String): StorageResult<Unit> {
+        currentCoroutineContext().ensureActive()
         scripted()?.let { return it }
         shared.update { it - key }
         return StorageResult.Success(Unit)
     }
 
     override suspend fun clear(): StorageResult<Unit> {
+        currentCoroutineContext().ensureActive()
         scripted()?.let { return it }
         shared.update { emptyMap() }
         return StorageResult.Success(Unit)
@@ -165,7 +180,10 @@ public class InMemoryKeyValueStorage(
      * Succeeds unless a failure knob is set; there is no key and nothing to prompt for, so it never
      * prompts and changes nothing. Consumes an armed [failNextOperationWith] like any other operation.
      */
-    override suspend fun ensureKey(): StorageResult<Unit> = scripted() ?: StorageResult.Success(Unit)
+    override suspend fun ensureKey(): StorageResult<Unit> {
+        currentCoroutineContext().ensureActive()
+        return scripted() ?: StorageResult.Success(Unit)
+    }
 
     /**
      * The scripted failure for this call, or null. Consumes [failNextOperationWith] if it is armed and
