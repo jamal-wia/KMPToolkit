@@ -199,8 +199,10 @@ answers `UNSUPPORTED`. Two ways to get a real prompt:
 
 The numbered recipes are compilable Kotlin: their code is run by the `LocationDocSamplesTest` classes of
 this module (the platform recipes by their Android, iOS and JVM siblings), except the two blocks that say
-they are not compiled here (recipes 6 and 8). The short fragments before the recipes call functions of your
-own and are not compiled. `MapUi`, `CompassUi` and `EnableUi` are your own presenters.
+they are not compiled here (recipes 6 and 8). Each tested block is printed here exactly as the test source
+holds it, and `LocationDocsSamplesInSyncTest` fails when a page and its test drift apart. The short fragments
+before the recipes call functions of your own and are not compiled. `MapUi`, `CompassUi` and `EnableUi` are
+your own presenters.
 
 ### 1. Nearest place
 
@@ -425,8 +427,9 @@ documented in [`05-platform-notes.md`](05-platform-notes.md#android-sources), th
 An app that already depends on Play Services can implement `LocationProvider` over
 `FusedLocationProviderClient` in its own `androidMain` and keep shared code, and every test written against
 `FakeLocationProvider`, unchanged. The block below uses Play Services types, which no module of this
-repository depends on, so **it is not compiled here**; the provider-side contract it follows is run by
-`LocationDocSamplesTest` over a scripted source.
+repository depends on, so **it is not compiled here**. The rules it follows are the `LocationProvider`
+contract listed below the block; `GeoCoordinates.orNull`, the one library call it relies on to drop an invalid
+platform value, is pinned by `LocationDocSamplesTest`.
 
 ```kotlin
 class FusedLocationProvider(

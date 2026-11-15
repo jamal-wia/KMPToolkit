@@ -577,10 +577,13 @@ class LocationDocSamplesTest {
     }
 
     /**
-     * The contract of an app-written provider (the Play Services decorator of 03-guide): invalid platform values
-     * are dropped through GeoCoordinates.orNull, options are forwarded, a terminal reading ends the stream and the
-     * service state is observable. The decorator itself needs Play Services, which no module here depends on, so this
-     * is the same shape over a scripted source.
+     * A minimal app-written provider over a scripted source, to pin the two library facts the Play Services
+     * decorator of 03-guide (recipe 8) relies on: [GeoCoordinates.orNull] answers null for a NaN or out-of-range
+     * platform value, and the interface default of `promptToEnableService` answers ALREADY_ON.
+     *
+     * This is NOT the decorator and it does not run the provider contract: it forwards no options, seeds nothing,
+     * registers nothing (so it proves no release), and its flow ends because the source list ends. The decorator
+     * needs Play Services, which no module here depends on, so the guide marks it "not compiled here".
      */
     private class DecoratorOverASource(private val source: List<Pair<Double, Double>>) : LocationProvider {
         override suspend fun getCurrentLocation(options: CurrentLocationOptions): LocationReading {
@@ -608,7 +611,7 @@ class LocationDocSamplesTest {
     }
 
     @Test
-    fun `an app decorator that maps platform values through orNull drops the invalid ones and ends on a terminal reading`() = runTest(timeout = 60.seconds) {
+    fun `orNull drops a NaN and an out of range platform value and the interface default prompt answers ALREADY_ON`() = runTest(timeout = 60.seconds) {
         val provider: LocationProvider = DecoratorOverASource(listOf(Double.NaN to 0.0, 91.0 to 0.0, 21.4 to 39.8))
 
         val readings: List<LocationReading> = provider.observeLocation().toList()

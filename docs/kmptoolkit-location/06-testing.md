@@ -292,10 +292,22 @@ class CompassTest {
 ## Testing code that decorates a provider
 
 An app-written `LocationProvider` (the Play Services decorator of [`03-guide.md`](03-guide.md#8-decorator-over-play-services-android))
-is checked against the same promises the fake keeps: invalid platform values are dropped through
-`GeoCoordinates.orNull`, a terminal reading ends the stream, a cancelled call or collection leaves nothing
-registered, and `observeLocationEnabled()` is implemented. `LocationDocSamplesTest` runs that contract over a
-scripted source in the module's own tests.
+has to keep the promises of the interface, and no module test runs your implementation for you. Write tests that
+check these, with a fake of the platform client behind your class:
+
+- a missing permission, a failed platform call and a service that is off come back as typed readings, never as an
+  exception;
+- an invalid platform value (`NaN`, a latitude outside -90..90) is dropped through `GeoCoordinates.orNull`, never
+  thrown and never emitted;
+- the stream seeds first and registers second, stays open through `SERVICE_DISABLED` and `NO_FIX`, and completes
+  after `PERMISSION_MISSING` and `UNSUPPORTED`;
+- the options you can honour are forwarded (accuracy, distance, interval, seed age, timeout);
+- a cancelled call or collection leaves nothing registered (count the registrations in your platform fake), and
+  collecting again after that works;
+- `observeLocationEnabled()` is implemented and starts no location updates.
+
+`FakeLocationProvider` is the other side of the same contract: the code that *consumes* your provider is tested
+against the fake, as above.
 
 ## What the fakes do not do
 
