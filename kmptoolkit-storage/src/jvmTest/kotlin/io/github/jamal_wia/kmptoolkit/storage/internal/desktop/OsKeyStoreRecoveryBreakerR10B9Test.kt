@@ -826,12 +826,12 @@ class OsKeyStoreRecoveryBreakerR10B9Test {
      * (it throws `InterruptedException`, as a PKCS#11 token call does). 05: the failure is typed and "the thread's interrupt status is
      * put back". Through the store: nothing escapes the call (a typed answer), the file is byte-identical, nothing is quarantined or
      * created, the cross-process lock is released (another instance on another dispatcher writes at once), and the dispatch in which
-     * the provider was interrupted still carries the interrupt when it ends (no later step of the store inside it swallowed it; the
-     * thread pool itself clears the status between two tasks, which is the pool's rule, not the library's). A second call answers
-     * typed too and does not hang.
+     * the provider was interrupted ends with the status clear (round 17 ruling: a store call never leaves an interrupt status on a
+     * thread it found clear; `InterruptHygiene` does it, not the pool, which does not clear a worker between two tasks). A second call
+     * answers typed too and does not hang.
      */
     @Test
-    fun `an interrupted provider inside a store call answers typed, releases the lock and leaves the interrupt on the store's thread`() = runBlocking {
+    fun `an interrupted provider inside a store call answers typed, releases the lock and leaves no interrupt on the store's thread`() = runBlocking {
         withTimeout(HANG_BOUND) {
             val own: ExecutorService = Executors.newSingleThreadExecutor()
             val endedInterrupted = AtomicInteger()
