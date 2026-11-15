@@ -139,8 +139,11 @@ internal sealed interface LockAcquisition {
  *   file exists now, locking goes on; otherwise creation is retried on the next poll until the budget ends, and only then
  *   answered [LockAcquisition.Failed] with the last cause. Every other failure (an I/O error, access denied, no space, a
  *   name too long, a path that is not a directory, a lock file that is a symbolic link with no target, a lock file that is not a
- *   regular file (a named pipe, whose open would block forever, a device, a directory), an interrupted thread) is answered at
- *   once: it would repeat, and a write must not take the whole budget to say so.
+ *   regular file (a named pipe, whose open would block forever, a device, a directory)) is answered at once: it would repeat, and
+ *   a write must not take the whole budget to say so. An interrupted thread is not on that list: `FileChannel.tryLock` is not
+ *   interruptible, so such a thread takes the lock like any other, and it is the JDK's refusal of that thread's file I/O that
+ *   fails its write afterwards (see the `ClosedByInterruptException` branch of `tryOnce`, which only a different JDK or provider
+ *   would reach).
  *
  * Blocking I/O: call it from the store's I/O dispatcher. The deadline and poll interval are constructor parameters so a
  * test can shorten them; production uses [LOCK_DEADLINE] and [POLL_INTERVAL]. [tryLock] is a test seam (the only way to
@@ -268,9 +271,12 @@ internal class CrossProcessLock(
                 if (reused == null) PARKED[claimKey] = ParkedChannel(channel, fileKeyOf(lockFile))
                 return Attempt.Busy
             } catch (error: ClosedByInterruptException) {
-                // The thread was interrupted: that is this call's failure, not a file system without locks (the plain store
-                // would write unlocked on it). The JDK closed the channel already (closing again is a no-op); a parked one is
-                // therefore no longer parked.
+                // Defensive, and NOT reached by the JDK's own tryLock: FileChannelImpl.tryLock (and release) is not interruptible
+                // on JDK 17 to 25 (it uses no begin/end), so an interrupted thread simply gets the lock. It is kept because a JDK
+                // or a channel provider that makes tryLock interruptible would otherwise fall into the IOException branch below and
+                // answer "no locks here" (the plain store would then write unlocked); only the tryLock test seam reaches it today.
+                // An interrupt is this call's failure. The JDK closed the channel already (closing again is a no-op); a parked
+                // one is therefore no longer parked.
                 if (reused != null) PARKED.remove(claimKey, reused) else channel.close()
                 return Attempt.Broke(error)
             } catch (error: IOException) {

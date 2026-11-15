@@ -290,10 +290,13 @@ app sharing that code with desktop could not compile it for desktop without the 
     symbolic link whose target does not exist) fails the write with `OperationFailed` at once, not after the wait limit. So does
     a lock path that is not a regular file (a named pipe, a device, a socket, or a link to one): the library never opens it,
     because opening a named pipe blocks until another program opens its other end, and no time limit or cancellation can end
-    that. The same rule covers the properties file of the plain store: a path that is a named pipe fails every operation with
-    `OperationFailed` and the pipe is never replaced. A thread that is interrupted while it takes the lock (the JDK then
-    closes the file channel) fails that write with `OperationFailed` too; it is not taken for a file system without locks, so
-    the plain store never writes unlocked because of an interrupt. Reads are unaffected by a lock path.
+    that. The same rule covers the properties file of the plain store: a path that is a named pipe fails every operation except
+    `clear()` with `OperationFailed` and the pipe is never replaced; `clear()` removes it (the way out the class documents for a file
+    that cannot be used, as for one that cannot be parsed), after which the store works again. An interrupted thread takes the lock
+    normally (`FileChannel.tryLock` is not interruptible on any JDK checked, 17 to 25); the JDK then refuses that thread's file I/O,
+    so its write answers `OperationFailed` (cause `ClosedByInterruptException`) and writes nothing. The plain store never writes
+    unlocked because of an interrupt: a file system without locks is told apart by the `IOException` of `tryLock` itself, never by
+    an interrupt. Reads are unaffected by a lock path.
   - **A file system that refuses file locks** (the lock file opens but `FileChannel.tryLock` itself throws an
     `IOException`: NFS without a reachable lock daemon, some FUSE mounts) does not stop the plain store: such a write is
     coordinated within this process only, as before 6.0.0, and is still atomic, so a second process can lose an update there.
@@ -511,7 +514,8 @@ none. It never prompts and never reads, creates or deletes a key (macOS: an attr
 one throwaway byte protected and unprotected; Linux: session check, then the default collection's `Locked` flag and the backend
 check), and every native call is limited to 10 s, so it answers even when the OS hangs. A locked macOS keychain or Linux
 collection is a success when `allowUserInteraction` is `true` and `Unavailable` when it is `false`. A failure outside the typed
-answers is `OperationFailed(ENSURE_KEY, key = null)`.
+answers is `OperationFailed(ENSURE_KEY, key = null)`. The probe says which key store a secure store would use, not that a store will
+work: it makes no cipher call, so a JDK without AES-GCM or PBKDF2 still probes as available while every create answers `OperationFailed`.
 
 #### The app-key store
 
@@ -536,9 +540,10 @@ a key derived from what your app provides.
   the derived key-encryption key until the object is garbage collected, and its HMAC keeps the passphrase's bytes in a masked
   form (the bytes XOR a fixed constant, which is as good as the passphrase for this derivation; a passphrase over 64 bytes
   leaves its SHA-256 the same way) that the JDK never clears, not even after a collection. The JDK's own UTF-8 conversion of
-  the passphrase can also leave a partial, unwiped copy when it has to grow its buffer (a passphrase with many two-byte
-  characters). That holds for **every** passphrase, ASCII included (the conversion copy only for non-ASCII text), so the heap
-  holds these copies besides the wiped arrays: the first two until a collection, the masked HMAC pads until the memory is reused. A passphrase with any character from U+0300 up
+  the passphrase can also leave a partial, unwiped copy when it has to grow its buffer (non-ASCII text: a single two-byte
+  character in a short passphrase is enough, since the buffer is sized for one byte per character). That holds for **every**
+  passphrase, ASCII included (the conversion copy only for non-ASCII text), so the heap holds these copies besides the wiped
+  arrays: the first two until a collection, the masked HMAC pads and the partial conversion copy until the memory is reused. A passphrase with any character from U+0300 up
   (Cyrillic, Arabic, CJK, a combining mark, an emoji) additionally passes through immutable `String`s made by the JDK's
   normalizer (a copy of the input and the result), which cannot be wiped either (the JDK has no normalizer that works on a
   caller-owned buffer); a passphrase in which every character is below U+0300 (ASCII, Latin-1 and Latin Extended: the usual

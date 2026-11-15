@@ -16,7 +16,8 @@ import java.nio.file.attribute.BasicFileAttributes
  *
  * Links are followed: a link to a regular file is a regular file. An absent path (including a link whose target is
  * missing) passes, because opening it fails with [NoSuchFileException] at once, and each caller has an answer for that.
- * Only metadata is read here, never an open, so the check itself cannot block.
+ * Only metadata is read here, never an open, so a pipe or a device cannot block this check. (A hung network mount can block
+ * any file call, this one and the open that follows it alike: `stat` waits in the kernel and nothing interrupts it.)
  *
  * One window remains by design: the path can be swapped for a pipe between this check and the open. That needs another
  * program of the same user to race the call on purpose, and the JDK offers no way to open without blocking.
