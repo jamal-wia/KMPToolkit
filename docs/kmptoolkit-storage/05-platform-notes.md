@@ -551,7 +551,7 @@ call's block, before any caller is resumed, which matters for a caller on a disp
 kotlinx.coroutines resumes it, and every coroutine it wakes, inline on the store's thread; and at a suspension, so a call that resumes on
 another thread is covered on both), the status that the boundary put back is cleared, because the dispatcher's thread is not the library's and kotlinx.coroutines does not clear a worker's status
 between two tasks (`Dispatchers.IO` does it only when a worker parks), so a status left behind would refuse the file I/O of the next, unrelated
-coroutine on that worker. The interrupt stays visible as the cause (`InterruptedException`) of the typed failure. A status that was already set
+coroutine on that worker. The interrupt stays visible as the cause (`InterruptedException`) of the typed failure. The one cost is an interrupt that another thread sends to the caller's own thread while a store call runs on it inline (`Dispatchers.Unconfined`, or the caller's own dispatcher) and an interruptible provider is working: the provider consumes it, and the call clears it like any status the boundary put back, because nothing tells the two apart (an `InterruptedException` does not say who interrupted, and keeping it would leave the status on borrowed pool threads), so that caller sees the interrupt only as the cause of the `OperationFailed` it gets back. A status that was already set
 when the call reached the thread (an interrupted caller), or that appeared without a provider (another thread interrupted this one), is never
 cleared. Only an `InterruptedException` that the provider call throws itself counts: one
 that the JDK wraps (an SPI constructor that throws while `getInstance` makes the engine leaves as a `NoSuchAlgorithmException` with it as

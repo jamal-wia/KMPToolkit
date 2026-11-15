@@ -44,7 +44,11 @@ internal typealias JcaRandom = SecureRandom
  *    does not clear a worker's status between two tasks, so a status left behind would refuse the file I/O of the next, unrelated
  *    coroutine on that worker, or of a caller that kotlinx.coroutines resumes inline on that worker (`Dispatchers.Unconfined`). The
  *    interrupt stays visible as the cause of the typed failure, and the caller's own code after the call does not see the status,
- *    on whichever thread it resumes (unless its thread was already interrupted when the call reached it). Only an `InterruptedException` that
+ *    on whichever thread it resumes (unless its thread was already interrupted when the call reached it). The one interrupt this
+ *    loses is a genuine one that another thread sends to a thread the call runs on inline (the caller's own thread under
+ *    `Dispatchers.Unconfined` or the caller's own dispatcher) while an interruptible provider is working: an `InterruptedException`
+ *    does not say who interrupted, and keeping it would leave the status on borrowed pool threads, so it reaches the caller only as
+ *    the cause of the typed failure. Only an `InterruptedException` that
  *    the provider call throws itself is an interrupt: one the JDK wraps (an SPI constructor that throws during `getInstance` leaves
  *    as a `NoSuchAlgorithmException` with it as the cause) or that another exception carries as its cause is NOT looked for, because
  *    a cause may come from another thread and an invented interrupt does more harm than one hidden by a provider constructor that
