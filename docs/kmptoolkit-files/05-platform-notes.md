@@ -185,7 +185,7 @@ directory the app does not own.
   by Linux and macOS and the acl view by Windows, whichever volume the path is on.
 - FAT and exFAT: the provider still reports the posix (Linux, macOS) or acl (Windows) view, so the
   attribute is passed to the creating call and the volume, which has nowhere to store it, disregards it.
-  This is expected, not yet observed: the plan's check on a loop-mounted FAT/exFAT image is run by hand
+  This is expected and not observed on a device: the plan's check on a loop-mounted FAT/exFAT image is run by hand
   with `OwnerOnlyFatVolumeT10Test` (`-Pkmptoolkit.test.fatVolumeDirectory=<mounted directory>`).
   On a macOS FAT or exFAT volume the OS itself puts a `._name` AppleDouble sidecar (it holds the
   `com.apple.provenance` extended attribute) beside every new file and directory, whichever process creates it;

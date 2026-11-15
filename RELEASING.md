@@ -139,13 +139,13 @@ check: read the skip count of every run.
 
    Signing and notarisation are not covered. With an Apple Developer ID, additionally build a signed and notarised
    app of a plain-store-only host and record the result in the release notes; a notarised app that adds
-   `kmptoolkit-storage-jna` must sign the nested `libjnidispatch` as well, which has not been verified.
-6. **macOS key-store behaviour that only a real keychain can show.** The three open items listed at the end of the
-   desktop section of `docs/kmptoolkit-storage/05-platform-notes.md` ("Open verification items"): whether
+   `kmptoolkit-storage-jna` must sign the nested `libjnidispatch` as well (not observed).
+6. **macOS key-store behaviour that only a real keychain can show.** The three points listed at the end of the
+   desktop section of `docs/kmptoolkit-storage/05-platform-notes.md` ("Not observed on a real keychain"): whether
    `kSecUseAuthenticationUIFail` applies to `SecItemAdd` and `SecItemDelete` on the file keychain, whether a locked keychain
    and an item of another code identity both answer -25308 (never -25300), and whether deleting the previous unsigned build's
    item prompts. Observe them with `allowUserInteraction = false` and then `true` on a locked and an unlocked login
-   keychain, and write the result into that section.
+   keychain, and write the observed result into that paragraph in place of the "Not observed" list.
 7. **iOS Keychain harness (before releasing a change to the iOS secure store).** Enrol Face ID in the simulator first
    (Features > Face ID > Enrolled), so that `ensure-key-user-presence` is counted as a pass. Build and run
    `storage-ios-harness/ios-host` on an iPhone simulator

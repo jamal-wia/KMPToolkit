@@ -771,11 +771,10 @@ by the rule above.
 call; Linux: no matching item in any collection, locked or not), a key-check that fails with the fetched key, a header whose
 fingerprint or OS tag names another identity, or (Windows) DPAPI failing to unwrap while a one-byte round trip works. A locked,
 dismissed, denied, hung or missing key store is **never** "lost": it answers `AccessDenied`, `Unavailable` or `Unsupported`, never
-touches the file and never leads to quarantine or key creation. On macOS the verification of what `kSecUseAuthenticationUIFail`
-returns on the file keychain has not been run, so the conservative rule applies: a -25300 from a call made with
-`allowUserInteraction = false` is `Unavailable`, not "lost", **for a file with entries**; for a file with **zero entries** the
-same answer is read as "lost, zero entries", because nothing can be lost there (see the crash state below and "Open
-verification items").
+touches the file and never leads to quarantine or key creation. On macOS a -25300 from a call made with
+`allowUserInteraction = false` is `Unavailable`, not "lost", **for a file with entries** (see "Not observed on a real keychain");
+for a file with **zero entries** the same answer is read as "lost, zero entries", because nothing can be lost there (see the
+crash state below).
 
 What each call does (decided under the locks; every answer after the key has been verified first):
 
@@ -921,11 +920,11 @@ not affected by an earlier call whose provider was interrupted. (`runBlocking` o
 behaviour. A `get`, `remove` or `clear()` of a store whose directory does not exist answers `Success` without any I/O, and a `put` over
 the size bound answers `InvalidValue`, whatever the thread's status.)
 
-**Open verification items (macOS, not yet run on a real keychain).** Whether `kSecUseAuthenticationUIFail` applies to
-`SecItemAdd` and `SecItemDelete` on the file keychain; whether a locked keychain and an item of another code identity both
-return -25308 (never -25300); whether deleting the previous unsigned build's item prompts. Until then a non-interactive -25300 is
-`Unavailable` (for a zero-entry file the repair of the crash state goes ahead without a dialog, as above), and the documented behaviour of `allowUserInteraction = false` is "a needed dialog answers `Unavailable`" for the
-unlock dialog and, if the verification fails, only for it.
+**Not observed on a real keychain (macOS).** Whether `kSecUseAuthenticationUIFail` applies to `SecItemAdd` and
+`SecItemDelete` on the file keychain, whether a locked keychain and an item of another code identity both return -25308
+(never -25300), and whether deleting the previous unsigned build's item prompts. The current behaviour: a non-interactive
+-25300 is `Unavailable` (for a zero-entry file the repair of the crash state goes ahead without a dialog, as above), and
+`allowUserInteraction = false` guarantees "a needed dialog answers `Unavailable`" for the unlock dialog.
 
 #### `probeDesktopKeyStore`
 
