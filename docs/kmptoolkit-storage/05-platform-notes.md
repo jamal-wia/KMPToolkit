@@ -244,8 +244,25 @@ app sharing that code with desktop could not compile it for desktop without the 
   uses a shortened, hashed prefix.
   The store is meant for a handful of small values; it is not a database.
 - **Concurrency.** Instances over the same file in one process share a lock (a `KeyedMutex` keyed by the
-  case- and Unicode-folded canonical path). Two *processes* writing
-  the same file are not coordinated — keep one writer per file.
+  case- and Unicode-folded canonical path). Writes are also coordinated **across processes**: after the in-process
+  lock, a `put`, `remove` or `clear()` takes `FileChannel.tryLock` on a separate sibling,
+  `<file name>.lock`, so two app instances or two parallel tools never lose each other's updates. A write that cannot
+  get the lock within 10 seconds (polled every 25 ms) answers `StorageError.Unavailable` and changes nothing; the file
+  is never touched without the lock. A lock dies with its process, so a killed holder never wedges the store.
+  - The lock file is empty, is created the first time a write needs it (a read never creates it, and neither does a
+    `clear()` of a store whose directory does not exist) through an atomic create-if-absent, owner-only from the moment
+    it exists (POSIX 0600; the Windows owner-and-SYSTEM ACL), and is never renamed and never deleted by the library.
+    On a volume without hard links (FAT, exFAT) it is created with a plain open. Delete it by hand only while no
+    process uses the store. When `<file name>.lock` would exceed 255 bytes, the file name is cut at a character
+    boundary and `~`, 16 hex characters of its SHA-256 and `.lock` follow.
+  - The lock is on the sibling and never on the data file because on Windows a mandatory lock on the data file would block
+    the atomic rename.
+  - A lock file the process cannot create, open or lock (a read-only directory, a lock path that is a directory, a file
+    system that refuses `tryLock`) fails the write with `OperationFailed`. Reads are unaffected.
+  - Reads take no file lock (the atomic rename already gives a read a whole file), but they do pass the in-process lock, so a
+    read can wait behind an in-process write that is itself waiting for another process, for at most that write's 10 s.
+  - Network file systems (NFS, SMB) may grant or refuse `tryLock` unreliably; keep a store on a local volume. Writes still
+    never produce a torn file there, because every write is an atomic replace.
 - **Native key-store calls (internal, for the desktop secure store).** The OS key stores are reached through one
   internal seam of 11 raw calls (macOS Security.framework: copy, add, delete, probe; Windows DPAPI: protect, unprotect;
   Linux libsecret: lookup, store, clear, default-collection-locked, backend-is-portal). It is `public` and
@@ -312,7 +329,8 @@ call from the main thread and from any number of coroutines at once:
   access group — make the loser's `SecItemAdd` fail with `errSecDuplicateItem`; the store then
   updates the item instead, so neither write reports a failure.
 - **Desktop.** Instances over the same file share a coroutine lock (`KeyedMutex` of `kmptoolkit-files`), so their read-modify-write
-  cycles over the file never interleave. The lock is keyed by the path in Unicode NFC with the full
+  cycles over the file never interleave; a write then takes the cross-process file lock (see "Concurrency" above), the only
+  thing it ever waits for while holding the in-process lock, with a bound of 10 s and cancellable. The lock is keyed by the path in Unicode NFC with the full
   case mapping (`ß`, `ẞ` and `ss`, the Greek sigma forms, `Settings` and `settings` share it), so two
   spellings of one name share it on a volume that folds case (macOS, Windows); on a case-sensitive volume they are two files behind one lock. A file that
   cannot be parsed, including one that is not valid UTF-8, fails every operation on it, writes included, and is never replaced; `clear()` is

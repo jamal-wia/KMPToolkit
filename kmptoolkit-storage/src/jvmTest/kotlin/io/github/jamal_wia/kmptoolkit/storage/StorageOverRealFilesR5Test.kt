@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
 import io.github.jamal_wia.kmptoolkit.files.Durability
 import io.github.jamal_wia.kmptoolkit.files.ExistingFile
 import io.github.jamal_wia.kmptoolkit.files.FileAccess
@@ -57,7 +58,7 @@ class StorageOverRealFilesR5Test {
         assertTrue(run { store.remove("a") }.isSuccess)
         assertNull(run { store.get("a") }.getOrNull())
         assertEquals("two", run { store.get("b") }.getOrNull())
-        assertEquals(listOf("r5.properties"), directory.list()!!.sorted(), "only the store's own file remains")
+        assertEquals(listOf("r5.properties", "r5.properties.lock"), directory.list()!!.sorted(), "only the store's own file and its lock file remain")
         assertEquals(3, writes.size)
         for ((path, options) in writes) {
             assertEquals(file.absolutePath, path)
@@ -84,10 +85,10 @@ class StorageOverRealFilesR5Test {
         val blocked: StorageResult<Unit> = run { store.put("k", "x") }
         assertTrue(blocked.errorOrNull() is StorageError.OperationFailed, "$blocked")
         assertTrue(run { store.get("k") }.errorOrNull() != null || run { store.get("k") }.getOrNull() == null)
-        assertEquals(listOf("r5.properties"), directory.list()!!.sorted(), "a failed write left a temporary file")
+        assertEquals(listOf("r5.properties", "r5.properties.lock"), directory.list()!!.sorted(), "a failed write left a temporary file")
         assertTrue(file.delete())
         assertTrue(run { store.put("k", "again") }.isSuccess, "the store works again once the obstacle is gone")
         assertEquals("again", run { store.get("k") }.getOrNull())
-        assertEquals(listOf("r5.properties"), directory.list()!!.sorted())
+        assertEquals(listOf("r5.properties", "r5.properties.lock"), directory.list()!!.sorted())
     }
 }

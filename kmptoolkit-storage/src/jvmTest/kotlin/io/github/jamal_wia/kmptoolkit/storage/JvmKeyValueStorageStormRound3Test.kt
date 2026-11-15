@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
@@ -69,7 +70,10 @@ class JvmKeyValueStorageStormRound3Test {
             }
             for (worker: Int in 0 until 8) assertEquals("x", instances[3].get("final$worker").getOrNull())
         }
-        assertEquals(listOf("storm.kmptoolkit.storage.properties"), directory.list()?.toList().orEmpty().sorted())
+        assertEquals(
+            listOf("storm.kmptoolkit.storage.properties", CrossProcessLock.lockNameOf("storm.kmptoolkit.storage.properties")),
+            directory.list()?.toList().orEmpty().sorted(),
+        )
     }
 
     @Test
