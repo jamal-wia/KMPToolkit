@@ -91,6 +91,8 @@ include(":sample")
 // Not published — packaging smoke of the desktop storage (storage plan 6.7 P): a Compose Desktop release distribution
 // with ProGuard that runs one secure and one plain round trip, in two variants (JDK 25 + FFM, JDK 21 + kmptoolkit-storage-jna).
 // Deliberately not named kmptoolkit-*, so the BOM does not list it. The two variant projects share ONE build script.
+// Gradle refuses to configure a project whose directory does not exist, so each variant directory (ffm, jna) must hold a
+// tracked file (its .gitignore): without one a fresh clone cannot configure any build of the repository.
 include(":smoke-storage-desktop")
 include(":smoke-storage-desktop:ffm")
 include(":smoke-storage-desktop:jna")
