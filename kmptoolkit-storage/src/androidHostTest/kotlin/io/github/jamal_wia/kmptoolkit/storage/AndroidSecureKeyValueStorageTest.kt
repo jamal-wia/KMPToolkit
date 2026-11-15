@@ -134,8 +134,9 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
 
     @Test
     fun `a value written under a key that no longer exists is undecryptable not absent`() = runTest {
-        // What a device-lock change does on a real device: the ciphertext survives, the key does
-        // not. Reproduced by dropping the cached key and letting a new one be generated.
+        // What a lost key does on a real device (a backup restored to a new phone, a permanently
+        // invalidated key): the ciphertext survives, the key does not. Reproduced by dropping the
+        // cached key and letting a new one be generated.
         secure().put("k", "value")
         TestKeys.reset()
 
