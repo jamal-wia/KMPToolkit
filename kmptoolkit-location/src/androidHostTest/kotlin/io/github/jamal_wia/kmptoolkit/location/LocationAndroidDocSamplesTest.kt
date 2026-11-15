@@ -2,6 +2,8 @@ package io.github.jamal_wia.kmptoolkit.location
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
@@ -10,13 +12,16 @@ import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 
 /*
  * The Android samples of docs/kmptoolkit-location (02-getting-started, 03-guide), typed in exactly as the docs
@@ -87,6 +92,16 @@ class LocationAndroidDocSamplesTest {
             val provider: LocationProvider = androidLocation(application, access)
 
             provider.openLocationSettings()
+
+            // No activity is resumed, so callerTask falls back to a task of its own             // factory table): the settings screen is what starts, in a new document task.
+            val started: Intent = assertNotNull(
+                shadowOf(application).nextStartedActivity,
+                "nothing was started: the sample's launcher opened no screen",
+            )
+            assertEquals(Settings.ACTION_LOCATION_SOURCE_SETTINGS, started.action)
+            assertTrue(started.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0, "not a new task: ${started.flags}")
+            assertTrue(started.flags and Intent.FLAG_ACTIVITY_NEW_DOCUMENT != 0, "not a new document: ${started.flags}")
+            assertNull(shadowOf(application).nextStartedActivity, "more than one screen was started")
         } finally {
             access.release()
         }
