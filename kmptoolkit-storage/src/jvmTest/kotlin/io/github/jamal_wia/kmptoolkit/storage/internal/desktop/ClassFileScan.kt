@@ -196,18 +196,22 @@ internal object ClassFileScan {
     /**
      * Every compiled-output location of the module's jvm main code that exists, FOUND BY WALKING, never by naming a directory:
      * [codeSource] of the boundary (it must exist, or the scan cannot run and fails) plus, when [codeSource] is a directory, every
-     * other compilation output under the same Gradle `classes` tree that belongs to the jvm main code. Four rounds in a row a scan
-     * that listed the outputs it knew (`kotlin/jvm/main`, then its `ffm` sibling) missed a layout that was shipped in the jvm jar;
-     * this one has no list: a new source set or a new language cannot hide.
+     * other output beside it that belongs to the jvm main code. This is the SECOND layer of the bytecode scan: the first reads the
+     * entries of the built jvm jar ([shippedClassBytes]), which is what ships whatever its inputs are; this one reads the directories
+     * the jar is built from, so a failure names the file and the test can run on a tree without a jar. Four rounds in a row a scan that
+     * listed the outputs it knew missed a layout that was shipped in the jvm jar; this one has no list.
      *
      * How: the `classes` directory is the nearest ancestor of [codeSource] with that name (Gradle's own `build/classes`; none is a
-     * failure). It is walked for class files; the first class file of a directory names its package, so the output ROOT (the
-     * directory the package path starts at, whatever its depth or name: `classes/kotlin/jvm/main`, `classes/kotlin/jvm/ffm`,
-     * `classes/java/jvmMain`, a layout of a later Kotlin or Gradle) is read from the class itself, not from a depth rule. A root
-     * belongs to the jvm main code when a segment of its path below `classes` starts with `jvm` (any case) and none ends with
-     * `test` (tests are not shipped) or `check` (the check-only compilation `ffmApiCheck` compiles the sources of `ffm` again and
-     * ships nothing). The Android outputs carry no such segment: the Android store has its own rules (D-P12). A jar needs no
-     * walk: it carries every class, and it is returned as it is. The code source is first; the rest follow in path order.
+     * failure), and its sibling `processedResources` (the resources the jar also packs, a `.class` file among them) is walked too when it
+     * exists. Every class file is attributed to its OWN output ROOT, the directory its package path starts at, read from the class
+     * itself (`classes/kotlin/jvm/main`, `.../ffm`, `classes/java/jvmMain`, `processedResources/jvm/main`, a layout of a later Kotlin or
+     * Gradle); a class whose directories do not follow its package gets its own directory. A root belongs to the jvm main code when a
+     * segment of its path below the walked directory starts with `jvm` (any case) and none ends with `test` (tests are not shipped) or
+     * `check` (the check-only compilation `ffmApiCheck` compiles the sources of `ffm` again and ships nothing). The Android outputs carry
+     * no such segment: the Android store has its own rules (D-P12). Only AFTER that classification is a root dropped for being nested
+     * in another root that is read anyway (reading both would read its classes twice), so a class file lying above a real output (a
+     * default-package class directly in `classes` or in `classes/java`) is a root of its own that is not shipped, and never hides what
+     * is below it. A jar needs no walk: it carries every class, and it is returned as it is. The code source is first; the rest follow in path order.
      */
     fun mainOutputs(codeSource: URL): List<URL> {
         val main: Path = Paths.get(codeSource.toURI())
@@ -216,41 +220,40 @@ internal object ClassFileScan {
         val classes: Path = generateSequence(main.parent) { directory: Path -> directory.parent }
             .firstOrNull { directory: Path -> directory.fileName?.toString() == CLASSES_DIRECTORY }
             ?: error("the compiled output $codeSource is not under a `$CLASSES_DIRECTORY` directory: the other compilation outputs of the jvm main code cannot be found, so the scan cannot run (it must not pass silently)")
-        val shipped: List<Path> = outputRoots(classes).filter { root: Path -> root != main && isJvmMainOutput(classes.relativize(root)) }
-        return (listOf(main) + shipped.sorted()).map { output: Path -> output.toUri().toURL() }
+        val walked: List<Path> = listOf(classes, classes.resolveSibling(PROCESSED_RESOURCES_DIRECTORY)).filter { directory: Path -> directory.isDirectory() }
+        // `+ setOf(main)`: a Path is an Iterable of its own segments, so `set + main` would add them one by one.
+        val shipped: Set<Path> = walked.flatMap { base: Path -> outputRoots(base).filter { root: Path -> isJvmMainOutput(base.relativize(root)) } }.toSet() + setOf(main)
+        // An output that lies inside another one is read through the outer one: listing both would read its classes twice.
+        val outer: List<Path> = shipped.filterNot { root: Path -> shipped.any { other: Path -> other != root && root.startsWith(other) } }
+        return outer.sortedWith(compareBy<Path>({ root: Path -> root != main }, { root: Path -> root })).map { output: Path -> output.toUri().toURL() }
     }
 
     /** The name of Gradle's directory of compiled classes, the one fixed point of the walk in [mainOutputs]. */
     private const val CLASSES_DIRECTORY: String = "classes"
 
-    /** Whether a compilation output at [relative] (its path below `classes`) is jvm code that is shipped: see [mainOutputs]. */
+    /** The directory beside `classes` where Gradle puts the resources of a compilation (`processedResources/jvm/main`): the jvm jar packs them. */
+    private const val PROCESSED_RESOURCES_DIRECTORY: String = "processedResources"
+
+    /** Whether a compilation output at [relative] (its path below the walked directory) is jvm code that is shipped: see [mainOutputs]. */
     private fun isJvmMainOutput(relative: Path): Boolean {
         val segments: List<String> = relative.map { segment: Path -> segment.toString().lowercase() }
         return segments.any { segment: String -> segment.startsWith("jvm") } &&
             segments.none { segment: String -> segment.endsWith("test") || segment.endsWith("check") }
     }
 
-    /**
-     * The compilation outputs under [classes]: the directory each class file's package path starts at, found by walking. The package
-     * of a class is its own name, so the root of a directory's classes is read from the first one; the rest of a root is skipped.
-     */
-    private fun outputRoots(classes: Path): Set<Path> {
+    /** The root of EVERY class file under [base] (see [rootOf]); no directory and no class file is skipped. */
+    private fun outputRoots(base: Path): Set<Path> {
         val roots: MutableSet<Path> = linkedSetOf()
         Files.walkFileTree(
-            classes,
+            base,
             object : SimpleFileVisitor<Path>() {
-                override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult =
-                    if (roots.any { root: Path -> dir != root && dir.startsWith(root) }) FileVisitResult.SKIP_SUBTREE else FileVisitResult.CONTINUE
-
                 override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-                    if (file.extension != "class") return FileVisitResult.CONTINUE
-                    roots.add(rootOf(file))
-                    return FileVisitResult.SKIP_SIBLINGS
+                    if (file.extension == "class") roots.add(rootOf(file))
+                    return FileVisitResult.CONTINUE
                 }
             },
         )
-        // An output nested in another one is read through the outer one: listing both would read its classes twice.
-        return roots.filterNot { root: Path -> roots.any { other: Path -> other != root && root.startsWith(other) } }.toSet()
+        return roots
     }
 
     /**

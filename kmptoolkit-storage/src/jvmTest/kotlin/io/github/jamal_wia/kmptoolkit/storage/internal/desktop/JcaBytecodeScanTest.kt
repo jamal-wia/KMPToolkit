@@ -464,6 +464,60 @@ class JcaBytecodeScanTest {
     }
 
     @Test
+    fun `the processed resources are walked and a class file above or inside an output never hides it`() {
+        val root: Path = Files.createTempDirectory("kmptoolkit-classscan")
+        try {
+            val build: Path = Files.createDirectories(root.resolve("build"))
+            fun put(output: List<String>, name: String, reference: String = "java/nio/file/Files"): Path {
+                val outputDirectory: Path = output.fold(build) { directory: Path, segment: String -> directory.resolve(segment) }
+                // path-hygiene-ignore: PH3 a JVM internal class name, not a file path
+                val segments: List<String> = name.split('/')
+                val directory: Path = Files.createDirectories(segments.dropLast(1).fold(outputDirectory) { parent: Path, segment: String -> parent.resolve(segment) })
+                directory.resolve(segments.last() + ".class").writeBytes(SyntheticClass.build(name) { pool: SyntheticClass.Pool -> pool.classOf(reference) })
+                return outputDirectory
+            }
+            fun outputs(main: Path): List<Path> = ClassFileScan.mainOutputs(main.toUri().toURL()).map { url: URL -> Paths.get(url.toURI()) }
+            val main: Path = put(listOf("classes", "kotlin", "jvm", "main"), "a/A")
+            val java: Path = put(listOf("classes", "java", "jvmMain"), "scratch/JavaUse", "java/security/MessageDigest")
+            // Not shipped: the resources of tests and of the Android target.
+            put(listOf("processedResources", "jvm", "test"), "a/ResTest")
+            put(listOf("processedResources", "android", "main"), "a/ResAndroid")
+            assertEquals(setOf(main, java), outputs(main).toSet(), "control: no class file in a resource directory that is not shipped is read")
+            // A class that the jar packs from the processed resources is read, wherever its package path starts.
+            val resources: Path = put(listOf("processedResources", "jvm", "main"), "scratch/ResourceUse", "javax/crypto/Cipher")
+            val withResources: List<Path> = outputs(main)
+            assertEquals(main, withResources.first(), "the code source comes first")
+            assertEquals(setOf(main, java, resources), withResources.toSet(), "the class in the processed resources is read")
+            assertEquals(
+                listOf("scratch/JavaUse names the class java/security/MessageDigest", "scratch/ResourceUse names the class javax/crypto/Cipher"),
+                ClassFileScan.classBytes(withResources.map { path: Path -> path.toUri().toURL() }).map(ClassFileScan::parse).flatMap(ClassFileScan::violations).sorted(),
+            )
+            // A class file ABOVE an output (the default package, directly in a directory an output sits below) is a root of its own: it is
+            // not shipped, and it does not swallow the outputs below it.
+            for (above: List<String> in listOf(listOf("classes"), listOf("classes", "java"), listOf("classes", "kotlin"), listOf("processedResources"))) {
+                put(above, "Stray")
+                assertEquals(setOf(main, java, resources), outputs(main).toSet(), "a class in ${above.joinToString("/")} drops no output and adds none")
+            }
+            // A class file INSIDE the directory of several outputs (a jvm segment, so the walk reads it) is read through the outer root, and every
+            // output below it is still covered: nothing is dropped, and nothing is listed twice.
+            put(listOf("classes", "kotlin", "jvm"), "Inside", "java/util/Base64")
+            val covering: List<Path> = outputs(main)
+            assertEquals(covering.size, covering.toSet().size, "none twice")
+            for (output: Path in listOf(main, java, resources)) {
+                assertTrue(covering.any { reader: Path -> output.startsWith(reader) }, "$output is read, through itself or an outer root ($covering)")
+            }
+            assertTrue(
+                ClassFileScan.classBytes(covering.map { path: Path -> path.toUri().toURL() }).map(ClassFileScan::parse).flatMap(ClassFileScan::violations)
+                    .containsAll(listOf("Inside names the class java/util/Base64", "scratch/ResourceUse names the class javax/crypto/Cipher", "scratch/JavaUse names the class java/security/MessageDigest")),
+                "the use in each place is found",
+            )
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `a code source that cannot be walked fails the scan and never passes it`() {
         val root: Path = Files.createTempDirectory("kmptoolkit-classscan")
         try {
