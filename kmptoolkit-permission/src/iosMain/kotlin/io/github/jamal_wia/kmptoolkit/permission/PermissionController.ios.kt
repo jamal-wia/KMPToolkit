@@ -102,8 +102,13 @@ internal class IosPermissionController(
 
     override suspend fun request(permissions: Collection<Permission>): Map<Permission, PermissionStatus> =
         requestMutex.withLock {
+            val asked: List<Permission> = permissions.distinct()
             // iOS has no shared dialog: one prompt after another, each waiting for the previous one.
-            permissions.distinct().associateWith { permission -> requestOne(permission) }
+            asked.forEach { permission: Permission -> requestOne(permission) }
+            // Every answer is read after the last prompt, never kept from the moment its own request ended: a
+            // later entry can change an earlier one (the temporary full accuracy of Location lifts the
+            // LocationBackground that was answered Limited before it). A read shows no UI.
+            asked.associateWith { permission: Permission -> check(permission) }
         }
 
     override fun observe(permission: Permission): Flow<PermissionStatus> =
