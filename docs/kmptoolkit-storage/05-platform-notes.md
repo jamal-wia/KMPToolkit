@@ -475,6 +475,9 @@ ones it was fetched for (at most four such rounds, then `Unavailable`).
 or restricted set) never makes a store call throw: a `put`, `get`, `remove`, `clear()`, `ensureKey()` or `changeKey` that needs the missing
 algorithm answers `OperationFailed` (with the provider failure as its cause) and writes, creates and moves nothing; a store with data is never
 read as "key lost", and a passphrase is never called wrong (`AccessDenied`) for it. The same instance works once the algorithm is available.
+The same holds for a provider that is present and fails: a `ProviderException` out of an operation (a PKCS#11 token error under a
+FIPS-configured JDK), an AES-GCM engine without support for additional authenticated data, or a `SecureRandom` that cannot read its entropy
+(every nonce, salt and data key is drawn from one). Only a GCM tag that does not verify means "wrong key or tampered".
 
 **A call on an interrupted thread.** When the store's dispatcher runs a call on a thread whose interrupt status is set (for example
 `Dispatchers.Unconfined` called from an interrupted thread), the JDK refuses the file I/O: the call answers `OperationFailed` (cause: an

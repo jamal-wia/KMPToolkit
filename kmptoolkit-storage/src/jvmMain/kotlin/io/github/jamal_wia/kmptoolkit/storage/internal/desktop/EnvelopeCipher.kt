@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
 
 import java.nio.charset.StandardCharsets
 import java.security.GeneralSecurityException
+import java.security.ProviderException
 import java.security.SecureRandom
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
@@ -15,7 +16,11 @@ import javax.crypto.spec.SecretKeySpec
  * derived value, and data keys come from it too. A tag that does not verify is the only failure that answers
  * "wrong key or tampered" (`null` / `false`); any other security-provider failure, on encryption and on decryption alike, is
  * thrown as an `IllegalStateException`, so an environment problem is never mistaken for lost data (that verdict makes an app
- * delete things) and the stores answer it as `OperationFailed`.
+ * delete things) and the stores answer it as `OperationFailed`. "Provider failure" covers every way a JCA engine reports one:
+ * a `GeneralSecurityException` (no such algorithm), a `ProviderException` (the engine itself failed after it was chosen: a
+ * PKCS#11 token error under a FIPS-configured JDK, or a random source that cannot read its entropy) and an
+ * `UnsupportedOperationException` (an engine registered for AES-GCM without AAD support). A `Cipher` fixes its provider at
+ * `init`, so the JDK does not fail over once the operation has begun and the failure reaches here as it is.
  *
  * Stateless apart from [random]; safe from any thread. Key arguments are borrowed, never kept and never wiped here.
  * The class and [sealEntry] are open only so that a test can count how many values were sealed (the proof that a refused
@@ -24,10 +29,10 @@ import javax.crypto.spec.SecretKeySpec
 internal open class EnvelopeCipher(private val random: SecureRandom = SecureRandom()) {
 
     /** A fresh random 256-bit data key. The caller owns and wipes it. */
-    fun newDataKey(): ByteArray = ByteArray(SecureFileFormat.DATA_KEY_BYTES).also(random::nextBytes)
+    fun newDataKey(): ByteArray = randomBytes(SecureFileFormat.DATA_KEY_BYTES)
 
     /** A fresh random 16-byte salt. */
-    fun newSalt(): ByteArray = ByteArray(SecureFileFormat.SALT_BYTES).also(random::nextBytes)
+    fun newSalt(): ByteArray = randomBytes(SecureFileFormat.SALT_BYTES)
 
     /** Seals [value] under [dataKey] for the entry [key] of a file of [kind]; the entry name is authenticated. */
     open fun sealEntry(dataKey: ByteArray, kind: StoreKind, key: String, value: ByteArray): EncryptedEntry {
@@ -68,7 +73,18 @@ internal open class EnvelopeCipher(private val random: SecureRandom = SecureRand
         return gcmDecrypt(kek, nonce, aad, wrapped.copyOfRange(SecureFileFormat.NONCE_BYTES, wrapped.size))
     }
 
-    private fun newNonce(): ByteArray = ByteArray(SecureFileFormat.NONCE_BYTES).also(random::nextBytes)
+    private fun newNonce(): ByteArray = randomBytes(SecureFileFormat.NONCE_BYTES)
+
+    /** [size] random bytes; a random source that fails (a `ProviderException`) is an environment problem like any other provider failure. */
+    private fun randomBytes(size: Int): ByteArray {
+        val bytes = ByteArray(size)
+        try {
+            random.nextBytes(bytes)
+        } catch (error: ProviderException) {
+            throw IllegalStateException("The random source failed", error)
+        }
+        return bytes
+    }
 
     private fun keyCheckAad(headerPrefix: ByteArray): ByteArray = headerPrefix + KEY_CHECK_LABEL
 
@@ -83,13 +99,18 @@ internal open class EnvelopeCipher(private val random: SecureRandom = SecureRand
             require(nonce.size == SecureFileFormat.NONCE_BYTES) { "the nonce is 96 bits" }
             // Like gcmDecrypt: a provider that cannot do AES-GCM (a restricted or FIPS provider set) is an environment problem,
             // thrown as IllegalStateException so that the store maps it to OperationFailed instead of letting it escape a put.
+            // The catch is the three JCA failure shapes, not RuntimeException: the require calls above are this function's own.
             try {
                 val cipher: Cipher = Cipher.getInstance(TRANSFORMATION)
                 cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(TAG_BITS, nonce))
                 cipher.updateAAD(aad)
                 return cipher.doFinal(plaintext)
             } catch (error: GeneralSecurityException) {
-                throw IllegalStateException("The AES-GCM provider failed", error)
+                throw providerFailed(error)
+            } catch (error: ProviderException) {
+                throw providerFailed(error)
+            } catch (error: UnsupportedOperationException) {
+                throw providerFailed(error)
             }
         }
 
@@ -105,9 +126,15 @@ internal open class EnvelopeCipher(private val random: SecureRandom = SecureRand
             } catch (_: AEADBadTagException) {
                 null
             } catch (error: GeneralSecurityException) {
-                throw IllegalStateException("The AES-GCM provider failed", error)
+                throw providerFailed(error)
+            } catch (error: ProviderException) {
+                throw providerFailed(error)
+            } catch (error: UnsupportedOperationException) {
+                throw providerFailed(error)
             }
         }
+
+        private fun providerFailed(cause: Exception): IllegalStateException = IllegalStateException("The AES-GCM provider failed", cause)
 
         /** Overwrites [bytes] with zeros. */
         fun wipe(bytes: ByteArray) {
