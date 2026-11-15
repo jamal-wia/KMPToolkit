@@ -77,6 +77,7 @@ import platform.Photos.PHAuthorizationStatusRestricted
 import platform.Photos.PHPhotoLibrary
 import platform.Foundation.NSNotification
 import platform.Foundation.NSProcessInfo
+import platform.Foundation.NSString
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
 import platform.MediaPlayer.MPMediaLibrary
@@ -266,11 +267,25 @@ internal fun isIosAtLeast(major: Long, minor: Long = 0): Boolean =
 internal fun hasInfoPlistKey(key: String): Boolean = NSBundle.mainBundle.objectForInfoDictionaryKey(key) != null
 
 /** The keys of the app's `NSLocationTemporaryUsageDescriptionDictionary`; empty when the entry is absent or not a dictionary. */
-internal fun temporaryUsagePurposeKeysInInfoPlist(): Set<String> {
-    val dictionary: Map<*, *> =
-        NSBundle.mainBundle.objectForInfoDictionaryKey("NSLocationTemporaryUsageDescriptionDictionary") as? Map<*, *>
-            ?: return emptySet()
-    return dictionary.keys.filterIsInstance<String>().toSet()
+internal fun temporaryUsagePurposeKeysInInfoPlist(): Set<String> =
+    temporaryUsagePurposeKeys(NSBundle.mainBundle.objectForInfoDictionaryKey("NSLocationTemporaryUsageDescriptionDictionary"))
+
+/**
+ * The string keys of [infoValue], the raw `Info.plist` value of `NSLocationTemporaryUsageDescriptionDictionary`.
+ * A dictionary (an `NSDictionary` as the bundle returns it, which Kotlin/Native reads as a `Map`) yields its string keys;
+ * keys of any other type are ignored; any other value, or `null`, yields an empty set. Split from the bundle read
+ * so the parse of real Foundation objects is testable without an app bundle that carries the entry.
+ */
+internal fun temporaryUsagePurposeKeys(infoValue: Any?): Set<String> {
+    // Kotlin/Native maps NSDictionary to Map, so one branch reads both the bundle's dictionary and a Kotlin map.
+    val keys: Collection<*> = (infoValue as? Map<*, *>)?.keys ?: return emptySet()
+    return keys.mapNotNull { key: Any? ->
+        when (key) {
+            is String -> key
+            is NSString -> key.toString()
+            else -> null
+        }
+    }.toSet()
 }
 
 // --- Location -----------------------------------------------------------------------------------
