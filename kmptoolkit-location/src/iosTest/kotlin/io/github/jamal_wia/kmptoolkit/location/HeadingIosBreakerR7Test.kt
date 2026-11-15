@@ -179,7 +179,8 @@ class HeadingIosBreakerR7Test {
                 val escaped: Throwable? = runCatching { manager.flip(authorized = false) }.exceptionOrNull()
 
                 assertEquals(2, device.scriptedCalls, "control: the stop and the nested start both ran; $combination")
-                assertEquals(2, device.failedCalls, "control: both failed; $combination")
+                // An Error of the nested call leaves through the outer call's delivery: the outer call fails with it, no effect.
+                assertEquals(if (innerError) 1 else 2, device.failedCalls, "control: both failed; $combination")
                 assertTrue(manager.authorized && manager.location, "control: authorized again and still running; $combination")
                 assertEquals(outerError || innerError, escaped is PlatformError, "control: only an Error escapes; $combination escaped=$escaped")
                 device.script = null
@@ -220,7 +221,8 @@ class HeadingIosBreakerR7Test {
                 val escaped: Throwable? = runCatching { manager.flip(authorized = true) }.exceptionOrNull()
 
                 assertEquals(2, device.scriptedCalls, "control: the start and the nested stop both ran; $combination")
-                assertEquals(2, device.failedCalls, "control: both failed; $combination")
+                // An Error of the nested call leaves through the outer call's delivery: the outer call fails with it, no effect.
+                assertEquals(if (innerError) 1 else 2, device.failedCalls, "control: both failed; $combination")
                 assertFalse(manager.authorized || manager.location, "control: unauthorized and stopped; $combination")
                 assertEquals(outerError || innerError, escaped is PlatformError, "control: only an Error escapes; $combination escaped=$escaped")
                 device.script = null
@@ -310,7 +312,7 @@ class HeadingIosBreakerR7Test {
                 var released = 0
                 val problems: MutableList<String> = mutableListOf()
                 var overlayAnswer: Boolean? = null
-                var events: IosHeadingEvents? = null
+                var openedSink: IosHeadingEvents? = null
                 val device = object : IosHeadingDevice {
                     override val isHeadingAvailable: Boolean = true
                     override fun openManager(events: IosHeadingEvents, orientation: ScreenRotation, headingFilterDegrees: Double): IosHeadingManager {
@@ -338,7 +340,7 @@ class HeadingIosBreakerR7Test {
                                     ReleaseFault.ERROR -> throw PlatformError("dismissal failed")
                                 }
                             }
-                        }.also { events = sink }
+                        }.also { openedSink = sink }
                     }
                 }
                 val received: MutableList<Heading> = mutableListOf()
@@ -353,7 +355,7 @@ class HeadingIosBreakerR7Test {
                         if (thrown is CancellationException) throw thrown
                     }
                 }
-                val sink: IosHeadingEvents = events ?: error("control: a manager was opened; $combination")
+                val sink: IosHeadingEvents = openedSink ?: error("control: a manager was opened; $combination")
                 sink.onHeading(10.0, -1.0, 5.0)
                 assertEquals(1, received.size, "control: the live collection receives a heading; $combination")
 
