@@ -174,6 +174,12 @@ check: read the skip count of every run.
    each row, with `AndroidSecureStorageOptions` as stated, and record the exact exception class, message and cause chain
    where a row says so; a difference from the expectation means a recognition constant in the library is wrong on that API
    level.
+   - Lock-screen change with a DEFAULT store (no `userAuthentication`, no `unlockedDeviceRequired`; API 28, 30 and 34 or
+     newer): `put` a value, then add a lock screen, change it and remove it, cold-starting between the steps and reading the
+     value each time. Record whether any step makes it `Undecryptable`. If none does, no document may name a lock-screen
+     change as the cause of a lost value for a default store; if one does, the sites that today name only a store opened with
+     `userAuthentication` (`02-getting-started.md`, `03-guide.md`, `05-platform-notes.md`, the `StorageError` and
+     `AndroidSecureStorageOptions` KDoc) need the cause added.
    - Lock-screen removal, with a store opened with `AndroidUserAuthentication(...)` (API 30 and API 34 or newer): `ensureKey()`
      and one `put`, remove the lock screen (Settings, Security: None), force-stop, cold start, call `ensureKey()`. Expected
      `Success`, the old value `Undecryptable`, a new `put` and `get` work. Record what `KeyStore.getKey` throws at that

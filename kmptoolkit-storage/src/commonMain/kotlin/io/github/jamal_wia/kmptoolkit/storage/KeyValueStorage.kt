@@ -87,8 +87,9 @@ public interface KeyValueStorage {
  * - **The encryption key never leaves the platform key store.** Android holds it in the
  *   AndroidKeyStore, iOS keeps the value itself in the Keychain. Neither is in the app's own files,
  *   so a copied data directory yields nothing usable.
- * - **A value can become permanently unreadable.** Changing the device lock destroys the Android
- *   Keystore entry; a read then fails with [StorageError.Undecryptable] rather than returning
+ * - **A value can become permanently unreadable.** Restoring a backup to a new device brings the
+ *   ciphertext without its Android Keystore key, and the platform can invalidate a key for good;
+ *   a read then fails with [StorageError.Undecryptable] rather than returning
  *   garbage. Any secret stored here must be re-acquirable — this is a place to cache a token, not
  *   the only copy of something a user cannot get back.
  *

@@ -195,7 +195,7 @@ Keystore calls. Generating under an alias that already exists does not fail — 
 Before 3.0.0 nothing ordered those two calls, so two first uses that overlapped — two coroutines on
 a fresh install, or two stores over the same configuration — could each generate a key; the later
 one won the alias, and every value encrypted under the earlier one became `Undecryptable`. The same
-gap existed in the recovery from a changed device lock, where a late caller could delete the
+gap existed in the recovery from a permanently invalidated key, where a late caller could delete the
 replacement key another caller had just made.
 
 The lookup now runs under one lock **per alias** for the whole process, shared by every store

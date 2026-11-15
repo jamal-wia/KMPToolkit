@@ -137,7 +137,7 @@ suspend fun storeAndRefresh(secrets: SecureKeyValueStorage, token: String) {
     when (val stored: StorageResult<String?> = secrets.get("refresh_token")) {
         is StorageResult.Success -> stored.value?.let(::refresh) ?: signIn()
         is StorageResult.Failure -> when (val error: StorageError = stored.error) {
-            // The key that encrypted it is gone: a changed device lock, a restore to a new phone.
+            // The key that encrypted it is gone: a restore to a new phone, a removed lock screen (userAuthentication).
             // The value is not coming back; get a new one.
             is StorageError.Undecryptable -> signIn()
             // The store is not readable right now (before first unlock after a reboot, for instance).
@@ -154,9 +154,9 @@ suspend fun storeAndRefresh(secrets: SecureKeyValueStorage, token: String) {
 }
 ```
 
-Handling `Undecryptable` is not defensive programming for an exotic case: a user changing their
-screen lock triggers it on Android, and it is the single most common way a "why am I logged out"
-report starts. The full set of reactions is in [`01-overview.md`](01-overview.md#the-errors-and-one-reaction-each).
+Handling `Undecryptable` is not defensive programming for an exotic case: a backup restored to a
+new phone brings the ciphertext without the key, a store opened with `userAuthentication` loses its
+key when the lock screen is removed, and on desktop a deleted key item does the same. The full set of reactions is in [`01-overview.md`](01-overview.md#the-errors-and-one-reaction-each).
 
 ## 6. Two stores in one app
 

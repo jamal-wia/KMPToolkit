@@ -53,7 +53,7 @@ suspend fun storeAndRefresh(secrets: SecureKeyValueStorage, token: String) {
     when (val stored: StorageResult<String?> = secrets.get("refresh_token")) {
         is StorageResult.Success -> stored.value?.let(::refresh) ?: signIn()
         is StorageResult.Failure -> when (val error: StorageError = stored.error) {
-            // The key that encrypted it is gone: a changed device lock, a restore to a new phone.
+            // The key that encrypted it is gone: a restore to a new phone, a removed lock screen (userAuthentication).
             // The value is not coming back; get a new one.
             is StorageError.Undecryptable -> signIn()
             // The store is not readable right now (before first unlock after a reboot, for instance).

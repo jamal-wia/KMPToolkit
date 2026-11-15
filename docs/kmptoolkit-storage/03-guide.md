@@ -64,9 +64,9 @@ caller was cancelled never runs.)
 
 The asymmetries in the last rows are the ones that catch people:
 
-- **A secure value can be lost while the app is untouched.** Changing the device lock destroys the
-  Android Keystore entry; restoring a backup to a new phone brings the ciphertext without the key; on desktop a deleted or
-  replaced key item does the same. All surface as `StorageError.Undecryptable`, and the only correct response is to discard
+- **A secure value can be lost while the app is untouched.** Restoring a backup to a new phone brings the ciphertext
+  without the key; the platform can invalidate a key for good (on Android, a key bound to `userAuthentication` when the lock
+  screen is removed); on desktop a deleted or replaced key item does the same. All surface as `StorageError.Undecryptable`, and the only correct response is to discard
   the value and obtain a new one. Never store something in here that the user cannot get back.
 - **iOS Keychain items outlive an uninstall.** Reinstalling the app can hand you a token from the
   previous install. If that is wrong for you, clear the secure store on first run, keyed off a flag
