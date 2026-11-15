@@ -154,7 +154,7 @@ your call, and how to widen it depends on the entry:
 
 | Entry | Limited means | To widen it |
 |---|---|---|
-| `Location`, `LocationBackground` | approximate location only (Android 12+, iOS 14+) | Android: `request` again — the dialog offers the upgrade to precise. iOS: the user changes it in settings (a temporary full-accuracy prompt is outside this module) |
+| `Location`, `LocationBackground` | approximate location only (Android 12+, iOS 14+) | Android: `request` again — the dialog offers the upgrade to precise. iOS: set `IosPermissionOptions.temporaryFullAccuracyPurposeKey` and `request` again, or call `requestTemporaryFullAccuracy(purposeKey)` — see [Temporary full accuracy (iOS)](#temporary-full-accuracy-ios); without either the user changes it in settings |
 | `PhotoLibrary` | the user picked some photos (Android 14+ with `READ_MEDIA_VISUAL_USER_SELECTED` declared, iOS 14+) | Android: `request` again — the dialog lets the user change the selection. iOS: `presentLimitedPhotoLibraryPicker(viewController)` |
 | `Contacts` | the user picked some contacts (iOS 18+) | the user changes it in settings, or your app uses the system contact picker |
 | `Calendar` | write-only access granted instead of full (iOS 17+) | `request` again — iOS asks for the upgrade to full access |
@@ -163,6 +163,49 @@ your call, and how to widen it depends on the entry:
 `canPrompt` is `false` for `Limited`, because whether a request shows anything depends on the
 platform and the entry. `PermissionRequestFlow.start()` from `Limited` re-checks and lands on
 `Limited` again; call `controller.request(permission)` directly when you mean "ask to widen it".
+
+### Temporary full accuracy (iOS)
+
+When the user chose approximate location, iOS can lend the app full accuracy until the app's session
+ends, after a prompt whose text is yours. Android offers the same upgrade through `request`, and so
+can shared code on iOS, with one setting:
+
+1. Add a purpose string to `Info.plist`, under a key of your choice in the
+   `NSLocationTemporaryUsageDescriptionDictionary` dictionary (for example `NavigationKey`).
+2. Give the key to the controller:
+
+```kotlin
+val controller: PermissionController = createPermissionController(
+    options = IosPermissionOptions(temporaryFullAccuracyPurposeKey = "NavigationKey"),
+)
+
+// From Limited this now shows the iOS prompt, as it shows the precise-location dialog on Android.
+val status: PermissionStatus = controller.request(CommonPermission.Location)
+// Granted while full accuracy lasts, Limited when the user declined.
+```
+
+Or ask directly, without configuring the controller, from iOS-only code:
+
+```kotlin
+val status: PermissionStatus = requestTemporaryFullAccuracy("NavigationKey")
+```
+
+What to know:
+
+- The grant is temporary. The next launch, and a long absence from the foreground, bring
+  `Limited` back, so a status you observed as `Granted` can read `Limited` again;
+  `controller.observe(CommonPermission.Location)` reports the change when the app is active again.
+- Only from `Limited` does iOS show anything. In every other status `requestTemporaryFullAccuracy`
+  returns the current status without a prompt, and `request(CommonPermission.Location)` behaves as
+  before.
+- Without `temporaryFullAccuracyPurposeKey`, `request(CommonPermission.Location)` from `Limited`
+  returns `Limited` at once, as in 4.x.
+- A key that is not in `NSLocationTemporaryUsageDescriptionDictionary` is a programming error and is
+  reported loudly: `createPermissionController` throws `IllegalStateException` naming the key when it
+  is configured, and `requestTemporaryFullAccuracy` throws it in every status, before the status is
+  read. iOS would terminate the app at the prompt otherwise, and `request` itself never throws.
+- `kmptoolkit-location` has no dependency on this module and never asks for the upgrade itself; a
+  reading of the location module flagged as approximate points here.
 
 ## Using the controller directly
 

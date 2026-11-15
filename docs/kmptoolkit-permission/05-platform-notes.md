@@ -53,6 +53,15 @@ one that finds nothing:
 <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30" />
 ```
 
+**Temporary full accuracy on iOS (optional).** To offer the upgrade from approximate to full location
+([`03-guide.md`](03-guide.md#temporary-full-accuracy-ios)), add a purpose string to the
+`NSLocationTemporaryUsageDescriptionDictionary` dictionary of `Info.plist`, under the key you pass as
+`IosPermissionOptions.temporaryFullAccuracyPurposeKey` or to `requestTemporaryFullAccuracy`. iOS
+terminates an app that asks under a key the dictionary lacks, so the controller checks when it is
+created, and the function checks before it reads any status; both throw `IllegalStateException`
+naming the key. Nothing is needed on Android, where `Location` already asks for fine and coarse in
+one dialog.
+
 ### Android-only permissions
 
 | `AndroidPermission` | `<uses-permission>` |
@@ -415,7 +424,7 @@ iOS 18 limited contacts status — are reached behind a runtime OS check.
 | `Camera` | `AVCaptureDevice.authorizationStatus(for: .video)` + `requestAccess` | **Clean.** Restricted is `Restricted`. |
 | `Microphone` | `AVAudioSession.recordPermission` + `requestRecordPermission` | **Clean.** No restricted state exists. |
 | `Notifications` | `UNUserNotificationCenter.getNotificationSettings` + `requestAuthorization` with `IosPermissionOptions.notificationOptions` | **Asynchronous.** Provisional is `Limited`, and a request from it asks again without `Provisional`, which shows the full prompt; ephemeral (an App Clip) is `Granted`. `openSettings` opens the app's notification page on iOS 15.4+ (`UIApplicationOpenNotificationSettingsURLString`), the app's page below. |
-| `Location` | `CLLocationManager.authorizationStatus` + `requestWhenInUseAuthorization` | **Folded.** "When in use" and "always" are granted; reduced accuracy is `Limited`. The answer arrives through the delegate, which `request` awaits — with the same fallback as `LocationBackground`: if iOS shows no prompt (Location Services off device-wide) or the user leaves it unanswered, `request` returns the status as it is instead of waiting for ever. |
+| `Location` | `CLLocationManager.authorizationStatus` + `requestWhenInUseAuthorization` | **Folded.** "When in use" and "always" are granted; reduced accuracy is `Limited`. The answer arrives through the delegate, which `request` awaits — with the same fallback as `LocationBackground`: if iOS shows no prompt (Location Services off device-wide) or the user leaves it unanswered, `request` returns the status as it is instead of waiting for ever. **Upgrade from `Limited`:** iOS shows no authorization prompt again, so a request returns `Limited` at once — unless `IosPermissionOptions.temporaryFullAccuracyPurposeKey` is set, when it asks for temporary full accuracy (`requestTemporaryFullAccuracyAuthorization(withPurposeKey:)`, iOS 14+) and returns `Granted` while full accuracy lasts or `Limited` if the user declined. Android shows the precise-location dialog again with no setting. |
 | `LocationBackground` | the same manager + `requestAlwaysAuthorization` | **Folded, with one inference.** Only "always" is granted (`Limited` with reduced accuracy); "when in use" is `Denied(explainFirst = true)`. iOS shows the upgrade prompt **at most once** and says nothing when it declines, so `request` waits for a changed status or — if the app did not resign active within a second — returns the status as it is. Once the upgrade was asked for in this process and the status stayed "when in use", the entry reads `PermanentlyDenied`. While location is not determined, a request asks for "when in use" first. |
 | `AudioLibrary` | `MPMediaLibrary.authorizationStatus` + `requestAuthorization` | **Clean.** The user's music library. |
 | `PhotoLibrary` | `PHPhotoLibrary.authorizationStatus(for: .readWrite)` + `requestAuthorization(for:)` | **Clean.** `.limited` is `Limited`; iOS does not prompt again from there — `presentLimitedPhotoLibraryPicker` lets the user change the selection. |
