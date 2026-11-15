@@ -142,10 +142,16 @@ public class InMemoryKeyValueStorage(
      * Under concurrent writers the order is the order in which the records landed, and an entry can be
      * visible in [contents] a moment before its record is here: one `put` updates the shared entries
      * and then this log, and the two are separate atomic steps.
+     *
+     * Each read returns a copy, like [contents]: the list is the caller's own, so sorting or clearing it
+     * (a Java caller can, without a cast) neither rewrites the record nor disturbs a concurrent `put`.
      */
-    public val writes: List<String> get() = state.value.writes
+    public val writes: List<String> get() = state.value.writes.toList()
 
-    /** A snapshot of the current contents of the shared [Backing], for asserting on the store as a whole. */
+    /**
+     * A snapshot of the current contents of the shared [Backing], for asserting on the store as a whole.
+     * Each read returns a copy that is the caller's own, so changing it never changes the store.
+     */
     public val contents: Map<String, String> get() = shared.value.toMap()
 
     override suspend fun get(key: String): StorageResult<String?> {

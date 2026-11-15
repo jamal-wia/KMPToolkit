@@ -146,6 +146,34 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
+    fun `a snapshot of writes or contents is the callers own whatever its size`() = runTest {
+        // Sizes 0, 1 and 2 or more are copied into different list and map types; none may alias the fixture.
+        for (size: Int in 0..3) {
+            val fixture = InMemoryKeyValueStorage()
+            val keys: List<String> = (1..size).map { "k$it" }
+            keys.forEach { fixture.put(it, "v") }
+
+            runCatching {
+                @Suppress("UNCHECKED_CAST")
+                val log: MutableList<String> = fixture.writes as MutableList<String>
+                log.clear()
+                log.add("ghost")
+            }
+            runCatching {
+                @Suppress("UNCHECKED_CAST")
+                val entries: MutableMap<String, String> = fixture.contents as MutableMap<String, String>
+                entries.clear()
+                entries["ghost"] = "v"
+            }
+
+            assertEquals(keys, fixture.writes, "size=$size: the write log was rewritten through a snapshot")
+            assertEquals(keys.associateWith { "v" }, fixture.contents, "size=$size: the contents were changed through a snapshot")
+            fixture.put("next", "v")
+            assertEquals(keys + "next", fixture.writes, "size=$size: a later write landed on a rewritten log")
+        }
+    }
+
+    @Test
     fun `a failed write is not recorded`() = runTest {
         storage.failNextOperationWith = StorageError.Unavailable()
 
