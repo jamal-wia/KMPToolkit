@@ -528,7 +528,8 @@ token error under a FIPS-configured JDK, or the entropy-source failure of Native
 engine without support for additional authenticated data, a failing SHA-256, plain noise from a broken engine, or a `Throwable` that is neither
 an `Exception` nor an `Error` (legal in Kotlin, which has no checked exceptions). An `InterruptedException` from a provider is typed too and the
 thread's interrupt status is put back, so the interrupt is still visible to the caller. Whatever the random source had written when it failed is wiped. Two scans
-of the build enforce that nothing else of the desktop code touches the JCA: one reads the compiled classes' constant pools, so it
+of the build enforce that nothing else of the desktop code touches the JCA: one reads the constant pools of the compiled classes (commonMain and
+jvmMain, and the `jvmFfm` output wherever that source set exists), so it
 sees a use however the source spells it, a call on the random source the boundary hands out (also through `java.util.Random`,
 `RandomGenerator` or `asKotlinRandom()`, which no main code uses today) and a class that is only named like the boundary; one reads the
 sources. Neither sees reflection by a string built at run time, or a helper of another module that reaches the JCA inside its own

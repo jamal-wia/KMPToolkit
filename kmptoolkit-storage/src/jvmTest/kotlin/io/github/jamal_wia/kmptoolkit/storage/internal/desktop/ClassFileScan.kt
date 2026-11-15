@@ -167,6 +167,29 @@ internal object ClassFileScan {
         return found.distinct()
     }
 
+    /**
+     * Name of the second compiled-output directory of the module's jvm main code, next to the one `Jca` was loaded from
+     * (`build/classes/kotlin/jvm/ffm`, beside `.../main`): the `ffm` compilation of the `kmptoolkit.ffm` plugin, source set
+     * `jvmFfm`, which ships in the same jvm jar. It exists only on a branch that has that source set; the check-only compilation
+     * `ffmApiCheck` compiles the same sources again and is not listed. A jar needs no sibling: it carries every class.
+     */
+    private const val FFM_OUTPUT: String = "ffm"
+
+    /**
+     * Every compiled-output location of the module's jvm main code that exists: [codeSource] of the boundary (it must exist, or the
+     * scan cannot run and fails) plus, when [codeSource] is a directory, its `ffm` sibling if there is one. A branch without the
+     * `ffm` directory is not an error; a scan with no location at all is.
+     */
+    fun mainOutputs(codeSource: URL): List<URL> {
+        val main: Path = Paths.get(codeSource.toURI())
+        check(Files.exists(main)) { "the compiled output $codeSource does not exist: the scan cannot run (it must not pass silently)" }
+        val ffm: Path? = if (main.isDirectory()) main.resolveSibling(FFM_OUTPUT).takeIf { sibling: Path -> sibling.isDirectory() } else null
+        return listOfNotNull(main, ffm).map { output: Path -> output.toUri().toURL() }
+    }
+
+    /** The class files under every one of [locations] (see [classBytes]). */
+    fun classBytes(locations: List<URL>): List<ByteArray> = locations.flatMap { location: URL -> classBytes(location) }
+
     /** The class files under [location]: a directory (walked) or a jar (its entries). Fails when [location] is neither. */
     fun classBytes(location: URL): List<ByteArray> {
         val path: Path = Paths.get(location.toURI())

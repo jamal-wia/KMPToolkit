@@ -5,9 +5,11 @@ import java.io.DataOutputStream
 import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.util.jar.JarEntry
 import java.util.jar.JarOutputStream
 import kotlin.io.path.deleteRecursively
+import kotlin.io.path.isDirectory
 import kotlin.io.path.writeBytes
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -25,7 +27,7 @@ import kotlin.test.assertTrue
  *
  * Why it cannot be passed by a lexical trick: quoting, back-quotes, spaced names, aliases of aliases, constructor references, a
  * call on an instance obtained from the boundary and the same call after an implicit upcast all compile to a class reference in the pool. The scan needs no tool, no new
- * dependency and no path layout: the classes are found from the code source of `Jca` itself, and the test FAILS (never passes) when it
+ * dependency and no path layout: the classes are found from the code source of `Jca` itself, together with the output of the `ffm` compilation (source set `jvmFfm`) beside it on a branch that has one, and the test FAILS (never passes) when it
  * finds too few classes, no boundary class, no class of the common source set, or a test class (a wrong location).
  *
  * Controls and mutations: the real tree is checked for size and for its landmarks; the boundary itself is flagged by the same scan
@@ -47,19 +49,19 @@ class JcaBytecodeScanTest {
     private fun codeSource(type: Class<*>): URL =
         type.protectionDomain?.codeSource?.location ?: error("no code source for ${type.name}: the scan cannot find the compiled classes (it must not pass silently)")
 
-    /** The facts of the compiled main classes, after the controls that make an empty or wrong location a failure. */
-    private fun mainClasses(location: URL): List<ClassFileScan.Facts> {
-        val all: List<ClassFileScan.Facts> = ClassFileScan.classBytes(location).map(ClassFileScan::parse)
-        check(all.size > MIN_CLASSES) { "only ${all.size} classes under $location: the scan must see the module's compiled main classes" }
-        check(all.any { facts: ClassFileScan.Facts -> facts.name == boundaryName }) { "the boundary class $boundaryName is not under $location" }
-        check(all.any { facts: ClassFileScan.Facts -> facts.name == COMMON_MAIN_CLASS }) { "$COMMON_MAIN_CLASS (commonMain) is not under $location: the common source set is not scanned" }
-        check(all.none { facts: ClassFileScan.Facts -> facts.name == internalName(JcaBytecodeScanTest::class.java) }) { "test classes are under $location: this is not the main output" }
+    /** The facts of the compiled main classes of every output location, after the controls that make an empty or wrong location a failure. */
+    private fun mainClasses(locations: List<URL>): List<ClassFileScan.Facts> {
+        val all: List<ClassFileScan.Facts> = ClassFileScan.classBytes(locations).map(ClassFileScan::parse)
+        check(all.size > MIN_CLASSES) { "only ${all.size} classes under $locations: the scan must see the module's compiled main classes" }
+        check(all.any { facts: ClassFileScan.Facts -> facts.name == boundaryName }) { "the boundary class $boundaryName is not under $locations" }
+        check(all.any { facts: ClassFileScan.Facts -> facts.name == COMMON_MAIN_CLASS }) { "$COMMON_MAIN_CLASS (commonMain) is not under $locations: the common source set is not scanned" }
+        check(all.none { facts: ClassFileScan.Facts -> facts.name == internalName(JcaBytecodeScanTest::class.java) }) { "test classes are under $locations: this is not the main output" }
         return all
     }
 
     @Test
     fun `no compiled class but the boundary touches the JCA`() {
-        val all: List<ClassFileScan.Facts> = mainClasses(codeSource(Jca::class.java))
+        val all: List<ClassFileScan.Facts> = mainClasses(ClassFileScan.mainOutputs(codeSource(Jca::class.java)))
         val boundary: List<ClassFileScan.Facts> = all.filter(ClassFileScan::isBoundaryClass)
         assertTrue(boundary.isNotEmpty(), "control: the boundary class is in the scanned set")
         assertTrue(boundary.any { facts: ClassFileScan.Facts -> ClassFileScan.violations(facts).isNotEmpty() }, "control: the same scan flags the boundary, so it sees JCA code")
@@ -224,16 +226,43 @@ class JcaBytecodeScanTest {
         val directory: Path = Files.createTempDirectory("kmptoolkit-classscan")
         try {
             assertEquals(0, ClassFileScan.classBytes(directory.toUri().toURL()).size, "control: nothing listed")
-            assertFailsWith<IllegalStateException>("an empty location must fail, not pass") { mainClasses(directory.toUri().toURL()) }
+            assertFailsWith<IllegalStateException>("an empty location must fail, not pass") { mainClasses(listOf(directory.toUri().toURL())) }
             directory.resolve("A.class").writeBytes(SyntheticClass.build("a/A") { pool: SyntheticClass.Pool -> pool.classOf("x/Y") })
             assertEquals(1, ClassFileScan.classBytes(directory.toUri().toURL()).size, "control: one class listed")
-            assertFailsWith<IllegalStateException>("a location with too few classes and no boundary must fail") { mainClasses(directory.toUri().toURL()) }
+            assertFailsWith<IllegalStateException>("a location with too few classes and no boundary must fail") { mainClasses(listOf(directory.toUri().toURL())) }
             assertFailsWith<IllegalStateException>("a file that is neither a directory nor a jar must fail") {
                 ClassFileScan.classBytes(directory.resolve("A.class").toUri().toURL())
             }
         } finally {
             @OptIn(kotlin.io.path.ExperimentalPathApi::class)
             directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `every compiled output directory that exists is scanned and the ffm one is picked up the moment it exists`() {
+        val real: List<URL> = ClassFileScan.mainOutputs(codeSource(Jca::class.java))
+        val realMain: Path = Paths.get(codeSource(Jca::class.java).toURI())
+        assertEquals(realMain.toUri().toURL(), real.first(), "control: the output the boundary was loaded from is always scanned")
+        assertEquals(if (realMain.resolveSibling("ffm").isDirectory()) 2 else 1, real.size, "the ffm output is listed exactly when the directory exists on this branch")
+        val root: Path = Files.createTempDirectory("kmptoolkit-classscan")
+        try {
+            val main: Path = Files.createDirectory(root.resolve("main"))
+            main.resolve("A.class").writeBytes(SyntheticClass.build("a/A") { pool: SyntheticClass.Pool -> pool.classOf("java/nio/file/Files") })
+            assertEquals(listOf(main.toUri().toURL()), ClassFileScan.mainOutputs(main.toUri().toURL()), "a branch without the ffm directory is not an error")
+            Files.createDirectory(root.resolve("test"))
+            Files.createDirectory(root.resolve("ffmApiCheck"))
+            assertEquals(listOf(main.toUri().toURL()), ClassFileScan.mainOutputs(main.toUri().toURL()), "test and check-only outputs are not main code")
+            val ffm: Path = Files.createDirectory(root.resolve("ffm"))
+            ffm.resolve("B.class").writeBytes(SyntheticClass.build("a/B") { pool: SyntheticClass.Pool -> pool.classOf("javax/crypto/Cipher") })
+            val outputs: List<URL> = ClassFileScan.mainOutputs(main.toUri().toURL())
+            assertEquals(listOf(main.toUri().toURL(), ffm.toUri().toURL()), outputs, "the ffm output is scanned once it exists")
+            val violations: List<String> = ClassFileScan.classBytes(outputs).map(ClassFileScan::parse).flatMap(ClassFileScan::violations)
+            assertEquals(listOf("a/B names the class javax/crypto/Cipher"), violations, "a JCA use in the ffm output is found")
+            assertFailsWith<IllegalStateException>("a location that does not exist must fail, not pass") { ClassFileScan.mainOutputs(root.resolve("absent").toUri().toURL()) }
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            root.deleteRecursively()
         }
     }
 
