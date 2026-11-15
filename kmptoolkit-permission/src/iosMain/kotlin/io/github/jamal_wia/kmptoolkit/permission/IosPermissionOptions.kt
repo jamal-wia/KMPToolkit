@@ -12,6 +12,13 @@ import platform.UserNotifications.UNAuthorizationOptions
  *
  * @property notificationOptions what a [CommonPermission.Notifications] request asks iOS for. Alert,
  *   badge and sound by default. Must not be empty.
+ * @property temporaryFullAccuracyPurposeKey a key of the `NSLocationTemporaryUsageDescriptionDictionary`
+ *   entry of `Info.plist`. When it is set, requesting [CommonPermission.Location] from
+ *   [PermissionStatus.Limited] (the user chose approximate location) asks iOS for temporary full accuracy
+ *   under that key, as Android offers the precise upgrade, so shared code has one call; see
+ *   [requestTemporaryFullAccuracy]. `null` keeps the 4.x behaviour: such a request returns
+ *   [PermissionStatus.Limited] at once. A key that is absent from `Info.plist` makes
+ *   [createPermissionController] throw [IllegalStateException] naming it. Must not be blank.
  */
 public data class IosPermissionOptions(
     public val notificationOptions: Set<IosNotificationOption> = setOf(
@@ -19,9 +26,13 @@ public data class IosPermissionOptions(
         IosNotificationOption.Badge,
         IosNotificationOption.Sound,
     ),
+    public val temporaryFullAccuracyPurposeKey: String? = null,
 ) {
     init {
         require(notificationOptions.isNotEmpty()) { "notificationOptions must not be empty" }
+        require(temporaryFullAccuracyPurposeKey == null || temporaryFullAccuracyPurposeKey.isNotBlank()) {
+            "temporaryFullAccuracyPurposeKey must not be blank"
+        }
     }
 }
 

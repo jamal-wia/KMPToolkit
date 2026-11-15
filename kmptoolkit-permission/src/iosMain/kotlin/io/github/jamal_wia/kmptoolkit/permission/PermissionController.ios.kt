@@ -49,8 +49,11 @@ import platform.UserNotifications.UNAuthorizationStatus
  * It answers for every [CommonPermission] and every [IosPermission]; any other type is
  * [PermissionStatus.Unavailable].
  *
- * @param options how notifications are asked for.
+ * @param options how notifications are asked for, and the purpose key of the temporary full accuracy upgrade.
  * @param logger where a rejected authorization request or a missing purpose string is reported.
+ * @throws IllegalStateException when `options.temporaryFullAccuracyPurposeKey` is set and is not a key of the
+ *   app's `NSLocationTemporaryUsageDescriptionDictionary`: reported here, not at request time, so that
+ *   [PermissionController.request] never throws.
  */
 public fun createPermissionController(
     options: IosPermissionOptions = IosPermissionOptions(),
@@ -71,6 +74,13 @@ internal class IosPermissionController(
     private val hasUsageDescription: (String) -> Boolean,
     private val port: IosAuthorizationPort = SystemIosAuthorizations,
 ) : PermissionController {
+
+    init {
+        // Reported here, when the controller is created, so that `request` keeps its promise that nothing
+        // throws: a purpose key the bundle lacks terminates the app at the prompt, and the bundle cannot
+        // change while the app runs.
+        options.temporaryFullAccuracyPurposeKey?.let { key: String -> requireTemporaryPurposeKey(port, key) }
+    }
 
     /** A permission whose request just resolved, so every [observe] of it re-reads at once. */
     private val requestsResolved: MutableSharedFlow<Permission> = MutableSharedFlow(extraBufferCapacity = 64)
@@ -225,7 +235,12 @@ internal class IosPermissionController(
             CommonPermission.Microphone -> requestMicrophone()
             CommonPermission.Camera -> requestCamera()
             CommonPermission.Location -> {
-                port.requestWhenInUse()
+                if (current is PermissionStatus.Limited) {
+                    // upgradesFromLimited() lets Limited through only when the key is configured.
+                    options.temporaryFullAccuracyPurposeKey?.let { key: String -> port.requestTemporaryFullAccuracy(key) }
+                } else {
+                    port.requestWhenInUse()
+                }
                 currentStatus(permission)
             }
             CommonPermission.LocationBackground -> requestBackgroundLocation()
@@ -264,11 +279,13 @@ internal class IosPermissionController(
 
     /**
      * Whether iOS still shows a dialog from a [PermissionStatus.Limited] grant of this entry: the full
-     * notification prompt from provisional, and the full-access prompt from write-only calendar access.
-     * A limited photo library or contact list is changed in the system's own pickers instead.
+     * notification prompt from provisional, the full-access prompt from write-only calendar access, and
+     * temporary full accuracy from approximate location when [IosPermissionOptions.temporaryFullAccuracyPurposeKey]
+     * is set. A limited photo library or contact list is changed in the system's own pickers instead.
      */
     private fun Permission.upgradesFromLimited(): Boolean =
-        this == CommonPermission.Notifications || this == CommonPermission.Calendar
+        this == CommonPermission.Notifications || this == CommonPermission.Calendar ||
+            (this == CommonPermission.Location && options.temporaryFullAccuracyPurposeKey != null)
 
     /**
      * iOS grants "always" as an upgrade of "when in use": asking for it while location is not

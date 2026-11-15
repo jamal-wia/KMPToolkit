@@ -69,6 +69,15 @@ class FakeIosAuthorizationPort : IosAuthorizationPort {
     var cameraGrant: Boolean = true
     var location: CLAuthorizationStatus = kCLAuthorizationStatusNotDetermined
     var locationReduced: Boolean = false
+
+    /** The keys of the fake bundle's `NSLocationTemporaryUsageDescriptionDictionary`. */
+    var temporaryPurposeKeys: Set<String> = emptySet()
+
+    /** Whether the user accepts the temporary full accuracy prompt: accepting clears [locationReduced]. */
+    var temporaryFullAccuracyAccepted: Boolean = true
+
+    /** The purpose key of every temporary full accuracy request, in order. */
+    val temporaryKeysAsked: MutableList<String> = mutableListOf()
     override var alwaysUpgradeAsked: Boolean = false
     var mediaLibrary: MPMediaLibraryAuthorizationStatus = MPMediaLibraryAuthorizationStatusNotDetermined
     var bluetooth: CBManagerAuthorization = CBManagerAuthorizationNotDetermined
@@ -165,6 +174,14 @@ class FakeIosAuthorizationPort : IosAuthorizationPort {
         suspendingRequest("requestAlways")
         return location
     }
+
+    override suspend fun requestTemporaryFullAccuracy(purposeKey: String) {
+        temporaryKeysAsked += purposeKey
+        suspendingRequest("requestTemporaryFullAccuracy")
+        if (temporaryFullAccuracyAccepted) locationReduced = false
+    }
+
+    override fun temporaryUsagePurposeKeys(): Set<String> = temporaryPurposeKeys
 
     override fun mediaLibraryAuthorization(): MPMediaLibraryAuthorizationStatus {
         record("mediaLibraryAuthorization")

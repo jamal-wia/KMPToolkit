@@ -71,6 +71,17 @@ internal interface IosAuthorizationPort {
 
     suspend fun requestAlways(): CLAuthorizationStatus
 
+    /**
+     * Asks iOS for temporary full location accuracy under [purposeKey] and suspends until the user has
+     * answered; the caller re-reads the accuracy, which says whether the answer was yes. Never throws for a
+     * declined prompt. The key must be one of [temporaryUsagePurposeKeys]: the platform terminates the app
+     * otherwise, so the callers check first.
+     */
+    suspend fun requestTemporaryFullAccuracy(purposeKey: String)
+
+    /** The keys of the app's `NSLocationTemporaryUsageDescriptionDictionary`; empty when the entry is absent. */
+    fun temporaryUsagePurposeKeys(): Set<String>
+
     fun mediaLibraryAuthorization(): MPMediaLibraryAuthorizationStatus
 
     suspend fun requestMediaLibrary(): MPMediaLibraryAuthorizationStatus
@@ -165,6 +176,11 @@ internal object SystemIosAuthorizations : IosAuthorizationPort {
     override suspend fun requestWhenInUse(): CLAuthorizationStatus = LocationAuthorization.requestWhenInUse()
 
     override suspend fun requestAlways(): CLAuthorizationStatus = LocationAuthorization.requestAlways()
+
+    override suspend fun requestTemporaryFullAccuracy(purposeKey: String) =
+        LocationAuthorization.requestTemporaryFullAccuracy(purposeKey)
+
+    override fun temporaryUsagePurposeKeys(): Set<String> = temporaryUsagePurposeKeysInInfoPlist()
 
     override fun mediaLibraryAuthorization(): MPMediaLibraryAuthorizationStatus = MediaLibraryAuthorization.current()
 
