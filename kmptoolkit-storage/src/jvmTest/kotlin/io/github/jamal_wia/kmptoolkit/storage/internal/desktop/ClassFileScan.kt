@@ -70,7 +70,8 @@ internal object ClassFileScan {
 
     /**
      * Whether [className] is the boundary class itself: EXACTLY its internal name. Never a name shape: a class `Jca` of another
-     * package, or a top-level class whose back-quoted name holds a `$` (`Jca$Helper`), is not the boundary.
+     * package, or a top-level class whose back-quoted name holds a `$` (`Jca$Helper`), is not the boundary. The name is matched in every
+     * scanned location, so the scan test fails when it occurs more than once (a same-named class of the ffm output would be exempt).
      */
     fun isBoundary(className: String): Boolean = className == BOUNDARY
 

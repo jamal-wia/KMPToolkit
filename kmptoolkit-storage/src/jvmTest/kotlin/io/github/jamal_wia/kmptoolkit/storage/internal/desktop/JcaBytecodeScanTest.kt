@@ -29,7 +29,7 @@ import kotlin.test.assertTrue
  * Why it cannot be passed by a lexical trick: quoting, back-quotes, spaced names, aliases of aliases, constructor references, a
  * call on an instance obtained from the boundary and the same call after an implicit upcast all compile to a class reference in the pool. The scan needs no tool, no new
  * dependency and no path layout: the classes are found from the code source of `Jca` itself, together with the output of the `ffm` compilation (source set `jvmFfm`) beside it on a branch that has one, and the test FAILS (never passes) when it
- * finds too few classes, no boundary class, no class of the common source set, or a test class (a wrong location).
+ * finds too few classes, no boundary class or more than one (a same-named class of another location would be exempt), no class of the common source set, or a test class (a wrong location).
  *
  * Controls and mutations: the real tree is checked for size and for its landmarks; the boundary itself is flagged by the same scan
  * (so it sees JCA code); fixtures compiled with the tests (`JcaScanFixtures.kt`) are flagged or left alone as named; class bytes built
@@ -54,7 +54,11 @@ class JcaBytecodeScanTest {
     private fun mainClasses(locations: List<URL>): List<ClassFileScan.Facts> {
         val all: List<ClassFileScan.Facts> = ClassFileScan.classBytes(locations).map(ClassFileScan::parse)
         check(all.size > MIN_CLASSES) { "only ${all.size} classes under $locations: the scan must see the module's compiled main classes" }
-        check(all.any { facts: ClassFileScan.Facts -> facts.name == boundaryName }) { "the boundary class $boundaryName is not under $locations" }
+        val boundaries: Int = all.count { facts: ClassFileScan.Facts -> facts.name == boundaryName }
+        check(boundaries >= 1) { "the boundary class $boundaryName is not under $locations" }
+        // The boundary is exempt by its name, in every location. A second class of that name (in the ffm output, say) would be exempt
+        // too, and only the jar's duplicate-entry failure would stop it: the scan itself must not depend on that.
+        check(boundaries == 1) { "the boundary class $boundaryName is under $locations $boundaries times: a second class of that name would be exempt, so it is a failure" }
         check(all.any { facts: ClassFileScan.Facts -> facts.name == COMMON_MAIN_CLASS }) { "$COMMON_MAIN_CLASS (commonMain) is not under $locations: the common source set is not scanned" }
         check(all.none { facts: ClassFileScan.Facts -> facts.name == internalName(JcaBytecodeScanTest::class.java) }) { "test classes are under $locations: this is not the main output" }
         return all
@@ -293,6 +297,29 @@ class JcaBytecodeScanTest {
             val violations: List<String> = ClassFileScan.classBytes(outputs).map(ClassFileScan::parse).flatMap(ClassFileScan::violations)
             assertEquals(listOf("a/B names the class javax/crypto/Cipher"), violations, "a JCA use in the ffm output is found")
             assertFailsWith<IllegalStateException>("a location that does not exist must fail, not pass") { ClassFileScan.mainOutputs(root.resolve("absent").toUri().toURL()) }
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a second class with the name of the boundary in another output location fails the scan`() {
+        val root: Path = Files.createTempDirectory("kmptoolkit-classscan")
+        try {
+            val main: Path = Files.createDirectory(root.resolve("main"))
+            repeat(MIN_CLASSES + 1) { number: Int ->
+                main.resolve("C$number.class").writeBytes(SyntheticClass.build("a/C$number") { pool: SyntheticClass.Pool -> pool.classOf("x/Y") })
+            }
+            main.resolve("Boundary.class").writeBytes(SyntheticClass.build(boundaryName) { pool: SyntheticClass.Pool -> pool.classOf("java/security/MessageDigest") })
+            main.resolve("Common.class").writeBytes(SyntheticClass.build(COMMON_MAIN_CLASS) { pool: SyntheticClass.Pool -> pool.classOf("x/Y") })
+            assertEquals(MIN_CLASSES + 3, mainClasses(listOf(main.toUri().toURL())).size, "control: one boundary in one location passes the controls")
+            val ffm: Path = Files.createDirectory(root.resolve("ffm"))
+            ffm.resolve("Boundary.class").writeBytes(SyntheticClass.build(boundaryName) { pool: SyntheticClass.Pool -> pool.classOf("javax/crypto/Cipher") })
+            val failure: IllegalStateException = assertFailsWith<IllegalStateException>("a boundary-named class in a second location would be exempt: the scan fails instead") {
+                mainClasses(listOf(main.toUri().toURL(), ffm.toUri().toURL()))
+            }
+            assertTrue("times" in failure.message.orEmpty(), "the failure says why: ${failure.message}")
         } finally {
             @OptIn(kotlin.io.path.ExperimentalPathApi::class)
             root.deleteRecursively()
