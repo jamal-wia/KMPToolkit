@@ -216,6 +216,40 @@ class IosDefaultAccessGroupTest {
         assertTrue(keychain.items.any { it.account == "mine" }, "the store's own items must not be deleted when the probe stays")
     }
 
+    @Test
+    fun `a probe whose delete by group fails is deleted by its own account and the group failure is kept`() = runTest {
+        val keychain = InMemoryKeychainPort()
+        keychain.seed(keychain.item("mine"))
+        keychain.script = { operation: String, q: Map<String, String> ->
+            if (operation == "delete" && q["service"] == probeService && "group" in q) -25244 else null
+        }
+
+        val error: StorageError = storeOver(keychain).clear().error()
+
+        assertEquals(StorageError.OperationFailed(StorageOperation.CLEAR, key = null, platformCode = -25244), error)
+        assertEquals(listOf("mine"), keychain.items.map { it.account }, "the store's items stay and no probe stays")
+        val deletes: List<InMemoryKeychainPort.Call> = keychain.calls.filter { it.operation == "delete" }
+        assertEquals(2, deletes.size, "the delete by group, then the cleanup by account")
+        assertTrue("group" in deletes[0].query && "account" !in deletes[0].query, "${deletes[0].query}")
+        assertTrue("group" !in deletes[1].query, "${deletes[1].query}")
+        assertTrue(deletes[1].query["account"]?.startsWith(KeychainQueries.PROBE_ACCOUNT + ".") == true, "${deletes[1].query}")
+    }
+
+    @Test
+    fun `a failing cleanup after a failing delete by group keeps the status of the group delete`() = runTest {
+        val keychain = InMemoryKeychainPort()
+        keychain.seed(keychain.item("mine"))
+        var deletes = 0
+        keychain.script = { operation: String, q: Map<String, String> ->
+            if (operation == "delete" && q["service"] == probeService) (if (deletes++ == 0) -25244 else -25300) else null
+        }
+
+        val error: StorageError = storeOver(keychain).clear().error()
+
+        assertEquals(StorageError.OperationFailed(StorageOperation.CLEAR, key = null, platformCode = -25244), error)
+        assertTrue(keychain.items.any { it.account == "mine" }, "the store's own items must not be deleted")
+    }
+
     /** The model, except that a successful add answers with [group] instead of the group the item went to. */
     private class AddAnswers(val inner: InMemoryKeychainPort, val group: String?) : KeychainPort by inner {
         override fun addReadingAccessGroup(query: platform.CoreFoundation.CFDictionaryRef): KeychainAccessGroup =

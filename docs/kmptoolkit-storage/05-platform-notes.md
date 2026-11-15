@@ -220,8 +220,9 @@ If you ever edit that file: do not "simplify" it back to a dictionary literal.
   concurrent `clear()` calls cannot collide on the probe. The removal names the probe service and the resolved
   group but no account, so it also sweeps a leftover of this app's own default group; one in another group is left
   alone. If the group cannot be resolved (for example before the first unlock, when the probe cannot be added),
-  `clear()` fails and deletes nothing; when the probe was added but the answer named no (or a blank) group, the
-  probe is deleted by its own unique account, with no group, before the failure is returned, so a failed `clear()`
+  `clear()` fails and deletes nothing; when the probe was added but the answer named no (or a blank) group, or the
+  delete of the probe by group failed, the probe is deleted by its own unique account, with no group, before the
+  failure is returned (the cleanup's status is ignored, the original failure is kept), so a failed `clear()`
   never leaves a probe behind. Items
   written by another store, another framework, or the same app under a different service are not matched.
   (Changed in 6.0.0: earlier versions sent no group and no synchronizable attribute, so they could also

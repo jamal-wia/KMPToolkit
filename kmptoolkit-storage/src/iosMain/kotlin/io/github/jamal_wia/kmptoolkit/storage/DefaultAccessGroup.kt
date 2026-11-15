@@ -31,9 +31,10 @@ import platform.Security.errSecSuccess
  *
  * Fails closed: any status that is not success becomes a [StorageResult.Failure] and the caller does not delete
  * anything; there is no fallback to the wider delete. When the add succeeds but its answer names no group (or a blank
- * one), the probe is deleted by its own unique account with no group before the failure is returned, so no failing
- * path of a successful add leaves an item behind. Blocking and not suspending: two Security calls in a row on
- * the caller's thread, holding no lock and keeping no state and with no retry loop (the unique account makes a lost
+ * one), or when the group-addressed delete of the probe fails, the probe is deleted by its own unique account with
+ * no group before the failure is returned (the cleanup's own status is ignored and the original failure is kept), so
+ * no failing path of a successful add leaves an item behind. Blocking and not suspending: two or three Security calls in a
+ * row on the caller's thread, holding no lock and keeping no state and with no retry loop (the unique account makes a lost
  * race impossible, so there is nothing to retry), so a coroutine cancelled meanwhile cannot strand the probe (the
  * block runs to its end; the cancellation is observed when the operation returns).
  *
@@ -55,9 +56,13 @@ internal class DefaultAccessGroup(
         // A blank group is as unusable as none: a delete that names it would match nothing and report success.
         val group: String = added.group?.takeIf { it.isNotBlank() } ?: return unreadableGroup(account)
         // The probe is removed before the group is trusted: a group whose probe cannot be deleted is reported as a
-        // failure, not used, so nothing is left behind silently.
+        // failure, not used. The group-addressed delete failed, so the probe may still be there: it is deleted once
+        // more by its own account (its result is ignored, the failure of the group delete is what the caller sees).
         val removed: Int = queries.probeRemove(group).use { keychain.delete(it) }
-        if (removed != errSecSuccess && removed != errSecItemNotFound) return failure(removed)
+        if (removed != errSecSuccess && removed != errSecItemNotFound) {
+            deleteOwnProbe(account)
+            return failure(removed)
+        }
         return StorageResult.Success(group)
     }
 
@@ -71,7 +76,12 @@ internal class DefaultAccessGroup(
      * nothing more to try, and the failure is what the caller must see.
      */
     private fun unreadableGroup(account: String): StorageResult<String> {
-        queries.probeRemoveOwn(account).use { keychain.delete(it) }
+        deleteOwnProbe(account)
         return StorageResult.Failure(StorageError.OperationFailed(StorageOperation.CLEAR, key = null, platformCode = null))
+    }
+
+    /** Best-effort delete of this call's probe by its unique account and no group; the status is deliberately ignored. */
+    private fun deleteOwnProbe(account: String) {
+        queries.probeRemoveOwn(account).use { keychain.delete(it) }
     }
 }
