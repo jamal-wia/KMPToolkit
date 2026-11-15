@@ -106,10 +106,19 @@ class KeychainQueriesBreakerR1Test {
                 mapOf("class" to "genericPassword", "service" to SERVICE) + groupEntry +
                     mapOf("synchronizable" to "any", "authUI" to "fail", "limit" to "one"),
             )
-            val probeLookup: Map<String, String> = q.probeLookup().read()
+            // Round 2 (breaker M2 fix): the probe is never looked up any more, so the lookup query is no longer pinned;
+            // instead every probe add has an account of its own and the removal names none (it sweeps the group).
             val probeAdd: Map<String, String> = q.probeAdd().read()
+            val secondProbeAdd: Map<String, String> = q.probeAdd().read()
             val probeRemove: Map<String, String> = q.probeRemove(GROUP).read()
-            for ((name: String, probe: Map<String, String>) in listOf("probeLookup" to probeLookup, "probeAdd" to probeAdd, "probeRemove" to probeRemove)) {
+            if (probeAdd["account"]?.startsWith(KeychainQueries.PROBE_ACCOUNT + ".") != true) {
+                problems += "$combo probeAdd must carry a unique account behind the probe prefix: $probeAdd"
+            }
+            if (probeAdd["account"] == secondProbeAdd["account"]) {
+                problems += "$combo two probe adds share the account ${probeAdd["account"]}: they can collide"
+            }
+            if ("account" in probeRemove) problems += "$combo probeRemove must name no account (it sweeps): $probeRemove"
+            for ((name: String, probe: Map<String, String>) in listOf("probeAdd" to probeAdd, "probeRemove" to probeRemove)) {
                 if (probe["service"] == SERVICE) problems += "$combo $name: the probe uses the store's own service"
                 if (probe["synchronizable"] != "false") problems += "$combo $name: the probe must be local: $probe"
                 if ("context" in probe || "authUI" in probe || "accessControl" in probe || "returnData" in probe) {
