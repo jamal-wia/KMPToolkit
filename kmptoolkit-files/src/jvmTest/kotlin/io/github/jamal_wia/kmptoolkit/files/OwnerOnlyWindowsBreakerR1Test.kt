@@ -56,8 +56,8 @@ class OwnerOnlyWindowsBreakerR1Test {
     private fun acl(file: File): List<AclEntry> =
         Files.getFileAttributeView(file.toPath(), AclFileAttributeView::class.java).acl
 
-    private fun everyone(): UserPrincipal =
-        FileSystems.getDefault().userPrincipalLookupService.lookupPrincipalByName("Everyone")
+    // Breaker round 2: by the well-known SID S-1-1-0, not by the English name, which a localised Windows does not know.
+    private fun everyone(): UserPrincipal = WindowsEveryonePrincipal.principal
 
     /** Adds an inheritable allow-everything entry for Everyone to [directory]. */
     private fun grantEveryoneInheritable(directory: File) {

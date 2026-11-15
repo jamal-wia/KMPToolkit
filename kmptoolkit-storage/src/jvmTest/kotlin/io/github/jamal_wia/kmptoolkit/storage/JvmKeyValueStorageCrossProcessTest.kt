@@ -50,7 +50,7 @@ class JvmKeyValueStorageCrossProcessTest {
     @Test
     fun `a write cancelled while it waits for the lock applies nothing and frees both locks for the next writer`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
-        val storage = JvmKeyValueStorage(dataFile, dispatcher, crossProcessLock = CrossProcessLock(deadline = 10.seconds))
+        val storage = JvmKeyValueStorage(dataFile, dispatcher, crossProcessLock = CrossProcessLock(deadline = 10.seconds), timeSource = testScheduler.timeSource)
         assertEquals(StorageResult.Success(Unit), storage.put("kept", "1"))
         val bytesBefore: ByteArray = dataFile.readBytes()
         val holder: LockAcquisition.Held = holdLock()

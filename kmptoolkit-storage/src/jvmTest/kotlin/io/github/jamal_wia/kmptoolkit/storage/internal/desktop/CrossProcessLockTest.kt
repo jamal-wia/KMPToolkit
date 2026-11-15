@@ -131,24 +131,23 @@ class CrossProcessLockTest {
         lateinit var waiter: Job
         var attempts = 0
         val real: FileAccess = createFileAccess()
-        // The second attempt starts after a poll delay: there the holder lets go and the waiter is cancelled, so the lock
-        // is won by a coroutine whose cancellation is already pending.
+        // The first attempt of the waiter finds the lock claimed by the holder (no I/O at all). The holder lets go before the
+        // poll delay ends; the second attempt claims the lock file, and its first file-system call cancels the waiter, so the
+        // lock is won by a coroutine whose cancellation is already pending.
         val scripted = object : FileAccess by real {
             override fun metadata(path: String, followLinks: Boolean): FileMetadata? {
                 attempts++
-                if (attempts == 2) {
-                    holder.close()
-                    waiter.cancel()
-                }
+                if (attempts == 1) waiter.cancel()
                 return real.metadata(path, followLinks)
             }
         }
         val lock = CrossProcessLock(scripted, deadline = 10.seconds, pollInterval = 25.milliseconds)
 
         waiter = launch(start = CoroutineStart.UNDISPATCHED) { lock.acquire(lockFile, prefix) }
+        holder.close()
         waiter.join()
 
-        assertEquals(2, attempts, "control: the second attempt ran, so the lock was really acquired during the cancellation")
+        assertEquals(1, attempts, "control: the second attempt ran, so the lock was really acquired during the cancellation")
         assertTrue(waiter.isCancelled)
         assertEquals(before, descriptors(), "the lock won in the cancellation instant must be released")
         assertIs<LockAcquisition.Held>(CrossProcessLock().acquire(lockFile, prefix), "and free for the next caller").close()
@@ -252,6 +251,129 @@ class CrossProcessLockTest {
         }
         assertFalse(lockFile.exists())
         assertEquals(before, descriptors())
+    }
+
+    @Test
+    fun `a file system whose tryLock throws an IOException is NotSupported, not a failure, and keeps no handle`() = runBlocking {
+        val before: Long = descriptors()
+        val refusing = CrossProcessLock(tryLock = { throw IOException("no locks here (ENOLCK)") })
+
+        val outcome: LockAcquisition.NotSupported = assertIs(refusing.acquire(lockFile, prefix))
+
+        assertEquals("no locks here (ENOLCK)", outcome.cause.message, "the IOException travels as the cause")
+        assertTrue(lockFile.isFile, "the lock file was created and opened fine: only tryLock refused")
+        assertEquals(before, descriptors(), "the channel opened for the attempt is closed again")
+    }
+
+    @Test
+    fun `a lock file that cannot be opened at all stays a failure, only a tryLock refusal is NotSupported`() = runBlocking {
+        directory.mkdirs()
+        assertTrue(lockFile.mkdir())
+        // The seam must not even be reached: opening the lock path fails first.
+        var reached = false
+        val lock = CrossProcessLock(tryLock = { reached = true; null })
+
+        assertIs<LockAcquisition.Failed>(lock.acquire(lockFile, prefix))
+        assertFalse(reached)
+    }
+
+    @Test
+    fun `a tryLock that throws something other than an IOException is not swallowed and leaks no handle`() = runBlocking {
+        val before: Long = descriptors()
+        val lock = CrossProcessLock(tryLock = { throw IllegalStateException("bug in the seam") })
+
+        assertFailsWith<IllegalStateException> { lock.acquire(lockFile, prefix) }
+        assertEquals(before, descriptors())
+    }
+
+    @Test
+    fun `acquire waits for the budget it is given, not the deadline, and a spent budget does not even try`() = runTest {
+        val lock = CrossProcessLock(deadline = 10.seconds, pollInterval = 25.milliseconds)
+        val holder: LockAcquisition.Held = assertIs(lock.acquire(lockFile, prefix))
+
+        assertEquals(LockAcquisition.TimedOut, lock.acquire(lockFile, prefix, budget = 3.seconds))
+        assertEquals(3_000L, testScheduler.currentTime, "the remaining budget bounds the wait")
+        val spent: Long = testScheduler.currentTime
+        holder.close()
+        // A free lock with a spent budget: no attempt is made, nothing is acquired.
+        assertEquals(LockAcquisition.TimedOut, lock.acquire(lockFile, prefix, budget = 0.seconds))
+        assertEquals(LockAcquisition.TimedOut, lock.acquire(lockFile, prefix, budget = (-5).seconds))
+        assertEquals(spent, testScheduler.currentTime)
+        // A budget larger than the deadline never lengthens the wait.
+        val second: LockAcquisition.Held = assertIs(lock.acquire(lockFile, prefix))
+        assertEquals(LockAcquisition.TimedOut, lock.acquire(lockFile, prefix, budget = 60.seconds))
+        assertEquals(spent + 10_000L, testScheduler.currentTime)
+        second.close()
+    }
+
+    @Test
+    fun `a creation temp swept by a neighbour is retried until the lock file exists, never failed at once`() = runTest {
+        val real: FileAccess = createFileAccess()
+        var swept = 0
+        val sweeping = object : FileAccess by real {
+            override fun writeAtomically(path: String, bytes: ByteArray, options: WriteOptions): FileResult<Unit> {
+                if (swept < 3) {
+                    swept++ // another process's clear() deleted our temp between write and rename
+                    return FileResult.Failure(FileError.NotFound(path))
+                }
+                return real.writeAtomically(path, bytes, options)
+            }
+        }
+        val lock = CrossProcessLock(sweeping, deadline = 10.seconds, pollInterval = 25.milliseconds)
+
+        val held: LockAcquisition.Held = assertIs(lock.acquire(lockFile, prefix), "swept three times, then created")
+
+        assertEquals(3, swept, "control: the creation really failed three times first")
+        assertEquals(75L, testScheduler.currentTime, "one poll between attempts, not the deadline")
+        held.close()
+    }
+
+    @Test
+    fun `a creation failure after which the lock file exists goes on to lock at once`() = runTest {
+        val real: FileAccess = createFileAccess()
+        val lostRace = object : FileAccess by real {
+            override fun writeAtomically(path: String, bytes: ByteArray, options: WriteOptions): FileResult<Unit> {
+                File(path).createNewFile() // the other process created it
+                return FileResult.Failure(FileError.NotFound(path))
+            }
+        }
+
+        assertIs<LockAcquisition.Held>(CrossProcessLock(lostRace).acquire(lockFile, prefix)).close()
+        assertEquals(0L, testScheduler.currentTime)
+    }
+
+    @Test
+    fun `a creation that keeps failing as NotFound is answered Failed with the last cause only when the budget ends`() = runTest {
+        val real: FileAccess = createFileAccess()
+        val alwaysSwept = object : FileAccess by real {
+            override fun writeAtomically(path: String, bytes: ByteArray, options: WriteOptions): FileResult<Unit> =
+                FileResult.Failure(FileError.NotFound(path))
+        }
+        val lock = CrossProcessLock(alwaysSwept, deadline = 10.seconds, pollInterval = 25.milliseconds)
+
+        assertIs<LockAcquisition.Failed>(lock.acquire(lockFile, prefix))
+
+        assertEquals(10_000L, testScheduler.currentTime)
+        assertFalse(lockFile.exists())
+    }
+
+    @Test
+    fun `a creation failure that would repeat is answered at once, without waiting for the budget`() = runTest {
+        val real: FileAccess = createFileAccess()
+        for (error: (String) -> FileError in listOf<(String) -> FileError>(
+            { FileError.AccessDenied(it) },
+            { FileError.NoSpace(it) },
+            { FileError.NameTooLong(it) },
+            { FileError.NotADirectory(it) },
+        )) {
+            val failing = object : FileAccess by real {
+                override fun writeAtomically(path: String, bytes: ByteArray, options: WriteOptions): FileResult<Unit> =
+                    FileResult.Failure(error(path))
+            }
+            val before: Long = testScheduler.currentTime
+            assertIs<LockAcquisition.Failed>(CrossProcessLock(failing).acquire(lockFile, prefix))
+            assertEquals(before, testScheduler.currentTime, "a permanent failure must not take the budget to be reported")
+        }
     }
 
     @Test

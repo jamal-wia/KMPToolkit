@@ -231,7 +231,7 @@ internal object SecureFileFormat {
         out.write(keyCheck)
         out.write(ByteBuffer.allocate(4).putInt(entries.size).array())
         for (entry: EncryptedEntry in entries) {
-            val keyBytes: ByteArray = entry.key.toByteArray(StandardCharsets.UTF_8)
+            val keyBytes: ByteArray = entry.key.toStrictUtf8()
             require(keyBytes.size <= MAX_ENTRY_KEY_BYTES) { "entry name too long" }
             require(entry.nonce.size == NONCE_BYTES) { "nonce must be 12 bytes" }
             require(entry.sealed.size >= TAG_BYTES) { "sealed entry shorter than its tag" }
@@ -242,6 +242,42 @@ internal object SecureFileFormat {
             out.write(entry.sealed)
         }
         return out.toByteArray()
+    }
+
+    /**
+     * The length [encode] would produce for [header] and [entries], computed without building the file (a store near its
+     * size limit must be measured before it is written). Entry names must be encodable (the caller checked them).
+     */
+    fun encodedSize(header: HeaderBody, entries: List<EncryptedEntry>): Long {
+        var size: Long = FIXED_PREFIX_BYTES.toLong() + header.encode().size + KEY_CHECK_BYTES + 4
+        for (entry: EncryptedEntry in entries) {
+            size += entrySize(entry.key, entry.sealed.size - TAG_BYTES.toLong())
+        }
+        return size
+    }
+
+    /**
+     * The bytes an entry named [key] whose plaintext is [plainLength] bytes adds to a file (the sealed value is the plaintext
+     * plus the tag), computed before anything is sealed. [encodedSize] and the checks that run before a value is encoded
+     * both go through it, so they cannot disagree. The name is counted ([strictUtf8Length]), never encoded, so no measuring path
+     * allocates a copy of a name; a name without a UTF-8 form counts 3 bytes for the character (callers refuse such a name before).
+     */
+    fun entrySize(key: String, plainLength: Long): Long = 2 + key.strictUtf8Length() + NONCE_BYTES + 4 + plainLength + TAG_BYTES
+
+    /**
+     * The size of a file of [kind] that holds no entry, as far as it is known before its header exists: exact for the kinds
+     * whose header has a fixed length (1, 3 and 4), and the smallest possible one for a DPAPI header (its blob has a length of
+     * its own, known only after DPAPI has produced it). A new store whose first entry cannot fit even in this much is refused
+     * without asking for key material.
+     */
+    fun minimumFileBytes(kind: StoreKind): Long {
+        val body: Int = when (kind) {
+            StoreKind.OS_ITEM -> OS_ITEM_BODY_BYTES
+            StoreKind.DPAPI -> 2 + 1
+            StoreKind.PASSPHRASE -> PASSPHRASE_BODY_BYTES
+            StoreKind.RAW_KEY -> WRAPPED_KEY_BYTES
+        }
+        return FIXED_PREFIX_BYTES.toLong() + body + KEY_CHECK_BYTES + 4
     }
 
     /** Parses [bytes]; never throws for any input. */
