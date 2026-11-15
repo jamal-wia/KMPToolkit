@@ -13,18 +13,36 @@ import kotlin.time.Duration
 internal class AgedFix(val fix: LocationFix, val age: Duration)
 
 /**
- * Whether a cache of [age] is acceptable for [maxAge] (PLAN D11). [Duration.ZERO] forces a fresh fix,
- * so it accepts nothing; [Duration.INFINITE] accepts any age; otherwise an age equal to [maxAge] is
- * still acceptable. A negative age (a clock that stepped back) counts as zero.
+ * The **cache** decision (PLAN D11, section 4.2 "Single fix" and "Stream seed"): whether a fix the
+ * platform already held when the request began, [age] old, may answer for [maxAge].
+ * [Duration.ZERO] forces a fresh fix, so it accepts nothing; [Duration.INFINITE] accepts any age;
+ * otherwise an age equal to [maxAge] is still acceptable. A negative age (a clock that stepped back)
+ * counts as zero.
+ *
+ * Use it only for fixes that existed before the call or the stream started. A fix that the platform
+ * *delivers* after the request began is judged by [isFreshDelivery]: every delivered fix has an age
+ * above zero, so this function would reject all of them under `maxAge = ZERO`.
  */
-internal fun isWithinMaxAge(age: Duration, maxAge: Duration): Boolean =
+internal fun acceptsCachedFix(age: Duration, maxAge: Duration): Boolean =
     maxAge.isPositive() && age.coerceAtLeast(Duration.ZERO) <= maxAge
 
-/** The youngest of [candidates] that [isWithinMaxAge], or `null` when none is. Ties keep the first. */
+/**
+ * The **delivery** decision (PLAN section 4.2: the age check of "a framework answer", "a delivered
+ * fix" and of the first deliveries of a stream): whether a fix delivered to the request, [age] old,
+ * is fresh enough. [sinceRequestStart] is the time elapsed since the call or the stream started, on
+ * the same monotonic clock as [age]. A fix that is no older than the request itself was taken after
+ * it began, so it is always fresh: [Duration.ZERO] then means "taken after the request", not "never".
+ * Beyond that a fix is fresh while it is within [maxAge]; [Duration.INFINITE] accepts any age. A
+ * negative age or a negative elapsed time counts as zero.
+ */
+internal fun isFreshDelivery(age: Duration, maxAge: Duration, sinceRequestStart: Duration): Boolean =
+    age.coerceAtLeast(Duration.ZERO) <= maxOf(maxAge, sinceRequestStart.coerceAtLeast(Duration.ZERO))
+
+/** The youngest of [candidates] that [acceptsCachedFix], or `null` when none is. Ties keep the first. */
 internal fun freshestWithin(candidates: Iterable<AgedFix>, maxAge: Duration): LocationFix? {
     var best: AgedFix? = null
     for (candidate: AgedFix in candidates) {
-        if (!isWithinMaxAge(candidate.age, maxAge)) continue
+        if (!acceptsCachedFix(candidate.age, maxAge)) continue
         val current: AgedFix? = best
         if (current == null || candidate.age < current.age) best = candidate
     }

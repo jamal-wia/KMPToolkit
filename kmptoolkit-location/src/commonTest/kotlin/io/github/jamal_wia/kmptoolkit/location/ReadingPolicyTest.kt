@@ -34,35 +34,77 @@ class ReadingPolicyTest {
 
     private fun unavailable(reason: LocationUnavailability): LocationReading = LocationReading.Unavailable(reason)
 
-    // region isWithinMaxAge
+    // region acceptsCachedFix (the cache decision)
 
     @Test
     fun `zero max age forces a fresh fix and accepts no cache whatever its age`() {
-        assertFalse(isWithinMaxAge(Duration.ZERO, Duration.ZERO))
-        assertFalse(isWithinMaxAge(1.milliseconds, Duration.ZERO))
-        assertFalse(isWithinMaxAge(-1.seconds, Duration.ZERO))
+        assertFalse(acceptsCachedFix(Duration.ZERO, Duration.ZERO))
+        assertFalse(acceptsCachedFix(1.milliseconds, Duration.ZERO))
+        assertFalse(acceptsCachedFix(-1.seconds, Duration.ZERO))
     }
 
     @Test
     fun `infinite max age accepts any cache`() {
-        assertTrue(isWithinMaxAge(Duration.ZERO, Duration.INFINITE))
-        assertTrue(isWithinMaxAge(365.seconds * 100_000, Duration.INFINITE))
-        assertTrue(isWithinMaxAge(Duration.INFINITE, Duration.INFINITE))
+        assertTrue(acceptsCachedFix(Duration.ZERO, Duration.INFINITE))
+        assertTrue(acceptsCachedFix(365.seconds * 100_000, Duration.INFINITE))
+        assertTrue(acceptsCachedFix(Duration.INFINITE, Duration.INFINITE))
     }
 
     @Test
     fun `a cache is acceptable up to and including the max age`() {
         val maxAge: Duration = 30.seconds
 
-        assertTrue(isWithinMaxAge(Duration.ZERO, maxAge))
-        assertTrue(isWithinMaxAge(29_999.milliseconds, maxAge))
-        assertTrue(isWithinMaxAge(30.seconds, maxAge))
-        assertFalse(isWithinMaxAge(30_001.milliseconds, maxAge))
+        assertTrue(acceptsCachedFix(Duration.ZERO, maxAge))
+        assertTrue(acceptsCachedFix(29_999.milliseconds, maxAge))
+        assertTrue(acceptsCachedFix(30.seconds, maxAge))
+        assertFalse(acceptsCachedFix(30_001.milliseconds, maxAge))
     }
 
     @Test
     fun `a negative age from a clock that stepped back counts as zero`() {
-        assertTrue(isWithinMaxAge(-5.seconds, 1.seconds))
+        assertTrue(acceptsCachedFix(-5.seconds, 1.seconds))
+    }
+
+    // endregion
+
+    // region isFreshDelivery (the delivery decision)
+
+    @Test
+    fun `zero max age accepts a fix taken after the request began`() {
+        // A delivered fix always has an age above zero (the delivery latency); it was taken after the request,
+        // so it is fresh. acceptsCachedFix would reject it, which is why the delivery check is a separate rule.
+        assertTrue(isFreshDelivery(50.milliseconds, Duration.ZERO, 2.seconds))
+        assertTrue(isFreshDelivery(Duration.ZERO, Duration.ZERO, Duration.ZERO))
+        assertFalse(acceptsCachedFix(50.milliseconds, Duration.ZERO), "the cache rule would have discarded this fresh fix")
+    }
+
+    @Test
+    fun `zero max age rejects a fix older than the request`() {
+        assertFalse(isFreshDelivery(20.seconds, Duration.ZERO, 2.seconds))
+        assertFalse(isFreshDelivery(2_001.milliseconds, Duration.ZERO, 2.seconds))
+        assertTrue(isFreshDelivery(2.seconds, Duration.ZERO, 2.seconds), "a fix taken exactly when the request began is fresh")
+    }
+
+    @Test
+    fun `a positive max age also accepts an older fix up to the max age`() {
+        assertTrue(isFreshDelivery(20.seconds, 30.seconds, 2.seconds))
+        assertTrue(isFreshDelivery(30.seconds, 30.seconds, 2.seconds))
+        assertFalse(isFreshDelivery(30_001.milliseconds, 30.seconds, 2.seconds))
+        // The request has been running for a minute, so a 45 s old fix was taken during it.
+        assertTrue(isFreshDelivery(45.seconds, 30.seconds, 60.seconds))
+    }
+
+    @Test
+    fun `infinite max age accepts any delivery`() {
+        assertTrue(isFreshDelivery(Duration.INFINITE, Duration.INFINITE, Duration.ZERO))
+        assertTrue(isFreshDelivery(365.seconds * 100_000, Duration.INFINITE, 1.seconds))
+    }
+
+    @Test
+    fun `a negative age or a negative elapsed time counts as zero`() {
+        assertTrue(isFreshDelivery(-5.seconds, Duration.ZERO, Duration.ZERO))
+        assertFalse(isFreshDelivery(1.seconds, Duration.ZERO, -5.seconds))
+        assertTrue(isFreshDelivery(1.seconds, 1.seconds, -5.seconds))
     }
 
     // endregion
