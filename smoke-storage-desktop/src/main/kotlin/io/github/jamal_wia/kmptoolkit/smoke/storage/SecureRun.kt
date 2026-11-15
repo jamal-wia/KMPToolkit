@@ -19,16 +19,29 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
  * and an absent item is fine.
  *
  * A failing cleanup never replaces the failure that came first (it is attached as suppressed, see [guarded]).
+ *
+ * [stop] is asked before every step of the body, never before the cleanup: once the process is being stopped from outside (the shutdown
+ * hook, see Shutdown.kt) the body ends at its next step, with the call in flight finished, and the cleanup then removes whatever that call made.
  */
-internal suspend fun runSecureRoundTrip(store: SecureKeyValueStorage, openSecond: () -> SecureKeyValueStorage, removal: KeyItemRemoval) {
+internal suspend fun runSecureRoundTrip(
+    store: SecureKeyValueStorage,
+    openSecond: () -> SecureKeyValueStorage,
+    removal: KeyItemRemoval,
+    stop: StopSignal = NeverStopped,
+) {
     var keyCreated: Boolean = false
     guarded(
         body = {
+            stop.check()
             store.put("token", "s3cret").orFail("secure put")
             keyCreated = true
+            stop.check()
             expect("secure get", "s3cret", store.get("token").orFail("secure get"))
+            stop.check()
             expect("secure get (new instance)", "s3cret", openSecond().get("token").orFail("secure get (new instance)"))
+            stop.check()
             store.remove("token").orFail("secure remove")
+            stop.check()
             expect("secure get after remove", null, store.get("token").orFail("secure get after remove"))
         },
         cleanup = {

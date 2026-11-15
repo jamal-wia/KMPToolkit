@@ -88,7 +88,7 @@ public fun main(args: Array<String>) {
     var exitCode: Int
     val directory: File = Files.createTempDirectory("kmptoolkit-smoke-").toFile()
     // A run stopped from outside (Gradle cancelling the build, `timeout`, Ctrl-C) never reaches the finally below: see Shutdown.kt.
-    val shutdown: ShutdownCleanup = ShutdownCleanup(directory)
+    val shutdown: ShutdownCleanup = ShutdownCleanup(directory, endsWithMain = true)
     shutdown.install()
     try {
         say("SMOKE variant=${options.variant} java=${Runtime.version()} os=${System.getProperty("os.name")} secureRequired=${options.secureRequired}")
@@ -129,9 +129,14 @@ public fun main(args: Array<String>) {
         }
     }
     say(verdict)
-    options.resultFile?.let { file: File ->
-        file.absoluteFile.parentFile?.mkdirs()
-        file.writeText(log.toString())
+    try {
+        options.resultFile?.let { file: File ->
+            file.absoluteFile.parentFile?.mkdirs()
+            file.writeText(log.toString())
+        }
+    } finally {
+        // The run and its directory are done: a shutdown hook that was waiting for them (a stop signal during the run) may now finish.
+        shutdown.markRunFinished()
     }
     // Not a return: nothing the library may have left running (a native executor thread) can keep the verdict from ending the process.
     exitProcess(exitCode)
@@ -141,7 +146,7 @@ private suspend fun run(options: Options, directory: File, shutdown: ShutdownCle
     checkRunOptions(options.secureRequired, options.probeOnly)
     checkPackaging(options.variant, say)
     checkRemovalSeam(options.variant, say)
-    plainRoundTrip(directory, say)
+    plainRoundTrip(directory, shutdown.stop, say)
     return secureRoundTrip(directory, options, shutdown, say)
 }
 
@@ -193,16 +198,24 @@ private fun nativeAccessEnabledForThisApp(): Boolean? = try {
     null
 }
 
-private suspend fun plainRoundTrip(directory: File, say: (String) -> Unit) {
+/** Every step asks [stop] first, so a process that is being stopped from outside makes no further store call (see Shutdown.kt). */
+private suspend fun plainRoundTrip(directory: File, stop: StopSignal, say: (String) -> Unit) {
     val plainDirectory: File = File(directory, "plain")
     val config: StorageConfig = StorageConfig(PLAIN_STORE_NAME)
+    stop.check()
     val store: KeyValueStorage = createKeyValueStorage(plainDirectory, config)
+    stop.check()
     store.put("greeting", "hello").orFail("plain put")
+    stop.check()
     expect("plain get", "hello", store.get("greeting").orFail("plain get"))
     // A second instance over the same file: the value really reached the disk, not an instance cache.
+    stop.check()
     expect("plain get (new instance)", "hello", createKeyValueStorage(plainDirectory, config).get("greeting").orFail("plain get (new instance)"))
+    stop.check()
     store.remove("greeting").orFail("plain remove")
+    stop.check()
     expect("plain get after remove", null, store.get("greeting").orFail("plain get after remove"))
+    stop.check()
     store.clear().orFail("plain clear")
     say("plain round trip: PASSED")
 }
@@ -225,17 +238,21 @@ private suspend fun secureRoundTrip(directory: File, run: Options, shutdown: Shu
         if (required) throw SmokeFailure("$why (secure round trip required)")
         return SecureOutcome.NotRun(why)
     }
+    shutdown.stop.check()
     val secureDirectory: File = File(directory, "secure")
     val storeName: String = "$SECURE_STORE_NAME_PREFIX.${UUID.randomUUID().toString().replace("-", "").take(RUN_ID_CHARS)}"
     // Armed BEFORE the store exists, so a kill at any later moment still removes the key item the first put makes. The run uses the same
     // removal (wrapped to run once), so the normal path and the hook never delete twice.
     val removal: KeyItemRemoval = shutdown.arm(keyItemRemovalFor(run.variant, keyStore, storeName, secureDirectory))
+    // Asked after arming and before the store makes anything: a stop that arrived by now ends the run here, the cleanup finds the removal armed.
+    shutdown.stop.check()
     val store: SecureKeyValueStorage = createSecureKeyValueStorage(secureDirectory, StorageConfig(storeName), options)
     // Nothing is left behind on any way out (the data and the key item), and a failing cleanup never hides the first failure: see SecureRun.kt.
     runSecureRoundTrip(
         store = store,
         openSecond = { createSecureKeyValueStorage(secureDirectory, StorageConfig(storeName), options) },
         removal = removal,
+        stop = shutdown.stop,
     )
     say("cleanup: the store's data and its key item (where $keyStore has one) are removed and the item's absence is confirmed")
     return SecureOutcome.Passed(keyStore)

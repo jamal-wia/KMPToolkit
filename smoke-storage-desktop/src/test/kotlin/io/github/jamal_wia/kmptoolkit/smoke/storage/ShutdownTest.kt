@@ -110,7 +110,7 @@ class ShutdownTest {
         File(directory, "f").writeText("x")
         val told: MutableList<Boolean> = mutableListOf()
         val reports: MutableList<String> = mutableListOf()
-        val cleanup: ShutdownCleanup = ShutdownCleanup(directory, report = { reports += it })
+        val cleanup: ShutdownCleanup = ShutdownCleanup(directory, runWaitMillis = NO_RUN_WAIT_MILLIS, report = { reports += it })
         cleanup.arm(object : KeyItemRemoval {
             override fun remove(expectPresent: Boolean) {
                 told += expectPresent
@@ -142,7 +142,7 @@ class ShutdownTest {
     fun `a failing removal is reported and the directory is deleted anyway`() {
         val directory: File = File(root, "run").apply { mkdirs() }
         val reports: MutableList<String> = mutableListOf()
-        val cleanup: ShutdownCleanup = ShutdownCleanup(directory, report = { reports += it })
+        val cleanup: ShutdownCleanup = ShutdownCleanup(directory, runWaitMillis = NO_RUN_WAIT_MILLIS, report = { reports += it })
         cleanup.arm(object : KeyItemRemoval {
             override fun remove(expectPresent: Boolean): Unit = throw SmokeFailure("OSStatus -25293")
         })
@@ -157,7 +157,7 @@ class ShutdownTest {
         val directory: File = File(root, "run").apply { mkdirs() }
         val release: CountDownLatch = CountDownLatch(1)
         val reports: MutableList<String> = mutableListOf()
-        val cleanup: ShutdownCleanup = ShutdownCleanup(directory, boundMillis = 100L, report = { reports += it })
+        val cleanup: ShutdownCleanup = ShutdownCleanup(directory, boundMillis = 100L, runWaitMillis = NO_RUN_WAIT_MILLIS, report = { reports += it })
         cleanup.arm(object : KeyItemRemoval {
             override fun remove(expectPresent: Boolean) {
                 release.await(HARD_TEST_BOUND_SECONDS, TimeUnit.SECONDS)
@@ -175,7 +175,7 @@ class ShutdownTest {
     @Test
     fun `a cleanup that was never armed only deletes the directory`() {
         val directory: File = File(root, "run").apply { mkdirs() }
-        ShutdownCleanup(directory).runNow()
+        ShutdownCleanup(directory, runWaitMillis = NO_RUN_WAIT_MILLIS).runNow()
         assertFalse(directory.exists())
     }
 
@@ -222,7 +222,7 @@ class ShutdownTest {
 
     private fun startChild(directory: File, marker: File): Process {
         val java: String = File(File(System.getProperty("java.home"), "bin"), "java").path
-        return ProcessBuilder(java, "-cp", System.getProperty("java.class.path"), ShutdownChild::class.java.name, directory.path, marker.path)
+        return ProcessBuilder(java, "-cp", System.getProperty("java.class.path"), ShutdownChild::class.java.name, directory.path, marker.path, NO_RUN_WAIT_MILLIS.toString())
             .redirectErrorStream(true)
             .start()
     }
@@ -236,5 +236,8 @@ class ShutdownTest {
     private companion object {
         const val HARD_TEST_BOUND_SECONDS: Long = 30L
         const val SIGTERM_EXIT: Int = 143
+
+        /** How long a hook waits for a run that never comes (these tests have no run): short, the wait is not what they check. */
+        const val NO_RUN_WAIT_MILLIS: Long = 100L
     }
 }
