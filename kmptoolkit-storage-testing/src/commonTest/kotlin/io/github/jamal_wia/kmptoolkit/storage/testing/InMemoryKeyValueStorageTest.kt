@@ -146,6 +146,31 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
+    fun `a snapshot of writes or contents is the callers own whatever its size`() = runTest {
+        // Sizes 0, 1 and 2 or more are copied into different list and map types; none may alias the fixture.
+        for (size: Int in 0..3) {
+            val fixture = InMemoryKeyValueStorage()
+            val keys: List<String> = (1..size).map { "k$it" }
+            keys.forEach { fixture.put(it, "v") }
+
+            // No runCatching: the copy is the caller's own at every size, so changing it must not throw.
+            @Suppress("UNCHECKED_CAST")
+            val log: MutableList<String> = fixture.writes as MutableList<String>
+            log.clear()
+            log.add("ghost")
+            @Suppress("UNCHECKED_CAST")
+            val entries: MutableMap<String, String> = fixture.contents as MutableMap<String, String>
+            entries.clear()
+            entries["ghost"] = "v"
+
+            assertEquals(keys, fixture.writes, "size=$size: the write log was rewritten through a snapshot")
+            assertEquals(keys.associateWith { "v" }, fixture.contents, "size=$size: the contents were changed through a snapshot")
+            fixture.put("next", "v")
+            assertEquals(keys + "next", fixture.writes, "size=$size: a later write landed on a rewritten log")
+        }
+    }
+
+    @Test
     fun `a failed write is not recorded`() = runTest {
         storage.failNextOperationWith = StorageError.Unavailable()
 
@@ -305,5 +330,30 @@ class InMemoryKeyValueStorageTest {
         storage.put("k", "\uD800")
 
         assertEquals(StorageError.Unavailable(), storage.get("k").errorOrNull())
+    }
+
+    @Test
+    fun `a result read from the fixture prints no stored value`() = runTest {
+        storage.put("token", "s3cr3t-token-Qw71")
+        storage.put("pin", "918273")
+
+        val texts: List<String> = listOf(storage.get("token").toString(), storage.getInt("pin").toString())
+
+        for (text in texts) {
+            assertTrue(text.contains("Success"), "the fixture's result no longer names its type: $text")
+            assertTrue(!text.contains("s3cr3t") && !text.contains("918273"), "the fixture's result printed the stored value: $text")
+        }
+    }
+
+    @Test
+    fun `a failure of the fixture prints its error and never a stored or refused value`() = runTest {
+        storage.put("pin", "s3cr3t-not-a-number")
+
+        val typed: String = storage.getInt("pin").toString()
+        val refused: String = storage.put("token", "s3cr3t-refused\uD800").toString()
+
+        assertTrue(typed.contains("InvalidValue") && typed.contains("pin"), "the failure lost its error or key: $typed")
+        assertTrue(refused.contains("InvalidValue") && refused.contains("token"), "the failure lost its error or key: $refused")
+        assertTrue(!typed.contains("s3cr3t") && !refused.contains("s3cr3t"), "a failure text carries a value: $typed | $refused")
     }
 }
