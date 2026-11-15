@@ -37,7 +37,7 @@ internal class OsCarry(val snapshot: Snapshot, private val key: ByteArray?, val 
  * - **A zero-entry file has nothing to lose.** A not-found that is not definitive (macOS, no dialog allowed, plan 4.5's
  *   conservative rule) is `Unavailable` for a file with entries, and "lost, zero entries" for an empty one, so the crash
  *   state of plan 4.4 repairs itself without UI; the create's delete and add still carry "no UI", so a locked keychain or
- *   a refused delete fails closed and rolls back.
+ *   a refused delete fails closed and rolls back. The same rule decides a key-check that a PROVIDER fails on (see [verifies]).
  */
 internal class OsKeyStoreEngine(
     guard: EncryptedFileGuard,
@@ -104,19 +104,35 @@ internal class OsKeyStoreEngine(
         if (!backend.identityMatches(file.header, identity)) return Resolution.Lost
         val cached: ByteArray? = cache.get(identity)
         if (cached != null) {
-            if (cipher.verifyKeyCheck(cached, file.headerPrefix, file.keyCheck)) return Resolution.Have(cached)
+            if (verifies(cached, file)) return Resolution.Have(cached)
             cache.invalidate(identity, cached)
         }
         val fetched: OsCarry? = carry as? OsCarry
         // A key is used only for the header AND the identity it was fetched for.
         if (fetched != null && fetched.snapshot.matches(parsed) && fetched.snapshot.identity?.cacheKey == identity.cacheKey) {
             val key: ByteArray = fetched.fetchedKey ?: return notFound(fetched.unconfirmed, file)
-            if (!cipher.verifyKeyCheck(key, file.headerPrefix, file.keyCheck)) return Resolution.Lost
+            if (!verifies(key, file)) return Resolution.Lost
             cache.put(identity, key)
             return Resolution.Have(checkNotNull(cache.get(identity)) { "the key cache lost an entry under the store lock" })
         }
         return Resolution.Need(Request.Existing(Snapshot.of(parsed, identity)))
     }
+
+    /**
+     * Whether [key] opens the key-check of [file]. A provider that FAILS on the check (a PKCS#11 token error, which the boundary
+     * types as a [JcaFailure] and which under such a provider is also how a genuinely wrong key shows) is an `OperationFailed` for a
+     * file with entries: the environment is never allowed to delete data. For a file with ZERO entries there is nothing to lose, so
+     * the same failure reads as "this key does not open it", exactly like a not-found item (see [notFound]): that is what makes
+     * `clear()` followed by `put` or `ensureKey()` a way out of a lost key under such a provider too, because `clear()` keeps the
+     * header and the key-check and every later round would otherwise fail on them again for good. A transient token error on an
+     * empty store then costs only a harmless key replacement.
+     */
+    private fun verifies(key: ByteArray, file: ParsedStoreFile): Boolean =
+        try {
+            cipher.verifyKeyCheck(key, file.headerPrefix, file.keyCheck)
+        } catch (failure: JcaFailure) {
+            if (file.entries.isEmpty()) false else throw failure
+        }
 
     /** No item at the own identity: lost when it is definitive, or when the file has no entry to lose; otherwise [unconfirmed]. */
     private fun notFound(unconfirmed: StorageError?, file: ParsedStoreFile): Resolution =

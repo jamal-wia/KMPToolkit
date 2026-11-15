@@ -513,7 +513,13 @@ Only a GCM tag that does not verify means "wrong key or tampered", and only one 
 token error during a decryption as a bad-tag exception that has the token's exception as its cause, so the library reads a bad-tag exception
 with a cause as a provider failure. The cost is deliberate: under such a provider a genuinely wrong key or a tampered file also answers
 `OperationFailed` (never `AccessDenied`, never "key lost", never a quarantine), because the provider attaches a cause to its real tag failures
-too; on such a JDK the way out of a truly lost key is `clear()`. An environment problem is never allowed to delete data.
+too. An environment problem is never allowed to delete data, so a store with entries is never replaced because of it. On such a JDK the
+way out of a truly lost OS key of an **OS-key store** is `clear()` followed by `put` or `ensureKey()`: `clear()` empties the file without
+any key (it keeps the header and the key-check), and a file with no entries has nothing to lose, so a key-check that the provider fails on
+reads as "key lost" for it (the same rule as a not-found item) and the next `put` or `ensureKey()` replaces the empty file and the OS item.
+A transient token error on an empty store therefore costs only a harmless key replacement. An **app-key store** has no such way: its
+`clear()` needs the key the app supplies, so under such a provider it answers `OperationFailed` too; for a key that is really lost there,
+see "A forgotten passphrase" (delete the store's files).
 
 **A call on an interrupted thread.** When the store's dispatcher runs a call on a thread whose interrupt status is set (for example
 `Dispatchers.Unconfined` called from an interrupted thread), the JDK refuses the file I/O: the call answers `OperationFailed` (cause: an
