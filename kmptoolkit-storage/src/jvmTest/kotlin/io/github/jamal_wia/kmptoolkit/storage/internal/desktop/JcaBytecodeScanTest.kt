@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
  *
  * Why it cannot be passed by a lexical trick: quoting, back-quotes, spaced names, aliases of aliases, constructor references, a
  * call on an instance obtained from the boundary and the same call after an implicit upcast all compile to a class reference in the pool. The scan needs no tool, no new
- * dependency and no path layout: the classes are found from the code source of `Jca` itself, together with the output of the `ffm` compilation (source set `jvmFfm`) beside it on a branch that has one, and the test FAILS (never passes) when it
+ * dependency and no path layout: the classes are found from the code source of `Jca` itself, together with every other jvm main output under the same `classes` tree (found by walking: the `ffm` compilation of source set `jvmFfm` where a branch has one, the javac output of Java sources), and the test FAILS (never passes) when it
  * finds too few classes, no boundary class or more than one (a same-named class of another location would be exempt), no class of the common source set, or a test class (a wrong location).
  *
  * Controls and mutations: the real tree is checked for size and for its landmarks; the boundary itself is flagged by the same scan
@@ -277,26 +277,92 @@ class JcaBytecodeScanTest {
     }
 
     @Test
-    fun `every compiled output directory that exists is scanned and the ffm one is picked up the moment it exists`() {
-        val real: List<URL> = ClassFileScan.mainOutputs(codeSource(Jca::class.java))
+    fun `the real classes tree is walked and only jvm outputs that are shipped are listed`() {
         val realMain: Path = Paths.get(codeSource(Jca::class.java).toURI())
+        val real: List<URL> = ClassFileScan.mainOutputs(codeSource(Jca::class.java))
         assertEquals(realMain.toUri().toURL(), real.first(), "control: the output the boundary was loaded from is always scanned")
-        assertEquals(if (realMain.resolveSibling("ffm").isDirectory()) 2 else 1, real.size, "the ffm output is listed exactly when the directory exists on this branch")
+        assertEquals(real.distinct(), real, "no output is listed twice")
+        val testOutput: Path = Paths.get(codeSource(JcaBytecodeScanTest::class.java).toURI())
+        assertTrue(testOutput.isDirectory() && testOutput != realMain, "control: this test class is compiled into an output of its own ($testOutput)")
+        assertTrue(real.none { output: URL -> Paths.get(output.toURI()) == testOutput }, "the test output is not the main code: $real")
+        val classes: Path = generateSequence(realMain.parent) { directory: Path -> directory.parent }.first { directory: Path -> directory.fileName?.toString() == "classes" }
+        for (output: URL in real) {
+            val relative: String = classes.relativize(Paths.get(output.toURI())).toString().lowercase()
+            assertTrue("jvm" in relative && "test" !in relative && "check" !in relative, "$output is not a shipped jvm output of the classes tree")
+        }
+    }
+
+    @Test
+    fun `every shipped jvm output under the classes tree is found whatever its depth, name or language and nothing else is`() {
+        val root: Path = Files.createTempDirectory("kmptoolkit-classscan")
+        try {
+            val classes: Path = Files.createDirectories(root.resolve("build").resolve("classes"))
+            fun put(output: String, name: String, reference: String = "java/nio/file/Files"): Path {
+                // path-hygiene-ignore: PH3 a logical output spec and a JVM internal class name of this test, not native paths
+                val file: Path = Paths.get(classes.toString(), *output.split('/').toTypedArray(), *"$name.class".split('/').toTypedArray())
+                Files.createDirectories(file.parent)
+                file.writeBytes(SyntheticClass.build(name) { pool: SyntheticClass.Pool -> pool.classOf(reference) })
+                return classes.resolve(output)
+            }
+            fun outputs(main: Path): List<Path> = ClassFileScan.mainOutputs(main.toUri().toURL()).map { url: URL -> Paths.get(url.toURI()) }
+            val main: Path = put("kotlin/jvm/main", "a/A")
+            // Not shipped: tests, the check-only compilation, the Android outputs of the same module.
+            put("kotlin/jvm/test", "a/T")
+            put("kotlin/jvm/ffmApiCheck", "a/Check")
+            put("java/jvmTest", "a/JavaTest")
+            put("kotlin/android/main", "a/Android")
+            put("kotlin/androidHostTest/main", "a/AndroidTest")
+            assertEquals(listOf(main), outputs(main), "test, check-only and Android outputs are not main code")
+            // Shipped: the ffm compilation, the javac output of jvmMain (a package of two levels), a source set that does not exist yet
+            // (a name and a depth no rule knows) and a class of the default package.
+            val ffm: Path = put("kotlin/jvm/ffm", "a/B", "javax/crypto/Cipher")
+            val java: Path = put("java/jvmMain", "scratch/deep/JavaUse", "java/security/MessageDigest")
+            val future: Path = put("kotlin/jvm/brandNewSet/level", "x/Y/Z", "java/util/Base64")
+            val bare: Path = put("kotlin/jvmGen", "Bare", "javax/crypto/Mac")
+            val found: List<Path> = outputs(main)
+            assertEquals(main, found.first(), "the code source comes first")
+            assertEquals(setOf(main, ffm, java, future, bare), found.toSet(), "every shipped jvm output is found by walking, the rest is not")
+            assertEquals(found.size, found.toSet().size, "none twice")
+            val violations: List<String> = ClassFileScan.classBytes(found.map { path: Path -> path.toUri().toURL() }).map(ClassFileScan::parse).flatMap(ClassFileScan::violations).sorted()
+            assertEquals(
+                listOf(
+                    "Bare names the class javax/crypto/Mac",
+                    "a/B names the class javax/crypto/Cipher",
+                    "scratch/deep/JavaUse names the class java/security/MessageDigest",
+                    "x/Y/Z names the class java/util/Base64",
+                ),
+                violations,
+                "a JCA use in each of the outputs is found",
+            )
+            // The same sources with the test output as the starting point: the test output itself is what was asked for, so it is listed.
+            assertEquals(listOf(classes.resolve("kotlin/jvm/test")), outputs(classes.resolve("kotlin/jvm/test")).take(1), "the code source is listed whatever its name")
+        } finally {
+            @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a code source that cannot be walked fails the scan and never passes it`() {
         val root: Path = Files.createTempDirectory("kmptoolkit-classscan")
         try {
             val main: Path = Files.createDirectory(root.resolve("main"))
             main.resolve("A.class").writeBytes(SyntheticClass.build("a/A") { pool: SyntheticClass.Pool -> pool.classOf("java/nio/file/Files") })
-            assertEquals(listOf(main.toUri().toURL()), ClassFileScan.mainOutputs(main.toUri().toURL()), "a branch without the ffm directory is not an error")
-            Files.createDirectory(root.resolve("test"))
-            Files.createDirectory(root.resolve("ffmApiCheck"))
-            assertEquals(listOf(main.toUri().toURL()), ClassFileScan.mainOutputs(main.toUri().toURL()), "test and check-only outputs are not main code")
-            val ffm: Path = Files.createDirectory(root.resolve("ffm"))
-            ffm.resolve("B.class").writeBytes(SyntheticClass.build("a/B") { pool: SyntheticClass.Pool -> pool.classOf("javax/crypto/Cipher") })
-            val outputs: List<URL> = ClassFileScan.mainOutputs(main.toUri().toURL())
-            assertEquals(listOf(main.toUri().toURL(), ffm.toUri().toURL()), outputs, "the ffm output is scanned once it exists")
-            val violations: List<String> = ClassFileScan.classBytes(outputs).map(ClassFileScan::parse).flatMap(ClassFileScan::violations)
-            assertEquals(listOf("a/B names the class javax/crypto/Cipher"), violations, "a JCA use in the ffm output is found")
+            assertFailsWith<IllegalStateException>("a directory outside any classes tree: the other outputs cannot be found") { ClassFileScan.mainOutputs(main.toUri().toURL()) }
             assertFailsWith<IllegalStateException>("a location that does not exist must fail, not pass") { ClassFileScan.mainOutputs(root.resolve("absent").toUri().toURL()) }
+            val classes: Path = Files.createDirectories(root.resolve("classes").resolve("kotlin").resolve("jvm"))
+            val other: Path = Files.createDirectories(classes.resolve("other"))
+            other.resolve("O.class").writeBytes(SyntheticClass.build("o/O") { pool: SyntheticClass.Pool -> pool.classOf("java/nio/file/Files") })
+            val misplaced: Path = Files.createDirectories(classes.resolve("main").resolve("wrong"))
+            misplaced.resolve("A.class").writeBytes(SyntheticClass.build("a/A") { pool: SyntheticClass.Pool -> pool.classOf("javax/crypto/Cipher") })
+            assertEquals(
+                listOf(other, misplaced),
+                ClassFileScan.mainOutputs(other.toUri().toURL()).map { url: URL -> Paths.get(url.toURI()) },
+                "a class whose directories do not follow its package is still read: its own directory is taken as an output, never dropped",
+            )
+            val jar: Path = root.resolve("classes.jar")
+            JarOutputStream(Files.newOutputStream(jar)).use { out: JarOutputStream -> out.putNextEntry(JarEntry("a/B.class")); out.write(SyntheticClass.build("a/B") { pool: SyntheticClass.Pool -> pool.classOf("x/Y") }); out.closeEntry() }
+            assertEquals(listOf(jar.toUri().toURL()), ClassFileScan.mainOutputs(jar.toUri().toURL()), "a jar carries every class and is scanned as it is")
         } finally {
             @OptIn(kotlin.io.path.ExperimentalPathApi::class)
             root.deleteRecursively()
