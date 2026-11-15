@@ -70,16 +70,26 @@ kotlin {
     }
 }
 
-// LocationDocsSamplesInSyncTest reads the docs pages and the test sources of both location modules as text.
-// Gradle cannot see those reads, so without these inputs a docs-only edit would leave the cached result green.
+// LocationDocsSamplesInSyncTest reads the docs pages and the Kotlin files of the test source sets of both location
+// modules as text. Gradle cannot see those reads, so without these inputs a docs-only edit would leave the cached
+// result green. Only what the test reads is declared (the pages, and `src/<set ending in Test>/kotlin/**/*.kt`),
+// so an edit of location's main sources does not re-run the whole jvmTest because of this declaration.
 tasks.named<Test>("jvmTest") {
     inputs.dir(rootProject.layout.projectDirectory.dir("docs/kmptoolkit-location"))
         .withPathSensitivity(PathSensitivity.RELATIVE)
         .withPropertyName("locationDocs")
-    inputs.dir(rootProject.layout.projectDirectory.dir("kmptoolkit-location-testing/src"))
+    inputs.files(
+        fileTree(rootProject.layout.projectDirectory.dir("kmptoolkit-location-testing/src")) {
+            include("*Test/kotlin/**/*.kt")
+        },
+    )
         .withPathSensitivity(PathSensitivity.RELATIVE)
-        .withPropertyName("locationTestingSources")
-    inputs.dir(layout.projectDirectory.dir("src"))
+        .withPropertyName("locationTestingTestSources")
+    inputs.files(
+        fileTree(layout.projectDirectory.dir("src")) {
+            include("*Test/kotlin/**/*.kt")
+        },
+    )
         .withPathSensitivity(PathSensitivity.RELATIVE)
-        .withPropertyName("locationSources")
+        .withPropertyName("locationTestSources")
 }
