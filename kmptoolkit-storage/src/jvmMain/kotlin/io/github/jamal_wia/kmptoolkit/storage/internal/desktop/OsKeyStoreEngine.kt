@@ -153,7 +153,8 @@ internal class OsKeyStoreEngine(
             header = material.header,
             keyCheck = keyCheck,
             dataKey = material.dataKey,
-            install = { backend.install(identity, material.dataKey, op.operation, op.key) },
+            // A copy the install owns and wipes (also when its native call never runs): the plan keeps and wipes its own key.
+            install = { backend.install(identity, material.dataKey.copyOf(), op.operation, op.key) },
             commit = { cache.put(identity, material.dataKey) },
             dispose = { material.dataKey.fill(0) },
         )

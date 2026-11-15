@@ -5,6 +5,7 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageOperation
 import io.github.jamal_wia.kmptoolkit.storage.UnsupportedReason
 import java.io.File
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** What the Linux backend reads from the process: injectable so every branch runs on any machine. */
 internal class SecureStoreEnvironment(
@@ -31,6 +32,37 @@ internal class NativeCaller(private val executor: NativeExecutor, val allowUi: B
 
     /** A call that can never show a dialog (DPAPI): always limited. */
     suspend fun <T> callLimited(discard: (T) -> Unit = {}, block: () -> T): NativeOutcome<T> = call(interactive = false, discard, block)
+
+    /**
+     * A call that takes OWNERSHIP of [secret], a copy of key material that only this call may still use: [block] receives it and
+     * the array is wiped, exactly once, on every path. Whether the native thread wipes it or this caller does is decided by one
+     * compare-and-set, so a thread that is still reading it is never wiped under:
+     * - the native thread claims it when the block starts and wipes it in a `finally` when the block returns or throws (a call
+     *   that outlives its caller's limit or cancellation keeps reading a live array until then);
+     * - a block that never starts (the caller left while it was queued, the executor was closed, no thread could be made) is
+     *   never going to wipe anything, so the caller claims the array when it stops waiting, whatever ended the wait (an outcome,
+     *   a time limit, a cancellation). A block that starts after that finds the claim taken and does nothing.
+     *
+     * The outcome is `Completed(null)` only for that last race, which no caller can see (it has already left).
+     */
+    suspend fun <T> callOwning(secret: ByteArray, interactive: Boolean = allowUi, block: (ByteArray) -> T): NativeOutcome<T?> {
+        val claimed = AtomicBoolean(false)
+        try {
+            return call<T?>(interactive) {
+                if (!claimed.compareAndSet(false, true)) {
+                    null
+                } else {
+                    try {
+                        block(secret)
+                    } finally {
+                        secret.fill(0)
+                    }
+                }
+            }
+        } finally {
+            if (claimed.compareAndSet(false, true)) secret.fill(0)
+        }
+    }
 }
 
 /**
@@ -53,8 +85,11 @@ internal interface OsKeyBackend {
     /** A new data key and its header for [identity] (DPAPI protects the key here). */
     suspend fun newKey(identity: StoreIdentity, operation: StorageOperation, key: String?, newDataKey: () -> ByteArray): Verdict<NewKey>
 
-    /** Puts [dataKey] into the OS item at [identity]: delete (not-found is fine), then add. Windows has no item. */
-    suspend fun install(identity: StoreIdentity, dataKey: ByteArray, operation: StorageOperation, key: String?): StorageError?
+    /**
+     * Puts the data key into the OS item at [identity]: delete (not-found is fine), then add. Windows has no item.
+     * [secret] is a COPY of the data key that this call owns: it wipes it on every path (the plan keeps and wipes its own key).
+     */
+    suspend fun install(identity: StoreIdentity, secret: ByteArray, operation: StorageOperation, key: String?): StorageError?
 }
 
 private fun <T> failed(outcome: NativeOutcome<*>, operation: StorageOperation, key: String?): Verdict<T> =
@@ -100,23 +135,25 @@ internal class MacBackend(
     override suspend fun newKey(identity: StoreIdentity, operation: StorageOperation, key: String?, newDataKey: () -> ByteArray): Verdict<NewKey> =
         Verdict.Ok(NewKey(HeaderBody.OsItem(identity.headerFingerprint, SecureFileFormat.OS_TAG_MACOS), newDataKey()))
 
-    override suspend fun install(identity: StoreIdentity, dataKey: ByteArray, operation: StorageOperation, key: String?): StorageError? {
-        val itemLabel: String = label ?: identity.service
-        val deleted: NativeOutcome<Int> = caller.call { calls.deleteGenericPassword(identity.service, identity.macAccount, caller.allowUi) }
-        val deleteStatus: Int = (deleted as? NativeOutcome.Completed)?.value ?: return ErrorMapping.nativeOutcome(deleted, operation, key)
-        (ErrorMapping.macDelete(deleteStatus, operation, key) as? Verdict.Failed)?.let { return it.error }
-        // A copy owned by the native call: a call that outlives its caller's time limit may still be reading it, so only the
-        // native thread wipes it, after the call returns.
-        val secret: ByteArray = dataKey.copyOf()
-        val added: NativeOutcome<Int> = caller.call {
-            try {
-                calls.addGenericPassword(identity.service, identity.macAccount, itemLabel, secret, caller.allowUi)
-            } finally {
-                secret.fill(0)
+    override suspend fun install(identity: StoreIdentity, secret: ByteArray, operation: StorageOperation, key: String?): StorageError? {
+        var handedOver = false
+        try {
+            val itemLabel: String = label ?: identity.service
+            val deleted: NativeOutcome<Int> = caller.call { calls.deleteGenericPassword(identity.service, identity.macAccount, caller.allowUi) }
+            val deleteStatus: Int = (deleted as? NativeOutcome.Completed)?.value ?: return ErrorMapping.nativeOutcome(deleted, operation, key)
+            (ErrorMapping.macDelete(deleteStatus, operation, key) as? Verdict.Failed)?.let { return it.error }
+            // From here the call owns the array (see NativeCaller.callOwning): a call that outlives its caller's time limit may still
+            // be reading it, so only the native thread wipes it, after the call returns; a call that never runs is wiped by the caller.
+            handedOver = true
+            val added: NativeOutcome<Int?> = caller.callOwning(secret) { owned: ByteArray ->
+                calls.addGenericPassword(identity.service, identity.macAccount, itemLabel, owned, caller.allowUi)
             }
+            val addStatus: Int = (added as? NativeOutcome.Completed)?.value ?: return ErrorMapping.nativeOutcome(added, operation, key)
+            return (ErrorMapping.macAdd(addStatus, operation, key) as? Verdict.Failed)?.error
+        } finally {
+            // Every way out before the hand-over (a failed delete, a caller cancelled during it) wipes the copy here.
+            if (!handedOver) secret.fill(0)
         }
-        val addStatus: Int = (added as? NativeOutcome.Completed)?.value ?: return ErrorMapping.nativeOutcome(added, operation, key)
-        return (ErrorMapping.macAdd(addStatus, operation, key) as? Verdict.Failed)?.error
     }
 }
 
@@ -179,13 +216,9 @@ internal class WindowsBackend(
         val dataKey: ByteArray = newDataKey()
         var delivered = false
         try {
-            val plain: ByteArray = dataKey.copyOf() // owned by the native call (see MacBackend.install)
-            val outcome: NativeOutcome<RawResult<ByteArray>> = caller.callLimited {
-                try {
-                    calls.protect(plain, identity.windowsEntropy)
-                } finally {
-                    plain.fill(0)
-                }
+            // A copy owned by the native call (see NativeCaller.callOwning and MacBackend.install).
+            val outcome: NativeOutcome<RawResult<ByteArray>?> = caller.callOwning(dataKey.copyOf(), interactive = false) { owned: ByteArray ->
+                calls.protect(owned, identity.windowsEntropy)
             }
             val raw: RawResult<ByteArray> = (outcome as? NativeOutcome.Completed)?.value ?: return failed(outcome, operation, key)
             return when (raw) {
@@ -205,7 +238,10 @@ internal class WindowsBackend(
         }
     }
 
-    override suspend fun install(identity: StoreIdentity, dataKey: ByteArray, operation: StorageOperation, key: String?): StorageError? = null
+    override suspend fun install(identity: StoreIdentity, secret: ByteArray, operation: StorageOperation, key: String?): StorageError? {
+        secret.fill(0) // nothing to install: DPAPI keeps the key in the header
+        return null
+    }
 
     private fun wipeSuccess(raw: RawResult<ByteArray>) {
         if (raw is RawResult.Success) raw.value.fill(0)
@@ -282,21 +318,28 @@ internal class LinuxBackend(
     override suspend fun newKey(identity: StoreIdentity, operation: StorageOperation, key: String?, newDataKey: () -> ByteArray): Verdict<NewKey> =
         Verdict.Ok(NewKey(HeaderBody.OsItem(identity.headerFingerprint, SecureFileFormat.OS_TAG_LINUX), newDataKey()))
 
-    override suspend fun install(identity: StoreIdentity, dataKey: ByteArray, operation: StorageOperation, key: String?): StorageError? {
-        val itemLabel: String = label ?: identity.service
-        val cleared: NativeOutcome<SecretStatus> = caller.call { calls.clear(identity.linuxAttributes) }
-        val clearStatus: SecretStatus = (cleared as? NativeOutcome.Completed)?.value ?: return ErrorMapping.nativeOutcome(cleared, operation, key)
-        if (!clearStatus.isSuccess) return ErrorMapping.linuxStatus(clearStatus, operation, key)
-        val secret: ByteArray = Base64.getEncoder().encode(dataKey) // owned by the native call (see MacBackend.install)
-        val stored: NativeOutcome<SecretStatus> = caller.call {
-            try {
-                calls.store(itemLabel, identity.linuxAttributes, secret)
-            } finally {
-                secret.fill(0)
+    override suspend fun install(identity: StoreIdentity, secret: ByteArray, operation: StorageOperation, key: String?): StorageError? {
+        var handedOver = false
+        try {
+            val itemLabel: String = label ?: identity.service
+            val cleared: NativeOutcome<SecretStatus> = caller.call { calls.clear(identity.linuxAttributes) }
+            val clearStatus: SecretStatus = (cleared as? NativeOutcome.Completed)?.value ?: return ErrorMapping.nativeOutcome(cleared, operation, key)
+            if (!clearStatus.isSuccess) return ErrorMapping.linuxStatus(clearStatus, operation, key)
+            handedOver = true
+            // The base64 text is made on the native thread, inside the block, and wiped there: no unwiped encoding can be left behind.
+            val stored: NativeOutcome<SecretStatus?> = caller.callOwning(secret) { owned: ByteArray ->
+                val encoded: ByteArray = Base64.getEncoder().encode(owned)
+                try {
+                    calls.store(itemLabel, identity.linuxAttributes, encoded)
+                } finally {
+                    encoded.fill(0)
+                }
             }
+            val status: SecretStatus = (stored as? NativeOutcome.Completed)?.value ?: return ErrorMapping.nativeOutcome(stored, operation, key)
+            return if (status.isSuccess) null else ErrorMapping.linuxStatus(status, operation, key)
+        } finally {
+            if (!handedOver) secret.fill(0)
         }
-        val status: SecretStatus = (stored as? NativeOutcome.Completed)?.value ?: return ErrorMapping.nativeOutcome(stored, operation, key)
-        return if (status.isSuccess) null else ErrorMapping.linuxStatus(status, operation, key)
     }
 
     private fun wipeLookup(raw: RawResult<SecretLookup>) {
