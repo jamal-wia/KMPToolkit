@@ -354,6 +354,8 @@ public enum class AndroidKeyBacking { DEFAULT, PREFER_STRONGBOX, REQUIRE_STRONGB
 public enum class AndroidKeySecurityLevel { SOFTWARE, TRUSTED_ENVIRONMENT, STRONGBOX, UNKNOWN }
 ```
 
+`AndroidKeyBacking` and `AndroidKeySecurityLevel` may grow in a minor version: give a `when` over either an `else`.
+
 The options apply **when a key is generated**, which is the first use of a store on a device. An existing key keeps the properties it was generated with; the
 library has no call that regenerates it, because that would make every stored value `Undecryptable`. To get a key with new properties, open the store under
 another `StorageConfig.name` and move the values you want to keep, or clear the app's data. The classes are plain classes, not data classes, so an option can be added in a
@@ -539,6 +541,8 @@ public enum class DesktopKeyStore {
     LINUX_SECRET_PORTAL,
 }
 ```
+
+`DesktopKeyStore` may grow in a minor version: give a `when` over it an `else` that fails closed.
 
 `probeDesktopKeyStore(options)` reports which key store a secure store would use now, or why none can: `Success(DesktopKeyStore)`, `Unsupported` (no key store, no user session, an unusable runtime or OS),
 `Unavailable` (a keychain locked while `allowUserInteraction = false`, a service that did not answer in time), or `OperationFailed(ENSURE_KEY, key = null)` for anything else. It never prompts, never reads,

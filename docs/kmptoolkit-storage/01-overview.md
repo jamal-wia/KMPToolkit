@@ -136,7 +136,7 @@ listed under `Breaking` in the changelog, so the compiler points at every `when`
 | `OperationFailed` | the operation failed on I/O or an unexpected platform status | log it; the same call may succeed on retry |
 | `InvalidValue(key)` | the value can never be accepted or parsed (a typed read of another type, a surrogate in a `put`) | never retry the same value; drop it or fix the caller |
 
-`StorageOperation`, `UnsupportedReason` and `SecureStorageProtection` are descriptive enums and **may grow in a minor version**:
+`StorageOperation`, `UnsupportedReason` and `SecureStorageProtection` are descriptive enums and **may grow in a minor version**, and so are the platform ones, `DesktopKeyStore`, `AndroidKeyBacking` and `AndroidKeySecurityLevel`:
 give a `when` over any of them an `else` that fails closed (log it, show a generic "not available here"), never an `else` that retries or deletes.
 
 The cause of an error never carries a stored value, and `StorageResult.Success.toString()` prints a constant, so logging a
