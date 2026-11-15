@@ -17,6 +17,19 @@ The first build phase runs `./gradlew :storage-ios-harness:linkDebugFrameworkIos
 `ANDROID_HOME` defaulting to `~/Library/Android/sdk`). Or open the project in Xcode and run the `StorageHarness` scheme
 on an iPhone simulator. Each row of the list runs one case; automatic cases end `PASS` or `FAIL`, manual ones `OBSERVED`.
 
+To get a log without tapping (for example for a release check or to paste into an issue), run the app with the
+launch argument `--run-automatic`: it runs every automatic case and prints one `<id> PASS|FAIL` line per case, the
+case's checks indented below it, and a final `HARNESS DONE cases=<n> notPassed=<k>` line.
+
+```bash
+xcrun simctl boot "iPhone 16"   # or any booted iPhone simulator
+xcrun simctl install booted <derived data>/Build/Products/Debug-iphonesimulator/StorageHarnessHost.app
+xcrun simctl launch --console booted io.github.jamal-wia.kmptoolkit.storageharness --run-automatic
+```
+
+A `FAIL` line is a failed check of the library (a failed library call fails its case at the step that made it, never
+passes silently). Manual cases are not run by the argument.
+
 The entitlements grant two access groups besides the default one (`StorageHarness.entitlements`). The simulator accepts
 these literal identifiers; a real device would need a team id prefix, so the harness is simulator-only.
 
@@ -25,12 +38,14 @@ these literal identifiers; a real device would need a team id prefix, so the har
 | Case | Automatic | What it proves |
 |---|---|---|
 | `duplicate-retry` | yes | Forty concurrent first writes of one key all succeed (`errSecDuplicateItem` retried as an update). |
+| `put-remove-race` | yes | Eight writers, four removers and two clearing stores race on three keys: nothing fails (a put that lost its add and then met a remove retries, bounded) and every key ends absent or whole. |
 | `clear-across-group` | yes | `clear()` empties a store across an access group and spares a same-named store in another group. |
-| `null-group-clear` | yes | Confirms or refutes I-2b (reproduces the old group-less delete by hand and prints whether it reaches the shared group), then checks the 6.0.0 `clear()` spares the shared-group store and leaves no probe. |
+| `null-group-clear` | yes | Confirms or refutes I-2b (reproduces the old group-less delete by hand and prints whether it reaches the shared group), then checks the 6.0.0 `clear()` spares the shared-group store and leaves no probe, does not adopt a probe another process left in the shared group, and survives six concurrent clears. |
 | `synchronizable-clear` | yes | `clear()` removes synchronizable items (I-2a). |
 | `accessibility-on-update` | yes | An overwrite moves an item to the configured accessibility (I-1). |
 | `missing-entitlement` | yes | `-34018` on an ungranted group is `Unsupported(MISSING_ENTITLEMENT)` for every operation. |
 | `ensure-key-changes-nothing` | yes | `ensureKey()` creates and changes nothing. |
+| `ensure-key-user-presence` | yes | `ensureKey()` of a user-presence store that holds an item is `Success` and shows no sheet (a `FAIL` shows the real status and means the mapping needs a fix). |
 | `up-user-presence`, `up-biometry-any`, `up-biometry-current-set` | manual | The system sheet on every `get`, matching and non-matching Face ID, cancel is `AccessDenied(-128)`. |
 | `bcs-store`, `bcs-read` | manual | The status after a Face ID re-enrollment with `BIOMETRY_CURRENT_SET`. |
 | `passcode-store`, `passcode-read` | manual | What a read answers after the passcode is removed with `WHEN_PASSCODE_SET_THIS_DEVICE_ONLY`. |

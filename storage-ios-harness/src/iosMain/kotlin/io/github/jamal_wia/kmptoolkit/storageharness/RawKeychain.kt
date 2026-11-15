@@ -15,11 +15,15 @@ import platform.CoreFoundation.kCFTypeDictionaryKeyCallBacks
 import platform.CoreFoundation.kCFTypeDictionaryValueCallBacks
 import platform.Foundation.CFBridgingRelease
 import platform.Foundation.CFBridgingRetain
+import platform.Security.SecItemAdd
 import platform.Security.SecItemCopyMatching
 import platform.Security.SecItemDelete
 import platform.Security.errSecItemNotFound
 import platform.Security.errSecSuccess
 import platform.Security.kSecAttrAccessGroup
+import platform.Security.kSecAttrAccessible
+import platform.Security.kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+import platform.Security.kSecAttrAccount
 import platform.Security.kSecAttrService
 import platform.Security.kSecAttrSynchronizable
 import platform.Security.kSecAttrSynchronizableAny
@@ -93,6 +97,21 @@ internal object RawKeychain {
         dictionary.constant(kSecClass, kSecClassGenericPassword)
         dictionary.string(kSecAttrService, service)
         return dictionary.use { SecItemDelete(it) }
+    }
+
+    /**
+     * Adds a local item of [service] under [account] in exactly [group]: what another process (an app extension that
+     * lists [group] first) leaves behind when it is killed between the add and the delete of its default-group
+     * probe. Returns the status.
+     */
+    fun addItem(service: String, account: String, group: String): Int {
+        val dictionary = Dict()
+        dictionary.constant(kSecClass, kSecClassGenericPassword)
+        dictionary.string(kSecAttrService, service)
+        dictionary.string(kSecAttrAccount, account)
+        dictionary.string(kSecAttrAccessGroup, group)
+        dictionary.constant(kSecAttrAccessible, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+        return dictionary.use { SecItemAdd(it, null) }
     }
 
     /** Deletes every item of [service] in every group, local and synchronizable: harness hygiene between cases. */

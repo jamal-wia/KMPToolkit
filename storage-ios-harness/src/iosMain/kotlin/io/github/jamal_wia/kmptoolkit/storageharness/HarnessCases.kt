@@ -22,6 +22,9 @@ internal const val OTHER_GROUP: String = "io.github.jamal-wia.kmptoolkit.storage
 /** A group no entitlement of the host app grants: every operation on it must answer MISSING_ENTITLEMENT. */
 internal const val UNGRANTED_GROUP: String = "io.github.jamal-wia.kmptoolkit.storageharness.notgranted"
 
+/** The shape of every value the race case writes. */
+private val WRITTEN_VALUE: Regex = Regex("w\\d+-\\d+")
+
 /** What one case writes down: checks that pass or fail, and observations a person (or the CHANGELOG) will read. */
 internal class CaseLog {
     private val lines: MutableList<String> = mutableListOf()
@@ -39,6 +42,15 @@ internal class CaseLog {
     }
 
     fun text(): String = lines.joinToString("\n")
+}
+
+/**
+ * A step a later check depends on (a seeding put, a clear before the look at the Keychain). A failed library call
+ * fails the case here, in its own line, instead of letting a later check hold vacuously on an empty Keychain.
+ */
+internal fun CaseLog.must(step: String, result: StorageResult<*>) {
+    note("$step: ${describe(result)}")
+    check("$step succeeded", result is StorageResult.Success, describe(result))
 }
 
 internal class Case(
@@ -94,6 +106,48 @@ internal val allCases: List<Case> = listOf(
         RawKeychain.wipe(RawKeychain.serviceOf(name))
     },
     Case(
+        id = "put-remove-race",
+        title = "put() against concurrent remove() and clear() (breaker M1)",
+        manual = false,
+        instructions = "Eight writers put three keys while four removers remove them and two stores clear the default group, all at once. No put, remove or clear may fail (a put that lost its add and then met a remove must retry, not report -25300), and every key ends absent or holding one whole value.",
+    ) {
+        val name: String = fresh("harness.putrace")
+        val service: String = RawKeychain.serviceOf(name)
+        val keys: List<String> = listOf("a", "b", "c")
+        val results: List<StorageResult<Unit>> = coroutineScope {
+            val writers = (0 until 8).map { writer ->
+                async(Dispatchers.Default) {
+                    val store: SecureKeyValueStorage = storeNamed(name)
+                    (0 until 40).map { step -> store.put(keys[(writer + step) % keys.size], "w$writer-$step") }
+                }
+            }
+            val removers = (0 until 4).map { remover ->
+                async(Dispatchers.Default) {
+                    val store: SecureKeyValueStorage = storeNamed(name)
+                    (0 until 40).map { step -> store.remove(keys[(remover + step) % keys.size]) }
+                }
+            }
+            val clearers = (0 until 2).map {
+                async(Dispatchers.Default) {
+                    val store: SecureKeyValueStorage = storeNamed(name)
+                    (0 until 20).map { store.clear() }
+                }
+            }
+            (writers + removers + clearers).awaitAll().flatten()
+        }
+        val failed: List<StorageResult.Failure> = results.filterIsInstance<StorageResult.Failure>()
+        check("no put, remove or clear failed (${results.size} calls)", failed.isEmpty(), failed.take(3).toString())
+        val items: List<RawKeychain.Item> = RawKeychain.items(service)
+        check("at most one item per key remains", items.size <= keys.size && items.map { it.account }.toSet().size == items.size, items.toString())
+        check("no probe item is left", RawKeychain.items("$service.accessgroupprobe").isEmpty())
+        for (key: String in keys) {
+            val read: StorageResult<String?> = storeNamed(name).get(key)
+            val value: String? = (read as? StorageResult.Success)?.value
+            check("$key reads absent or one whole value", read is StorageResult.Success && (value == null || WRITTEN_VALUE.matches(value)), describe(read))
+        }
+        RawKeychain.wipe(service)
+    },
+    Case(
         id = "clear-across-group",
         title = "clear() across an access group",
         manual = false,
@@ -103,27 +157,28 @@ internal val allCases: List<Case> = listOf(
         val a: SecureKeyValueStorage = storeNamed(name, accessGroup = SHARED_GROUP)
         val b: SecureKeyValueStorage = storeNamed(name, accessGroup = SHARED_GROUP)
         val other: SecureKeyValueStorage = storeNamed(name, accessGroup = OTHER_GROUP)
-        note("put b: " + describe(b.put("x", "from-b")))
-        note("put other: " + describe(other.put("y", "from-other-group")))
+        must("put b", b.put("x", "from-b"))
+        must("put other", other.put("y", "from-other-group"))
         check("b wrote into the shared group", RawKeychain.items(RawKeychain.serviceOf(name), SHARED_GROUP).size == 1)
-        note("clear a: " + describe(a.clear()))
-        check("b's item is gone", (b.get("x") as? StorageResult.Success)?.value == null)
-        check("the other group's item survived", (other.get("y") as? StorageResult.Success)?.value == "from-other-group")
+        must("clear a", a.clear())
+        check("b's item is gone", b.get("x") == StorageResult.Success(null), describe(b.get("x")))
+        check("the other group's item survived", other.get("y") == StorageResult.Success("from-other-group"), describe(other.get("y")))
         RawKeychain.wipe(RawKeychain.serviceOf(name))
     },
     Case(
         id = "null-group-clear",
         title = "accessGroup = null clear() and a same-name store in a shared group (I-2b)",
         manual = false,
-        instructions = "Confirms or refutes defect I-2b and checks the 6.0.0 fix. Step 1 reproduces the old clear() by hand (a delete by service naming no group) and records whether it reaches the shared group. Step 2 runs the library's clear() on the default-group store: the shared-group store must keep its item.",
+        instructions = "Confirms or refutes defect I-2b and checks the 6.0.0 fix. Step 1 reproduces the old clear() by hand (a delete by service naming no group) and records whether it reaches the shared group. Step 2 runs the library's clear() on the default-group store: the shared-group store must keep its item. Step 3 seeds a probe of another process in the shared group: clear() must not adopt it (the default-group store is cleared, the shared one and the foreign probe are untouched). Step 4 runs six clears at once.",
     ) {
         val name: String = fresh("harness.nullgroup")
         val service: String = RawKeychain.serviceOf(name)
         val defaultStore: SecureKeyValueStorage = storeNamed(name)
         val sharedStore: SecureKeyValueStorage = storeNamed(name, accessGroup = SHARED_GROUP)
+        val probeService = "$service.accessgroupprobe"
 
-        note("put default: " + describe(defaultStore.put("k", "default-group")))
-        note("put shared: " + describe(sharedStore.put("k", "shared-group")))
+        must("put default", defaultStore.put("k", "default-group"))
+        must("put shared", sharedStore.put("k", "shared-group"))
         val before: List<RawKeychain.Item> = RawKeychain.items(service)
         before.forEach { note("  item: $it") }
         check("two items exist, in two groups", before.map { it.group }.toSet().size == 2)
@@ -137,14 +192,37 @@ internal val allCases: List<Case> = listOf(
 
         // Step 2: the library's clear().
         RawKeychain.wipe(service)
-        defaultStore.put("k", "default-group")
-        sharedStore.put("k", "shared-group")
-        val cleared: StorageResult<Unit> = defaultStore.clear()
-        note("clear default store: " + describe(cleared))
-        check("clear succeeded", cleared is StorageResult.Success)
-        check("the shared-group store kept its item", (sharedStore.get("k") as? StorageResult.Success)?.value == "shared-group")
-        check("the default group's item is gone", RawKeychain.items(service).none { it.group != SHARED_GROUP })
-        check("no probe item is left", RawKeychain.items("$service.accessgroupprobe").isEmpty())
+        must("put default", defaultStore.put("k", "default-group"))
+        must("put shared", sharedStore.put("k", "shared-group"))
+        must("clear default store", defaultStore.clear())
+        check("the shared-group store kept its item", sharedStore.get("k") == StorageResult.Success("shared-group"), describe(sharedStore.get("k")))
+        check("the default group's item is gone", RawKeychain.items(service).none { it.group != SHARED_GROUP }, RawKeychain.items(service).toString())
+        check("no probe item is left", RawKeychain.items(probeService).isEmpty(), RawKeychain.items(probeService).toString())
+
+        // Step 3 (breaker M2): a probe another process left in the shared group (an extension that lists the shared
+        // group first and was killed between its probe add and delete) must not be taken for this app's default group.
+        RawKeychain.wipe(service)
+        must("put default", defaultStore.put("k", "default-group"))
+        must("put shared", sharedStore.put("k", "shared-group"))
+        val seeded: Int = RawKeychain.addItem(probeService, "kmptoolkit.accessgroupprobe.foreign", SHARED_GROUP)
+        check("a foreign probe was seeded in the shared group", seeded == 0, "status $seeded")
+        must("clear default store next to the foreign probe", defaultStore.clear())
+        check("the shared-group store kept its item", sharedStore.get("k") == StorageResult.Success("shared-group"), describe(sharedStore.get("k")))
+        check("the default group's item is gone", RawKeychain.items(service).none { it.group != SHARED_GROUP }, RawKeychain.items(service).toString())
+        check("the foreign probe is untouched", RawKeychain.items(probeService, SHARED_GROUP).size == 1, RawKeychain.items(probeService).toString())
+        check("no probe is left in the default group", RawKeychain.items(probeService).none { it.group != SHARED_GROUP }, RawKeychain.items(probeService).toString())
+
+        // Step 4: six clears of default-group stores at once (each probes under its own account).
+        RawKeychain.wipe(service)
+        RawKeychain.wipe(probeService)
+        must("put default", defaultStore.put("k", "default-group"))
+        must("put shared", sharedStore.put("k", "shared-group"))
+        val clears: List<StorageResult<Unit>> = coroutineScope {
+            (0 until 6).map { async(Dispatchers.Default) { storeNamed(name).clear() } }.awaitAll()
+        }
+        check("six concurrent clears all succeeded", clears.all { it is StorageResult.Success }, clears.filterIsInstance<StorageResult.Failure>().take(3).toString())
+        check("the shared-group store still has its item", sharedStore.get("k") == StorageResult.Success("shared-group"), describe(sharedStore.get("k")))
+        check("no probe item is left", RawKeychain.items(probeService).isEmpty(), RawKeychain.items(probeService).toString())
         RawKeychain.wipe(service)
     },
     Case(
@@ -157,12 +235,12 @@ internal val allCases: List<Case> = listOf(
         val service: String = RawKeychain.serviceOf(name)
         val synced: SecureKeyValueStorage = storeNamed(name, accessibility = KeychainAccessibility.AFTER_FIRST_UNLOCK, synchronizable = true)
         val local: SecureKeyValueStorage = storeNamed(name)
-        note("put synced: " + describe(synced.put("k", "cloud")))
-        note("put local: " + describe(local.put("k", "device")))
+        must("put synced", synced.put("k", "cloud"))
+        must("put local", local.put("k", "device"))
         RawKeychain.items(service).forEach { note("  item: $it") }
         check("the synchronizable item exists", RawKeychain.items(service).any { it.synchronizable == "1" })
-        check("each store reads only its own kind", (synced.get("k") as? StorageResult.Success)?.value == "cloud" && (local.get("k") as? StorageResult.Success)?.value == "device")
-        note("clear synced: " + describe(synced.clear()))
+        check("each store reads only its own kind", synced.get("k") == StorageResult.Success("cloud") && local.get("k") == StorageResult.Success("device"))
+        must("clear synced", synced.clear())
         check("clear removed the synchronizable item and the local one of the same store name", RawKeychain.items(service).isEmpty(), RawKeychain.items(service).toString())
         RawKeychain.wipe(service)
     },
@@ -174,10 +252,10 @@ internal val allCases: List<Case> = listOf(
     ) {
         val name: String = fresh("harness.accessibility")
         val service: String = RawKeychain.serviceOf(name)
-        note("put (WHEN_UNLOCKED): " + describe(storeNamed(name, accessibility = KeychainAccessibility.WHEN_UNLOCKED).put("k", "1")))
+        must("put (WHEN_UNLOCKED)", storeNamed(name, accessibility = KeychainAccessibility.WHEN_UNLOCKED).put("k", "1"))
         val created: String? = RawKeychain.items(service).singleOrNull()?.accessible
         note("accessible after create: $created")
-        note("put (AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY): " + describe(storeNamed(name).put("k", "2")))
+        must("put (AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY)", storeNamed(name).put("k", "2"))
         val updated: String? = RawKeychain.items(service).singleOrNull()?.accessible
         note("accessible after update: $updated")
         // kSecAttrAccessible values: ak = WhenUnlocked, cku = AfterFirstUnlockThisDeviceOnly.
@@ -215,12 +293,29 @@ internal val allCases: List<Case> = listOf(
         val store: SecureKeyValueStorage = storeNamed(name)
         check("ensureKey on an empty store succeeds", store.ensureKey() is StorageResult.Success)
         check("and creates nothing", RawKeychain.items(service).isEmpty())
-        store.put("a", "1")
-        store.put("b", "2")
+        must("put a", store.put("a", "1"))
+        must("put b", store.put("b", "2"))
         val before: List<String> = RawKeychain.items(service).map { it.toString() }.sorted()
         check("ensureKey with items succeeds", store.ensureKey() is StorageResult.Success)
         check("and changes no attribute", RawKeychain.items(service).map { it.toString() }.sorted() == before)
-        check("and no value", (store.get("a") as? StorageResult.Success)?.value == "1" && (store.get("b") as? StorageResult.Success)?.value == "2")
+        check("and no value", store.get("a") == StorageResult.Success("1") && store.get("b") == StorageResult.Success("2"))
+        RawKeychain.wipe(service)
+    },
+    Case(
+        id = "ensure-key-user-presence",
+        title = "ensureKey() of a user-presence store that has items (m1)",
+        manual = false,
+        instructions = "A USER_PRESENCE store writes one new item (a write of a new item shows no sheet), then ensureKey() runs: it must show no sheet and answer Success. If it answers Unavailable the attribute-only query reports errSecInteractionNotAllowed for an item that needs authentication, and ensureKey of a user-presence store must map that status to Success (a locked device answers the same status for a plain store). Needs a simulator with a passcode or Face ID enrolled; a failed put says so.",
+    ) {
+        val name: String = fresh("harness.ensureuserpresence")
+        val service: String = RawKeychain.serviceOf(name)
+        val store: SecureKeyValueStorage = storeNamed(name, userPresence = IosUserPresence(IosUserPresencePolicy.USER_PRESENCE, "Harness: authenticate to continue"))
+        must("put (a new item)", store.put("secret", "one"))
+        check("the item exists", RawKeychain.items(service).size == 1, RawKeychain.items(service).toString())
+        val ensured: StorageResult<Unit> = store.ensureKey()
+        note("ensureKey with an item that needs authentication: " + describe(ensured))
+        check("ensureKey of a user-presence store that has items is Success", ensured is StorageResult.Success, describe(ensured))
+        must("clear", store.clear())
         RawKeychain.wipe(service)
     },
     userPresenceCase("up-user-presence", "User presence: biometry or passcode", IosUserPresencePolicy.USER_PRESENCE),
@@ -234,7 +329,7 @@ internal val allCases: List<Case> = listOf(
     ) {
         val name: String = fresh("harness.bcs")
         val store: SecureKeyValueStorage = storeNamed(name, userPresence = IosUserPresence(IosUserPresencePolicy.BIOMETRY_CURRENT_SET, "Harness: store a secret"))
-        note("put: " + describe(store.put("secret", "value")))
+        must("put", store.put("secret", "value"))
         note("items: " + RawKeychain.items(RawKeychain.serviceOf(name)))
     },
     Case(
@@ -256,7 +351,7 @@ internal val allCases: List<Case> = listOf(
     ) {
         val name: String = fresh("harness.passcode")
         val store: SecureKeyValueStorage = storeNamed(name, accessibility = KeychainAccessibility.WHEN_PASSCODE_SET_THIS_DEVICE_ONLY)
-        note("put: " + describe(store.put("secret", "value")))
+        must("put", store.put("secret", "value"))
         note("items: " + RawKeychain.items(RawKeychain.serviceOf(name)))
     },
     Case(
@@ -287,11 +382,13 @@ private fun userPresenceCase(id: String, title: String, policy: IosUserPresenceP
 ) {
     val name: String = fresh("harness.$id")
     val store: SecureKeyValueStorage = storeNamed(name, userPresence = IosUserPresence(policy, "Harness: authenticate to continue"))
-    note("ensureKey (must never show a sheet): " + describe(store.ensureKey()))
-    note("put 1 (new item): " + describe(store.put("secret", "one")))
+    must("put 1 (a new item shows no sheet)", store.put("secret", "one"))
+    val ensured: StorageResult<Unit> = store.ensureKey()
+    note("ensureKey after put 1 (must never show a sheet): " + describe(ensured))
+    check("ensureKey of a store that has an item is Success (Unavailable here means the mapping needs the m1 fix)", ensured is StorageResult.Success, describe(ensured))
     note("get 1 (the sheet must show): " + describe(store.get("secret")))
     note("put 2 (overwrite; does a sheet show?): " + describe(store.put("secret", "two")))
     note("get 2 (the sheet must show again, once per get): " + describe(store.get("secret")))
-    note("clear (must never show a sheet): " + describe(store.clear()))
+    must("clear (must never show a sheet)", store.clear())
     note("items after clear: " + RawKeychain.items(RawKeychain.serviceOf(name)))
 }

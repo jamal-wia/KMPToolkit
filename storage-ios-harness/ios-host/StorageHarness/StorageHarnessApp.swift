@@ -42,6 +42,39 @@ struct ContentView: View {
             }
             .navigationTitle("Storage harness")
         }
+        .onAppear {
+            // `xcrun simctl launch --console <device> <bundle id> --run-automatic` runs every automatic case and
+            // prints `<id> <verdict>` lines (details indented) and a final `HARNESS DONE` line to stdout.
+            if ProcessInfo.processInfo.arguments.contains("--run-automatic") { runAutomatic() }
+        }
+    }
+
+    /// Runs every non-manual case one after the other, as the buttons would, and logs each verdict to stdout.
+    private func runAutomatic() {
+        let automatic = runner.cases().filter { !$0.manual }
+        func step(_ index: Int, _ failed: Int) {
+            if index == automatic.count {
+                emit("HARNESS DONE cases=\(automatic.count) notPassed=\(failed)")
+                return
+            }
+            let info = automatic[index]
+            running = info.id
+            runner.run(id: info.id) { result in
+                verdicts[info.id] = result.verdict
+                details[info.id] = result.details
+                running = nil
+                emit("\(info.id) \(result.verdict)")
+                for line in result.details.split(separator: "\n", omittingEmptySubsequences: false) { emit("    \(line)") }
+                step(index + 1, result.verdict == "PASS" ? failed : failed + 1)
+            }
+        }
+        emit("HARNESS START automaticCases=\(automatic.count)")
+        step(0, 0)
+    }
+
+    private func emit(_ line: String) {
+        print(line)
+        fflush(stdout)
     }
 
     private func color(_ verdict: String) -> Color {
