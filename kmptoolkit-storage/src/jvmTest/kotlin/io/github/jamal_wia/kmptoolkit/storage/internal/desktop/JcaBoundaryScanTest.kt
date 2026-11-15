@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.storage.internal.desktop
 
 import java.io.File
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -8,7 +9,7 @@ import kotlin.test.assertTrue
 /**
  * Group sto-desktop, round 9: a new direct JCA use in the storage module's desktop (jvm) code fails here (baseline zero).
  *
- * The rule (decisions D-P12): `Jca.kt` is the ONE file of `kmptoolkit-storage/src/jvmMain` that names `java.security`,
+ * The rule (decisions D-P12): `Jca.kt` is the ONE file of `kmptoolkit-storage/src/jvmMain` (and `jvmFfm`) that names `java.security`,
  * `javax.crypto`, `java.util.Base64` or one of their types, because that file holds the three rules every provider call needs
  * (any exception typed, "wrong key" decided in one place, an `Error` never caught). A new use elsewhere is the next audit round
  * waiting to happen. The scan reads the source files with comments blanked (a KDoc may talk about `SecureRandom`) and looks for
@@ -29,8 +30,9 @@ import kotlin.test.assertTrue
  * lexer is kept correct for the shapes the breakers found (raw strings closing at the last three quotes of a run, back-quoted names as
  * one token, whitespace around the dots of a qualified name, `::Alias`, a second alias and an import alias).
  *
- * Limits, stated: it scans `jvmMain` of this module only (the Android store's Keystore code and the other modules have their own
- * rules), it is lexical (a use through reflection by a string that does not spell a package name, or through a type that is not
+ * Limits, stated: it scans `jvmMain` and, wherever a branch has that source set, `jvmFfm` of this module (the two source sets of the jvm
+ * jar; `commonMain` cannot name a JDK type and the bytecode scan reads its classes; the Android store's Keystore code and the other
+ * modules have their own rules), it is lexical (a use through reflection by a string that does not spell a package name, or through a type that is not
  * in the list, is not seen), and it needs the module's source directory: it is found from the test's working directory (the
  * module's directory under Gradle, the repository root under an IDE) and the test FAILS when it cannot be found, so a moved
  * working directory cannot turn the scan into a pass. Controls: the tree has files, the boundary file is flagged by the same scan
@@ -38,17 +40,24 @@ import kotlin.test.assertTrue
  */
 class JcaBoundaryScanTest {
 
-    private fun sourceRoot(): File {
+    /** The module's `src` directory, found from the working directory (the module's directory under Gradle, the repository root under an IDE). */
+    private fun moduleSrc(): File {
         val working = File(System.getProperty("user.dir") ?: "")
-        val candidates: List<File> = listOf(
-            File(File(File(working, "src"), "jvmMain"), "kotlin"),
-            File(File(File(File(working, "kmptoolkit-storage"), "src"), "jvmMain"), "kotlin"),
-        )
-        return candidates.firstOrNull { candidate: File -> candidate.isDirectory }
+        val candidates: List<File> = listOf(File(working, "src"), File(File(working, "kmptoolkit-storage"), "src"))
+        return candidates.firstOrNull { candidate: File -> File(File(candidate, "jvmMain"), "kotlin").isDirectory }
             ?: error("the storage module's jvmMain sources were not found from ${working.path}: the boundary scan cannot run (it must not pass silently)")
     }
 
-    private fun sources(): List<File> = sourceRoot().walkTopDown().filter { file: File -> file.isFile && file.extension == "kt" }.toList()
+    /**
+     * The source roots of the desktop code that is compiled into the jvm jar: `jvmMain` (always) and `jvmFfm` (the source set of the
+     * `ffm` compilation, wherever a branch has one), the same two the bytecode scan reads the output of. `commonMain` cannot name a
+     * JDK type and is covered by the bytecode scan.
+     */
+    private fun sourceRoots(moduleSrc: File): List<File> =
+        listOf("jvmMain", "jvmFfm").map { set: String -> File(File(moduleSrc, set), "kotlin") }.filter { root: File -> root.isDirectory }
+
+    private fun sources(roots: List<File> = sourceRoots(moduleSrc())): List<File> =
+        roots.flatMap { root: File -> root.walkTopDown().filter { file: File -> file.isFile && file.extension == "kt" }.toList() }
 
     private fun isBoundary(file: File): Boolean = file.name == "Jca.kt" && file.parentFile?.name == "desktop"
 
@@ -63,6 +72,32 @@ class JcaBoundaryScanTest {
             scan(file.readText()).map { hit: String -> "${file.name}: $hit" }
         }
         assertEquals(emptyList(), offenders, "a direct JCA use outside Jca.kt: route it through the boundary (D-P12)")
+    }
+
+    @Test
+    fun `the jvmFfm sources are scanned exactly when that source set exists and a use there is flagged`() {
+        val real: File = moduleSrc()
+        assertEquals(
+            if (File(File(real, "jvmFfm"), "kotlin").isDirectory) 2 else 1,
+            sourceRoots(real).size,
+            "the jvmFfm root is scanned exactly when it exists on this branch",
+        )
+        val root: File = Files.createTempDirectory("kmptoolkit-jca-roots").toFile()
+        try {
+            val main: File = File(File(root, "jvmMain"), "kotlin").also { it.mkdirs() }
+            File(main, "A.kt").writeText("class A")
+            assertEquals(listOf(main), sourceRoots(root), "a branch without jvmFfm is not an error")
+            val ffm: File = File(File(root, "jvmFfm"), "kotlin").also { it.mkdirs() }
+            File(ffm, "B.kt").writeText("import javax.crypto.Cipher\nclass B")
+            assertEquals(listOf(main, ffm), sourceRoots(root), "jvmFfm is scanned once it exists")
+            assertEquals(
+                listOf("B.kt"),
+                sources(sourceRoots(root)).filter { file: File -> scan(file.readText()).isNotEmpty() }.map { file: File -> file.name },
+                "a JCA use in a jvmFfm source is found",
+            )
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     @Test
