@@ -142,7 +142,11 @@ class AutoStreamRound5Test {
         val gpsRequest: Int = log.indexOf("request:$gps")
         assertTrue(gpsRequest > 0, "control: gps was asked: $log")
         assertEquals("fine", log[gpsRequest - 1], "the fine grant must be read right before gps is asked: $log")
-        assertNotEquals("fine", log.getOrNull(gpsRequest + 1), "the grant was read again after the refusal: $log")
+        // Round 6: the start's closing evaluation now re-reads the grant after the refusal (it behaves like a service
+        // event, breaker R5 m1), so a read after the refusal is legitimate; what must not happen is a second ask
+        // of the platform while the grant is unchanged. The grant-landed-after-refusal order is pinned by
+        // GrantAndWaitingStreamRound6Test (red when the read moves behind the request).
+        assertEquals(1, log.count { entry: String -> entry == "request:$gps" }, "the grant did not change: gps is asked once: $log")
         job.cancelAndJoin()
         assertEquals(0, fake.registeredCount)
         assertEquals(0, fake.subscriberCount)
