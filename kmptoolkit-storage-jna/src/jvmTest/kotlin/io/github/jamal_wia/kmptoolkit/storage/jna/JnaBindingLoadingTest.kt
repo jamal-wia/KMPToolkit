@@ -89,6 +89,10 @@ class JnaBindingLoadingTest {
         assertTrue(lines.any { it.startsWith("-keep class com.sun.jna.** ") })
         val libraryRule = "-keep interface io.github.jamal_wia.kmptoolkit.storage.jna.** extends com.sun.jna.Library"
         assertTrue(lines.any { it.startsWith(libraryRule) }, "the JNA interfaces are bound by method name and must not be renamed")
+        val callbackRule = "-keep interface io.github.jamal_wia.kmptoolkit.storage.jna.** extends com.sun.jna.Callback"
+        assertTrue(lines.any { it.startsWith(callbackRule) }, "a native callback interface is bound to its method by reflection and must not be renamed")
+        assertTrue(com.sun.jna.Callback::class.java.isAssignableFrom(GAsyncReadyCallback::class.java), "GAsyncReadyCallback matches the callback rule only if it extends Callback")
+        assertTrue(lines.any { line: String -> line.startsWith("-keepattributes") && line.removePrefix("-keepattributes").split(',').map(String::trim).contains("Exceptions") }, "JNA reads the throws clause (the Exceptions attribute) to capture GetLastError")
         for (name: String in listOf("CoreFoundationApi", "SecurityApi", "Crypt32Api", "Kernel32Api", "GLibApi", "GObjectApi", "GioApi", "SecretApi")) {
             val type: Class<*> = Class.forName("io.github.jamal_wia.kmptoolkit.storage.jna.$name")
             assertTrue(Library::class.java.isAssignableFrom(type), "$name matches the rule only if it extends Library")

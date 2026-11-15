@@ -314,16 +314,24 @@ app sharing that code with desktop could not compile it for desktop without the 
     `g_error_free`, `g_free`, `g_list_free`, `g_object_unref`, `secret_value_unref`).
   - **libsecret older than 0.19** (a missing library, or any missing symbol the binding uses, `secret_password_search_sync` first)
     answers every Linux call with the dedicated `SYMBOL_MISSING` status, never an exception, so the secure store reports
-    `Unsupported(NO_KEY_STORE)`. Only that one load step catches an `UnsatisfiedLinkError`; a JNA that cannot load at all is a
-    `LinkageError`, which is `NATIVE_ACCESS_UNAVAILABLE`.
+    `Unsupported(NO_KEY_STORE)`. Only the load step catches an `UnsatisfiedLinkError` (for the required symbols, and for the two
+    optional `secret_backend_get` symbols, whose absence means libsecret 0.19, which has no portal); a JNA that cannot load at
+    all is a `LinkageError`, which is `NATIVE_ACCESS_UNAVAILABLE`.
   - **macOS.** `kSecUseDataProtectionKeychain = false` is set on every query; with `allowUi = false` the read, add and delete calls pass
     `kSecUseAuthenticationUI = kSecUseAuthenticationUIFail`, and on a macOS that has no such constant a non-interactive call
     answers `errSecNotAvailable` (-25291) without calling the keychain. The probe never prompts, whatever `allowUi` says.
   - **Linux.** An absent default collection counts as locked (using it needs the service to create one, which can show a
-    prompt). The portal is recognised by libsecret selecting its file backend.
+    prompt). The portal is recognised by asking libsecret which backend it selected: `secret_backend_get` (libsecret 0.20 or
+    newer; there is no synchronous variant) runs on a private GLib main context pushed as the thread default, and the answer is
+    the file backend (`SecretFileBackend`) that libsecret picks inside Flatpak. The binding never releases the `SecretBackend`
+    it gets back, because libsecret caches it without a reference of its own. On the file backend the default collection is
+    reported as unlocked without a D-Bus call. A libsecret older than 0.20 answers "not the portal". A `store` that libsecret
+    answers FALSE without a `GError` is a failure (`G_IO_ERROR_FAILED`), never a success.
   - **ProGuard / R8.** The jar ships `META-INF/proguard/kmptoolkit-storage-jna.pro`, which keeps the binding class, the JNA
-    interfaces of the package (bound to the C functions by method name) and `com.sun.jna.**`. Copy it by hand only if your tool
-    ignores `META-INF/proguard`.
+    interfaces and the native-callback interface of the package (bound by method name), `com.sun.jna.**`, and the class-file
+    `Exceptions` attribute (`-keepattributes Exceptions`: JNA reads the `throws` clause to capture `GetLastError`, so a shrunk
+    app would otherwise report every DPAPI failure as a generic one and never see "no user session"). Copy it by hand only if
+    your tool ignores `META-INF/proguard`.
   - **Real-store suites** (opt-in, run on JDK 21 with this artifact): `-Pkmptoolkit.secretstore=macos|windows|linux`, with
     `-Pkmptoolkit.secretstore.required=true` to turn a skip into a failure; the Linux suite also takes
     `-Pkmptoolkit.secretstore.scenario=unlocked|nobus|noservice`.

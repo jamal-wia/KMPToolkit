@@ -44,7 +44,18 @@ internal class SecretCall(val kind: String, val flags: Int, val schemaName: Stri
  * given back: [leaks] names what was not.
  */
 internal class FakeLinuxLibraries {
-    private class GObj(val memory: Memory, val retrievable: FakeRetrievable?, val typeName: String)
+    private class GObj(val memory: Memory, val retrievable: FakeRetrievable?, val typeName: String) {
+        val refs: AtomicInteger = AtomicInteger(1)
+    }
+
+    /** A private `GMainContext`: the answers queued on it are delivered only by an iteration on the thread that pushed it. */
+    private class FakeContext(val memory: Memory) {
+        val pending: ArrayList<Pending> = ArrayList()
+        @Volatile var pushedBy: Thread? = null
+    }
+
+    /** A queued `GAsyncReadyCallback` delivery: [noise] unrelated sources are dispatched first. */
+    private class Pending(val callback: GAsyncReadyCallback, val task: Pointer, var noise: Int)
 
     private val objects: ConcurrentHashMap<Long, GObj> = ConcurrentHashMap()
     private val errors: ConcurrentHashMap<Long, Pair<Memory, FakeGError>> = ConcurrentHashMap()
@@ -53,7 +64,11 @@ internal class FakeLinuxLibraries {
     private val lists: ConcurrentHashMap<Long, List<Memory>> = ConcurrentHashMap()
     private val quarks: CopyOnWriteArrayList<String> = CopyOnWriteArrayList()
     private val quarkStrings: ConcurrentHashMap<Int, Memory> = ConcurrentHashMap()
-    private val typeStrings: ConcurrentHashMap<Long, Memory> = ConcurrentHashMap()
+    private val typeStrings: ConcurrentHashMap<String, Memory> = ConcurrentHashMap()
+    private val contexts: ConcurrentHashMap<Long, FakeContext> = ConcurrentHashMap()
+    private val threadStack: ThreadLocal<ArrayList<Long>> = ThreadLocal.withInitial { ArrayList() }
+    private val cacheLock = Any()
+    private var cachedBackend: GObj? = null
 
     val calls: CopyOnWriteArrayList<SecretCall> = CopyOnWriteArrayList()
     val created: AtomicInteger = AtomicInteger()
@@ -68,19 +83,50 @@ internal class FakeLinuxLibraries {
     @Volatile var collectionExists: Boolean = true
     @Volatile var collectionLocked: Boolean = false
     @Volatile var backendTypeName: String = "SecretService"
+
+    /** What `secret_backend_get_finish` reports: a `GError`, or (with [finishReturnsNull]) NULL without one. */
     @Volatile var backendError: FakeGError? = null
-    @Volatile var backendMissing: Boolean = false
+    @Volatile var finishReturnsNull: Boolean = false
+
+    /** Whether the loaded libsecret exports `secret_backend_get` (0.20 or newer). */
+    @Volatile var backendApiPresent: Boolean = true
+
+    /** How many unrelated sources a context dispatches before the answer of `secret_backend_get` arrives. */
+    @Volatile var noiseIterations: Int = 0
+
+    /** Deliver the callback inside `secret_backend_get` itself (never what libsecret does; the caller must cope). */
+    @Volatile var deliverInline: Boolean = false
+
+    val backendGets: AtomicInteger = AtomicInteger()
+    val backendFinishes: AtomicInteger = AtomicInteger()
+    val serviceGets: AtomicInteger = AtomicInteger()
+    val contextsCreated: AtomicInteger = AtomicInteger()
+    val contextsPushed: AtomicInteger = AtomicInteger()
+    val contextsPopped: AtomicInteger = AtomicInteger()
+    val contextsUnreferenced: AtomicInteger = AtomicInteger()
+    val blockingIterations: AtomicInteger = AtomicInteger()
+
+    /** Rules of libsecret and glib the code under test broke (a wrong pop, a call outside a pushed context, ...). */
+    val violations: CopyOnWriteArrayList<String> = CopyOnWriteArrayList()
+
+    /** The reference count of libsecret's cached backend singleton, or 0 when it does not exist (or was freed). */
+    val backendRefs: Int get() = synchronized(cacheLock) { cachedBackend?.let { if (objects.containsKey(Pointer.nativeValue(it.memory))) it.refs.get() else 0 } ?: 0 }
+
+    /** Whether libsecret's cached backend singleton is still alive. */
+    val backendAlive: Boolean get() = backendRefs > 0
+
+    /** Contexts, pushes and pops, all balanced: nothing of the private main context outlived the calls. */
+    val contextsBalanced: Boolean
+        get() = contextsCreated.get() == contextsPushed.get() && contextsPushed.get() == contextsPopped.get() &&
+            contextsCreated.get() == contextsUnreferenced.get() && contexts.isEmpty()
 
     /** Everything a call left behind: objects, errors, values, strings and lists that were never given back. */
     val leaks: String
-        get() = listOf("objects" to objects.size, "errors" to errors.size, "values" to values.size, "strings" to strings.size, "lists" to lists.size)
+        get() = listOf("objects" to (objects.size - (if (backendAlive) 1 else 0)), "errors" to errors.size, "values" to values.size, "strings" to strings.size, "lists" to lists.size)
             .filter { it.second != 0 }.joinToString { "${it.first}=${it.second}" }
 
     private fun newObject(retrievable: FakeRetrievable?, typeName: String): Pointer {
         val memory = Memory(16)
-        val klass = Memory(8)
-        klass.setLong(0L, typeNames.indexOf(typeName).toLong() + 100L)
-        memory.setPointer(0L, klass)
         objects[Pointer.nativeValue(memory)] = GObj(memory, retrievable, typeName)
         created.incrementAndGet()
         return memory
@@ -139,18 +185,82 @@ internal class FakeLinuxLibraries {
         override fun g_list_free(list: Pointer?) {
             lists.remove(Pointer.nativeValue(list)) ?: error("g_list_free of an unknown or already freed list")
         }
+
+        override fun g_main_context_new(): Pointer? {
+            val context = FakeContext(Memory(16))
+            contexts[Pointer.nativeValue(context.memory)] = context
+            contextsCreated.incrementAndGet()
+            return context.memory
+        }
+
+        override fun g_main_context_push_thread_default(context: Pointer) {
+            val fake: FakeContext = contexts[Pointer.nativeValue(context)] ?: error("push of a context that does not exist")
+            threadStack.get().add(Pointer.nativeValue(context))
+            fake.pushedBy = Thread.currentThread()
+            contextsPushed.incrementAndGet()
+        }
+
+        override fun g_main_context_pop_thread_default(context: Pointer) {
+            val stack: ArrayList<Long> = threadStack.get()
+            if (stack.lastOrNull() != Pointer.nativeValue(context)) {
+                violations.add("pop of a context that is not this thread's default (stack=$stack)")
+                error("pop of a context that is not this thread's default")
+            }
+            stack.removeAt(stack.lastIndex)
+            contextsPopped.incrementAndGet()
+        }
+
+        override fun g_main_context_iteration(context: Pointer, mayBlock: Boolean): Boolean {
+            val fake: FakeContext = contexts[Pointer.nativeValue(context)] ?: error("iteration of a context that was already released")
+            if (mayBlock) blockingIterations.incrementAndGet()
+            val next: Pending? = fake.pending.firstOrNull()
+            if (next == null) {
+                if (mayBlock) {
+                    violations.add("a blocking iteration of a context with nothing pending would wait forever")
+                    throw AssertionError("g_main_context_iteration(TRUE) on a context with nothing pending would wait forever")
+                }
+                return false
+            }
+            if (next.noise > 0) {
+                next.noise--
+                return true
+            }
+            fake.pending.removeAt(0)
+            if (fake.pushedBy !== Thread.currentThread()) violations.add("the callback ran on a thread that did not push the context")
+            try {
+                next.callback.invoke(null, next.task, null)
+            } finally {
+                gobject.g_object_unref(next.task)
+            }
+            return true
+        }
+
+        override fun g_main_context_unref(context: Pointer) {
+            contexts.remove(Pointer.nativeValue(context)) ?: error("unref of a context that does not exist or was already released")
+            if (threadStack.get().contains(Pointer.nativeValue(context))) violations.add("a context was released while it was still a thread default")
+            contextsUnreferenced.incrementAndGet()
+        }
     }
 
     val gobject: GObjectApi = object : GObjectApi {
         override fun g_object_unref(instance: Pointer) {
-            objects.remove(Pointer.nativeValue(instance)) ?: error("unref of an unknown or already released object")
+            val key: Long = Pointer.nativeValue(instance)
+            val obj: GObj = objects[key] ?: error("unref of an unknown or already released object")
+            if (obj.refs.decrementAndGet() == 0) objects.remove(key)
+        }
+
+        override fun g_object_ref(instance: Pointer): Pointer? {
+            (objects[Pointer.nativeValue(instance)] ?: error("ref of an unknown or already released object")).refs.incrementAndGet()
+            return instance
         }
 
         override fun g_type_check_instance_is_a(instance: Pointer, type: Long): Boolean =
             type == ITEM_TYPE && (objects[Pointer.nativeValue(instance)] ?: error("type check of a released object")).retrievable?.isItem == true
 
-        override fun g_type_name(type: Long): Pointer? =
-            typeStrings.getOrPut(type) { Memory(64).also { it.setString(0L, typeNames[(type - 100L).toInt()], "UTF-8") } }
+        override fun g_type_name_from_instance(instance: Pointer): Pointer? {
+            val name: String = (objects[Pointer.nativeValue(instance)] ?: error("type name of a released instance (use after free)")).typeName
+            return typeStrings.getOrPut(name) { Memory(64).also { it.setString(0L, name, "UTF-8") } }
+        }
     }
 
     val gio: GioApi = object : GioApi {
@@ -225,6 +335,7 @@ internal class FakeLinuxLibraries {
         override fun secret_item_get_locked(item: Pointer): Boolean = (objects[Pointer.nativeValue(item)] ?: error("lock query of a released object")).retrievable!!.locked
 
         override fun secret_service_get_sync(flags: Int, cancellable: Pointer?, error: PointerByReference): Pointer? {
+            serviceGets.incrementAndGet()
             serviceError?.let { newError(it, error); return null }
             return newObject(null, "SecretService")
         }
@@ -238,20 +349,58 @@ internal class FakeLinuxLibraries {
 
         override fun secret_collection_get_locked(collection: Pointer): Boolean = collectionLocked
 
-        override fun secret_backend_get_sync(flags: Int, cancellable: Pointer?, error: PointerByReference): Pointer? {
-            if (backendMissing) throw UnsatisfiedLinkError("secret_backend_get_sync")
+        override fun secret_backend_get(flags: Int, cancellable: Pointer?, callback: GAsyncReadyCallback, userData: Pointer?) {
+            backendGets.incrementAndGet()
+            assertEquals(0, flags, "SECRET_BACKEND_NONE: the probe asks for nothing to be opened or loaded")
+            assertTrue(backendApiPresent, "secret_backend_get was called on a libsecret that does not export it")
+            val stack: ArrayList<Long> = threadStack.get()
+            if (stack.isEmpty()) {
+                violations.add("secret_backend_get called with no private context pushed: the answer would go to the global default context")
+                throw AssertionError("secret_backend_get without a pushed context")
+            }
+            val context: FakeContext = contexts[stack.last()] ?: error("the thread default context was already released")
+            val task: Pointer = newObject(null, "GTask")
+            if (deliverInline) {
+                try {
+                    callback.invoke(null, task, null)
+                } finally {
+                    gobject.g_object_unref(task)
+                }
+            } else {
+                context.pending.add(Pending(callback, task, noiseIterations))
+            }
+        }
+
+        override fun secret_backend_get_finish(result: Pointer, error: PointerByReference): Pointer? {
+            backendFinishes.incrementAndGet()
+            assertTrue(objects.containsKey(Pointer.nativeValue(result)), "finish of a result that was already released")
             backendError?.let { newError(it, error); return null }
-            return newObject(null, backendTypeName)
+            if (finishReturnsNull) return null
+            // libsecret's ownership: the backend it creates is cached WITHOUT a reference of its own, and the caller gets that very
+            // pointer; later calls hand out a real extra reference. A caller that releases the first one frees the singleton.
+            synchronized(cacheLock) {
+                val cached: GObj? = cachedBackend
+                if (cached == null) {
+                    val memory: Pointer = newObject(null, backendTypeName)
+                    cachedBackend = objects[Pointer.nativeValue(memory)]
+                    return memory
+                }
+                if (!objects.containsKey(Pointer.nativeValue(cached.memory))) {
+                    violations.add("libsecret's cached backend was released by a caller")
+                    error("use after free: libsecret's cached backend was released by an earlier caller")
+                }
+                cached.refs.incrementAndGet()
+                return cached.memory
+            }
         }
     }
 
     private val secretLengths: ConcurrentHashMap<Long, Long> = ConcurrentHashMap()
 
-    val platform: LinuxPlatform = LinuxPlatform.Ready(LinuxLibraries(glib, gobject, gio, secret))
+    val platform: LinuxPlatform get() = LinuxPlatform.Ready(LinuxLibraries(glib, gobject, gio, secret, hasBackendApi = backendApiPresent))
 
     companion object {
         const val ITEM_TYPE: Long = 77L
-        val typeNames: List<String> = listOf("SecretItem", "SecretFileItem", "SecretService", "SecretCollection", "SecretFileBackend")
     }
 }
 
@@ -396,7 +545,10 @@ class SecretServiceCallsTest {
         fake.collectionLocked = false
         assertEquals(false, assertIs<RawResult.Success<Boolean>>(calls(fake).defaultCollectionLocked()).value)
         assertEquals("", fake.leaks)
-        assertEquals(4, fake.created.get(), "control: a service and a collection per call")
+        assertEquals(2, fake.serviceGets.get(), "control: the service was connected once per call")
+        assertTrue(fake.created.get() >= 4, "control: a service and a collection per call existed")
+        assertTrue(fake.contextsBalanced)
+        assertEquals(emptyList(), fake.violations)
     }
 
     @Test
@@ -417,26 +569,126 @@ class SecretServiceCallsTest {
         assertEquals("", badCollection.leaks, "the service is released when the collection lookup fails")
     }
 
-    @Test
-    fun `the portal is recognised by libsecret's file backend, nothing else`() {
-        val portal = FakeLinuxLibraries()
-        portal.backendTypeName = "SecretFileBackend"
-        assertEquals(true, assertIs<RawResult.Success<Boolean>>(calls(portal).backendIsPortal()).value)
-        assertEquals("", portal.leaks)
-        val service = FakeLinuxLibraries()
-        assertEquals(false, assertIs<RawResult.Success<Boolean>>(calls(service).backendIsPortal()).value)
-        assertEquals("", service.leaks)
+    private fun fakeWith(configure: (FakeLinuxLibraries) -> Unit): FakeLinuxLibraries = FakeLinuxLibraries().also(configure)
+
+    /** Everything one asynchronous backend question must give back: the context, the GTask, every error, and no rule was broken. */
+    private fun assertBackendQuestionClean(fake: FakeLinuxLibraries, message: String) {
+        assertEquals("", fake.leaks, "$message: the GTask result, the errors and the strings are all given back")
+        assertTrue(fake.contextsBalanced, "$message: created=${fake.contextsCreated} pushed=${fake.contextsPushed} popped=${fake.contextsPopped} unreferenced=${fake.contextsUnreferenced}")
+        assertEquals(emptyList(), fake.violations, message)
     }
 
     @Test
-    fun `a libsecret without the optional backend symbol says not portal instead of failing`() {
+    fun `the portal is recognised by libsecret's file backend, nothing else, through a private main context`() {
+        val portal = FakeLinuxLibraries()
+        portal.backendTypeName = "SecretFileBackend"
+        assertEquals(true, assertIs<RawResult.Success<Boolean>>(calls(portal).backendIsPortal()).value)
+        assertEquals(1, portal.backendGets.get(), "control: libsecret was asked once")
+        assertEquals(1, portal.contextsCreated.get(), "control: a private context carried the question")
+        assertBackendQuestionClean(portal, "file backend")
+
+        val service = FakeLinuxLibraries()
+        assertEquals(false, assertIs<RawResult.Success<Boolean>>(calls(service).backendIsPortal()).value)
+        assertEquals(1, service.backendFinishes.get(), "control: the answer was read")
+        assertBackendQuestionClean(service, "service backend")
+    }
+
+    @Test
+    fun `the backend libsecret returns is never released, so its cached singleton survives every probe and the next lookup`() {
         val fake = FakeLinuxLibraries()
-        fake.backendMissing = true
+        fake.searchResults = listOf(FakeRetrievable(secret = secret))
+        val calls: JnaSecretServiceCalls = calls(fake)
+        assertFalse(fake.backendAlive, "control: no backend exists before the first question")
+
+        calls.backendIsPortal()
+        assertTrue(fake.backendAlive, "the first call returns the cached pointer without a reference of its own: releasing it would free libsecret's singleton")
+        assertEquals(1, fake.backendRefs)
+        calls.backendIsPortal()
+        calls.backendIsPortal()
+        assertTrue(fake.backendAlive)
+        assertEquals(3, fake.backendRefs, "a later call adds one reference to a process-lifetime singleton, never more")
+        assertIs<SecretLookup.Found>(assertIs<RawResult.Success<SecretLookup>>(calls.lookup(attributes, true)).value)
+        assertIs<RawResult.Success<Boolean>>(calls.backendIsPortal())
+        assertBackendQuestionClean(fake, "three probes and a lookup")
+    }
+
+    @Test
+    fun `the answer may arrive after unrelated main-context work, or before the first iteration, and is never waited for twice`() {
+        val delayed = FakeLinuxLibraries()
+        delayed.backendTypeName = "SecretFileBackend"
+        delayed.noiseIterations = 3
+        assertEquals(true, assertIs<RawResult.Success<Boolean>>(calls(delayed).backendIsPortal()).value)
+        assertEquals(4, delayed.blockingIterations.get(), "three unrelated sources, then the answer")
+        assertBackendQuestionClean(delayed, "delayed answer")
+
+        val inline = FakeLinuxLibraries()
+        inline.deliverInline = true
+        assertEquals(false, assertIs<RawResult.Success<Boolean>>(calls(inline).backendIsPortal()).value)
+        assertEquals(0, inline.blockingIterations.get(), "an answer that is already there is not waited for")
+        assertBackendQuestionClean(inline, "inline answer")
+    }
+
+    @Test
+    fun `a libsecret that does not export secret_backend_get has no portal backend, and no native call is made for it`() {
+        val fake = FakeLinuxLibraries()
+        fake.backendApiPresent = false
         assertEquals(false, assertIs<RawResult.Success<Boolean>>(calls(fake).backendIsPortal()).value)
-        fake.backendMissing = false
-        fake.backendError = FakeGError("g-io-error-quark", 1)
-        assertIs<RawResult.Failure>(calls(fake).backendIsPortal())
-        assertEquals("", fake.leaks)
+        assertEquals(0, fake.backendGets.get())
+        assertEquals(0, fake.contextsCreated.get(), "no context is created for a question that cannot be asked")
+        assertBackendQuestionClean(fake, "old libsecret")
+    }
+
+    @Test
+    fun `a failing or empty backend answer is a failure status, and the context, the result and the error are still given back`() {
+        val failing = fakeWith { it.backendError = FakeGError("g-dbus-error-quark", 2, "org.freedesktop.DBus.Error.ServiceUnknown") }
+        assertEquals(
+            RawStatus(2, "g-dbus-error-quark", "org.freedesktop.DBus.Error.ServiceUnknown"),
+            assertIs<RawResult.Failure>(calls(failing).backendIsPortal()).status,
+        )
+        assertEquals(1, failing.backendFinishes.get(), "control: the failing answer was read")
+        assertBackendQuestionClean(failing, "failing answer")
+
+        val empty = fakeWith { it.finishReturnsNull = true }
+        val status: RawStatus = assertIs<RawResult.Failure>(calls(empty).backendIsPortal()).status
+        assertFalse(status.isSuccess)
+        assertBackendQuestionClean(empty, "answer without a backend")
+    }
+
+    @Test
+    fun `a link error while finishing still pops, drains and releases the private context and the result`() {
+        val fake = FakeLinuxLibraries()
+        val broken: SecretApi = object : SecretApi by fake.secret {
+            override fun secret_backend_get_finish(result: Pointer, error: PointerByReference): Pointer? = throw NoSuchMethodError("secret_backend_get_finish")
+        }
+        val platform = LinuxPlatform.Ready(LinuxLibraries(fake.glib, fake.gobject, fake.gio, broken))
+        assertFailsWith<NoSuchMethodError> { JnaSecretServiceCalls(lazyOf(platform)).backendIsPortal() }
+        assertEquals(1, fake.contextsCreated.get(), "control: the question was started")
+        assertBackendQuestionClean(fake, "throwing finish")
+    }
+
+    @Test
+    fun `the default collection is not read on the portal backend, and a backend failure is this call's failure`() {
+        val portal = fakeWith { it.backendTypeName = "SecretFileBackend"; it.collectionLocked = true }
+        assertEquals(false, assertIs<RawResult.Success<Boolean>>(calls(portal).defaultCollectionLocked()).value, "file-backend items are never locked")
+        assertEquals(0, portal.serviceGets.get(), "no D-Bus Secret Service call on the portal backend")
+        assertEquals(1, portal.backendGets.get(), "control: the backend was asked")
+        assertBackendQuestionClean(portal, "portal collection")
+
+        val failing = fakeWith { it.backendError = FakeGError("g-io-error-quark", 1) }
+        assertEquals(RawStatus(1, "g-io-error-quark"), assertIs<RawResult.Failure>(calls(failing).defaultCollectionLocked()).status)
+        assertEquals(0, failing.serviceGets.get(), "a backend that cannot be selected is not worked around through D-Bus")
+        assertBackendQuestionClean(failing, "failing portal question")
+
+        val service = FakeLinuxLibraries()
+        service.collectionLocked = true
+        assertEquals(true, assertIs<RawResult.Success<Boolean>>(calls(service).defaultCollectionLocked()).value)
+        assertEquals(1, service.serviceGets.get(), "the service backend keeps reading the collection")
+
+        val old = FakeLinuxLibraries()
+        old.backendApiPresent = false
+        assertEquals(false, assertIs<RawResult.Success<Boolean>>(calls(old).defaultCollectionLocked()).value)
+        assertEquals(1, old.serviceGets.get(), "libsecret 0.19 has no portal: the collection is read as before")
+        assertEquals("", old.leaks)
     }
 
     @Test
@@ -511,6 +763,10 @@ class SecretServiceCallsTest {
         assertTrue(problems.isEmpty(), problems.joinToString("\n"))
         assertTrue(fake.created.get() > 1000, "seed=$seed: control")
         assertEquals("", fake.leaks, "seed=$seed")
+        assertTrue(fake.contextsBalanced, "seed=$seed: private contexts: created=${fake.contextsCreated} popped=${fake.contextsPopped} unreferenced=${fake.contextsUnreferenced}")
+        assertEquals(emptyList(), fake.violations, "seed=$seed")
+        assertTrue(fake.backendGets.get() > 100, "seed=$seed: control, the backend question was asked from many threads")
+        assertTrue(fake.backendAlive, "seed=$seed: libsecret's cached backend survived the storm")
         assertEquals(scratch.allocated, scratch.closed.get(), "seed=$seed")
         assertTrue(scratch.blocks.all { it.wipedAtClose }, "seed=$seed")
     }
