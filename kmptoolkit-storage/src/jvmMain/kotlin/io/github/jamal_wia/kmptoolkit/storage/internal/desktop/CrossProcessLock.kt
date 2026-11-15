@@ -49,6 +49,8 @@ internal sealed interface LockAcquisition {
             } finally {
                 try {
                     channel.close()
+                } catch (_: IOException) {
+                    // The lock is gone either way, and a store call must answer a typed result, never throw.
                 } finally {
                     releaseClaim()
                 }
