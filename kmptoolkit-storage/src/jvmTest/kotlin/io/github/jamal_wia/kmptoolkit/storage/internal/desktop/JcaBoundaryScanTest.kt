@@ -13,7 +13,11 @@ import kotlin.test.assertTrue
  * (any exception typed, "wrong key" decided in one place, an `Error` never caught). A new use elsewhere is the next audit round
  * waiting to happen. The scan reads the source files with comments blanked (a KDoc may talk about `SecureRandom`) and looks for
  * the package names and for the type names as whole words, in imports and fully qualified uses alike, so an aliased or wildcard
- * import cannot hide a use.
+ * import cannot hide a use. Three evasions that round 10 closed (breaker A8-m2): a string TEMPLATE (`"${"//"}"`) whose nested
+ * literal looked like the start of a comment (the lexer now lexes a template's body as code, recursively), the boundary's own
+ * `typealias` (every alias `Jca.kt` exports is a type name: constructing it or calling its statics outside the boundary is a
+ * direct provider call; naming it as a type, which is how `EnvelopeCipher` accepts an injectable random source, is not), and a
+ * back-quoted package segment (back-quotes are deleted before matching).
  *
  * Limits, stated: it scans `jvmMain` of this module only (the Android store's Keystore code and the other modules have their own
  * rules), it is lexical (a use through reflection by a string that does not spell a package name, or through a type that is not
@@ -66,6 +70,44 @@ class JcaBoundaryScanTest {
         assertEquals(emptyList(), scan("class EnvelopeCipher; val mac = MacBackend(); val a = Jca.sha256(b)"), "longer identifiers that contain a type name are not uses")
     }
 
+    @Test
+    fun `a string template is lexed as code so a nested literal never hides what follows`() {
+        val use = "val d = java.security.MessageDigest.getInstance(\"SHA-256\")"
+        assertTrue(scan("val p = \"\${\"//\"}\"; $use").isNotEmpty(), "a nested `//` literal in a template, use after it on the same line")
+        assertTrue(scan("val o = \"\${\"/*\"}\"\n$use\nval c = \"*/\"").isNotEmpty(), "a nested `/*` literal in a template, use on the next line")
+        assertTrue(scan("val r = \"\"\"\${\"//\"}\"\"\"; $use").isNotEmpty(), "the same inside a raw string")
+        assertTrue(scan("val n = \"\${\"\${\"//\"}\"}\"; $use").isNotEmpty(), "a template nested in a template")
+        assertTrue(scan("val b = \"\${ list.map { it + \"//\" } }\"; $use").isNotEmpty(), "braces inside a template body do not end it early")
+        assertTrue(scan("val c = \"\${ '\"' }\"; $use").isNotEmpty(), "a quote character inside a template body")
+        assertTrue(scan("val e = \"\${ 1 /* \\\" */ }\"; $use").isNotEmpty(), "a comment inside a template body")
+        // What is inside a template's code is code: a JCA use there is a use, and a comment there is a comment.
+        assertTrue(scan("val u = \"\${ java.security.MessageDigest.getInstance(\"x\") }\"").isNotEmpty(), "a use inside a template body")
+        assertEquals(emptyList(), scan("val u = \"\${ 1 /* java.security.MessageDigest */ }\"\nval v = \"\${ 2 // javax.crypto.Cipher\n}\""), "a comment inside a template body")
+        assertEquals(emptyList(), scan("val a = \"\$ not a template\"; val x = 1"), "a lone dollar sign is not a template")
+    }
+
+    @Test
+    fun `an alias the boundary exports is a use when constructed or called but not as a type`() {
+        assertTrue(BOUNDARY_ALIASES.isNotEmpty(), "control: the boundary exports an alias")
+        for (alias: String in BOUNDARY_ALIASES) {
+            assertTrue(scan("val r = $alias()").isNotEmpty(), "$alias constructed")
+            assertTrue(scan("val r = $alias.getInstanceStrong()").isNotEmpty(), "$alias with a static call")
+            assertTrue(scan("val f = $alias::class").isNotEmpty(), "$alias as a class reference")
+            assertEquals(emptyList(), scan("class C(private val random: $alias = Jca.newRandom())"), "$alias as a parameter type is how a source is injected")
+            assertEquals(emptyList(), scan("val r: $alias = Jca.newRandom()"), "$alias as a declared type")
+            assertEquals(emptyList(), scan("fun f(random: $alias): ByteArray = Jca.randomBytes(random, 1)"), "$alias in a signature")
+        }
+    }
+
+    @Test
+    fun `a back-quoted package segment or type does not hide a use`() {
+        assertTrue(scan("import java.`security`.KeyStore\nval k = KeyStore.getInstance(\"PKCS12\")").isNotEmpty(), "a back-quoted package segment, a type that is in no list")
+        assertTrue(scan("import `javax`.crypto.*").isNotEmpty(), "a back-quoted first segment")
+        assertTrue(scan("val k = java.`util`.`Base64`.getEncoder()").isNotEmpty(), "back-quoted segments of a fully qualified use")
+        assertTrue(scan("val c = `Cipher`.getInstance(\"AES\")").isNotEmpty(), "a back-quoted type name")
+        assertTrue(scan("import java.util.`Base64`").isNotEmpty(), "a back-quoted Base64")
+    }
+
     private companion object {
         val PACKAGES: List<String> = listOf("java.security", "javax.crypto", "java.util.Base64", "kotlin.io.encoding")
         val TYPES: List<String> = listOf(
@@ -76,58 +118,121 @@ class JcaBoundaryScanTest {
             PACKAGES.map { name: String -> name to Regex("(?<![\\w.])" + Regex.escape(name) + "(?![\\w])") } +
                 TYPES.map { name: String -> name to Regex("(?<![\\w])" + name + "(?![\\w])") }
 
-        /** The JCA names that the code of [source] (comments blanked) uses, one entry per distinct name: `"<name> (line n)"`. */
+        /**
+         * The names of every `typealias` that the boundary file exports (read from `Jca.kt` itself, so a new alias is covered at
+         * once). The scan fails loudly, like the rest of the test, when the boundary file cannot be found.
+         */
+        val BOUNDARY_ALIASES: List<String> by lazy {
+            val working = File(System.getProperty("user.dir") ?: "")
+            val root: File = listOf(
+                File(File(File(working, "src"), "jvmMain"), "kotlin"),
+                File(File(File(File(working, "kmptoolkit-storage"), "src"), "jvmMain"), "kotlin"),
+            ).firstOrNull { candidate: File -> candidate.isDirectory }
+                ?: error("the storage module's jvmMain sources were not found from ${working.path}")
+            val boundary: File = root.walkTopDown().single { file: File -> file.name == "Jca.kt" && file.parentFile?.name == "desktop" }
+            Regex("""typealias\s+(\w+)\s*=""").findAll(boundary.readText()).map { match: MatchResult -> match.groupValues[1] }.toList()
+        }
+
+        /**
+         * An exported alias is a use when it is constructed or its statics are called (`Alias(`, `Alias.`, `Alias::`); as a type
+         * annotation it names no provider call.
+         */
+        fun aliasPatterns(): List<Pair<String, Regex>> = BOUNDARY_ALIASES.map { name: String ->
+            name to Regex("(?<![\\w.])" + Regex.escape(name) + "\\s*(?:\\(|\\.|::)")
+        }
+
+        /** The JCA names that the code of [source] (comments blanked, back-quotes deleted) uses, one entry per distinct name: `"<name> (line n)"`. */
         fun scan(source: String): List<String> {
-            val code: String = blankComments(source)
-            return PATTERNS.mapNotNull { (name: String, pattern: Regex) ->
+            val code: String = blankComments(source).replace("`", "")
+            return (PATTERNS + aliasPatterns()).mapNotNull { (name: String, pattern: Regex) ->
                 pattern.find(code)?.let { match: MatchResult -> "$name (line ${code.substring(0, match.range.first).count { it == '\n' } + 1})" }
             }
         }
 
-        /** [source] with every comment replaced by spaces (newlines kept), honouring string, raw string and character literals and nested block comments. */
-        fun blankComments(source: String): String {
-            val out = StringBuilder(source.length)
-            var i = 0
-            while (i < source.length) {
-                val c: Char = source[i]
-                val next: Char = if (i + 1 < source.length) source[i + 1] else ' '
-                when {
-                    c == '/' && next == '/' -> {
-                        while (i < source.length && source[i] != '\n') { out.append(' '); i++ }
-                    }
-                    c == '/' && next == '*' -> {
-                        var depth = 0
-                        while (i < source.length) {
-                            if (source.startsWith("/*", i)) { depth++; out.append("  "); i += 2 }
-                            else if (source.startsWith("*/", i)) { depth--; out.append("  "); i += 2; if (depth == 0) break }
-                            else { out.append(if (source[i] == '\n') '\n' else ' '); i++ }
+        /**
+         * [source] with every comment replaced by spaces (newlines kept). Strings, raw strings and character literals are kept as
+         * they are, nested block comments are honoured, and the body of a `${ ... }` template inside a string or raw string is
+         * lexed as CODE (with its own nested strings, comments and braces), so a nested literal such as `"${"//"}"` cannot end the
+         * outer string early and turn real code into a "comment".
+         */
+        fun blankComments(source: String): String = Lexer(source).run()
+
+        private class Lexer(private val source: String) {
+            private val out = StringBuilder(source.length)
+            private var i = 0
+
+            fun run(): String {
+                code(inTemplate = false)
+                return out.toString()
+            }
+
+            /** Lexes code up to the end, or in a template up to and including the `}` that closes it. */
+            private fun code(inTemplate: Boolean) {
+                var depth = 0
+                while (i < source.length) {
+                    val c: Char = source[i]
+                    val next: Char = if (i + 1 < source.length) source[i + 1] else ' '
+                    when {
+                        c == '/' && next == '/' -> {
+                            while (i < source.length && source[i] != '\n') { out.append(' '); i++ }
                         }
-                    }
-                    source.startsWith("\"\"\"", i) -> {
-                        out.append("\"\"\""); i += 3
-                        while (i < source.length && !source.startsWith("\"\"\"", i)) { out.append(source[i]); i++ }
-                        if (i < source.length) { out.append("\"\"\""); i += 3 }
-                    }
-                    c == '"' -> {
-                        out.append(c); i++
-                        while (i < source.length && source[i] != '"' && source[i] != '\n') {
-                            if (source[i] == '\\' && i + 1 < source.length) { out.append(source[i]); i++ }
-                            out.append(source[i]); i++
+                        c == '/' && next == '*' -> blockComment()
+                        source.startsWith("\"\"\"", i) -> rawString()
+                        c == '"' -> string()
+                        c == '\'' -> charLiteral()
+                        inTemplate && c == '{' -> { depth++; out.append(c); i++ }
+                        inTemplate && c == '}' -> {
+                            out.append(c); i++
+                            if (depth == 0) return
+                            depth--
                         }
-                        if (i < source.length && source[i] == '"') { out.append('"'); i++ }
+                        else -> { out.append(c); i++ }
                     }
-                    c == '\'' -> {
-                        out.append(c); i++
-                        while (i < source.length && source[i] != '\'' && source[i] != '\n') {
-                            if (source[i] == '\\' && i + 1 < source.length) { out.append(source[i]); i++ }
-                            out.append(source[i]); i++
-                        }
-                        if (i < source.length && source[i] == '\'') { out.append('\''); i++ }
-                    }
-                    else -> { out.append(c); i++ }
                 }
             }
-            return out.toString()
+
+            private fun blockComment() {
+                var depth = 0
+                while (i < source.length) {
+                    if (source.startsWith("/*", i)) { depth++; out.append("  "); i += 2 }
+                    else if (source.startsWith("*/", i)) { depth--; out.append("  "); i += 2; if (depth == 0) return }
+                    else { out.append(if (source[i] == '\n') '\n' else ' '); i++ }
+                }
+            }
+
+            private fun template() {
+                out.append("\${"); i += 2
+                code(inTemplate = true)
+            }
+
+            private fun rawString() {
+                out.append("\"\"\""); i += 3
+                while (i < source.length && !source.startsWith("\"\"\"", i)) {
+                    if (source.startsWith("\${", i)) template() else { out.append(source[i]); i++ }
+                }
+                if (i < source.length) { out.append("\"\"\""); i += 3 }
+            }
+
+            private fun string() {
+                out.append('"'); i++
+                while (i < source.length && source[i] != '"' && source[i] != '\n') {
+                    when {
+                        source[i] == '\\' && i + 1 < source.length -> { out.append(source[i]); out.append(source[i + 1]); i += 2 }
+                        source.startsWith("\${", i) -> template()
+                        else -> { out.append(source[i]); i++ }
+                    }
+                }
+                if (i < source.length && source[i] == '"') { out.append('"'); i++ }
+            }
+
+            private fun charLiteral() {
+                out.append('\''); i++
+                while (i < source.length && source[i] != '\'' && source[i] != '\n') {
+                    if (source[i] == '\\' && i + 1 < source.length) { out.append(source[i]); i++ }
+                    out.append(source[i]); i++
+                }
+                if (i < source.length && source[i] == '\'') { out.append('\''); i++ }
+            }
         }
     }
 }
