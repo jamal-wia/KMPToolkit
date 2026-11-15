@@ -172,26 +172,55 @@ class PlatformLogSinkJvmTest {
         assertEquals("m", second.events.single().message)
     }
 
-    // --- the process-wide lock ---------------------------------------------------------------------
+    // --- one write per event ---------------------------------------------------------------------
 
     /**
-     * A stream whose `println(String)` is deliberately not atomic: it writes the text one byte at a time, so two
-     * writers inside it at once would interleave their events. It counts the writers inside at once; the sink's
-     * lock is what keeps that at one. Nothing waits or yields here: long texts and many writers make an overlap
-     * without the lock near certain, and with the lock the test passes deterministically.
+     * A stream modelled on the contract the sink relies on instead of on a lock of its own: `print(String)` is one
+     * write under the stream's own lock (as in `PrintStream`), and it is deliberately slow inside, writing the text
+     * one byte at a time. Every other way of writing text (`println`, `print(Any)`, `print(Char)`) is counted as a
+     * stray call, because it would split an event into several writes, each with its own lock, and two writers could
+     * then interleave between them. So the test proves that the sink hands every event over as exactly one
+     * `print(String)` carrying the whole text and its line terminator, which is what keeps events whole with no lock
+     * of the sink's own. Nothing waits or yields here: long texts and many writers make an overlap near certain if
+     * an event were written in pieces.
      */
     private class ByteAtATimeStream(buffer: ByteArrayOutputStream) : PrintStream(buffer, true, "UTF-8") {
         private val inside: AtomicInteger = AtomicInteger(0)
         val maxInside: AtomicInteger = AtomicInteger(0)
+        val printCalls: AtomicInteger = AtomicInteger(0)
+        val strayCalls: AtomicInteger = AtomicInteger(0)
+
+        override fun print(s: String?) {
+            printCalls.incrementAndGet()
+            synchronized(this) {
+                val now: Int = inside.incrementAndGet()
+                maxInside.accumulateAndGet(now) { current: Int, candidate: Int -> maxOf(current, candidate) }
+                try {
+                    for (character: Char in (s ?: "null")) write(character.code)
+                } finally {
+                    inside.decrementAndGet()
+                }
+            }
+        }
 
         override fun println(x: String?) {
-            val now: Int = inside.incrementAndGet()
-            maxInside.accumulateAndGet(now) { current: Int, candidate: Int -> maxOf(current, candidate) }
-            try {
-                for (character: Char in (x ?: "null") + "\n") write(character.code)
-            } finally {
-                inside.decrementAndGet()
-            }
+            strayCalls.incrementAndGet()
+        }
+
+        override fun println() {
+            strayCalls.incrementAndGet()
+        }
+
+        override fun println(x: Any?) {
+            strayCalls.incrementAndGet()
+        }
+
+        override fun print(obj: Any?) {
+            strayCalls.incrementAndGet()
+        }
+
+        override fun print(c: Char) {
+            strayCalls.incrementAndGet()
         }
     }
 
@@ -218,7 +247,7 @@ class PlatformLogSinkJvmTest {
             repeat(writers) { writer ->
                 thread(isDaemon = true, name = "log-writer-$writer") {
                     try {
-                        // One instance per writer: the lock is process-wide, not per instance.
+                        // One instance per writer: events stay whole across instances, the sink holds no state.
                         val sink: LogSink = platformLogSink()
                         val random = Random(seed * 1000 + writer)
                         start.await(HANG_BOUND_MILLIS, TimeUnit.MILLISECONDS)
@@ -245,7 +274,9 @@ class PlatformLogSinkJvmTest {
         }
         failure.get()?.let { throw it }
 
-        assertEquals(1, stream.maxInside.get(), "seed=$seed: two writers were inside standard error at once")
+        assertEquals(0, stream.strayCalls.get(), "seed=$seed: the sink wrote an event in pieces (println, print(Any) or print(Char))")
+        assertEquals(writers * eventsPerWriter, stream.printCalls.get(), "seed=$seed: not exactly one print(String) per event")
+        assertEquals(1, stream.maxInside.get(), "seed=$seed: two writers were inside the stream's write at once")
         val header = Regex("[VDIWE]/w(\\d+): event (\\d+-\\d+)")
         val blocks: MutableList<MutableList<String>> = mutableListOf()
         output.lines().dropLast(1).forEach { line ->
