@@ -331,8 +331,15 @@ internal class AndroidHeadingProvider(
             // The primary registration: the sensors.
             for (sensor: Sensor in chosen.sensors) {
                 if (!hub.register(sensorListener, sensor)) {
-                    runCatching { hub.unregister(sensorListener) }
-                    guardLogger { logger.w { "The platform refused to enable heading sensor ${sensor.name}: the heading stays silent" } }
+                    // The undo is a release like the handle's: its failure (an Error included) is reported, never
+                    // dropped, because the sensors this call had enabled may then still be registered.
+                    val undoFailure: Throwable? = runCatching { hub.unregister(sensorListener) }.exceptionOrNull()
+                    guardLogger {
+                        logger.w(undoFailure) {
+                            "The platform refused to enable heading sensor ${sensor.name}: the heading stays silent" +
+                                if (undoFailure != null) " (the sensors enabled before it could not be removed again and may stay registered)" else ""
+                        }
+                    }
                     return null
                 }
             }
@@ -346,8 +353,20 @@ internal class AndroidHeadingProvider(
                     source.register(candidate)
                     positionRegistered = true
                 } catch (failure: Exception) {
-                    runCatching { source.unregister(candidate) }
-                    guardLogger { logger.d { "No passive position for true north (${failure::class.simpleName}): trueDegrees stays null until declinationAt is given" } }
+                    val undoFailure: Throwable? = runCatching { source.unregister(candidate) }.exceptionOrNull()
+                    if (undoFailure == null) {
+                        guardLogger { logger.d { "No passive position for true north (${failure::class.simpleName}): trueDegrees stays null until declinationAt is given" } }
+                    } else {
+                        // The listener may still be registered: reported at warning level, with the registration's
+                        // own failure riding along, never dropped (the same rule as the release handle).
+                        undoFailure.attach(failure)
+                        guardLogger {
+                            logger.w(undoFailure) {
+                                "No passive position for true north (${failure::class.simpleName}) and its listener could not be removed again and may stay registered: " +
+                                    "trueDegrees stays null until declinationAt is given"
+                            }
+                        }
+                    }
                 }
             }
         } catch (failure: Throwable) {
