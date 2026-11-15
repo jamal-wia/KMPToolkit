@@ -93,7 +93,8 @@ class LocationAndroidDocSamplesTest {
 
             provider.openLocationSettings()
 
-            // No activity is resumed, so callerTask falls back to a task of its own             // factory table): the settings screen is what starts, in a new document task.
+            // No activity is resumed, so callerTask falls back to SeparateTask (SystemScreenLauncher's factory
+            // table): the settings screen is what starts, in a new document task.
             val started: Intent = assertNotNull(
                 shadowOf(application).nextStartedActivity,
                 "nothing was started: the sample's launcher opened no screen",

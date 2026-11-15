@@ -199,11 +199,11 @@ answers `UNSUPPORTED`. Two ways to get a real prompt:
 ## Recipes
 
 The numbered recipes are compilable Kotlin: their code is run by the `LocationDocSamplesTest` classes of
-this module (the platform recipes by their Android, iOS and JVM siblings), except the two blocks that say
-they are not compiled here (recipes 6 and 8). Each tested block is printed here exactly as the test source
-holds it, and `LocationDocsSamplesInSyncTest` fails when a page and its test drift apart. The short fragments
-before the recipes call functions of your own and are not compiled. `MapUi`, `CompassUi` and `EnableUi` are
-your own presenters.
+this module (the platform recipes by their Android, iOS and JVM siblings), except the blocks that say
+they are not compiled here (recipe 6, and both blocks of recipe 8). Each tested block is printed here
+exactly as the test source holds it, and `LocationDocsSamplesInSyncTest` fails when a page and its test
+drift apart. The short fragments before the recipes call functions of your own and are not compiled. `MapUi`, `CompassUi` and
+`EnableUi` are your own presenters.
 
 ### 1. Nearest place
 
@@ -494,9 +494,11 @@ class FusedLocationProvider(
                 result.lastLocation?.toReading()?.let { trySend(it) }     // an invalid platform value is dropped
             }
         }
-        val request: LocationRequest = LocationRequest.Builder(options.accuracy.toPriority(), 5_000L)
+        val minIntervalMillis: Long = options.minUpdateInterval.inWholeMilliseconds
+        // The minimum interval is capped at the request interval, so the request interval is never below it.
+        val request: LocationRequest = LocationRequest.Builder(options.accuracy.toPriority(), maxOf(5_000L, minIntervalMillis))
             .setMinUpdateDistanceMeters(options.minUpdateDistanceMeters.toFloat())
-            .setMinUpdateIntervalMillis(options.minUpdateInterval.inWholeMilliseconds)
+            .setMinUpdateIntervalMillis(minIntervalMillis)
             .build()
         try {
             client.requestLocationUpdates(request, callback, Looper.getMainLooper())
@@ -619,7 +621,8 @@ The rules the recipe encodes are part of the `LocationProvider` contract, not a 
   thread, so the recipe checks the settings on the application context, switches to the main thread, and
   touches the `Activity` only inside the block.
 
-Bind it where the rest of your app is assembled, and keep the factory-built provider for iOS:
+Bind it where the rest of your app is assembled (Koin shown; this block is not compiled here either), and keep
+the factory-built provider for iOS:
 
 ```kotlin
 // androidMain
