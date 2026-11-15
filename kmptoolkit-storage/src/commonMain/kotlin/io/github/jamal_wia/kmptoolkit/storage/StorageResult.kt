@@ -12,8 +12,20 @@ package io.github.jamal_wia.kmptoolkit.storage
  */
 public sealed interface StorageResult<out T> {
 
-    /** The operation succeeded, producing [value]. */
-    public data class Success<out T>(public val value: T) : StorageResult<T>
+    /**
+     * The operation succeeded, producing [value].
+     *
+     * [toString] never contains [value], nor anything computed from it (its text, its type, its length):
+     * it prints a constant. A result read from an [EncryptedKeyValueStorage] holds a decrypted secret (a
+     * token, a PIN, an account number), and logging the whole result, putting it in a collection that is
+     * logged, or letting a failed assertion print it must not copy that secret into a log or a crash report.
+     * To see the value, read [value] explicitly. [equals], [hashCode], [component1] and [copy] still use
+     * [value], so two successes that print alike can differ; a test that compares two results and wants the
+     * values in its failure message compares their [value] instead.
+     */
+    public data class Success<out T>(public val value: T) : StorageResult<T> {
+        override fun toString(): String = "Success(value=<redacted>)"
+    }
 
     /** The operation failed with [error] and had no effect beyond what the error documents. */
     public data class Failure(public val error: StorageError) : StorageResult<Nothing>
