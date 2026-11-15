@@ -153,18 +153,15 @@ class InMemoryKeyValueStorageTest {
             val keys: List<String> = (1..size).map { "k$it" }
             keys.forEach { fixture.put(it, "v") }
 
-            runCatching {
-                @Suppress("UNCHECKED_CAST")
-                val log: MutableList<String> = fixture.writes as MutableList<String>
-                log.clear()
-                log.add("ghost")
-            }
-            runCatching {
-                @Suppress("UNCHECKED_CAST")
-                val entries: MutableMap<String, String> = fixture.contents as MutableMap<String, String>
-                entries.clear()
-                entries["ghost"] = "v"
-            }
+            // No runCatching: the copy is the caller's own at every size, so changing it must not throw.
+            @Suppress("UNCHECKED_CAST")
+            val log: MutableList<String> = fixture.writes as MutableList<String>
+            log.clear()
+            log.add("ghost")
+            @Suppress("UNCHECKED_CAST")
+            val entries: MutableMap<String, String> = fixture.contents as MutableMap<String, String>
+            entries.clear()
+            entries["ghost"] = "v"
 
             assertEquals(keys, fixture.writes, "size=$size: the write log was rewritten through a snapshot")
             assertEquals(keys.associateWith { "v" }, fixture.contents, "size=$size: the contents were changed through a snapshot")
