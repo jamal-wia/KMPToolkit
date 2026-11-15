@@ -63,7 +63,13 @@ kotlin {
             // The desktop store's atomic write and its per-file lock are kmptoolkit-files' writeAtomically and
             // KeyedMutex; Android and iOS keep their own stores. implementation: no files type is public here.
             implementation(project(":kmptoolkit-files"))
+            // @ToolkitInternalApi marks the internal seam of the desktop secure store (internal/desktop), which
+            // kmptoolkit-storage-jna implements across a module boundary. implementation: no core type is public here.
+            implementation(project(":kmptoolkit-core"))
         }
+        // The seam is public + @ToolkitInternalApi so another artifact can implement it; this module uses it freely.
+        jvmMain { languageSettings { optIn("io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi") } }
+        jvmTest { languageSettings { optIn("io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi") } }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
             // Not published; host path rules and the unwritable-directory helper for the file tests.

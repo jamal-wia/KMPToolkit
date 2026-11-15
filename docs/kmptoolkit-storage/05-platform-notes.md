@@ -246,6 +246,28 @@ app sharing that code with desktop could not compile it for desktop without the 
 - **Concurrency.** Instances over the same file in one process share a lock (a `KeyedMutex` keyed by the
   case- and Unicode-folded canonical path). Two *processes* writing
   the same file are not coordinated — keep one writer per file.
+- **Native key-store calls (internal, for the desktop secure store).** The OS key stores are reached through one
+  internal seam of 11 raw calls (macOS Security.framework: copy, add, delete, probe; Windows DPAPI: protect, unprotect;
+  Linux libsecret: lookup, store, clear, default-collection-locked, backend-is-portal). It is `public` and
+  `@ToolkitInternalApi` only because the optional `kmptoolkit-storage-jna` artifact implements it from another module;
+  it can change in any release, and no FFM or JNA type appears in public API. There is deliberately no "update" call:
+  a key item is deleted and created again, never updated.
+  - **Binding selection** happens once per process, at the first secure call or probe, never when the plain store loads:
+    `os.name` that is not macOS, Windows or Linux is `Unsupported(UNSUPPORTED_OS)`; a runtime of JDK 22 or newer uses the
+    FFM binding (a JNA artifact on the classpath is ignored); JDK 21 uses the JNA binding if
+    `io.github.jamal_wia.kmptoolkit.storage.jna.JnaNativeKeyStoreBinding` loads and is otherwise
+    `Unsupported(UNSUPPORTED_RUNTIME)`. The class is found by that one fixed name; there is no `ServiceLoader`, no system
+    property and no environment variable that selects or replaces a binding. A binding that cannot load (an
+    `IllegalCallerException` under `--illegal-native-access=deny`, an `UnsatisfiedLinkError`, a `SecurityException`, any
+    other `LinkageError`) is `Unsupported(NATIVE_ACCESS_UNAVAILABLE)`; so is a `LinkageError` thrown around a later call
+    (for example a `NoSuchMethodError` on a JDK 22-24 runtime). The decision, including a failure, is kept for the process.
+  - **One native thread, time limits.** Native calls run on one dedicated daemon thread, started by the first call. A call
+    that cannot show a dialog has a 10 s limit and then answers `Unavailable`; a hung OS call keeps the thread busy, so later
+    calls time out instead of starting more threads. A call that had not started when its limit passed, or whose caller was
+    cancelled, is withdrawn and never runs, so a timed-out write is never applied later. A call that was already running cannot
+    be stopped: its late result is discarded and the key bytes in it are wiped. A call that may show a dialog has no limit but
+    stays cancellable. No store lock is held while a native call that can prompt is awaited.
+
 - **No secure store.** The JVM has no platform key store this module could keep a key in without
   inventing its own — and a key kept next to the data it encrypts protects nothing. Desktop apps that
   need a secret at rest should use the operating system's credential store directly.

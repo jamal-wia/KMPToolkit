@@ -218,3 +218,86 @@ public final class io/github/jamal_wia/kmptoolkit/storage/UnsupportedReason : ja
 	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/storage/UnsupportedReason;
 }
 
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/DpapiCalls {
+	public abstract fun protect ([B[B)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
+	public abstract fun unprotect ([B[B)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/MacKeychainCalls {
+	public abstract fun addGenericPassword (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[B)I
+	public abstract fun copyGenericPassword (Ljava/lang/String;Ljava/lang/String;Z)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
+	public abstract fun deleteGenericPassword (Ljava/lang/String;Ljava/lang/String;)I
+	public abstract fun probe (Z)I
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/NativeKeyStoreBinding {
+	public abstract fun linux ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretServiceCalls;
+	public abstract fun macOs ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/MacKeychainCalls;
+	public abstract fun windows ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/DpapiCalls;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult$Failure : io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus;)V
+	public final fun getStatus ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult$Success : io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult {
+	public fun <init> (Ljava/lang/Object;)V
+	public final fun getValue ()Ljava/lang/Object;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus$Companion;
+	public fun <init> (ILjava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (ILjava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCode ()I
+	public final fun getDomain ()Ljava/lang/String;
+	public final fun getErrorName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun isSuccess ()Z
+	public final fun isSymbolMissing ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus$Companion {
+	public final fun getSUCCESS ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus;
+	public final fun getSYMBOL_MISSING ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup$Found : io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup {
+	public fun <init> ([B)V
+	public final fun getSecret ()[B
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup$LockedMatch : io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup$LockedMatch;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup$NotFound : io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretLookup$NotFound;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/storage/internal/desktop/SecretServiceCalls {
+	public abstract fun backendIsPortal ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
+	public abstract fun clear (Ljava/util/Map;)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus;
+	public abstract fun defaultCollectionLocked ()Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
+	public abstract fun lookup (Ljava/util/Map;Z)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawResult;
+	public abstract fun store (Ljava/lang/String;Ljava/util/Map;[B)Lio/github/jamal_wia/kmptoolkit/storage/internal/desktop/RawStatus;
+}
+
