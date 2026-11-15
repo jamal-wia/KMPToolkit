@@ -8,6 +8,7 @@ import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.security.InvalidKeyException
+import java.security.Key
 import java.security.KeyStore
 import java.security.UnrecoverableKeyException
 import java.util.concurrent.ConcurrentHashMap
@@ -527,9 +528,22 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
             // engineContainsAlias first, and both turn every daemon failure into "no such alias" (null), so a passing
             // fault would look like an empty alias and generateKey would overwrite a live key. engineGetKey reports the
             // failures as exceptions, which resolveExistingKey classifies.
-            lookup = { keyStore.getKey(alias, null) as? SecretKey },
+            lookup = { secretKeyOrNull(alias, keyStore.getKey(alias, null)) },
             delete = { keyStore.deleteEntry(alias) },
         )
+    }
+
+    /**
+     * [filed] as the secret key it is, `null` when the alias holds nothing. An entry of another type (for example an
+     * asymmetric key another component filed under this alias) is neither: answering `null` would let [generateKey]
+     * replace somebody else's key, so it is an [UnrecoverableKeyException] with no cause and a message that is not the
+     * platform's proof ([PLATFORM_KEY_INVALIDATED_MESSAGE]). [resolveExistingKey] therefore rethrows it, nothing is
+     * deleted or generated, and the store answers `Unavailable`.
+     */
+    private fun secretKeyOrNull(alias: String, filed: Key?): SecretKey? = when (filed) {
+        null -> null
+        is SecretKey -> filed
+        else -> throw UnrecoverableKeyException("alias $alias holds a ${filed.algorithm} key, not a secret key")
     }
 
     override fun deleteKey(alias: String) {

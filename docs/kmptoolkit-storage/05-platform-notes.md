@@ -164,6 +164,11 @@ the live one, and every stored value would be lost. `getKey` answers `null` only
 other failure as an exception, so the rules above (delete only on proof, otherwise `Unavailable`) apply to a real device.
 (Found by reading the framework bytecode of API 31, 34 and 36.1, not observed on a device.)
 
+An alias that holds a key which is **not a secret key** (for example an asymmetric key another component filed under the
+library's alias, `<name>.kmptoolkit.securestorage.key`) is not taken for an empty alias: it is an
+`UnrecoverableKeyException` that is no proof, so nothing is generated over it, nothing is deleted, and the store answers
+`Unavailable`.
+
 **A loss no code can prevent.** On API 24-30 (keystore 1) the provider's `engineGetKey` itself starts with
 `KeyStore.contains()`, which turns a lost connection to the keystore daemon into `false`. If the daemon dies at exactly
 that moment the alias looks empty with `getKey` as with `getEntry`, and the store generates a new key over the existing
