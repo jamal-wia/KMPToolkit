@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
 import io.github.jamal_wia.kmptoolkit.files.FileAccess
 import io.github.jamal_wia.kmptoolkit.files.FileError
 import io.github.jamal_wia.kmptoolkit.files.FileResult
@@ -48,7 +49,8 @@ class JvmKeyValueStorageEnvironmentRound9Test {
 
     private fun storage(files: FileAccess): KeyValueStorage = JvmKeyValueStorage(file(), Dispatchers.IO, files)
 
-    private fun litter(): List<String> = directory.list().orEmpty().filter { it != file().name }
+    private fun litter(): List<String> =
+        directory.list().orEmpty().filter { it != file().name && it != CrossProcessLock.lockNameOf(file().name) }
 
     @Test
     fun `a full disk fails put remove and keeps the old contents and the next write after recovery works`() = runBlocking<Unit> {

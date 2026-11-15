@@ -19,9 +19,11 @@ import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
  *   `Unsupported(NATIVE_ACCESS_UNAVAILABLE)`.
  * - Every call frees every operating-system-allocated output before it returns (`CFRelease`, `LocalFree`,
  *   `secret_password_free`, `g_free`, `GError`) and zeroes its native copy of the key.
- * - There is deliberately no "update" call: a key item is never updated, only deleted and created again.
+ * - The seam has 11 calls in all: 4 macOS, 2 DPAPI, 5 Linux. There is deliberately no "update" call: a key item is
+ *   never updated, only deleted and created again.
  * - macOS calls never pass `kSecUseAuthenticationUISkip` (it silently omits items that need UI and answers -25300);
- *   with `allowUi = false` they pass `kSecUseAuthenticationUIFail`.
+ *   with `allowUi = false` they pass `kSecUseAuthenticationUIFail`; this holds for
+ *   copy, add and delete alike (the add and delete calls of the key-creation path run while the store's locks are held).
  */
 @ToolkitInternalApi
 @SubclassOptInRequired(ToolkitInternalApi::class)
@@ -53,11 +55,21 @@ public interface MacKeychainCalls {
      */
     public fun copyGenericPassword(service: String, account: String, allowUi: Boolean): RawResult<ByteArray?>
 
-    /** `SecItemAdd` of a generic password with the data [secret] and the human label [label]; returns the `OSStatus`. */
-    public fun addGenericPassword(service: String, account: String, label: String, secret: ByteArray): Int
+    /**
+     * `SecItemAdd` of a generic password with the data [secret] and the human label [label]; returns the `OSStatus`.
+     * With [allowUi] `false` the query carries `kSecUseAuthenticationUI = kSecUseAuthenticationUIFail`, so a locked
+     * keychain answers -25308 instead of showing the unlock dialog while the caller holds the store's locks. If
+     * `SecItemAdd` ignores the key on the file keychain, the Mac verification records that and the platform notes say
+     * so ("an OS that cannot honour it per call says so").
+     */
+    public fun addGenericPassword(service: String, account: String, label: String, secret: ByteArray, allowUi: Boolean): Int
 
-    /** `SecItemDelete` of the generic password at [service] and [account]; returns the `OSStatus`. */
-    public fun deleteGenericPassword(service: String, account: String): Int
+    /**
+     * `SecItemDelete` of the generic password at [service] and [account]; returns the `OSStatus`. With [allowUi] `false`
+     * the query carries `kSecUseAuthenticationUI = kSecUseAuthenticationUIFail`, so deleting an item that needs an
+     * access or unlock dialog (the item of a previous unsigned build) answers -25308 or -25293 instead of prompting.
+     */
+    public fun deleteGenericPassword(service: String, account: String, allowUi: Boolean): Int
 
     /** An attribute-only `SecItemCopyMatching` for a probe service, UI suppressed when [allowUi] is `false`; returns the `OSStatus`. */
     public fun probe(allowUi: Boolean): Int
@@ -106,7 +118,11 @@ public interface SecretServiceCalls {
     /** `secret_password_clear_sync` of the items that match every one of [attributes]; returns [RawStatus.SUCCESS] or the failure. */
     public fun clear(attributes: Map<String, String>): SecretStatus
 
-    /** Whether the default collection is locked (the `Locked` property); never prompts. */
+    /**
+     * Whether the default collection is locked (the `Locked` property); never prompts. When no collection exists at the
+     * `default` alias this is `Success(true)`: storing would prompt to create a keyring, which is a prompt like an
+     * unlock. It is never a failure and never `false` for that case.
+     */
     public fun defaultCollectionLocked(): RawResult<Boolean>
 
     /** Whether libsecret selected its Flatpak Secret-portal backend; never prompts. */

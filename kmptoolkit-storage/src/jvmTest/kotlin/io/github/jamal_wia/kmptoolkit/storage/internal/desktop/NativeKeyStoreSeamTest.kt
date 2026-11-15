@@ -32,6 +32,19 @@ class NativeKeyStoreSeamTest {
     }
 
     @Test
+    fun `the seam has 11 calls and every macOS call that can show a dialog takes allowUi`() {
+        val total: Int = listOf(MacKeychainCalls::class.java, DpapiCalls::class.java, SecretServiceCalls::class.java)
+            .sumOf { type: Class<*> -> names(type).size }
+        assertEquals(11, total, "4 macOS, 2 DPAPI, 5 Linux")
+        // S15: with allowUi = false every macOS call passes kSecUseAuthenticationUIFail, add and delete included (the
+        // create path runs both under the store's locks and must never wait for a person).
+        for (name: String in listOf("copyGenericPassword", "addGenericPassword", "deleteGenericPassword", "probe")) {
+            val method: Method = MacKeychainCalls::class.java.declaredMethods.single { it.name == name }
+            assertEquals(Boolean::class.javaPrimitiveType, method.parameterTypes.last(), "$name must end in allowUi: Boolean")
+        }
+    }
+
+    @Test
     fun `raw statuses compare by value and know success and the missing-symbol status`() {
         assertTrue(RawStatus.SUCCESS.isSuccess)
         assertFalse(RawStatus(-25300).isSuccess)
@@ -49,14 +62,14 @@ class NativeKeyStoreSeamTest {
         val mac: MacKeychainCalls = fake.macOs()
         val secret = ByteArray(32) { it.toByte() }
 
-        assertEquals(0, mac.addGenericPassword("svc", "acct", "label", secret))
+        assertEquals(0, mac.addGenericPassword("svc", "acct", "label", secret, allowUi = true))
         secret.fill(0) // the caller wipes its array: the store must not change
         val read: RawResult<ByteArray?> = mac.copyGenericPassword("svc", "acct", allowUi = true)
         assertContentEquals(ByteArray(32) { it.toByte() }, (read as RawResult.Success).value)
         read.value!!.fill(7)
         assertContentEquals(ByteArray(32) { it.toByte() }, (mac.copyGenericPassword("svc", "acct", true) as RawResult.Success).value)
-        assertEquals(FakeNativeKeyStoreBinding.ERR_SEC_DUPLICATE_ITEM, mac.addGenericPassword("svc", "acct", "l", secret))
-        assertEquals(0, mac.deleteGenericPassword("svc", "acct"))
+        assertEquals(FakeNativeKeyStoreBinding.ERR_SEC_DUPLICATE_ITEM, mac.addGenericPassword("svc", "acct", "l", secret, allowUi = false))
+        assertEquals(0, mac.deleteGenericPassword("svc", "acct", allowUi = false))
         assertEquals(
             -25300,
             (mac.copyGenericPassword("svc", "acct", false) as RawResult.Failure).status.code,
@@ -119,7 +132,7 @@ class NativeKeyStoreSeamTest {
 
         assertEquals(-25308, fake.macOs().probe(allowUi = false))
         assertTrue(hooked.get())
-        assertEquals(-34018, fake.macOs().addGenericPassword("s", "a", "l", byteArrayOf(1)))
+        assertEquals(-34018, fake.macOs().addGenericPassword("s", "a", "l", byteArrayOf(1), allowUi = true))
         assertTrue(fake.macItems.isEmpty(), "a forced status must have no effect")
     }
 }
