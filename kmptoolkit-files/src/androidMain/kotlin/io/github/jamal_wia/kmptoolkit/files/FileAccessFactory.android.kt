@@ -17,10 +17,13 @@ import io.github.jamal_wia.kmptoolkit.files.spi.FileSystemOps
 public fun createFileAccess(config: FileAccessConfig = FileAccessConfig()): FileAccess =
     FileEngine(selectAndroidOps(nioAvailable), config)
 
-/** NIO ops when [nioAvailable], the `Os` based ops otherwise. */
+/**
+ * NIO ops when [nioAvailable], the `Os` based ops otherwise. Neither applies `ownerOnly`: the app sandbox of Android
+ * already hides the files, so the request is accepted and ignored (see [WriteOptions.ownerOnly]).
+ */
 @OptIn(ToolkitInternalApi::class)
 internal fun selectAndroidOps(nioAvailable: Boolean): FileSystemOps =
-    if (nioAvailable) NioFileSystemOps() else LegacyAndroidFileSystemOps()
+    if (nioAvailable) NioFileSystemOps(applyOwnerOnly = false) else LegacyAndroidFileSystemOps()
 
 /**
  * Whether the runtime has `java.nio.file.Files`, looked up once. Capability, not `SDK_INT`: Robolectric reports an

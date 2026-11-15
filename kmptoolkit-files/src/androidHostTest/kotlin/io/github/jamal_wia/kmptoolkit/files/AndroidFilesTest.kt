@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Test
 import org.junit.runner.RunWith
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import kotlin.test.assertEquals
@@ -153,5 +154,33 @@ class AndroidLegacyOsCanaryTest {
             false
         }
         assertTrue(answered, "Os is real now: run the shared contract through LegacyAndroidFileSystemOps")
+    }
+}
+
+/**
+ * `ownerOnly` on Android: accepted and ignored, because the app sandbox already hides the files (documented on
+ * [WriteOptions.ownerOnly]). The write succeeds and the mode is the one a plain write gets.
+ */
+@RunWith(RobolectricTestRunner::class)
+class AndroidOwnerOnlyIgnoredTest {
+    @Test
+    fun `the Android factory accepts ownerOnly for writes and directories and leaves the plain mode`() {
+        TestHost.assumePosixFileSemantics("the mode of the written file is compared with a plain write")
+        val root: File = File(TestEnv.newRoot())
+        try {
+            val files: FileAccess = createFileAccess()
+            assertTrue(files.writeAtomically(File(root, "plain").path, byteArrayOf(1)).isSuccess)
+            val options: WriteOptions = WriteOptions(createParentDirectories = true, ownerOnly = true)
+            assertTrue(files.writeAtomically(File(File(root, "d"), "owner").path, byteArrayOf(2), options).isSuccess)
+            assertTrue(files.createDirectories(File(File(root, "e"), "f").path, ownerOnly = true).isSuccess)
+            // path-hygiene-ignore: PH2 a POSIX-only test: it skips itself on Windows (TestHost.assumePosixFileSemantics)
+            val plainMode: Set<*> = java.nio.file.Files.getPosixFilePermissions(File(root, "plain").toPath())
+            // path-hygiene-ignore: PH2 a POSIX-only test: it skips itself on Windows (TestHost.assumePosixFileSemantics)
+            val ownerMode: Set<*> = java.nio.file.Files.getPosixFilePermissions(File(File(root, "d"), "owner").toPath())
+            assertEquals(plainMode, ownerMode, "ignored: the same mode as a write without the request")
+            assertTrue(File(File(root, "e"), "f").isDirectory)
+        } finally {
+            TestEnv.deleteTree(root.path)
+        }
     }
 }

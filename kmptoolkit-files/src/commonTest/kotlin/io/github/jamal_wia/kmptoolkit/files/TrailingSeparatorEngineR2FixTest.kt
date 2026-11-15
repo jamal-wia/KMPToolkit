@@ -29,8 +29,8 @@ class TrailingSeparatorEngineR2FixTest {
         override fun nowMillis(): Long = 1_000_000L
         override fun metadata(path: String, followLinks: Boolean): FileMetadata? { note(path); return entries[path] }
         override fun list(directory: String): List<String>? { note(directory); return if (entries[directory]?.kind == FileKind.Directory) listOf("child") else null }
-        override fun createDirectory(path: String) { note(path) }
-        override fun createNew(path: String, protection: FileProtection): WritableFile {
+        override fun createDirectory(path: String, ownerOnly: Boolean) { note(path) }
+        override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile {
             note(path)
             return object : WritableFile {
                 override fun write(bytes: ByteArray, offset: Int, length: Int) = Unit
@@ -139,7 +139,7 @@ class TrailingSeparatorEngineR2FixTest {
     @Test
     fun `a failing temp directory is named without its trailing separator`() {
         val ops: FileSystemOps = object : FileSystemOps by RecordingOps(false, mapOf("/a" to directory)) {
-            override fun createNew(path: String, protection: FileProtection): WritableFile =
+            override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile =
                 throw FileOpException(FileError.NotFound(path))
         }
         val result: FileResult<Unit> = fileAccessOver(ops).writeAtomically("/a/b", byteArrayOf(1), WriteOptions(tempDirectory = "/t//"))

@@ -82,11 +82,12 @@ internal class FaultOps(private val real: FileSystemOps) : FileSystemOps {
 
     override fun list(directory: String): List<String>? = intercept(Op.List, directory) { real.list(directory) }
 
-    override fun createDirectory(path: String) = intercept(Op.CreateDirectory, path) { real.createDirectory(path) }
+    override fun createDirectory(path: String, ownerOnly: Boolean) =
+        intercept(Op.CreateDirectory, path) { real.createDirectory(path, ownerOnly) }
 
-    override fun createNew(path: String, protection: FileProtection): WritableFile {
+    override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile {
         before(Op.CreateNew, path)
-        val inner: WritableFile = real.createNew(path, protection)
+        val inner: WritableFile = real.createNew(path, protection, ownerOnly)
         try {
             after(Op.CreateNew)
         } catch (e: SimulatedKill) {
