@@ -7,6 +7,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** How one native call ended, as seen by the coroutine that made it. */
@@ -39,7 +41,9 @@ internal sealed interface NativeOutcome<out T> {
  *   than start more threads.
  * - **A limit is a limit for the caller, not for the call.** A call that has not started when its limit passes (or
  *   its caller is cancelled) is withdrawn from the queue and never runs, so a timed-out write is never applied later. A call that
- *   is running cannot be stopped: its result is delivered to nobody and handed to `discard` (to wipe a key).
+ *   is running cannot be stopped: its result is delivered to nobody and handed to `discard` (to wipe a key). A caller that is
+ *   already cancelled when it calls gets its `CancellationException` at once and queues nothing, so no call ever starts for a
+ *   caller that was cancelled before it asked.
  * - **A value is never dropped.** A value a call returned that does not reach its caller as [NativeOutcome.Completed] reaches
  *   `discard` exactly once, whatever the reason: the caller left or timed out first, the caller is cancelled in the instant
  *   the value lands, or the delivery itself fails (an `Error` while the executor allocates the outcome, the thread dying).
@@ -173,6 +177,11 @@ internal class NativeExecutor(
      */
     suspend fun <T> call(limit: Duration?, discard: (T) -> Unit = {}, block: () -> T): NativeOutcome<T> {
         require(limit == null || limit > Duration.ZERO) { "limit must be positive" }
+        // A caller that is already cancelled never queues anything: without this the native thread, woken by the offer below, can
+        // win the QUEUED-to-RUNNING race against the caller's own `abandon()` and run a call for a caller that is then told it was
+        // cancelled (about one attempt in six on an idle executor). A cancellation that lands during the call stays the documented
+        // race: the call has not started and is withdrawn, or it has started.
+        currentCoroutineContext().ensureActive()
         if (closed.get()) return NativeOutcome.Threw(IllegalStateException("The native executor is closed"))
         // The thread first, the queue second: a call that could not get a thread is never queued, so no other caller that
         // makes the thread a moment later can run it after its own caller was told it failed.

@@ -328,7 +328,8 @@ app sharing that code with desktop could not compile it for desktop without the 
   - **One native thread, time limits.** Native calls run on one dedicated daemon thread, started by the first call. A call
     that cannot show a dialog has a 10 s limit and then answers `Unavailable`; a hung OS call keeps the thread busy, so later
     calls time out instead of starting more threads. A call that had not started when its limit passed, or whose caller was
-    cancelled, is withdrawn and never runs, so a timed-out write is never applied later. A call that was already running cannot
+    cancelled, is withdrawn and never runs, so a timed-out write is never applied later; a caller that is already cancelled when it
+    calls gets its `CancellationException` at once and queues nothing. A call that was already running cannot
     be stopped: its late result is discarded and the key bytes in it are wiped. A call that may show a dialog has no limit but
     stays cancellable. No store lock is held while a native call that can prompt is awaited. The native thread outlives what a
     call does to it: the interrupt status a call leaves behind is cleared after every call and does not end the loop, and a
