@@ -120,31 +120,75 @@ check: read the skip count of every run.
    ./gradlew :smoke-storage-desktop:smokeJna    # JDK 21 packaging plus kmptoolkit-storage-jna
    ```
 
-   Read the last line of the `---- smoke <variant> ----` block the task prints. `SMOKE-RESULT: PASS`: both round trips
-   passed through the real native binding. `SMOKE-RESULT: PASS-WITH-SKIP (...)`: the secure round trip did not run, which is
-   **not** a pass of the secure path. It was skipped because the probe found no usable key store (no key store, a locked
-   keychain or collection while dialogs are off, a session without one), or not run because of `-Psmoke.probeOnly=true` or
-   because the probe found a key store whose item the smoke cannot remove afterwards (only the macOS keychain and Windows DPAPI
-   are supported, so a Linux Secret Service run ends here). Run again in a logged-in session on a supported system, or pass
-   `-Pkmptoolkit.secretstore.required=true` to make every one of those a failure (it contradicts `-Psmoke.probeOnly=true`,
-   which the run refuses). A probe that answers `Unavailable` with a cause (a native call that hung or errored) is a failure,
-   never a skip. A failed task means a missing keep rule (the output names the binding class that could not be loaded), a
-   missing native-access flag or a packaging error: fix the rule in the library's `META-INF/proguard/*.pro`, never in the
-   smoke build. The smoke feeds ProGuard exactly the `META-INF/proguard/*.pro` files of the runtime jars, because ProGuard
-   (unlike R8) does not read them itself; a desktop app that shrinks with ProGuard must do the same.
+   Each task first runs the module's own checks (the verdict rules, the key-item cleanup and the shutdown cleanup against a
+   fake key store, a child JVM that is sent real signals, and a comparison with the library's own identity derivation; Gradle
+   may serve this task from its build cache), then runs the packaged app. On success the task prints a
+   `---- smoke <variant> ----` block that ends in the verdict:
 
-   The smoke's own checks (`:smoke-storage-desktop:<variant>:test`: the verdict rules and the key-item removal) run before the
-   packaged app. A secure run leaves nothing behind: the app uses a store name that is new on every run, deletes its data and
-   removes the key item it created through the binding seam, and on macOS the task then asks `security` for an item labelled
-   "KMPToolkit packaging smoke (safe to delete)" and fails if one is left (the command to remove it is in the message).
-   Options: `-Psmoke.probeOnly=true` (probe only, touches no key), `-Psmoke.javaHome25=<dir>` (used by `smokeFfm`) and
+   - `SMOKE-RESULT: PASS`: both round trips passed through the real native binding, and the app removed the key item it
+     created.
+   - `SMOKE-RESULT: PASS-WITH-SKIP (...)`: the secure round trip did **not** run, which is not a pass of the secure path. It
+     was skipped (`SKIPPED (no key store)`) because the probe found no key store that can serve this session, for example a
+     locked keychain or collection while dialogs are off, or a session without one; or it was `NOT RUN` because of
+     `-Psmoke.probeOnly=true`, or because the probe found a key store whose item the smoke cannot remove afterwards (today a
+     Linux Secret Service). Run again in a logged-in session on a supported system, or pass
+     `-Pkmptoolkit.secretstore.required=true` to make a skip and a `NOT RUN` a failure. `required` together with
+     `-Psmoke.probeOnly=true` is refused: a probe-only run never runs the secure round trip.
+
+   On failure the task fails and prints no block: the verdict (`SMOKE-RESULT: FAIL ...`) and any `ALSO FAILED` lines are in
+   the output of `:smoke-storage-desktop:<variant>:runReleaseDistributable`, just above the failure. The class name inside a
+   FAIL verdict is obfuscated (for example `...smoke.storage.J`): read the message, not the class. A failure is a missing keep
+   rule (the message names the binding class that could not be loaded), a missing native-access flag, a native call that hangs
+   or errors, a packaging error, a run that was stopped from outside, or a cleanup that did not finish. A probe that answers
+   `Unavailable` **with** a cause (such as the native-call time limit) is a failure, never a skip; `Unavailable` without a
+   cause (a locked key store) and `Unsupported` with the reason no key store or no user session are the skips. Lines that
+   start with `ALSO FAILED while cleaning up` are failures of the cleanup that came after the run's own failure: they never
+   replace the verdict's reason, but they mean the run may have left something behind. A stopped run's shutdown hook reports
+   its own failures as lines that start with `shutdown cleanup: ALSO FAILED`; they mean the same (a key item or the temporary
+   directory may be left). Fix a keep rule in the library's `META-INF/proguard/*.pro`, never in the smoke build. The library
+   rules the smoke feeds ProGuard are exactly the `META-INF/proguard/*.pro` files of the runtime jars, because ProGuard
+   (unlike R8) does not read them itself; a desktop app that shrinks with ProGuard must feed them the same way or copy them.
+   The Compose plugin's own default rules are added by the plugin and are not the smoke's.
+
+   **What a secure run leaves behind.** The app uses a store name that is new on every run (label "KMPToolkit packaging
+   smoke (safe to delete)"), and the library's `clear()` keeps the key by contract, so the app removes its own key item
+   through the binding seam and confirms it is gone; if it cannot, the run fails and says so. After every macOS run that is
+   not probe-only, passed or failed, the task `verifySmokeLeftNoKeychainItem` asks the login keychain for an item with that
+   label (`security find-generic-password -l "<label>"`) and fails the build if one is left; remove it with
+   `security delete-generic-password -l "<label>"` (each call deletes ONE item: repeat until it says the item could not be
+   found). With both tasks in one invocation the check runs once, after both runs. It does not run after a cancelled build or
+   with `-x ...:runReleaseDistributable` (the smoke tasks then refuse a verdict file older than the build). Never exclude a task of the smoke with `-x`: excluding a
+   packaging task (`-x ...:createReleaseDistributable`, `-x ...:proguardReleaseJars`) runs the previous image, and its verdict
+   then looks fresh.
+
+   **A run stopped from outside** (a Gradle cancel, `timeout` or `kill`: the app receives SIGTERM) stops before its next
+   store call and cleans up in a JVM shutdown hook. The hook waits at most 10 s for the run to finish (its own cleanup, the
+   verdict and the result file) and removes the key item itself only if the run does not come back (it deletes the temporary
+   directory in every case). The run then ends with exit code 143, so the task fails whatever verdict line it printed. The
+   line is usually `SMOKE-RESULT: FAIL ... stopped from outside`, but a signal that arrives after the run's last step leaves
+   the verdict the run had already reached (even PASS or PASS-WITH-SKIP). This is best effort: a store call that stays wedged longer than the
+   wait can still leave the item or the directory, and so can a signal in the instant between the creation of the temporary
+   directory and the installation of the hook. A run that is hard-killed (SIGKILL, `kill -9`, an out-of-memory kill, a crash of
+   the JVM) cannot clean up: it may leave ONE key item with the label above and one `kmptoolkit-smoke-*` directory under the
+   app's temporary directory (not reported; it holds no key). A cancelled build runs no check afterwards, so the NEXT macOS run
+   that is not probe-only reports a leftover item, and that run then fails although its own app run was fine: remove the item
+   as above and run again.
+
+   **Options.** `-Psmoke.probeOnly=true` (probe only, touches no key), `-Psmoke.javaHome25=<dir>` (used by `smokeFfm`) and
    `-Psmoke.javaHome21=<dir>` (used by `smokeJna`): a full JDK with jmods and jpackage whose `release` file says that
-   version; any other JDK is refused. Two negative controls must fail: `-Psmoke.control.noLibraryRules=true` (either variant)
-   and `-Psmoke.control.noNativeAccessFlag=true` (`smokeFfm` only; the JNA variant never passes the flag).
+   version; any other JDK is refused. A Homebrew JDK needs no extra step: the smoke switches off the Compose plugin's Homebrew
+   refusal for itself. Two negative controls must fail: `-Psmoke.control.noLibraryRules=true` (either variant) and
+   `-Psmoke.control.noNativeAccessFlag=true` (`smokeFfm` only; the JNA variant never passes the flag).
 
    **The oldest FFM runtime.** The FFM sources are compiled against the JDK 22 API on every build; the packaging smoke
    packages with JDK 25 only (`verifyPackagingJdk` refuses another JDK for `smokeFfm`), so a run on JDK 22 itself is not part
    of this check.
+
+   **What the Mac smoke proves and what it does not.** It exercises only the macOS path. It shows that the library's shipped
+   rules are sufficient for loading the binding and for the macOS key-store calls in a shrunk, renamed image. Two rules have
+   no proof here, and the Mac smoke would stay green without either: the `FfmSecretService$BackendWait` keep (Linux, found by
+   name through `MethodHandles`) and `-keepattributes Exceptions` (Windows, the `GetLastError` capture). The smoke has not
+   been run on a Linux or Windows host; do that before relying on those two.
 
    Signing and notarisation are not covered. With an Apple Developer ID, additionally build a signed and notarised
    app of a plain-store-only host and record the result in the release notes; a notarised app that adds
