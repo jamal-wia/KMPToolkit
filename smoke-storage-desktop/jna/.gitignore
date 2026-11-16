@@ -1,0 +1,5 @@
+# This file also keeps the directory of the variant project :smoke-storage-desktop:jna in a fresh clone: settings.gradle.kts
+# includes the project with the shared build script ../variant.gradle.kts, and Gradle refuses to configure a project whose
+# directory does not exist, so without a tracked file here no build of the repository would configure.
+# The root .gitignore anchors build/ one level below the repository root; this project is one level deeper.
+/build/
