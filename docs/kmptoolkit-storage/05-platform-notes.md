@@ -670,8 +670,9 @@ app sharing that code with desktop could not compile it for desktop without the 
   - **ProGuard / R8.** The jar ships `META-INF/proguard/kmptoolkit-storage-jna.pro`, which keeps the binding class, the JNA
     interfaces and the native-callback interface of the package (bound by method name), `com.sun.jna.**`, and the class-file
     `Exceptions` attribute (`-keepattributes Exceptions`: JNA reads the `throws` clause to capture `GetLastError`, so a shrunk
-    app would otherwise report every DPAPI failure as a generic one and never see "no user session"). Copy it by hand only if
-    your tool ignores `META-INF/proguard`.
+    app would otherwise report every DPAPI failure as a generic one and never see "no user session"). R8 reads it from the jar;
+    ProGuard does not, so copy it by hand (or into `configurationFiles` of the Compose Desktop plugin) for ProGuard and for any tool that
+    ignores `META-INF/proguard`.
   - **Real-store suites** (opt-in, run on JDK 21 with this artifact): `-Pkmptoolkit.secretstore=macos|windows|linux`, with
     `-Pkmptoolkit.secretstore.required=true` to turn a skip into a failure; the Linux suite also takes
     `-Pkmptoolkit.secretstore.scenario=unlocked|nobus|noservice`.
@@ -1038,7 +1039,7 @@ Reading the matrix:
 
 - **Native access.** Pass `--enable-native-access=ALL-UNNAMED` (JEP 454 for FFM from JDK 22, JEP 472 for JNA from JDK 24; harmless on JDK 21). `--illegal-native-access=deny` makes the OS-key store answer
   `Unsupported(NATIVE_ACCESS_UNAVAILABLE)`.
-- **Shrinkers.** `kmptoolkit-storage` and `kmptoolkit-storage-jna` ship their ProGuard and R8 rules in `META-INF/proguard/`, which a shrinker reads from the jar. Copy them by hand only when your tool ignores that folder:
+- **Shrinkers.** `kmptoolkit-storage` and `kmptoolkit-storage-jna` ship their ProGuard and R8 rules in `META-INF/proguard/`. R8 reads that folder from the jar; ProGuard, which a Compose Desktop release build uses, does not: give it the `.pro` files yourself (the Compose Desktop plugin takes them in `buildTypes.release.proguard.configurationFiles`). Copy them by hand for any tool that ignores that folder:
   the FFM binding is loaded by its fixed class name and a libsecret callback is found by name (`kmptoolkit-storage.pro`); the JNA binding class, its `Library` and `Callback` interfaces, the `Exceptions` attribute
   (without it every DPAPI failure reads as a generic one and "no user session" is never seen) and JNA's own classes must be kept (`kmptoolkit-storage-jna.pro`).
 - **`jlink` and `jpackage` runtime images.** Include `jdk.security.auth`: the library reads the process token's user through `com.sun.security.auth.module.NTSystem` (by reflection) to build the Windows owner-only ACL, and without
