@@ -9,7 +9,7 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
-## [6.0.0] - YYYY-MM-DD
+## [6.0.0] - 2026-11-16
 
 ### Breaking
 
