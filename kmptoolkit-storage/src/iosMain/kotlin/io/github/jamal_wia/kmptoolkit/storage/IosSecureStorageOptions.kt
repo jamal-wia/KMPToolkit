@@ -26,8 +26,11 @@ package io.github.jamal_wia.kmptoolkit.storage
  *   `remove` send a query that names no group, which the Keychain matches against every group the app can reach, so a
  *   same-named store in a shared group can be read, deleted or overwritten by a `null`-group store. This is
  *   deliberate: pinning reads and writes to a resolved default group would hide items created under an earlier
- *   default group (the order of `keychain-access-groups` changed), which is a data loss. When several stores share
- *   a keychain group, give each an explicit `accessGroup` or a distinct store name.
+ *   default group (the order of `keychain-access-groups` changed), which is a data loss. When a `null`-group store
+ *   and a same-named store in another group can exist side by side, give the `null` store an explicit `accessGroup`, or
+ *   give the stores distinct names. To keep reaching the items the `null` store already wrote, that group must be the
+ *   app's default group (the first entry of its `keychain-access-groups`, or its application identifier when there is
+ *   none): the Keychain filed those items there, and any other identifier makes them look missing.
  * @param synchronizable `kSecAttrSynchronizable`: puts the items in iCloud Keychain, so they leave the
  *   device. Reads and writes pass the exact value, so a store never sees the other kind of item.
  *   Rejected with an `accessibility` whose name ends in `THIS_DEVICE_ONLY` (iOS cannot sync such an
