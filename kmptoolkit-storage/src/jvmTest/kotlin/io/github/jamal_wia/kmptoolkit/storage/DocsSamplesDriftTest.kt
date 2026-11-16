@@ -17,9 +17,11 @@ import kotlin.test.assertTrue
  *
  * A fence with no marker, or a marker that names nothing, fails. So does a fence that a renderer shows as Kotlin but that is not
  * spelled exactly ```` ```kotlin ```` at the top level (`kt`, `kts`, `Kotlin`, extra text, a space before the info string, four
- * backticks or tildes, a fence inside a block quote or a list item), because the check would skip it; [DocFences] reads fences the
- * way CommonMark does, at the top level and inside block quotes and list items, and `DocFencesTest` and `DocFencesBreakerR3Test`
- * pin each spelling and each container with a snippet that does not compile. The compile and run checks of the samples themselves are
+ * backticks or tildes, a fence inside a block quote or a list item), because the check would skip it. [DocFences] is not a CommonMark
+ * parser and fails closed: it reads fences at the top level and inside block quotes and list items, and it rejects with
+ * `file:line: unrecognised fence-like line` every other line outside a fence that holds three backticks or tildes, an HTML block
+ * that holds one, and a tab in the indentation or after a marker (the limits are listed in its KDoc). `DocFencesTest`,
+ * `DocFencesFailClosedTest`, `DocFencesBreakerR3Test` and `DocFencesBreakerR4Test` pin each spelling and each container with a snippet that does not compile. The compile and run checks of the samples themselves are
  * `:docs-samples:compileKotlinJvm` (as a consumer), `DocsSamplesDesktopRunTest`, `AndroidDocsSamplesRound11Test`,
  * `IosDocsSamplesCompileTest` and `DocsSamplesTestingTest`.
  */

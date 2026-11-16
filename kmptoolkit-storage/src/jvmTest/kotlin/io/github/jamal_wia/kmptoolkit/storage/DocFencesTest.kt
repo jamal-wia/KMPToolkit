@@ -69,11 +69,20 @@ class DocFencesTest {
     }
 
     @Test
-    fun `a fence of another language and inline code are not kotlin`() {
-        val lines: List<String> = listOf("```bash", "echo kotlin", "```", "Use ```kotlin``` inline.", "~~~text", "x", "~~~")
+    fun `a fence of another language is not kotlin`() {
+        val lines: List<String> = listOf("```bash", "echo kotlin", "```", "Use the word kotlin in a sentence.", "~~~text", "x", "~~~")
         assertEquals(emptyList(), DocFences.oddKotlinFences("doc.md", lines))
         assertEquals(emptyList(), DocFences.kotlinFences("doc.md", lines))
         assertEquals(2, DocFences.scan("doc.md", lines).size)
+    }
+
+    @Test
+    fun `inline code that holds three backticks is refused instead of being skipped`() {
+        // Fail-closed: the reader does not model inline code, so a sentence with three backticks is reported, never silently read as text.
+        val error: IllegalStateException = assertFailsWith<IllegalStateException> {
+            DocFences.scan("doc.md", listOf("```bash", "echo", "```", "Use ```kotlin``` inline."))
+        }
+        assertTrue(error.message.orEmpty().startsWith("doc.md:4: unrecognised fence-like line"), error.message)
     }
 
     @Test
