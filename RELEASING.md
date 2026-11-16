@@ -82,6 +82,8 @@ check: read the skip count of every run.
    `docs/kmptoolkit-storage/06-testing.md` ("Docs samples"): `:docs-samples:compileKotlinJvm`, and the classes
    `DocsSamplesDesktopRunTest`, `DocsSamplesDriftTest` (`:kmptoolkit-storage:jvmTest`), `DocsSamplesTestingTest`
    (`:kmptoolkit-storage-testing:jvmTest`) and `AndroidDocsSamplesRound11Test` (`:kmptoolkit-storage:testAndroidHostTest`).
+   The fake-library tests of `src/jvmFfmTest` (task `:kmptoolkit-storage:jvmTestFfm`) now run under `check` too; their real-store classes skip unless `-Pkmptoolkit.secretstore` selects them, so the skips in that
+   task are expected, and step 2 is what closes them.
 2. **Real key stores of the desktop FFM binding, one run per operating system the release supports.** The suites do
    nothing unless asked, and with `required=true` a skip is a failure, so a broken key store cannot pass as green. Preparation
    per OS (an unlocked login keychain on macOS, the logged-on user's interactive session on Windows, a session bus and an
