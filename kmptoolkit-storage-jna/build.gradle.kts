@@ -23,8 +23,9 @@ kotlin {
             // api: this artifact only makes sense next to the module whose seam it implements, and the consumer's
             // classpath must carry the same lockstep version of it.
             api(project(":kmptoolkit-storage"))
-            // @ToolkitInternalApi and the seam (internal.desktop) live in these two modules. implementation: no core
-            // type is public here.
+            // @ToolkitInternalApi and the seam (internal.desktop) live in these two modules. implementation: the one public
+            // class (the binding) carries @ToolkitInternalApi, but api(kmptoolkit-storage) above already puts
+            // kmptoolkit-core on a consumer's compile classpath, so the marker stays resolvable.
             implementation(project(":kmptoolkit-core"))
             // implementation: no JNA type appears in this module's API, so only the consumer's runtime sees it.
             // Core only; jna-platform is never used.
