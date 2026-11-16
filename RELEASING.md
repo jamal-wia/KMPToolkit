@@ -178,6 +178,26 @@ check: read the skip count of every run.
    that is not probe-only reports a leftover item, and that run then fails although its own app run was fine: remove the item
    as above and run again.
 
+   **Optional negative controls of the smoke itself** (`smoke-storage-desktop/breaker-r1` to `breaker-r4`; macOS, none is part of
+   the release check, each needs the image or the Gradle run named in its own header). They are the reviewers' attacks on the
+   smoke and its keep rules, kept so a change to the smoke can be re-checked (the `.init.gradle.kts` files are passed to Gradle
+   with `-I`):
+   - `breaker-r1/drop-jna-rules.init.gradle.kts`: feeds ProGuard every consumer rule file except `kmptoolkit-storage-jna.pro`;
+     proves the JNA smoke fails (exit not 0, no PASS line) when the artifact ships no rules.
+   - `breaker-r1/drop-jna-library-keep.init.gradle.kts`: drops only the rule that keeps the JNA `Library` interfaces; proves
+     that one missing rule fails the JNA smoke.
+   - `breaker-r1/jna-native-unloadable.sh`: runs the built JNA image with JNA's native library made unloadable; proves a
+     broken binding exits 1 with `NATIVE_ACCESS_UNAVAILABLE` and never reads as a skip.
+   - `breaker-r2/finalize-on-run-failure.init.gradle.kts`: attaches `verifySmokeLeftNoKeychainItem` to the packaged run itself;
+     the build now wires it that way, so it proves the keychain check also runs when the app fails before any key-store call
+     (use it with `-Psmoke.control.noNativeAccessFlag=true`).
+   - `breaker-r3/finalizer-order.init.gradle.kts`: prints when each packaged run and the keychain check start and end; shows
+     that with both smoke tasks in one invocation the check starts after both runs.
+   - `breaker-r3/sigterm-packaged-app.sh`: sends SIGTERM to the real packaged launcher in a probe-only run; proves a stopped
+     run (exit 143) leaves no `kmptoolkit-smoke-*` directory.
+   - `breaker-r4/sigterm-verdicts.sh`: the same attack with an optional second signal; records the verdict line, the exit code, the
+     shutdown-hook lines and the leftovers of every trial.
+
    **Options.** `-Psmoke.probeOnly=true` (probe only, touches no key), `-Psmoke.javaHome25=<dir>` (used by `smokeFfm`) and
    `-Psmoke.javaHome21=<dir>` (used by `smokeJna`): a full JDK with jmods and jpackage whose `release` file says that
    version; any other JDK is refused. A Homebrew JDK needs no extra step: the smoke switches off the Compose plugin's Homebrew
