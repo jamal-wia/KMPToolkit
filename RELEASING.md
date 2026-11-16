@@ -142,8 +142,10 @@ check: read the skip count of every run.
    or errors, a packaging error, a run that was stopped from outside, or a cleanup that did not finish. A probe that answers
    `Unavailable` **with** a cause (such as the native-call time limit) is a failure, never a skip; `Unavailable` without a
    cause (a locked key store) and `Unsupported` with the reason no key store or no user session are the skips. Lines that
-   start with `ALSO FAILED while cleaning up` are failures of the cleanup that came after the run's own failure: they never
-   replace the verdict's reason, but they mean the run may have left something behind. A stopped run's shutdown hook reports
+   contain `ALSO FAILED while cleaning up` report a cleanup that failed. After a failed run they come with the run's own
+   reason, which they never replace. After a run that otherwise passed, only the temporary directory can fail this way, and
+   the verdict itself then becomes `SMOKE-RESULT: FAIL the temporary directory ... could not be deleted`. Either way the run
+   may have left something behind. A stopped run's shutdown hook reports
    its own failures as lines that start with `shutdown cleanup: ALSO FAILED`; they mean the same (a key item or the temporary
    directory may be left). Fix a keep rule in the library's `META-INF/proguard/*.pro`, never in the smoke build. The library
    rules the smoke feeds ProGuard are exactly the `META-INF/proguard/*.pro` files of the runtime jars, because ProGuard
