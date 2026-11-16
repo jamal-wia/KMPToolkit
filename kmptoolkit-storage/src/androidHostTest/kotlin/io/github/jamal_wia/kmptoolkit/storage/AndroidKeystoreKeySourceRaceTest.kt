@@ -54,7 +54,8 @@ class AndroidKeystoreKeySourceRaceTest {
 
     @Test
     fun `concurrent recovery from an unrecoverable key never deletes the replacement`() = runTest {
-        // The device lock was changed: the alias is there, its key is not. Every caller sees the dead
+        // The key was permanently invalidated (for example a key bound to user authentication after the
+        // lock screen was removed): the alias is there, its key is not. Every caller sees the dead
         // entry; a caller that acted on that stale sighting after another had already replaced it
         // would delete the replacement and generate yet another.
         val store = RacyKeyStore(callers = CALLERS, unrecoverable = setOf(ALIAS))

@@ -4,8 +4,9 @@ package io.github.jamal_wia.kmptoolkit.storage
  * Who holds an [EncryptedKeyValueStorage]'s key and who is kept out, as a lower bound that is true on
  * every platform that reports it.
  *
- * It is constant for the lifetime of a store and known without any I/O, so shared code can read it
- * before the first call. Each value states the guarantee that always holds; a platform may offer more
+ * It is known without any I/O, so shared code can read it before the first call. It is constant for
+ * every store except an app-key store, which reports the type of the key it is bound to: a
+ * `changeKey` to the other key type (passphrase to raw key, or back) changes it. Each value states the guarantee that always holds; a platform may offer more
  * (the backend kind of a desktop store, for instance, comes from a probe, not from here), but never
  * less, and a lower bound never reads "unknown".
  *

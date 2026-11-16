@@ -31,8 +31,9 @@ import kotlinx.coroutines.withTimeout
  *                                            smoke cannot clean up after this key store (a skip, NOT a pass of the secure path)
  *   SMOKE-RESULT: FAIL <reason>              anything else; exit code 1
  *
- * A secure run leaves nothing behind, on success and on failure: the temp directory is deleted, and the key item the secure store
- * made in the OS key store is removed by the app itself (the library's clear() keeps the key by contract); see Cleanup.kt.
+ * A secure run removes what it made, on success and on failure: the temp directory is deleted, and the key item the secure store
+ * made in the OS key store is removed by the app itself (the library's clear() keeps the key by contract); see Cleanup.kt. A run that
+ * is stopped from outside cleans up in a shutdown hook, best effort, and a run killed hard cannot; see Shutdown.kt.
  */
 
 /** The one binding name each variant must find in the shrunk jar (the keep rules of the library artifacts keep these). */
@@ -87,7 +88,7 @@ public fun main(args: Array<String>) {
     var verdict: String
     var exitCode: Int
     val directory: File = Files.createTempDirectory("kmptoolkit-smoke-").toFile()
-    // A run stopped from outside (Gradle cancelling the build, `timeout`, Ctrl-C) never reaches the finally below: see Shutdown.kt.
+    // A run stopped from outside (Gradle cancelling the build, `timeout`, `kill`: the app receives SIGTERM) never reaches the finally below: see Shutdown.kt.
     val shutdown: ShutdownCleanup = ShutdownCleanup(directory, endsWithMain = true)
     shutdown.install()
     try {

@@ -85,6 +85,10 @@ include(":test-support")
 // round trips run by a person on the simulator. Deliberately not named kmptoolkit-*, so the BOM does not list it.
 include(":storage-ios-harness")
 
+// Not published — the consumer-side compile check of the docs/kmptoolkit-storage samples (docs/kmptoolkit-storage/06-testing.md).
+// Deliberately not named kmptoolkit-*, so the BOM does not list it.
+include(":docs-samples")
+
 // Not published — Android Compose demo, smoke-tests the released artifacts by coordinate.
 include(":sample")
 

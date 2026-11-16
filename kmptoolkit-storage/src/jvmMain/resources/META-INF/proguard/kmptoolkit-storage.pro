@@ -1,5 +1,7 @@
-# kmptoolkit-storage: rules for apps that shrink with ProGuard or R8 and ignore embedded rules never need to copy them by
-# hand if their tool reads META-INF/proguard; otherwise copy this file.
+# ProGuard / R8 rules shipped inside kmptoolkit-storage. R8 reads them from META-INF/proguard in the jar; ProGuard does not,
+# so an app that shrinks with ProGuard (a Compose Desktop release build does) must pass this file to it itself, for example
+# in buildTypes.release.proguard.configurationFiles of the Compose Desktop plugin. Do the same for any other tool that
+# ignores META-INF/proguard.
 
 # The desktop secure store loads its FFM key-store binding by its fixed class name (Class.forName), so nothing references
 # it statically: keep the class and its no-argument constructor.

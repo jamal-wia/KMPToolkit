@@ -82,8 +82,8 @@ files.withIo {
 ```
 
 - The temporary file is created owner-only (POSIX mode 0600; Windows an explicit DACL that grants only
-  the current user and SYSTEM, with no inherited entry), so the final name never exists with wider
-  access. Nothing is changed after creation: a later `chmod` of the file is undone by the next
+  the current user and SYSTEM, with no inherited entry), so the final name never exists with a wider POSIX
+  mode or Windows DACL. Nothing is changed after creation: a later `chmod` of the file is undone by the next
   `ownerOnly` write, which replaces the file.
 - A directory is made owner-only (POSIX 0700; Windows the same DACL, inheritable by what is created
   inside) only when this call creates it. An existing directory is never changed, so a subdirectory
@@ -93,6 +93,8 @@ files.withIo {
 - On a file system that stores no permissions (FAT, exFAT, some network shares), on Android and on iOS
   the request is accepted and ignored, never an error. See
   [platform notes](05-platform-notes.md#owner-only-files-and-directories).
+- On macOS an extended ACL entry that the parent directory marks inheritable is still inherited by an `ownerOnly` file or directory (the mode stays 0600/0700);
+  see the [platform notes](05-platform-notes.md#owner-only-files-and-directories).
 - `ownerOnly` protects the content from being read, not the path from being replaced: when an existing
   parent directory is writable by others, another user can still rename or delete the file in it. The
   levels that already exist are never tightened (and a symbolic link among them is followed), so keep

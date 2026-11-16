@@ -9,7 +9,7 @@ package io.github.jamal_wia.kmptoolkit.storage
  *
  * A plain [KeyValueStorage] over `SharedPreferences` or `NSUserDefaults` fails only under genuine
  * platform trouble (an unwritable data directory). An [EncryptedKeyValueStorage] has real, reachable
- * failure modes — a Keystore key destroyed by a lock-screen change, a Keychain that is unavailable
+ * failure modes — a Keystore key the platform invalidated, a Keychain that is unavailable
  * before first unlock, a prompt the user dismissed — which is the reason every operation returns a
  * [StorageResult] rather than a bare value.
  *
@@ -89,13 +89,13 @@ public sealed interface StorageError {
      * [key] is `null` (the store's key is gone or has been replaced).
      *
      * The usual cause is that the platform destroyed the encryption key while the ciphertext
-     * survived: on Android the Keystore entry is dropped when the user adds, changes, or removes
-     * the device lock, and an app restored to a new device from a backup carries the ciphertext
-     * without the key. Treat the value as permanently lost — remove the affected keys (or call
-     * [KeyValueStorage.clear]) and re-acquire whatever they held. On an OS-key store `remove` and
-     * `clear` always work, even when [key] is `null`, and the next `put` or
-     * [EncryptedKeyValueStorage.ensureKey] starts a fresh key. Only an [EncryptedKeyValueStorage]
-     * produces this.
+     * survived: on Android a key bound to user authentication is invalidated for good when the
+     * lock screen is removed, and an app restored to a new device from a backup carries the
+     * ciphertext without the key. Treat the value as permanently lost — remove the affected keys (or call
+     * [KeyValueStorage.clear]) and re-acquire whatever they held. On an OS-key store `clear` always
+     * works, even when [key] is `null` (it empties the file or moves an unparsable one aside), and
+     * then the next `put` starts a fresh key; `remove` also works when only the key is lost. Only an
+     * [EncryptedKeyValueStorage] produces this.
      *
      * @param key the entry that cannot be read, or `null` when the whole store cannot be (Android and
      *   iOS always name the entry; a store with one key for all its values reports `null` when that

@@ -18,7 +18,10 @@ import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
  *   [LinkageError], an [IllegalCallerException] or a [SecurityException]; the caller maps those to
  *   `Unsupported(NATIVE_ACCESS_UNAVAILABLE)`.
  * - Every call frees every operating-system-allocated output before it returns (`CFRelease`, `LocalFree`,
- *   `secret_password_free`, `g_free`, `GError`) and zeroes its native copy of the key.
+ *   `secret_password_free`, `g_free`, `GError`) and zeroes the native copies of the key that it allocates itself (the
+ *   add buffers, the DPAPI buffers, the libsecret password buffer). It does not overwrite the `CFData` that
+ *   `SecItemCopyMatching` returns: Apple's contract makes those bytes read-only, so the binding copies the key out and
+ *   releases the object unmodified; the Kotlin byte arrays are wiped by their owners.
  * - The seam has 11 calls in all: 4 macOS, 2 DPAPI, 5 Linux. There is deliberately no "update" call: a key item is
  *   never updated, only deleted and created again.
  * - macOS calls never pass `kSecUseAuthenticationUISkip` (it silently omits items that need UI and answers -25300);
