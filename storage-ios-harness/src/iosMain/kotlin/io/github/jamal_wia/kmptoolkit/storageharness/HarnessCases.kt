@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.cinterop.BetaInteropApi
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.ObjCObjectVar
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
@@ -126,6 +128,7 @@ private fun StorageResult<*>.errorOrNull(): StorageError? = (this as? StorageRes
  * a stock simulator has neither a passcode nor an enrolled face, and there the put of such an item fails by the
  * device's own rule, which says nothing about the library.
  */
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 private fun missingDeviceOwnerAuthentication(): String? = memScoped {
     val error: ObjCObjectVar<NSError?> = alloc<ObjCObjectVar<NSError?>>()
     if (LAContext().canEvaluatePolicy(LAPolicyDeviceOwnerAuthentication, error.ptr)) {

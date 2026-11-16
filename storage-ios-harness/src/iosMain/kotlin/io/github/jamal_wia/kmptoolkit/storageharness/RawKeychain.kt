@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.storageharness
 
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
@@ -42,6 +43,7 @@ import platform.Security.kSecReturnAttributes
  * The service the library files a store under is `<name>.kmptoolkit.securestorage` (documented as an implementation
  * detail in that same file); [serviceOf] is the one place the harness depends on that.
  */
+@OptIn(ExperimentalForeignApi::class)
 internal object RawKeychain {
 
     /** One item as the Keychain reports it. Raw attribute values, as strings, `null` where the item has none. */
