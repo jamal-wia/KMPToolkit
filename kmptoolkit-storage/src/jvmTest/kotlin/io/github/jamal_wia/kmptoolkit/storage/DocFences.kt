@@ -1,5 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+/** The file extensions of the Linguist Kotlin entry (`.kt`, `.kts`, `.ktm`); a fence info string that is one of them is drawn as Kotlin. */
+private val KOTLIN_EXTENSIONS: Set<String> = setOf("kt", "kts", "ktm")
+
 /**
  * One fenced code block of a Markdown file, as [DocFences] read it: an opening line, a body, and a closing line.
  *
@@ -20,12 +23,15 @@ internal class DocFence(
     val body: List<String>,
     val recognised: Boolean = true,
 ) {
-    /** True for a fence that a renderer shows as Kotlin, however it is spelled (`kt`, `kts`, `Kotlin`, `kotlin` with more text). */
+    /**
+     * True for a fence that a renderer shows as Kotlin, however it is spelled: the name `kotlin` in any case or with more text, and
+     * the three file extensions of the Linguist Kotlin entry, `kt`, `kts` and `ktm` (Kotlin has no alias there), in any case.
+     */
     val isKotlinLike: Boolean
         get() {
             val lower: String = info.lowercase()
             val firstWord: String = lower.trimStart('{', '.').takeWhile { it.isLetterOrDigit() }
-            return lower.contains("kotlin") || firstWord == "kt" || firstWord == "kts"
+            return lower.contains("kotlin") || firstWord in KOTLIN_EXTENSIONS
         }
 
     /** True only for the one spelling the sample check reads: a recognised fence whose opening line is exactly three backticks and `kotlin`. */

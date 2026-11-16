@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
  * - `<!-- build-script -->`: a Gradle snippet.
  *
  * A fence with no marker, or a marker that names nothing, fails. So does a fence that a renderer shows as Kotlin but that is not
- * spelled exactly ```` ```kotlin ```` at the start of a line (`kt`, `kts`, `Kotlin`, extra text, a space before the info string, four
+ * spelled exactly ```` ```kotlin ```` at the start of a line (`kt`, `kts`, `ktm`, `Kotlin`, extra text, a space before the info string, four
  * backticks or tildes, an indented fence, a fence inside a block quote or a list item), because the check would skip it. [DocFences]
  * is not a Markdown parser: it accepts only the two layouts these docs use (an opening line of three backticks and letters or digits,
  * the closing line of three backticks) and fails with `file:line: unrecognised fence-like line` on every other line, inside a fence
@@ -98,7 +98,7 @@ class DocsSamplesDriftTest {
             emptyList(),
             odd,
             "a fence that renders as Kotlin but is not spelled exactly ```kotlin is skipped by the sample check: " +
-                "kt, kts, Kotlin, extra text, a space before the info string, four backticks, tildes, an indented fence, a block quote and a list item all count",
+                "kt, kts, ktm, Kotlin, extra text, a space before the info string, four backticks, tildes, an indented fence, a block quote and a list item all count",
         )
     }
 

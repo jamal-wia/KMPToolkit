@@ -81,6 +81,30 @@ class DocFencesTest {
     }
 
     @Test
+    fun `every spelling of the Linguist Kotlin entry is reported in any case`() {
+        // Linguist's Kotlin entry: name Kotlin, no alias, extensions .kt, .kts and .ktm; a renderer resolves an info string by name or extension.
+        for (spelling: String in listOf("kt", "kts", "ktm", "KT", "KTS", "KTM", "Kt", "Kts", "Ktm", "Kotlin", "KOTLIN", "{.ktm}", ".ktm")) {
+            val opening: String = "```$spelling"
+            val lines: List<String> = document(opening)
+            if (spelling.all { it.isLetterOrDigit() }) {
+                assertEquals(listOf("doc.md:3"), DocFences.scan("doc.md", lines).map { it.location }, "spelling $opening is a fence, not a refusal")
+                assertEquals(listOf("doc.md:3"), problems(lines), "spelling $opening")
+            } else {
+                // Not an accepted opening line (braces or a dot): refused, and still reported as a Kotlin-looking line.
+                assertTrue(refusal(lines).startsWith("doc.md:3: unrecognised fence-like line"), "spelling $opening")
+                assertEquals(listOf("doc.md:3"), problems(lines), "spelling $opening")
+            }
+        }
+    }
+
+    @Test
+    fun `info strings that are not Kotlin spellings are not reported`() {
+        for (spelling: String in listOf("ktx", "ktl", "kot", "kts2", "ktm1", "k", "text", "bash", "java", "swift", "kttt")) {
+            assertEquals(emptyList(), problems(document("```$spelling")), "spelling $spelling")
+        }
+    }
+
+    @Test
     fun `kotlin with more text and other info strings are refused and reported`() {
         for (spelling: String in listOf("```kotlin title=\"x\"", "```{.kotlin}", "```kotlin,ignore", "```kotlin-script", "```kotlin ")) {
             assertEquals(listOf("doc.md:3"), problems(document(spelling, "```")), "spelling $spelling")
