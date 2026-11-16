@@ -200,6 +200,9 @@ What to know:
   before.
 - Without `temporaryFullAccuracyPurposeKey`, `request(CommonPermission.Location)` from `Limited`
   returns `Limited` at once, as in 4.x.
+- A batch can show the accuracy prompt right after the location prompt. With the key set, `request(listOf(CommonPermission.LocationBackground, CommonPermission.Location))`
+  from `NotDetermined`, when the location prompt ends under an approximate grant, finds `Location` (listed second) already `Limited` and
+  shows the temporary full-accuracy prompt next; a single `request(CommonPermission.Location)` from `NotDetermined` stops at `Limited`.
 - `requestTemporaryFullAccuracy` is not serialized with a controller's requests, which never overlap
   each other. When the app has a controller, prefer `temporaryFullAccuracyPurposeKey` and `request`.
 - A key that is not in `NSLocationTemporaryUsageDescriptionDictionary` is a programming error and is

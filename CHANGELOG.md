@@ -84,6 +84,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-storage`: the documented minimums are Android API 24, iOS 15 and JDK 21 on desktop. The POM description of `kmptoolkit-storage` names the desktop secure storage and no longer claims that every identifier is derived from the application id.
 - `kmptoolkit-storage-testing`: `InMemoryKeyValueStorage.writes` and `contents` return a caller-owned, mutable copy on every read (they used to return the fixture's own list, or a read-only collection for 0 or 1 entries), and under concurrent writers the order of `writes` is the order the records landed.
 - Build: the internal `kmptoolkit.ffm` convention plugin compiles native-call code against JDK 25 at bytecode level 21, checks it against the JDK 22 API in every build, and resolves its JDK toolchains only when a test JVM starts.
+- `kmptoolkit-storage` (jvm): `kmptoolkit-core` is now an `api` dependency (compile scope in the POM instead of runtime), because the public desktop seam carries `@ToolkitInternalApi`; there is no API change.
+- Build: `check` of `kmptoolkit-storage` now also runs the fake-library tests of `src/jvmFfmTest` (`jvmTestFfm`); the real-store classes still skip unless `-Pkmptoolkit.secretstore` selects them.
 
 ### Fixed
 
@@ -110,6 +112,7 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - Desktop: when a store file keeps changing under the recovery rounds, the last round fetches a key it never uses, which can cost one unneeded macOS prompt with `allowUserInteraction = true`. A passphrase is wiped from the library's own arrays, but the JDK's PBKDF2 keeps copies until garbage collection, and a passphrase that is not Latin text passes through the JDK normalizer's immutable Strings.
 - Desktop, macOS: the keychain's `CFData` is not overwritten after a read (its bytes are read-only by Apple's contract); the library zeroes the copies it allocates itself. With `allowUserInteraction = false`, a -25300 on a store with entries answers `Unavailable`, never "key lost" (see the platform notes).
 - Desktop: the library must be loaded once per JVM, in a shared parent class loader, wherever several processes write one store; with two copies in one JVM the cross-process lock is best effort.
+- Desktop, not verified on a real OS: only the macOS key store has run against the real operating system (FFM and JNA real-store suites, and the packaging smoke). The Windows DPAPI and Linux libsecret bindings, FFM and JNA, are implemented and tested through the seam with fake bindings only; the old-libsecret case (libsecret older than 0.19), the Linux no-bus and no-service scenarios, the Windows cross-process lock test (`CrossProcessLockWindowsAclRound5Test`) and the packaging smoke on Windows and Linux have not been run. Treat those two key stores as unverified until the real-store runs of `RELEASING.md` (steps 2 to 4) have been made; see `docs/kmptoolkit-storage/05-platform-notes.md`.
 
 ## [5.0.0] - 2026-11-14
 

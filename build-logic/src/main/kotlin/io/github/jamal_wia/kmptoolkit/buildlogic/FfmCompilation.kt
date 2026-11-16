@@ -62,7 +62,8 @@ internal const val FFM_TEST_TASK: String = "jvmTestFfm"
  *   functions as upcall stubs, the real-store suites) cannot compile against the JDK 21 class library of `jvmTest`,
  *   so they are a third compilation, associated with `ffm`, run by a task on a JDK [FFM_TOOLCHAIN_JDK] launcher (the
  *   pattern of `kmptoolkit-video-player-javafx`). The `jvmTest` classpath also receives the `ffm` classes, so a
- *   forked-JVM test can start a JDK 25 child that loads them.
+ *   forked-JVM test can start a JDK 25 child that loads them. [FFM_TEST_TASK] is a dependency of `check`, so its fake-library
+ *   tests run in every build; the real-store classes skip unless `-Pkmptoolkit.secretstore` selects them.
  *
  * Test properties handed to the test JVMs: `kmptoolkit.test.javaHome21` and `kmptoolkit.test.javaHome25` (the
  * installation directories of the two toolchains, for tests that fork a child JVM) and `kmptoolkit.test.targetJar`
@@ -175,6 +176,8 @@ class FfmConventionPlugin : Plugin<Project> {
             // A real-store verdict depends on the machine (the keychain, the user session), which no task input records.
             doNotTrackState("Real-store suites: the verdict depends on the machine, never reuse an earlier result")
         }
+        // The fake-library and structure tests of src/jvmFfmTest are part of `check`; the real-store classes skip without -Pkmptoolkit.secretstore.
+        tasks.matching { it.name == "check" }.configureEach { dependsOn(FFM_TEST_TASK) }
     }
 }
 

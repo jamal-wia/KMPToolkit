@@ -135,7 +135,7 @@ longer confined by the lock-task allowlist.
 | Factory | Screens | Default |
 |---|---|---|
 | `createBiometricGate(…)` (every overload) | enrolment | `SeparateTask` |
-| `createLocationProvider(context, config, logger)` | location settings | `SeparateTask` |
+| `createLocationProvider(context, logger)` | location settings | `SeparateTask` |
 | `createPermissionController(…)` | every permission's Settings page and the special-access screens | `callerTask` on its `activityAccess` — the one you pass, or the one it creates |
 | `create…WithLauncher(…, systemScreenLauncher, …)`, `createPermissionController(…, systemScreenLauncher = …)` | the module's screens | the launcher you pass |
 

@@ -92,6 +92,9 @@ compose.desktop {
         nativeDistributions {
             packageName = "kmptoolkit-smoke-storage-$variant"
             packageVersion = "1.0.0"
+            // The runtime image of a consumer: Compose adds this to its default modules (java.base, java.desktop, java.logging, jdk.crypto.ec).
+            // docs/kmptoolkit-storage/05-platform-notes.md ("jlink and jpackage runtime images"): without it every owner-only write fails closed on Windows.
+            modules("jdk.security.auth")
             // Not derived from the main class: its package has underscores, which a macOS bundle identifier does not allow.
             macOS { bundleID = "io.github.jamal-wia.kmptoolkit.smoke.storage.$variant" }
         }

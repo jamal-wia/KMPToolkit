@@ -65,7 +65,7 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-uploader` | Transactional uploader / offline effect queue | [`kmptoolkit-uploader/`](kmptoolkit-uploader/01-overview.md) |
 | `kmptoolkit-uploader-sqldelight` | SQLDelight-backed store for the uploader | [`kmptoolkit-uploader-sqldelight/`](kmptoolkit-uploader-sqldelight/01-overview.md) |
 | `kmptoolkit-accelerometer` | Raw accelerometer readings as a cold `Flow` | [`kmptoolkit-accelerometer/`](kmptoolkit-accelerometer/01-overview.md) |
-| `kmptoolkit-location` | Device geographic position as typed readings: one-shot fix, continuous updates, geo math, compass heading | [`kmptoolkit-location/`](kmptoolkit-location/01-overview.md) |
+| `kmptoolkit-location` | Device geographic position as typed readings: one-shot fix, continuous updates, geo math, compass heading; [migrating to 6.0](kmptoolkit-location/07-migrating-to-6.md) | [`kmptoolkit-location/`](kmptoolkit-location/01-overview.md) |
 | `kmptoolkit-proximity` | Proximity sensor (near/far, event-driven) | [`kmptoolkit-proximity/`](kmptoolkit-proximity/01-overview.md) |
 | `kmptoolkit-downloader` | Resumable background-download engine | [`kmptoolkit-downloader/`](kmptoolkit-downloader/01-overview.md) |
 | `kmptoolkit-language` | App language selection, a supported-language catalog, and the platform-locale side effect | [`kmptoolkit-language/`](kmptoolkit-language/01-overview.md) |

@@ -201,7 +201,9 @@ public interface PermissionController {
   requested in order, one at a time. On iOS every status in the returned map is read after the last
   prompt of the batch, so an entry that a later prompt changed is answered with its final status (with
   `temporaryFullAccuracyPurposeKey` set, `request(listOf(LocationBackground, Location))` from "always"
-  with approximate location answers both `Granted` once the user accepts the accuracy prompt).
+  with approximate location answers both `Granted` once the user accepts the accuracy prompt). With the key set, such a batch from
+  `NotDetermined` can show the accuracy prompt right after the location prompt when that one ends under an approximate grant,
+  because `Location`, listed second, is `Limited` by then; a single `request(Location)` from `NotDetermined` stops at `Limited`.
 - **Requests are serialized.** A request made while another is in flight — through the same
   controller — waits for it, so two prompts never overlap. On Android that includes a request
   cancelled while its system dialog is still up: the dialog cannot be taken back, so the next request

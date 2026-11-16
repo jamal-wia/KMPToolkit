@@ -35,17 +35,20 @@ other module wanting to mark something internal would have had to depend on a vi
 ## What it means for you
 
 - **Do not depend on it directly.** It is pulled in transitively by the modules that use it:
-  `kmptoolkit-video-player` exposes it as an `api` dependency (its `@ToolkitInternalApi`
-  declarations have to be resolvable from the modules that opt in), `kmptoolkit-audio-player` and
-  `kmptoolkit-audio-recorder` use it as an implementation detail, and so does `kmptoolkit-systembars`
-  on iOS.
+  `kmptoolkit-video-player`, `kmptoolkit-location`, `kmptoolkit-files`, `kmptoolkit-permission` and the
+  `jvm` source set of `kmptoolkit-storage` expose it as an `api` dependency (their `@ToolkitInternalApi`
+  declarations have to be resolvable from the modules that opt in), while `kmptoolkit-audio-player`,
+  `kmptoolkit-audio-recorder`, `kmptoolkit-storage-jna` and `kmptoolkit-systembars` (on iOS) use it as an
+  implementation detail.
 - **`@ToolkitInternalApi` means no compatibility promise.** Every symbol in this artifact can change
   or disappear in any release, including a patch release, without a changelog `Breaking` heading. If
   your code needs `@OptIn(ToolkitInternalApi::class)` to compile, you are depending on an
   implementation detail.
 - **It is on the BOM** like every other artifact, so a classpath cannot end up with two different
   releases of it.
-- **It publishes `jvm`** only because `kmptoolkit-video-player` does and depends on it — see
+- **It publishes `jvm`** only because modules that publish `jvm` depend on it: `kmptoolkit-video-player`,
+  `kmptoolkit-location` and `kmptoolkit-files` (on every target), the `jvm` source set of `kmptoolkit-storage`
+  and `kmptoolkit-storage-jna` — a module cannot depend on one that lacks a target of its own. See
   `01-architecture.md` § "Desktop targets".
 
 ## What this is not

@@ -74,8 +74,10 @@ kotlin {
             // KeyedMutex; Android and iOS keep their own stores. implementation: no files type is public here.
             implementation(project(":kmptoolkit-files"))
             // @ToolkitInternalApi marks the internal seam of the desktop secure store (internal/desktop), which
-            // kmptoolkit-storage-jna implements across a module boundary. implementation: no core type is public here.
-            implementation(project(":kmptoolkit-core"))
+            // kmptoolkit-storage-jna implements across a module boundary. api: the public jvm seam carries the marker
+            // (@ToolkitInternalApi, @SubclassOptInRequired), so the marker class must be resolvable from a consumer's
+            // compile classpath for the opt-in requirement to be visible (as in kmptoolkit-files and kmptoolkit-location).
+            api(project(":kmptoolkit-core"))
         }
         // The seam is public + @ToolkitInternalApi so another artifact can implement it; this module uses it freely.
         jvmMain { languageSettings { optIn("io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi") } }
