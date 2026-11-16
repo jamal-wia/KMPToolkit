@@ -393,7 +393,10 @@ If you ever edit that file: do not "simplify" it back to a dictionary literal.
   its `remove` can delete it, and its `put` can overwrite it instead of adding to its own group. Reads and
   writes are not narrowed to the default group on purpose: items created under an earlier default group (the
   `keychain-access-groups` order changed between releases) would then become invisible, which is a data loss.
-  When several stores share a keychain group, give each an explicit `accessGroup`, or distinct store names.
+  When a store with `accessGroup = null` and a same-named store in another group can exist side by side, give the `null` store an explicit
+  `accessGroup`, or give the stores distinct names. To keep reaching the items the `null` store already wrote, that group must be the app's default
+  group (the first entry of its `keychain-access-groups`, or its application identifier when there is none): the Keychain filed those items there, and
+  any other identifier makes them look missing.
 - **Reads and writes name the exact `synchronizable` value**, so a store only ever sees its own kind of
   item. `synchronizable = true` needs a portable accessibility (`WHEN_UNLOCKED` or `AFTER_FIRST_UNLOCK`),
   because iOS does not sync a `THIS_DEVICE_ONLY` item; the options class rejects the combination, and the
@@ -1030,7 +1033,7 @@ Who can do what to a store's data, per platform and store. The actors:
 | Desktop OS-key, Linux Secret Service (`OS_KEY_STORE_USER_SCOPED`) | stopped | stopped while the login keyring is encrypted with a real password | **not stopped** while the collection is unlocked: a same-user process can read and write the item | not stopped | can roll back or delete the file | not stopped |
 | Desktop passphrase store (`PASSPHRASE`) | stopped | stopped as long as the passphrase is strong and not stored | stopped while the passphrase is strong and not stored, and while no such program runs when it is typed or the store is open; on Windows and Linux a same-user program can usually capture keystrokes or read the app's memory | not stopped | can roll back or delete the file | not stopped while the store is open |
 | Desktop raw-key store (`APP_PROVIDED_KEY`) | exactly as strong as the key's home | | | | | |
-| Plain stores (any platform) | the file is owner-only on desktop; Android and iOS isolate app data | not stopped | not stopped on desktop | not stopped | can read, change and delete | not stopped |
+| Plain stores (any platform) | the file is owner-only on desktop (macOS: the mode only; an inheritable ACL entry of the parent is still inherited, see Permissions under Desktop); Android and iOS isolate app data | not stopped | not stopped on desktop | not stopped | can read, change and delete | not stopped |
 
 Reading the matrix:
 
