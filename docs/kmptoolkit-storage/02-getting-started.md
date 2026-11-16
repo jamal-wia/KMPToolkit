@@ -70,7 +70,7 @@ and a name, because it has no application id to derive either from (`StorageConf
 only place a factory name appears; everything downstream takes the interface. Construction is cheap and cannot fail on the
 device's state, so an app delegate or `onCreate` is the right place for it. Choose a directory under the user's local
 application data (`%LOCALAPPDATA%` on Windows, not the roaming profile), and keep it owner-only: the library creates
-the directories it makes `0700` and its files owner-only, and never changes a directory that already exists.
+the directories it makes `0700` and its files owner-only, and never changes a directory that already exists. On macOS keep the directory under a parent without inheritable ACL entries: the mode is guaranteed, an inherited ACL entry is not removed (see the [platform notes](05-platform-notes.md#desktop)).
 
 ## 3. Use it from shared code
 

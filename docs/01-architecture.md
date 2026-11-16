@@ -298,7 +298,7 @@ in **shared** code:
     like the video engines and the JNA bridge. It is not a reason to add a desktop target to any other module.
   - **Safe defaults of the files.** Store, temporary and lock files are created owner-only (POSIX 0600; on Windows an
     explicit ACL for the current user and SYSTEM), directories the library creates are 0700 and an existing directory is
-    never changed; writes across processes are serialised through a `<file>.lock` sibling. The platform notes
+    never changed (on macOS the mode is the whole guarantee: an inheritable ACL entry of the parent is still inherited); writes across processes are serialised through a `<file>.lock` sibling. The platform notes
     (`docs/kmptoolkit-storage/05-platform-notes.md`) hold the threat model and the packaging requirements
     (`--enable-native-access=ALL-UNNAMED`, `jdk.security.auth` under `jlink`, ProGuard rules).
 - **Files.** `FileAccess` and `KeyedMutex` are types a consumer threads through **shared** code —

@@ -19,7 +19,8 @@ import java.nio.file.attribute.UserPrincipalLookupService
  * The creation-time attributes that make a new file or directory accessible to its owner only, chosen by the attribute
  * views the file system PROVIDER of the path reports (a property of the provider, not of the volume):
  *
- * - POSIX permissions: mode 0600 for a file, 0700 for a directory;
+ * - POSIX permissions: mode 0600 for a file, 0700 for a directory (on macOS the mode is the whole guarantee: an extended
+ *   ACL entry that the parent marks inheritable is still inherited by the new entry, and the JDK cannot clear it);
  * - Windows ACL: a DACL of two allow entries, the current user and SYSTEM, with no entry of the parent; the entries of
  *   a directory are inheritable by the files and directories below it. The DACL is explicit and has no inherited entry
  *   at creation, but it does not carry the protected flag (the JDK cannot set it), so a later re-propagation from the

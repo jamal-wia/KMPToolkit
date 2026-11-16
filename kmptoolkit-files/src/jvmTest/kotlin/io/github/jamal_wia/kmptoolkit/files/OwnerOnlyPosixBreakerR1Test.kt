@@ -38,7 +38,8 @@ import org.junit.Assume
  * `WriteOptions.ownerOnly` and `createDirectories(ownerOnly)` on a real volume. The contract under attack: the written
  * file is readable and writable by its owner only from the moment it exists (the final name never exists with wider
  * access), every directory the call creates is owner-only, a directory that already existed (including one a concurrent
- * caller made first) is never changed, a failure leaves no temp file and no half file.
+ * caller made first) is never changed, a failure leaves no temp file and no half file. On macOS the mode is the guarantee, not
+ * the absence of an inherited ACL entry (owner decision for 6.0.0): the last test pins that documented limit.
  */
 class OwnerOnlyPosixBreakerR1Test {
     private lateinit var root: File
@@ -398,8 +399,16 @@ class OwnerOnlyPosixBreakerR1Test {
         assertEquals(listOf("control"), root.list()!!.toList(), "no temp file is left")
     }
 
+    /**
+     * The documented macOS limit (owner decision for 6.0.0; `docs/kmptoolkit-files/05-platform-notes.md`, `WriteOptions.ownerOnly`):
+     * `ownerOnly` guarantees the POSIX mode (0600 / 0700) on macOS, but an extended ACL entry that the parent directory marks
+     * inheritable is still added to every new file and directory, and the JDK cannot remove it. The test pins both halves, so it
+     * fails if the mode ever stops being owner-only (the guarantee) or if the OS or the library stops inheriting the entry (the
+     * documented limit then changed and the documentation must change with it), and it checks the documented remedy
+     * (`chmod -N` clears the entry).
+     */
     @Test
-    fun `an ownerOnly file and directory under a parent with an inheritable macOS ACL are still owner only`() {
+    fun `on macOS an ownerOnly file and directory keep mode 0600 and 0700 and still inherit the parent's inheritable ACL entry as documented`() {
         Assume.assumeTrue("macOS extended ACLs", System.getProperty("os.name").orEmpty().startsWith("Mac"))
         val parent: File = f("acl").also { it.mkdirs() }
         val granted: Boolean = run(listOf("chmod", "+a", "everyone allow read,write,list,add_file,file_inherit,directory_inherit", parent.path)).first == 0
@@ -408,11 +417,28 @@ class OwnerOnlyPosixBreakerR1Test {
         assertTrue(files.writeAtomically(p("acl", "secret"), "s".encodeToByteArray(), WriteOptions(ownerOnly = true)).isSuccess)
         assertTrue(files.createDirectories(p("acl", "private"), ownerOnly = true).isSuccess)
         assertContentEquals("s".encodeToByteArray(), f("acl", "secret").readBytes())
-        assertEquals("rw-------", mode(f("acl", "secret")), "control: the mode is 0600")
         val parentEntries: List<String> = aclEntries(parent)
         assertTrue(parentEntries.any { "everyone" in it }, "control: the parent carries the inheritable entry: $parentEntries")
-        assertEquals(listOf<String>(), aclEntries(f("acl", "secret")), "an owner-only file must not grant access to anyone else")
-        assertEquals(listOf<String>(), aclEntries(f("acl", "private")), "an owner-only directory must not grant access to anyone else")
+        // The guarantee: the POSIX mode is owner-only.
+        assertEquals("rw-------", mode(f("acl", "secret")), "ownerOnly guarantees the mode 0600 on macOS")
+        assertEquals("rwx------", mode(f("acl", "private")), "ownerOnly guarantees the mode 0700 on macOS")
+        // The documented limit: the parent's inheritable entry is still inherited, for the file and for the directory.
+        val fileEntries: List<String> = aclEntries(f("acl", "secret"))
+        val directoryEntries: List<String> = aclEntries(f("acl", "private"))
+        assertEquals(1, fileEntries.size, "the file inherits the parent's one entry (documented limit): $fileEntries")
+        assertEquals(1, directoryEntries.size, "the directory inherits the parent's one entry (documented limit): $directoryEntries")
+        for (entry: String in fileEntries + directoryEntries) {
+            assertTrue(
+                "group:everyone" in entry && "inherited" in entry && "allow" in entry,
+                "the inherited entry is the parent's allow entry for everyone (documented limit): $entry",
+            )
+        }
+        // The documented remedy: `chmod -N` removes the ACL, and the mode is still owner-only afterwards.
+        assertEquals(0, run(listOf("chmod", "-N", f("acl", "secret").path, f("acl", "private").path)).first)
+        assertEquals(listOf<String>(), aclEntries(f("acl", "secret")), "chmod -N clears the inherited entry (documented remedy)")
+        assertEquals(listOf<String>(), aclEntries(f("acl", "private")), "chmod -N clears the inherited entry (documented remedy)")
+        assertEquals("rw-------", mode(f("acl", "secret")))
+        assertEquals("rwx------", mode(f("acl", "private")))
     }
 
     /** The ACL entry lines `ls -lde` prints for [file] (macOS): lines like ` 0: group:everyone inherited allow read`. */

@@ -43,7 +43,8 @@ public interface FileAccess {
      * new directories. A sync failure is [FileError.Io]; the directories then exist but may not be durable.
      *
      * With [ownerOnly], every directory this call creates is accessible to its owner only, from the moment it exists:
-     * POSIX mode 0700; Windows an explicit DACL that grants only the current user and SYSTEM (inheritable by the entries
+     * POSIX mode 0700 (on macOS that is the whole guarantee: an extended ACL entry that the parent directory marks
+     * inheritable is still inherited by the new directory, because the JDK cannot clear it); Windows an explicit DACL that grants only the current user and SYSTEM (inheritable by the entries
      * below it; no inherited entry at creation, but not protected against a later re-propagation from the parent). A
      * directory that already existed, including one a concurrent caller created first, is never changed. Ignored,
      * never an error, on a volume without permissions (FAT, exFAT: the request is passed and the volume disregards it),

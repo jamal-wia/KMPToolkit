@@ -52,7 +52,9 @@ import kotlinx.coroutines.CoroutineDispatcher
  *
  * The file, its temporary siblings and the lock file are readable and writable by their owner only (POSIX 0600; on
  * Windows an ACL for the owner and SYSTEM), from the moment they exist; a directory this store creates is 0700 and an
- * existing directory is never changed. A volume without permissions (FAT, exFAT) ignores the request.
+ * existing directory is never changed. A volume without permissions (FAT, exFAT) ignores the request. On macOS the mode is
+ * the whole guarantee: an extended ACL entry that the parent directory marks inheritable is still inherited by every new
+ * file and directory (the JDK cannot clear it), so keep the directory under a parent without such entries.
  *
  * Writes are serialized across processes too: after the in-process lock, a write takes `FileChannel.tryLock` on the
  * separate `<file>.lock` ([CrossProcessLock]), so two app instances or two parallel tools never lose each other's

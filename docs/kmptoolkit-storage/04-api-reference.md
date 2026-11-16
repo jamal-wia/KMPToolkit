@@ -470,7 +470,7 @@ All three factories require `config.name` (`IllegalArgumentException` otherwise)
 | `createAppKeyEncryptedKeyValueStorage` | `<name>.kmptoolkit.appkeystorage.bin` | `PASSPHRASE` or `APP_PROVIDED_KEY` | none |
 
 Every store file has a sibling `<file>.lock` that serializes writes across processes (a write that cannot get it within 10 s answers `Unavailable`). Files are written
-as a whole, atomically, owner-only. Nothing touches the operating system until the first call, and no store ever falls back to a weaker one. The layout, the key
+as a whole, atomically, owner-only (on macOS the mode; an inheritable ACL entry of the parent is still inherited, see the platform notes). Nothing touches the operating system until the first call, and no store ever falls back to a weaker one. The layout, the key
 lifecycle and every limit are in [`05-platform-notes.md`](05-platform-notes.md#desktop).
 
 ### `AppKeyEncryptedKeyValueStorage`

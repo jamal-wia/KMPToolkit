@@ -13,7 +13,9 @@ package io.github.jamal_wia.kmptoolkit.files
  * @property ownerOnly `true`: the written file is readable and writable by its owner only, and so is every directory
  *   [createParentDirectories] creates for it (including [tempDirectory]). It is set when the temporary file is created,
  *   before the rename, so the final name never exists with wider access, and an external `chmod` of the old file is
- *   undone by the next write. POSIX (Linux, macOS desktop JVM): file mode 0600, directories 0700. Windows: an explicit DACL
+ *   undone by the next write. POSIX (Linux, macOS desktop JVM): file mode 0600, directories 0700. On macOS that is the
+ *   whole guarantee: an extended ACL entry that the parent directory marks inheritable is still inherited by the new file
+ *   and directory, because the JDK cannot clear it (check with `ls -le`, clear with `chmod -N`). Windows: an explicit DACL
  *   that grants only the current user and SYSTEM, with no inherited entry at creation (it is not protected against a later
  *   re-propagation from the parent). Ignored, never an error, on a volume that stores neither (FAT, exFAT, some network
  *   shares: the request is passed and the volume disregards it), on Android and on iOS, whose app sandbox already hides
