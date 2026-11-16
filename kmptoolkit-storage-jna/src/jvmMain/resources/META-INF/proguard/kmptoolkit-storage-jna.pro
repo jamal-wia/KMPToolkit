@@ -1,5 +1,7 @@
-# ProGuard / R8 rules shipped inside kmptoolkit-storage-jna. A consumer's shrinker picks them up from the jar; copy them
-# by hand only if your tool ignores META-INF/proguard.
+# ProGuard / R8 rules shipped inside kmptoolkit-storage-jna. R8 reads them from META-INF/proguard in the jar; ProGuard does not,
+# so an app that shrinks with ProGuard (a Compose Desktop release build does) must pass this file to it itself, for example
+# in buildTypes.release.proguard.configurationFiles of the Compose Desktop plugin. Do the same for any other tool that
+# ignores META-INF/proguard.
 
 # The binding is found by its fixed name (Class.forName from kmptoolkit-storage), so nothing else references it.
 -keep class io.github.jamal_wia.kmptoolkit.storage.jna.JnaNativeKeyStoreBinding { public <init>(); *; }
