@@ -84,6 +84,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-storage`: the documented minimums are Android API 24, iOS 15 and JDK 21 on desktop. The POM description of `kmptoolkit-storage` names the desktop secure storage and no longer claims that every identifier is derived from the application id.
 - `kmptoolkit-storage-testing`: `InMemoryKeyValueStorage.writes` and `contents` return a caller-owned, mutable copy on every read (they used to return the fixture's own list, or a read-only collection for 0 or 1 entries), and under concurrent writers the order of `writes` is the order the records landed.
 - Build: the internal `kmptoolkit.ffm` convention plugin compiles native-call code against JDK 25 at bytecode level 21, checks it against the JDK 22 API in every build, and resolves its JDK toolchains only when a test JVM starts.
+- `kmptoolkit-storage` (jvm): `kmptoolkit-core` is now an `api` dependency (compile scope in the POM instead of runtime), because the public desktop seam carries `@ToolkitInternalApi`; there is no API change.
+- Build: `check` of `kmptoolkit-storage` now also runs the fake-library tests of `src/jvmFfmTest` (`jvmTestFfm`); the real-store classes still skip unless `-Pkmptoolkit.secretstore` selects them.
 
 ### Fixed
 
