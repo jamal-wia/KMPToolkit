@@ -1,14 +1,15 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
 /**
- * One fenced code block of a Markdown file, as CommonMark (and so GitHub) reads it: an opening line of three or more backticks or
- * tildes with an optional info string, a body, and a closing line of the same character that is at least as long as the opening.
+ * One fenced code block of a Markdown file, as [DocFences] read it: an opening line, a body, and a closing line.
  *
- * @property opening the opening line, trimmed
- * @property info the info string after the fence characters, trimmed (may be empty)
- * @property marker the line before the opening line, trimmed (`<!-- sample: id -->` and the like), or empty at the top of a file
- * @property inContainer true when the opening line sits inside a block quote or a list item (`> ```kotlin`, `- ```kotlin`, an
- *   indented fence under a list item); [opening] is then the whole trimmed line, container marker included
+ * @property opening the opening line as written, without a trailing carriage return (for a [recognised] fence its indentation, three
+ *   backticks and the info string; for a line the reader refused, that line without surrounding spaces, tabs and carriage returns)
+ * @property info the info string after the fence characters (for a refused line, the text after its first run of fence characters)
+ * @property marker the line before the opening line without surrounding spaces, tabs and carriage returns (`<!-- sample: id -->`
+ *   and the like), or empty at the top of a file
+ * @property recognised false for a line the reader refused and reports as a fence-like line (see [DocFences.oddKotlinFences]),
+ *   true for a fence the reader read
  */
 internal class DocFence(
     val file: String,
@@ -17,7 +18,7 @@ internal class DocFence(
     val info: String,
     val marker: String,
     val body: List<String>,
-    val inContainer: Boolean = false,
+    val recognised: Boolean = true,
 ) {
     /** True for a fence that a renderer shows as Kotlin, however it is spelled (`kt`, `kts`, `Kotlin`, `kotlin` with more text). */
     val isKotlinLike: Boolean
@@ -27,249 +28,197 @@ internal class DocFence(
             return lower.contains("kotlin") || firstWord == "kt" || firstWord == "kts"
         }
 
-    /**
-     * True only for the one spelling the sample check reads: a line that, trimmed, is exactly three backticks and `kotlin`, outside
-     * any block quote or list item (the docs keep their samples at the top level, so a Kotlin fence in a container is reported).
-     */
+    /** True only for the one spelling the sample check reads: a recognised fence whose opening line is exactly three backticks and `kotlin`. */
     val isExactKotlin: Boolean
-        get() = opening == "```kotlin" && !inContainer
+        get() = recognised && opening == "```kotlin"
 
     val location: String
         get() = "$file:$line"
 }
 
 /**
- * The fence reader shared by [DocsSamplesDriftTest] and its adversarial tests. It is a reader of fences, not a CommonMark parser,
- * and it is built FAIL-CLOSED: it reads the layouts listed below, and a line it does not understand that could still hide or
- * fake a fence makes it throw, so that a doc can never pass the drift check because the reader misread it.
+ * The fence reader shared by [DocsSamplesDriftTest] and its adversarial tests. It is NOT a Markdown or CommonMark reader. It is
+ * correct by construction: it accepts only the two line layouts the real docs use, byte for byte, and it refuses every other
+ * line that could be, or could hide, a fence.
  *
- * Read (the layouts the reader models):
- * - **Fences.** Three or more backticks or tildes, up to three columns of indentation, an optional info string (the info string
- *   of a backtick fence holds no backtick). A fence ends at a closing line of the same character, at least as long, indented by
- *   at most three columns; what lies between is text (a `kotlin` line inside a longer outer fence is not a fence).
- * - **Containers.** A block quote (`>`) and a list item (`-`, `*`, `+`, `1.`, `1)`) open and continue as in CommonMark: a quote line
- *   needs its `>`, an item line needs the item's content indentation, a blank line continues an item and ends a quote, and a line
- *   of paragraph text without the marker or the indentation continues the quote or item when the line before it was paragraph
- *   text (a lazy continuation line). A fence may open on the line that opens a container (`> ```kotlin`, `- ```kotlin`). A fence
- *   that is still open when its container ends, or that is never closed, throws with `file:line`.
- * - **Indented code.** A line indented by four or more columns (relative to its container) that does not continue a paragraph
- *   is an indented code block: never a fence, never a container, never a closing line.
- * - **Thematic breaks and headings** (`* * *`, `- - -`, `---`, `#`) open no container; a bare list marker is an empty item.
+ * Accepted, nothing else:
+ * - **An opening line**: some ASCII spaces (none in every real doc), then exactly three backticks, then an info string of ASCII
+ *   letters and digits, possibly empty (`kotlin`, `bash`, or nothing). The spaces are the fence's indentation.
+ * - **A closing line** inside a fence: the same spaces and exactly three backticks. Outside a fence the same line is an opening
+ *   line with an empty info string.
+ * - One trailing carriage return is dropped from a line before it is compared (a document split on `\n` only keeps one).
  *
- * Refused (each throws `IllegalStateException` that names `file:line`, and no input makes the reader throw anything else):
- * - **A fence-like line that is not read.** Every line outside a fence body that contains three or more backticks or tildes and
- *   that the reader did not consume as a fence opening or as an indented code block throws
- *   `file:line: unrecognised fence-like line`: three backticks inside a sentence (inline code), in a heading, in a table row or in
- *   a paragraph continuation, an opening line whose info string holds a backtick, a fence inside an HTML block.
- * - **An HTML block that holds a fence-like line.** A line that starts an HTML block (`<` and a tag, `<!--`, `<?`, `<!X`,
- *   `<![CDATA[`) is followed by lines that CommonMark does not read as fences; the reader does not model where the block ends
- *   except by its end condition (the comment end, the closing tag of `script`, `pre`, `style` or `textarea`, else a blank line),
- *   and refuses a fence-like line before then.
- * - **A tab in the indentation or after a container marker.** Tab stops are not modelled, so a tab there (`-<tab>text`,
- *   `><tab>text`, a tab-indented line) throws; a fence-like line with a tab there throws as an unrecognised fence-like line.
+ * Only an unindented ```` ```kotlin ```` is a sample ([DocFence.isExactKotlin]); an indented one is read, so that it is reported
+ * (a renderer draws it as Kotlin when it sits in a list item) instead of refused without a reason.
  *
- * What the reader does NOT do: parse the rest of CommonMark (setext headings, link reference definitions, tables, inline syntax),
- * so a doc may not rely on any of it to hide or to show a fence.
+ * Refused (the line is reported with `file:line`, and [scan] throws an [IllegalStateException] for it): every line that holds a run
+ * of three or more backticks or three or more tildes and is not one of those layouts, wherever it is: outside a fence or in a fence
+ * body, whatever precedes the run (a tab, `>`, a list marker, a no-break space, text), whatever follows it, inline code, a heading,
+ * a table row, an HTML block, four backticks, tildes, a closing line with other indentation or trailing characters. A fence that is
+ * never closed is refused too.
+ *
+ * Everything else is not looked at: a line without such a run is body text or plain text. Block quotes, list items, lazy
+ * continuation, HTML blocks, indented code and tab stops are not modelled, because nothing that carries a fence-like run is
+ * accepted in them. The scan has one state (inside a fence with a given indentation, or not), reads each line once with plain loops (no regular
+ * expressions, no recursion, so a line of any length costs linear time and cannot overflow the stack), and treats only the ASCII
+ * space, tab and carriage return as white space.
+ *
+ * What this guarantees: every line of a document that holds a fence-like run is either read as an opening or closing line of a
+ * fence or refused. A fence that a renderer shows as Kotlin has a line with such a run, so it is read (and the sample check sees it)
+ * or refused; it cannot be skipped, and no fence can swallow another, because a run inside a fence body that is not the closing
+ * line is refused. What it does not guarantee: that a renderer shows what was read (an accepted line inside an HTML comment is read as a fence
+ * a renderer does not draw; that can only fail the sample check loudly, never pass a snippet unchecked).
+ *
+ * [scan] is the strict reader and the authority: [DocsSamplesDriftTest] fails on whatever it throws. [oddKotlinFences] and
+ * [kotlinFences] are reports built on the same single pass; they never throw and carry on after a refused line (a refused line
+ * inside a fence that has the shape of an opening line ends that fence as never closed and opens a new one, so one stray line does
+ * not hide the rest of the file from the report).
  */
 internal object DocFences {
 
-    private val fenceLine: Regex = Regex("""^(`{3,}|~{3,})(.*)$""")
-    private val fenceRun: Regex = Regex("""`{3,}|~{3,}""")
-    private val quoteMarker: Regex = Regex("""^ {0,3}>""")
-    private val listMarker: Regex = Regex("""^([-*+]|\d{1,9}[.)])( *)(.*)$""")
-    private val thematicBreak: Regex = Regex("""^([-*_])( *\1){2,} *$""")
-    private val atxHeading: Regex = Regex("""^#{1,6}([ \t]|$)""")
-    private val htmlStart: Regex = Regex("""^<[A-Za-z/!?]""")
-    private val rawTextTag: Regex = Regex("""^<(script|pre|style|textarea)([ \t>]|$)""", RegexOption.IGNORE_CASE)
+    private const val FENCE: String = "```"
 
-    /** A tab reached through spaces, block quote markers and list markers only: tab stops are not modelled, so such a line is refused. */
-    private val tabbedPrefix: Regex = Regex("""^(?:[ >]|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))*\t""")
+    /**
+     * One line the reader refused: [text] is the line as written, [neverClosed] is true for a fence that was left open (at the end of the
+     * file, or by a line that opens a new one), [reopened] for a refused line that the report then reads as the opening of a new fence.
+     */
+    private class Refusal(val line: Int, val text: String, val why: String, val neverClosed: Boolean, val reopened: Boolean = false)
 
-    /** An open block quote ([quote]) or list item, whose content starts at [contentColumns]. */
-    private class Container(val quote: Boolean, val contentColumns: Int)
-
-    /** An HTML block that began at [line] and has not ended: at a line containing [terminator], or at a blank line when it is null. */
-    private class HtmlBlock(val line: Int, val terminator: String?)
+    /** What one pass over a file found: the fences it read (in order) and the lines it refused (in line order). */
+    private class Reading(val fences: List<DocFence>, val refusals: List<Refusal>)
 
     private class OpenFence(
         val line: Int,
         val opening: String,
         val info: String,
         val marker: String,
-        val character: Char,
-        val length: Int,
-        val inContainer: Boolean,
+        val closing: String,
         val body: MutableList<String> = mutableListOf(),
     )
 
     /**
-     * Every fence of the file, in order. A fence that is never closed, or whose container ends first, and every line the reader
-     * refuses (see the class KDoc) is a defect of the document and throws an [IllegalStateException] that starts with `file:line`.
+     * Every fence of the file, in order. A refused line (see the class KDoc) or a fence that is never closed is a defect of the
+     * document and throws an [IllegalStateException] whose message starts with `file:line:` of the first such line.
      */
     fun scan(file: String, lines: List<String>): List<DocFence> {
-        val result: MutableList<DocFence> = mutableListOf()
-        val containers: MutableList<Container> = mutableListOf()
-        var open: OpenFence? = null
-        var html: HtmlBlock? = null
-        // True when the previous line, outside a fence, was paragraph text: it decides lazy continuation and what an indented line is.
-        var paragraph = false
-        for ((index: Int, raw: String) in lines.withIndex()) {
-            var matched = 0
-            var rest: String = raw
-            for (container: Container in containers) {
-                rest = continued(rest, container) ?: break
-                matched++
-            }
-            val current: OpenFence? = open
-            if (current != null) {
-                check(matched == containers.size) { neverClosed(file, current, " (its block quote or list item ended first)") }
-                if (closes(rest, current)) {
-                    result.add(DocFence(file, current.line, current.opening, current.info, current.marker, current.body, current.inContainer))
-                    open = null
-                } else {
-                    current.body.add(rest)
-                }
-                continue
-            }
-            if (tabbedPrefix.containsMatchIn(raw)) {
-                error(refused(file, index, raw, if (fenceRun.containsMatchIn(raw)) "fence-like line" else "line", "a tab in the indentation or after a marker"))
-            }
-            val block: HtmlBlock? = html
-            if (block != null) {
-                if (fenceRun.containsMatchIn(raw)) {
-                    error(refused(file, index, raw, "fence-like line", "inside the HTML block that starts at line ${block.line}"))
-                }
-                if (if (block.terminator == null) rest.isBlank() else raw.contains(block.terminator, ignoreCase = true)) html = null
-                continue
-            }
-            if (matched < containers.size && paragraph && isLazy(rest)) {
-                if (fenceRun.containsMatchIn(raw)) error(refused(file, index, raw, "fence-like line", "in a paragraph that continues a quote or an item"))
-                continue
-            }
-            while (containers.size > matched) containers.removeAt(containers.size - 1)
-            while (columns(rest) < 4) {
-                val opened: Pair<Container, String> = openContainer(rest) ?: break
-                containers.add(opened.first)
-                rest = opened.second
-            }
-            open = openingFence(rest, index, raw, if (index > 0) lines[index - 1].trim() else "", containers.isNotEmpty())
-            if (open != null) {
-                paragraph = false
-                continue
-            }
-            val indented: Boolean = columns(rest) >= 4
-            val trimmed: String = rest.trim()
-            val started: HtmlBlock? = if (indented) null else htmlBlockStart(index + 1, trimmed)
-            if (started != null && (started.terminator == null || trimmed.indexOf(started.terminator, 1, ignoreCase = true) < 0)) html = started
-            // Indented code that does not continue a paragraph is the only fence-like line the reader leaves alone.
-            if (!(indented && !paragraph) && fenceRun.containsMatchIn(raw)) error(refused(file, index, raw, "fence-like line", "not a fence opening"))
-            paragraph = trimmed.isNotEmpty() && started == null && !leafBlock(trimmed) && (!indented || paragraph)
+        val reading: Reading = read(file, lines)
+        // A line that explains the failure comes before "never closed", which is only its consequence.
+        val first: Refusal? = reading.refusals.firstOrNull { !it.neverClosed } ?: reading.refusals.firstOrNull()
+        if (first != null) {
+            error(
+                if (first.neverClosed) "$file:${first.line}: the fence opened by '${shown(first.text)}' is never closed"
+                else "$file:${first.line}: unrecognised fence-like line (${first.why}): '${shown(first.text)}'",
+            )
         }
-        open?.let { error(neverClosed(file, it, "")) }
-        return result
+        return reading.fences
     }
 
-    private fun neverClosed(file: String, fence: OpenFence, why: String): String =
-        "$file:${fence.line}: the fence opened by '${fence.opening}' is never closed$why"
-
-    private fun refused(file: String, index: Int, raw: String, what: String, why: String): String =
-        "$file:${index + 1}: unrecognised $what ($why): '${raw.trim()}'"
-
-    /** [line] with the marker or the indentation of [container] removed, or null when the line does not continue it. */
-    private fun continued(line: String, container: Container): String? = when {
-        container.quote -> quoteMarker.find(line)?.let { match: MatchResult -> line.substring(match.value.length).removePrefix(" ") }
-        line.isBlank() -> ""
-        columns(line) >= container.contentColumns -> dropColumns(line, container.contentColumns)
-        else -> null
+    /**
+     * Report: the fences a renderer shows as Kotlin but that the sample check would skip because they are not spelled exactly
+     * `kotlin` at the start of a line. A fence that was read with another spelling (`Kotlin`, `kt`) and a refused line whose text
+     * after its fence characters looks like Kotlin (`> ` + backticks + `kotlin`, an indented or tilde fence) both count; the refused
+     * ones come back as fences with [DocFence.recognised] false. Never throws.
+     */
+    fun oddKotlinFences(file: String, lines: List<String>): List<DocFence> {
+        val reading: Reading = read(file, lines)
+        val refused: List<DocFence> = reading.refusals.filter { !it.neverClosed && !it.reopened }.map { refusal: Refusal -> asFence(file, refusal) }
+        return (reading.fences + refused).filter { it.isKotlinLike && !it.isExactKotlin }.sortedBy { it.line }
     }
 
-    /** True for a heading or a thematic break: a line that is not paragraph text and cannot be lazy continuation. */
-    private fun leafBlock(trimmed: String): Boolean = atxHeading.containsMatchIn(trimmed) || thematicBreak.matches(trimmed)
-
-    /** True when [rest], the part of a line left after the containers it continues, is paragraph text that continues the open paragraph. */
-    private fun isLazy(rest: String): Boolean {
-        if (rest.isBlank()) return false
-        val trimmed: String = rest.trim()
-        if (leafBlock(trimmed) || htmlBlockStart(0, trimmed) != null) return false
-        return columns(rest) >= 4 || (openContainer(rest) == null && fenceLine.matchEntire(trimmed) == null)
-    }
-
-    /** The HTML block that [text] (trimmed, outside a fence) starts, with its end condition (CommonMark's seven start conditions, merged), or null. */
-    private fun htmlBlockStart(line: Int, text: String): HtmlBlock? {
-        if (!htmlStart.containsMatchIn(text)) return null
-        val terminator: String? = when {
-            text.startsWith("<!--") -> "-->"
-            text.startsWith("<?") -> "?>"
-            text.startsWith("<![CDATA[") -> "]]>"
-            text.startsWith("<!") -> ">"
-            else -> rawTextTag.find(text)?.let { match: MatchResult -> "</${match.groupValues[1]}>" }
-        }
-        return HtmlBlock(line, terminator)
-    }
-
-    /** The container a block quote marker or a list marker at the start of [line] opens, with what is left of the line; null for neither. */
-    private fun openContainer(line: String): Pair<Container, String>? {
-        val indent: Int = columns(line)
-        val stripped: String = line.trimStart(' ', '\t')
-        // CommonMark: a thematic break (`* * *`, `- - -`) is not a list item.
-        if (thematicBreak.matches(stripped.trimEnd())) return null
-        if (stripped.startsWith(">")) return Container(true, 0) to stripped.substring(1).removePrefix(" ")
-        val match: MatchResult = listMarker.matchEntire(stripped) ?: return null
-        val marker: String = match.groupValues[1]
-        val spaces: Int = match.groupValues[2].length
-        val text: String = match.groupValues[3]
-        if (spaces == 0 && text.isNotEmpty()) return null
-        // CommonMark: one to four spaces after the marker belong to it; five or more make the content an indented code block;
-        // a bare marker is an empty item whose content starts one column after it.
-        val gap: Int = if (text.isEmpty() || spaces > 4) 1 else spaces
-        return Container(false, indent + marker.length + gap) to " ".repeat(maxOf(0, spaces - gap)) + text
-    }
-
-    private fun openingFence(rest: String, index: Int, raw: String, marker: String, inContainer: Boolean): OpenFence? {
-        if (columns(rest) >= 4) return null
-        val trimmed: String = rest.trim()
-        val match: MatchResult = fenceLine.matchEntire(trimmed) ?: return null
-        val fence: String = match.groupValues[1]
-        val info: String = match.groupValues[2]
-        // CommonMark: the info string of a backtick fence holds no backtick, so ```x``` on one line is inline code (then refused).
-        if (fence.first() == '`' && info.contains('`')) return null
-        return OpenFence(index + 1, if (inContainer) raw.trim() else trimmed, info.trim(), marker, fence.first(), fence.length, inContainer)
-    }
-
-    private fun closes(rest: String, fence: OpenFence): Boolean {
-        if (columns(rest) >= 4) return false
-        val trimmed: String = rest.trim()
-        return trimmed.length >= fence.length && trimmed.all { it == fence.character }
-    }
-
-    /** The width of the leading white space of [line], a tab counting four. */
-    private fun columns(line: String): Int {
-        var width = 0
-        for (character: Char in line) {
-            width += when (character) {
-                ' ' -> 1
-                '\t' -> 4
-                else -> return width
-            }
-        }
-        return width
-    }
-
-    private fun dropColumns(line: String, count: Int): String {
-        var dropped = 0
-        var position = 0
-        while (dropped < count && position < line.length && (line[position] == ' ' || line[position] == '\t')) {
-            dropped += if (line[position] == '\t') 4 else 1
-            position++
-        }
-        return line.substring(position)
-    }
-
-    /** The fences a renderer shows as Kotlin but that the sample check would skip because they are not spelled exactly ```` ```kotlin ````. */
-    fun oddKotlinFences(file: String, lines: List<String>): List<DocFence> =
-        scan(file, lines).filter { it.isKotlinLike && !it.isExactKotlin }
-
-    /** The fences the sample check reads: exactly ```` ```kotlin ```` at the top level. */
+    /** Report: the fences the sample check reads, exactly `kotlin` at the start of a line. Never throws; [scan] is where a refused line fails. */
     fun kotlinFences(file: String, lines: List<String>): List<DocFence> =
-        scan(file, lines).filter { it.isExactKotlin }
+        read(file, lines).fences.filter { it.isExactKotlin }
+
+    private fun read(file: String, lines: List<String>): Reading {
+        val fences: MutableList<DocFence> = mutableListOf()
+        val refusals: MutableList<Refusal> = mutableListOf()
+        var open: OpenFence? = null
+        for ((index: Int, raw: String) in lines.withIndex()) {
+            val line: String = if (raw.endsWith('\r')) raw.substring(0, raw.length - 1) else raw
+            val current: OpenFence? = open
+            if (current != null && line == current.closing) {
+                fences.add(DocFence(file, current.line, current.opening, current.info, current.marker, current.body))
+                open = null
+                continue
+            }
+            if (current != null && !holdsFenceRun(line)) {
+                current.body.add(line)
+                continue
+            }
+            if (current == null && !holdsFenceRun(line)) continue
+            // A line with a fence-like run that does not close the open fence, or that opens one.
+            val started: OpenFence? = opening(line, index, if (index > 0) asciiTrim(lines[index - 1]) else "")
+            if (current != null) {
+                refusals.add(Refusal(index + 1, raw, "inside the fence opened at line ${current.line}", false, reopened = started != null))
+                if (started == null) {
+                    current.body.add(line)
+                    continue
+                }
+                fences.add(DocFence(file, current.line, current.opening, current.info, current.marker, current.body))
+                refusals.add(Refusal(current.line, current.opening, "", true))
+            } else if (started == null) {
+                refusals.add(Refusal(index + 1, raw, "not an opening line of exactly three backticks and letters or digits", false))
+            }
+            open = started
+        }
+        open?.let { current: OpenFence ->
+            fences.add(DocFence(file, current.line, current.opening, current.info, current.marker, current.body))
+            refusals.add(Refusal(current.line, current.opening, "", true))
+        }
+        return Reading(fences, refusals.sortedBy { it.line })
+    }
+
+    /** The fence that [line] opens (ASCII spaces, three backticks, then ASCII letters and digits only), or null when it is not an accepted opening line. */
+    private fun opening(line: String, index: Int, marker: String): OpenFence? {
+        var indent = 0
+        while (indent < line.length && line[indent] == ' ') indent++
+        if (!line.startsWith(FENCE, indent)) return null
+        for (position: Int in indent + FENCE.length until line.length) {
+            val character: Char = line[position]
+            val alphanumeric: Boolean = character in 'a'..'z' || character in 'A'..'Z' || character in '0'..'9'
+            if (!alphanumeric) return null
+        }
+        return OpenFence(index + 1, line, line.substring(indent + FENCE.length), marker, line.substring(0, indent) + FENCE)
+    }
+
+    /** True when [line] holds three or more backticks in a row or three or more tildes in a row. One pass, no recursion. */
+    private fun holdsFenceRun(line: String): Boolean = runStart(line) >= 0
+
+    /** The index where the first run of three or more backticks or tildes starts in [line], or -1. */
+    private fun runStart(line: String): Int {
+        var length = 0
+        var previous: Char = ' '
+        for ((position: Int, character: Char) in line.withIndex()) {
+            length = if ((character == '`' || character == '~') && character == previous) length + 1 else if (character == '`' || character == '~') 1 else 0
+            previous = character
+            if (length >= 3) return position - 2
+        }
+        return -1
+    }
+
+    /** A refused line as a fence for the reports: its info is the text after the first run of fence characters. */
+    private fun asFence(file: String, refusal: Refusal): DocFence {
+        val start: Int = runStart(refusal.text)
+        var end: Int = start
+        while (end < refusal.text.length && refusal.text[end] == refusal.text[start]) end++
+        return DocFence(file, refusal.line, shown(refusal.text), asciiTrim(refusal.text.substring(end)), "", emptyList(), recognised = false)
+    }
+
+    /** [text] without leading and trailing ASCII spaces, tabs and carriage returns, cut to a length fit for a message. */
+    private fun shown(text: String): String {
+        val trimmed: String = asciiTrim(text)
+        return if (trimmed.length <= MAX_SHOWN) trimmed else trimmed.substring(0, MAX_SHOWN) + "..."
+    }
+
+    private fun asciiTrim(text: String): String {
+        var start = 0
+        var end: Int = text.length
+        while (start < end && isAsciiBlank(text[start])) start++
+        while (end > start && isAsciiBlank(text[end - 1])) end--
+        return text.substring(start, end)
+    }
+
+    private fun isAsciiBlank(character: Char): Boolean = character == ' ' || character == '\t' || character == '\r'
+
+    private const val MAX_SHOWN: Int = 100
 }

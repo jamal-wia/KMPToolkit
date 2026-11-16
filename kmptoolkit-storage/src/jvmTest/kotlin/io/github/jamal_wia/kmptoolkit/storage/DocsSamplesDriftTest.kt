@@ -16,12 +16,13 @@ import kotlin.test.assertTrue
  * - `<!-- build-script -->`: a Gradle snippet.
  *
  * A fence with no marker, or a marker that names nothing, fails. So does a fence that a renderer shows as Kotlin but that is not
- * spelled exactly ```` ```kotlin ```` at the top level (`kt`, `kts`, `Kotlin`, extra text, a space before the info string, four
- * backticks or tildes, a fence inside a block quote or a list item), because the check would skip it. [DocFences] is not a CommonMark
- * parser and fails closed: it reads fences at the top level and inside block quotes and list items, and it rejects with
- * `file:line: unrecognised fence-like line` every other line outside a fence that holds three backticks or tildes, an HTML block
- * that holds one, and a tab in the indentation or after a marker (the limits are listed in its KDoc). `DocFencesTest`,
- * `DocFencesFailClosedTest`, `DocFencesBreakerR3Test` and `DocFencesBreakerR4Test` pin each spelling and each container with a snippet that does not compile. The compile and run checks of the samples themselves are
+ * spelled exactly ```` ```kotlin ```` at the start of a line (`kt`, `kts`, `Kotlin`, extra text, a space before the info string, four
+ * backticks or tildes, an indented fence, a fence inside a block quote or a list item), because the check would skip it. [DocFences]
+ * is not a Markdown parser: it accepts only the two layouts these docs use (an opening line of three backticks and letters or digits,
+ * the closing line of three backticks) and fails with `file:line: unrecognised fence-like line` on every other line, inside a fence
+ * or outside, that holds three backticks or three tildes. `DocFencesTest`, `DocFencesFailClosedTest`, `DocFencesBreakerR3Test`,
+ * `DocFencesBreakerR4Test` and `DocFencesBreakerR5Test` pin each spelling and each layout with a snippet that does not compile.
+ * The compile and run checks of the samples themselves are
  * `:docs-samples:compileKotlinJvm` (as a consumer), `DocsSamplesDesktopRunTest`, `AndroidDocsSamplesRound11Test`,
  * `IosDocsSamplesCompileTest` and `DocsSamplesTestingTest`.
  */
@@ -48,8 +49,9 @@ class DocsSamplesDriftTest {
 
     private fun docFiles(): List<File> = docs.listFiles { f: File -> f.name.endsWith(".md") }.orEmpty().sortedBy { it.name }
 
+    // The strict reader: a line with a fence-like run that is not an exact opening or closing line fails here with file:line.
     private fun fences(): List<Fence> = docFiles().flatMap { file: File ->
-        DocFences.kotlinFences(file.name, file.readLines()).map { Fence(it.file, it.line, it.marker, dedent(it.body)) }
+        DocFences.scan(file.name, file.readLines()).filter { it.isExactKotlin }.map { Fence(it.file, it.line, it.marker, dedent(it.body)) }
     }
 
     private fun sourceBlocks(): Map<String, MutableList<Pair<String, String>>> {
@@ -96,8 +98,16 @@ class DocsSamplesDriftTest {
             emptyList(),
             odd,
             "a fence that renders as Kotlin but is not spelled exactly ```kotlin is skipped by the sample check: " +
-                "kt, kts, Kotlin, extra text, a space before the info string, four backticks, tildes, a block quote and a list item all count",
+                "kt, kts, Kotlin, extra text, a space before the info string, four backticks, tildes, an indented fence, a block quote and a list item all count",
         )
+    }
+
+    @Test
+    fun `every line of the storage docs that holds a fence-like run is an exact opening or closing line`() {
+        val refused: List<String> = docFiles().mapNotNull { file: File ->
+            runCatching { DocFences.scan(file.name, file.readLines()) }.exceptionOrNull()?.message
+        }
+        assertEquals(emptyList(), refused, "a line with three backticks or three tildes that is not an exact opening or closing fence line")
     }
 
     @Test
