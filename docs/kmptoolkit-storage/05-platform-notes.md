@@ -929,6 +929,21 @@ the size bound answers `InvalidValue`, whatever the thread's status.)
 -25300 is `Unavailable` (for a zero-entry file the repair of the crash state goes ahead without a dialog, as above), and
 `allowUserInteraction = false` guarantees "a needed dialog answers `Unavailable`" for the unlock dialog.
 
+**Not observed on a real OS (Windows and Linux).** Only the macOS key store has been run against the real operating system in
+this release: the FFM real-store suite (`FfmMacKeychainRealStoreTest`, 9 tests) and the JNA one (`RealKeychainSuiteTest` and
+`RealKeychainBreakerR1Test`, 8 tests) on a macOS login keychain, which left no item behind, and the packaging smoke of both
+variants (ProGuard-shrunk image, macOS only). The Windows DPAPI binding and the Linux libsecret binding, FFM and JNA alike,
+have never run against a real Windows or Linux key store: they are implemented, and tested through the seam with fake bindings
+and with a fake native library (the JNA binding's GLib main-context code also ran against a real GLib on the Mac, with libsecret
+itself replaced), nothing more. Three further runs have not been made: the old-libsecret case (libsecret older than 0.19,
+the Rocky Linux 8 run of `FfmSecretServiceOldLibsecretRealStoreTest` and its JNA counterpart), the Linux Secret Service
+scenarios with no bus and with no service (`-Pkmptoolkit.secretstore.scenario=nobus` and `noservice` of the JNA suite), and the
+Windows-only cross-process lock test `CrossProcessLockWindowsAclRound5Test`. The packaging smoke has not been run on Windows or Linux either, and the
+`FfmSecretService$BackendWait` keep rule and `-keepattributes Exceptions` have no proof in it. Reading is not running: during
+development the Linux binding bound a function that no real libsecret exports, and only a reading of the headers found it. Treat
+both desktop key stores as unverified on their own operating system until the commands of steps 2 to 4 of `RELEASING.md` have been
+run there. (The owner-only DACL tests of `kmptoolkit-files`, the file layer under the stores, were run on Windows.)
+
 #### `probeDesktopKeyStore`
 
 `probeDesktopKeyStore(options)` answers which key store a secure store would use now: `MACOS_FILE_KEYCHAIN`, `WINDOWS_DPAPI`,
