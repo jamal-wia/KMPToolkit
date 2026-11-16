@@ -332,7 +332,8 @@ in **shared** code:
   consumer inherit a GPL dependency it did not ask for.
 - **Core.** `kmptoolkit-core` is not a capability at all: it holds the cross-module internal API
   (`@ToolkitInternalApi`, `StateMachineLock`). It publishes `jvm` only because
-  `kmptoolkit-video-player` and `kmptoolkit-location` do and depend on it — a Gradle module cannot depend on a
+  `kmptoolkit-video-player`, `kmptoolkit-location`, `kmptoolkit-files`, the `jvm` source set of `kmptoolkit-storage` and
+  `kmptoolkit-storage-jna` do and depend on it — a Gradle module cannot depend on a
   module that lacks one of its own targets. Nothing in it is meant for a consumer to use on desktop or anywhere
   else.
 - **Hijri.** `toHijriDate` is a pure date conversion a consumer calls from shared code; the JDK's
