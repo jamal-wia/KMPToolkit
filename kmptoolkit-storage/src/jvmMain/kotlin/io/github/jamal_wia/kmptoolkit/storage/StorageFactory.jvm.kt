@@ -31,7 +31,9 @@ import kotlinx.coroutines.Dispatchers
  *
  * The file, its temporary siblings and the lock file are owner-only (POSIX 0600; on Windows an ACL for the owner and
  * SYSTEM), and a directory this function's writes create is 0700; an existing directory is never changed, and a volume
- * without permissions (FAT, exFAT) ignores the request. Another OS user who could read the file before now cannot.
+ * without permissions (FAT, exFAT) ignores the request. Another OS user who could read the file before now cannot, except
+ * on macOS, where an extended ACL entry that the parent directory marks inheritable is still inherited by every new file
+ * and directory (the JDK cannot clear it): keep the directory under a parent without such entries.
  *
  * This store is plain text: it protects nothing at rest, so do not keep secrets in it. For secrets use
  * [createSecureKeyValueStorage] (the data key in the operating system's key store) or

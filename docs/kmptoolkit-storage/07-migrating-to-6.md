@@ -112,7 +112,7 @@ Add `kmptoolkit-storage-jna`, or package on JDK 22 or newer. Add `--enable-nativ
 ## 9. Desktop files shared between OS users
 
 This is no longer possible. Store files, temporary files and lock files are created owner-only (POSIX 0600; on Windows an ACL for the owner and SYSTEM), and directories the library creates are 0700; an existing directory is
-never changed. An app that shared a store file with another OS user stops working: each user gets their own store. File systems without permissions (FAT, exFAT) are unchanged. Writes are now coordinated across processes through a
+never changed. On macOS the mode is the whole guarantee: an extended ACL entry that the parent directory marks inheritable is still inherited by every new file and directory (see the [platform notes](05-platform-notes.md#desktop)). An app that shared a store file with another OS user stops working: each user gets their own store. File systems without permissions (FAT, exFAT) are unchanged. Writes are now coordinated across processes through a
 `<file>.lock` sibling, which a directory listing of a store directory shows; a write that cannot get the lock within 10 s answers `Unavailable`.
 
 ## 10. `kmptoolkit-files` callers
