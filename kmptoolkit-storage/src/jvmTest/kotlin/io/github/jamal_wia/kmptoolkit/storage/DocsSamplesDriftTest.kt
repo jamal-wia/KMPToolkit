@@ -19,9 +19,10 @@ import kotlin.test.assertTrue
  * spelled exactly ```` ```kotlin ```` at the start of a line (`kt`, `kts`, `ktm`, `Kotlin`, extra text, a space before the info string, four
  * backticks or tildes, an indented fence, a fence inside a block quote or a list item), because the check would skip it. [DocFences]
  * is not a Markdown parser: it accepts only the two layouts these docs use (an opening line of three backticks and letters or digits,
- * the closing line of three backticks) and fails with `file:line: unrecognised fence-like line` on every other line, inside a fence
+ * the closing line of three backticks at the same indentation; an indented fence is read only so that it can be reported, as an odd
+ * Kotlin spelling) and fails with `file:line: unrecognised fence-like line` on every other line, inside a fence
  * or outside, that holds three backticks or three tildes. `DocFencesTest`, `DocFencesFailClosedTest`, `DocFencesBreakerR3Test`,
- * `DocFencesBreakerR4Test` and `DocFencesBreakerR5Test` pin each spelling and each layout with a snippet that does not compile.
+ * `DocFencesBreakerR4Test`, `DocFencesBreakerR5Test` and `DocFencesBreakerR6Test` pin each spelling and each layout with a snippet that does not compile.
  * The compile and run checks of the samples themselves are
  * `:docs-samples:compileKotlinJvm` (as a consumer), `DocsSamplesDesktopRunTest`, `AndroidDocsSamplesRound11Test`,
  * `IosDocsSamplesCompileTest` and `DocsSamplesTestingTest`.
