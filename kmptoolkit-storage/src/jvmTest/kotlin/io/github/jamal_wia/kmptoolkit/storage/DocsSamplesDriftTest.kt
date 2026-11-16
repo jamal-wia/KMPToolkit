@@ -16,9 +16,10 @@ import kotlin.test.assertTrue
  * - `<!-- build-script -->`: a Gradle snippet.
  *
  * A fence with no marker, or a marker that names nothing, fails. So does a fence that a renderer shows as Kotlin but that is not
- * spelled exactly ```` ```kotlin ```` (`kt`, `kts`, `Kotlin`, extra text, a space before the info string, four backticks or tildes),
- * because the check would skip it; [DocFences] reads fences the way CommonMark does and `DocFencesTest` pins each spelling with a
- * snippet that does not compile. The compile and run checks of the samples themselves are
+ * spelled exactly ```` ```kotlin ```` at the top level (`kt`, `kts`, `Kotlin`, extra text, a space before the info string, four
+ * backticks or tildes, a fence inside a block quote or a list item), because the check would skip it; [DocFences] reads fences the
+ * way CommonMark does, at the top level and inside block quotes and list items, and `DocFencesTest` and `DocFencesBreakerR3Test`
+ * pin each spelling and each container with a snippet that does not compile. The compile and run checks of the samples themselves are
  * `:docs-samples:compileKotlinJvm` (as a consumer), `DocsSamplesDesktopRunTest`, `AndroidDocsSamplesRound11Test`,
  * `IosDocsSamplesCompileTest` and `DocsSamplesTestingTest`.
  */
@@ -93,7 +94,7 @@ class DocsSamplesDriftTest {
             emptyList(),
             odd,
             "a fence that renders as Kotlin but is not spelled exactly ```kotlin is skipped by the sample check: " +
-                "kt, kts, Kotlin, extra text, a space before the info string, four backticks and tildes all count",
+                "kt, kts, Kotlin, extra text, a space before the info string, four backticks, tildes, a block quote and a list item all count",
         )
     }
 
