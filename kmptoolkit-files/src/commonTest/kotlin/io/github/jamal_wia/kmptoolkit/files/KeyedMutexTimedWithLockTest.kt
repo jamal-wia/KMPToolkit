@@ -62,7 +62,7 @@ class KeyedMutexTimedWithLockTest {
     }
 
     @Test
-    fun `five queued waiters all answer at one timeout, not at the sum of the timeouts`() = runTest {
+    fun `five queued waiters all answer at one timeout and not at the sum of the timeouts`() = runTest {
         val mutex: KeyedMutex<String> = KeyedMutex()
         val release: CompletableDeferred<Unit> = CompletableDeferred()
         val holding: CompletableDeferred<Unit> = CompletableDeferred()
@@ -200,7 +200,7 @@ class KeyedMutexTimedWithLockTest {
     }
 
     @Test
-    fun `a key released in the instant of the timeout is either used or left free, never leaked`() = runTest {
+    fun `a key released in the instant of the timeout is either used or left free and never leaked`() = runTest {
         // seed=20261115: the holder releases a few milliseconds before, exactly at, and after the waiter's timeout.
         for (offset: Long in listOf(-2L, -1L, 0L, 1L, 2L)) {
             val mutex: KeyedMutex<String> = KeyedMutex()
