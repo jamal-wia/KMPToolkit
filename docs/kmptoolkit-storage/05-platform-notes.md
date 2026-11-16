@@ -933,9 +933,13 @@ the size bound answers `InvalidValue`, whatever the thread's status.)
 this release: the FFM real-store suite (`FfmMacKeychainRealStoreTest`, 9 tests) and the JNA one (`RealKeychainSuiteTest` and
 `RealKeychainBreakerR1Test`, 8 tests) on a macOS login keychain, which left no item behind, and the packaging smoke of both
 variants (ProGuard-shrunk image, macOS only). The Windows DPAPI binding and the Linux libsecret binding, FFM and JNA alike,
-have never run against a real Windows or Linux key store: they are implemented, and tested through the seam with fake bindings
-and with a fake native library (the JNA binding's GLib main-context code also ran against a real GLib on the Mac, with libsecret
-itself replaced), nothing more. Three further runs have not been made: the old-libsecret case (libsecret older than 0.19,
+have never run against a real Windows or Linux key store. What is tested, per layer: the store logic above the seam runs against
+fake bindings on every OS. The JNA DPAPI binding (`DpapiCallsTest`) and the JNA libsecret binding (`SecretServiceCallsTest`) run
+against scripted fake native libraries; the JNA backend question also ran against a real GLib on the Mac, with libsecret itself
+replaced. The FFM libsecret binding is tested for loading and symbol resolution against the export table of a real libsecret, for
+a `clear` call that reaches stubbed libsecret functions, and for the backend and default-collection questions against a fake
+GLib; no test executes its `store` and `lookup` calls or its struct layouts. The FFM DPAPI binding has no test that executes it
+at all (it can be constructed only on Windows). Nothing ran on a real Windows or Linux key store. Three further runs have not been made: the old-libsecret case (libsecret older than 0.19,
 the Rocky Linux 8 run of `FfmSecretServiceOldLibsecretRealStoreTest` and its JNA counterpart), the Linux Secret Service
 scenarios with no bus and with no service (`-Pkmptoolkit.secretstore.scenario=nobus` and `noservice` of the JNA suite), and the
 Windows-only cross-process lock test `CrossProcessLockWindowsAclRound5Test`. The packaging smoke has not been run on Windows or Linux either, and the
