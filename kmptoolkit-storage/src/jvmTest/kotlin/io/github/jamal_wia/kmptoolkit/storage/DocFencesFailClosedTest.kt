@@ -44,11 +44,11 @@ class DocFencesFailClosedTest {
             "tab indent" to (1 to listOf("\t```kotlin", broken, "\t```")),
             "tab after a quote marker" to (1 to listOf(">\t```kotlin", ">\t$broken", ">\t```")),
             "tab after a list marker" to (1 to listOf("-\t```kotlin", "\t$broken", "\t```")),
-            "no-break space before the opening line" to (2 to listOf("Intro text.", " ```text", "```kotlin", broken, "```")),
+            "no-break space before the opening line" to (2 to listOf("Intro text.", "\u00A0```text", "```kotlin", broken, "```")),
             "form feed before the opening line" to (2 to listOf("Intro text.", "\u000C```text", "```kotlin", broken, "```")),
-            "em space before the opening line" to (2 to listOf("Intro text.", " ```text", "```kotlin", broken, "```")),
-            "ideographic space before the opening line" to (2 to listOf("Intro text.", "　```text", "```kotlin", broken, "```")),
-            "byte order mark before the opening line" to (1 to listOf("﻿```kotlin", broken, "```")),
+            "em space before the opening line" to (2 to listOf("Intro text.", "\u2003```text", "```kotlin", broken, "```")),
+            "ideographic space before the opening line" to (2 to listOf("Intro text.", "\u3000```text", "```kotlin", broken, "```")),
+            "byte order mark before the opening line" to (1 to listOf("\uFEFF```kotlin", broken, "```")),
             "text before the run" to (1 to listOf("a ```kotlin", broken, "```")),
             "text after the closing run" to (3 to listOf("<!-- listing -->", "```kotlin", "```x")),
             "inline code" to (1 to listOf("Use ```kotlin``` here.")),
@@ -73,7 +73,7 @@ class DocFencesFailClosedTest {
             "an opening line" to "```kotlin",
             "a longer closing line" to "````",
             "a closing line with a trailing space" to "``` ",
-            "a closing line with a trailing no-break space" to "``` ",
+            "a closing line with a trailing no-break space" to "```\u00A0",
             "an indented closing line" to "  ```",
             "a tab-indented closing line" to "\t```",
             "a closing line behind a quote marker" to ">\t```",
@@ -140,7 +140,7 @@ class DocFencesFailClosedTest {
             "empty ordered item" to listOf("1.", "2.", "") + listing,
             "html comment without fence characters" to listOf("<!--", "a note", "-->") + listing,
             "tab in plain text" to listOf("text\twith a tab", "-\titem text", "\tindented text", "> -\tx") + listing,
-            "no-break space in plain text" to listOf(" ", " text") + listing,
+            "no-break space in plain text" to listOf("\u00A0", "\u2003text") + listing,
             "block quote without fence characters" to listOf("> quote", ">", "> more") + listing,
         )
         for ((name: String, lines: List<String>) in documents) {
@@ -158,8 +158,8 @@ class DocFencesFailClosedTest {
 
     @Test
     fun `a tab or an odd character inside a fence body is body text`() {
-        val lines: List<String> = listOf("```kotlin", "\tval x: Int = 1", " ", "    nested", "```")
-        assertEquals(listOf("\tval x: Int = 1", " ", "    nested"), DocFences.scan("doc.md", lines).single().body)
+        val lines: List<String> = listOf("```kotlin", "\tval x: Int = 1", "\u00A0", "    nested", "```")
+        assertEquals(listOf("\tval x: Int = 1", "\u00A0", "    nested"), DocFences.scan("doc.md", lines).single().body)
     }
 
     // Very long lines: linear scans only.
@@ -180,7 +180,7 @@ class DocFencesFailClosedTest {
     // Seeded fuzz. The oracle is independent of the reader's loops: it uses substring tests, not the reader's run scan.
 
     private val prefixes: List<String> = listOf(
-        "", "", "", "> ", "- ", "* ", "1. ", "2. ", "  ", "   ", "    ", "> > ", "-", ">", "      ", "> - ", "\t", ">\t", "  \t", " ", "\u000C", " ",
+        "", "", "", "> ", "- ", "* ", "1. ", "2. ", "  ", "   ", "    ", "> > ", "-", ">", "      ", "> - ", "\t", ">\t", "  \t", "\u00A0", "\u000C", "\u2003",
     )
     private val contents: List<String> = listOf(
         "```kotlin", "```", "````", "~~~", "~~~kotlin", "```text", "```Kotlin", "``` ", "```x```", "text", "text", "", "", "---", "* * *", "# h",
@@ -220,7 +220,7 @@ class DocFencesFailClosedTest {
         var refused = 0
         repeat(8000) {
             val lines: List<String> = randomDocument(random)
-            val described = "seed=$seed document=${lines.map { it.replace("\t", "<TAB>").replace(" ", "<NBSP>").replace("\u000C", "<FF>").replace(" ", "<EM>") }}"
+            val described = "seed=$seed document=${lines.map { it.replace("\t", "<TAB>").replace("\u00A0", "<NBSP>").replace("\u000C", "<FF>").replace("\u2003", "<EM>") }}"
             val expectRefusal: Boolean = mustBeRefused(lines)
             val fences: List<DocFence>? = try {
                 DocFences.scan("doc.md", lines).also { returned++ }

@@ -68,30 +68,30 @@ class DocFencesBreakerR5Test {
 
     @Test
     fun `a line that starts with a no-break space or a form feed is not a fence opening`() {
-        // CommonMark: only spaces count as indentation, so " ```text" is paragraph text and the next line opens a Kotlin
+        // CommonMark: only spaces count as indentation, so "\u00A0```text" is paragraph text and the next line opens a Kotlin
         // fence. The reader trims the no-break space, opens a text fence and swallows the Kotlin fence.
-        for ((name: String, space: String) in listOf("U+00A0" to " ", "U+000C" to "\u000C", "U+2003" to " ", "U+3000" to "　")) {
+        for ((name: String, space: String) in listOf("U+00A0" to "\u00A0", "U+000C" to "\u000C", "U+2003" to "\u2003", "U+3000" to "\u3000")) {
             hiddenBy("opening after $name", listOf("Intro text.", "$space```text", "```kotlin", broken, "```"))
         }
     }
 
     @Test
     fun `a closing line padded with a no-break space does not end the fence`() {
-        // CommonMark 4.5: a closing fence may be followed only by spaces or tabs, so "``` " is body text and the Kotlin
+        // CommonMark 4.5: a closing fence may be followed only by spaces or tabs, so "```\u00A0" is body text and the Kotlin
         // fence runs on to line 6. The reader closes at line 4 and compares only "val ok" with the sample; the uncompiled
         // line 5 is rendered inside the Kotlin block (line 7 then opens an empty fence that runs to the end of the file).
         hiddenBy(
             "closing + U+00A0",
-            listOf("<!-- sample: s -->", "```kotlin", "val ok: Int = 1", "``` ", broken, "```", "```"),
+            listOf("<!-- sample: s -->", "```kotlin", "val ok: Int = 1", "```\u00A0", broken, "```", "```"),
         )
     }
 
     @Test
     fun `a line holding only a no-break space does not end an HTML block`() {
-        // CommonMark: a blank line holds only spaces or tabs, so the type 6 block `<div>` continues over " " and over
-        // "```text" and ends at the empty line; the Kotlin fence after it is a fence. The reader ends the block at " ",
+        // CommonMark: a blank line holds only spaces or tabs, so the type 6 block `<div>` continues over "\u00A0" and over
+        // "```text" and ends at the empty line; the Kotlin fence after it is a fence. The reader ends the block at "\u00A0",
         // opens a text fence at "```text" and swallows the Kotlin fence.
-        hiddenBy("HTML + U+00A0 line", listOf("<div>", " ", "```text", "", "```kotlin", broken, "```"))
+        hiddenBy("HTML + U+00A0 line", listOf("<div>", "\u00A0", "```text", "", "```kotlin", broken, "```"))
     }
 
     @Test
@@ -141,10 +141,10 @@ class DocFencesBreakerR5Test {
     // markers other than 1): no exception but the reader's own, and no fence-like line read as nothing and not refused.
 
     private val prefixes: List<String> = listOf(
-        "", "", "> ", "- ", "2. ", "1. ", "  ", "   ", "    ", ">\t", "  \t", " ", "\u000C", "> - ", "-", "\t",
+        "", "", "> ", "- ", "2. ", "1. ", "  ", "   ", "    ", ">\t", "  \t", "\u00A0", "\u000C", "> - ", "-", "\t",
     )
     private val contents: List<String> = listOf(
-        "```kotlin", "```text", "```", "``` ", "~~~", "text", "text", "", "", " ", "<div>", "<https://x.y> z", "<kbd>a</kbd>",
+        "```kotlin", "```text", "```", "```\u00A0", "~~~", "text", "text", "", "", "\u00A0", "<div>", "<https://x.y> z", "<kbd>a</kbd>",
         "---", "* * *", "-", "<!--", "-->", "2. ```text", "`x`",
     )
 
@@ -154,7 +154,7 @@ class DocFencesBreakerR5Test {
         val random = Random(seed)
         repeat(8000) {
             val lines: List<String> = List(random.nextInt(1, 9)) { prefixes[random.nextInt(prefixes.size)] + contents[random.nextInt(contents.size)] }
-            val described = "seed=$seed document=${lines.map { it.replace("\t", "<TAB>").replace(" ", "<NBSP>").replace("\u000C", "<FF>") }}"
+            val described = "seed=$seed document=${lines.map { it.replace("\t", "<TAB>").replace("\u00A0", "<NBSP>").replace("\u000C", "<FF>") }}"
             val fences: List<DocFence> = try {
                 DocFences.scan("doc.md", lines)
             } catch (error: IllegalStateException) {
