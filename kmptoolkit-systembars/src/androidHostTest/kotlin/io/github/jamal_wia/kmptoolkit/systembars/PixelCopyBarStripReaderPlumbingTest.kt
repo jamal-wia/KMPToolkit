@@ -76,6 +76,14 @@ class PixelCopyBarStripReaderPlumbingTest {
         }
     }
 
+    /**
+     * A copier that answers SUCCESS at once. The "asks nothing" tests use it so that an early exit
+     * that regresses shows as a recorded request and an immediate assertion, never as a read that
+     * waits for a listener nobody calls.
+     */
+    private fun answeringCopier(): RecordingCopier =
+        RecordingCopier { it.listener.onPixelCopyFinished(PixelCopy.SUCCESS) }
+
     private fun composedView(): View {
         var view: View? = null
         composeTestRule.setContent { view = captureView() }
@@ -209,7 +217,7 @@ class PixelCopyBarStripReaderPlumbingTest {
     fun `a view that is not the window's root is a skip and asks nothing`() = runTest {
         composedView()
         val bare = View(composeTestRule.activity)
-        val copier = RecordingCopier()
+        val copier = answeringCopier()
 
         assertNull(PixelCopyBarStripReader(bare, copier).read(64, 64))
         assertEquals(0, copier.requests.size, "a detached view is not drawn into the window buffer")
@@ -218,7 +226,7 @@ class PixelCopyBarStripReaderPlumbingTest {
     @Test
     fun `a view with no window behind it is a skip and asks nothing`() = runTest {
         val detached = View(composeTestRule.activity.applicationContext)
-        val copier = RecordingCopier()
+        val copier = answeringCopier()
 
         assertNull(PixelCopyBarStripReader(detached, copier).read(64, 64))
         assertEquals(0, copier.requests.size)
@@ -227,7 +235,7 @@ class PixelCopyBarStripReaderPlumbingTest {
     @Test
     fun `both strips zero asks nothing`() = runTest {
         val view: View = composedView()
-        val copier = RecordingCopier()
+        val copier = answeringCopier()
 
         assertNull(PixelCopyBarStripReader(view, copier).read(0, 0))
         assertEquals(0, copier.requests.size)
@@ -240,7 +248,7 @@ class PixelCopyBarStripReaderPlumbingTest {
         activity.setContentView(content)
         val decor: View = activity.window.decorView
         assertEquals(0, decor.width, "control: no layout has run, width ${decor.width}")
-        val copier = RecordingCopier()
+        val copier = answeringCopier()
 
         assertNull(PixelCopyBarStripReader(content, copier).read(64, 64))
         assertEquals(0, copier.requests.size)

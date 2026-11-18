@@ -137,7 +137,9 @@ internal class PixelCopyBarStripReader(
 
 /**
  * API 24-25: [inner] (the layer reader), except that a sample is skipped while [view]'s subtree
- * holds an attached `WebView`. The layer reader replays the recorded content in a second hardware
+ * holds an attached `WebView`, anywhere in the same Compose view (also outside the probe's
+ * content: the walk starts at the composition's own view, a deliberate over-approximation that
+ * never under-skips). The layer reader replays the recorded content in a second hardware
  * renderer, which blanks a `WebView`; this window has no `PixelCopy` to read instead.
  *
  * The walk and the inner read's offscreen draw run in the same main-thread turn: on those levels

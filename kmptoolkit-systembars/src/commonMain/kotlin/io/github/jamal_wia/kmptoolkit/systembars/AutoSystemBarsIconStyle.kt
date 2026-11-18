@@ -73,8 +73,8 @@ import kotlin.time.TimeSource
  *   outside the window), not other windows (dialogs, popups) and nothing the system composites
  *   above the window.
  * - On API 24 and 25, which have no window copy, it replays its own recorded content offscreen, and
- *   skips the sample while a `WebView` (this includes most ad banners) is attached inside [content]:
- *   replaying a `WebView` offscreen blanks it.
+ *   skips the sample while a `WebView` (this includes most ad banners) is attached anywhere in the
+ *   same Compose view, also outside [content]: replaying a `WebView` offscreen blanks it.
  * - On iOS it replays its own recorded content; a non-overlay `UIKitView` (a `WKWebView`, a map) is
  *   not part of it and reads as dark.
  * - On desktop it never samples.
