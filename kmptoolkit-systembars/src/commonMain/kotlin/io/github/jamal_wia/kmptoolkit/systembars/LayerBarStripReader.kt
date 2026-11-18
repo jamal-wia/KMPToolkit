@@ -54,7 +54,11 @@ internal class LayerBarStripReader(
     // copy, twice per sample, all on the main thread. The 8 × 2 grid only ever looks at two rows
     // per bar, so the scratch layer holds exactly those rows: each is the display layer redrawn
     // with a one-row clip and shifted so the wanted source row lands there. The display list is
-    // replayed, not re-recorded, so the composables' draw lambdas do not run again.
+    // replayed, not re-recorded, so the replay itself does not re-run the composables' draw
+    // lambdas. It does run whatever foreign draw code the list holds, though: a `WebView`'s draw
+    // functor executes in the replaying renderer, which on Android is a second hardware renderer.
+    // That can make such a view invalidate, which re-runs the probe's root `drawWithContent` and
+    // counts as a root draw (the feedback loop the Android 8.0+ window reader exists to avoid).
     // One readback at a time: on API 24-27 the readback suspends, so the trigger collector and
     // the periodic tick could otherwise both be inside a sample, re-recording the strip layer
     // under the first one's pending read.
