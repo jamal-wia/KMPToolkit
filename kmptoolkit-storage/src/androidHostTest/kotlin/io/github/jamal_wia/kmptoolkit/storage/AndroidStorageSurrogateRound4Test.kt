@@ -15,7 +15,7 @@ import org.robolectric.RobolectricTestRunner
 
 /**
  * A key or value with an unpaired surrogate cannot be written to an XML preferences file (it becomes
- * `?`, or the entry is lost), so the plain store answers OperationFailed and the file keeps what it had.
+ * `?`, or the entry is lost), so the plain store answers InvalidValue for the key and the file keeps what it had.
  */
 @RunWith(RobolectricTestRunner::class)
 class AndroidStorageSurrogateRound4Test {
@@ -38,7 +38,7 @@ class AndroidStorageSurrogateRound4Test {
                 assertEquals(StorageResult.Success(Unit), storage.put("k", "old"))
                 val error: StorageError? = storage.put(key, value).errorOrNull()
                 assertTrue(
-                    error is StorageError.OperationFailed && error.operation == StorageOperation.PUT,
+                    error is StorageError.InvalidValue && error.key == key,
                     "put of key/value with an unpaired surrogate answered $error",
                 )
             }

@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
 import java.io.File
 import java.nio.file.Files
 import java.util.Properties
@@ -61,7 +62,7 @@ class JvmKeyValueStorageBudgetRound10Test {
             assertEquals("changed 19", reread.getProperty("key.19"))
             assertEquals(megabyte, reread.getProperty("blob"))
             assertEquals(StorageResult.Success(Unit), store.clear())
-            assertEquals(emptyList(), directory.list().orEmpty().toList(), "clear leaves nothing of the store")
+            assertEquals(listOf(CrossProcessLock.lockNameOf(storeFile(name).name)), directory.list().orEmpty().toList(), "clear leaves nothing of the store but its lock file")
         }
     }
 
@@ -93,7 +94,11 @@ class JvmKeyValueStorageBudgetRound10Test {
             assertEquals(StorageResult.Success(Unit), store.put("new", "n"))
             assertEquals(StorageResult.Success<String?>("a:b=c#d!e"), store.get("token"), "a write keeps every other key")
             assertEquals(StorageResult.Success(Unit), store.clear())
-            assertEquals(listOf("${storeFile(name).name}.bak.tmp"), directory.list().orEmpty().toList(), "clear takes the 3.0.0 leftover and not a neighbour's file")
+            assertEquals(
+                listOf("${storeFile(name).name}.bak.tmp", CrossProcessLock.lockNameOf(storeFile(name).name)),
+                directory.list().orEmpty().toList().sorted(),
+                "clear takes the 3.0.0 leftover and not a neighbour's file, and keeps the lock file",
+            )
         }
     }
 

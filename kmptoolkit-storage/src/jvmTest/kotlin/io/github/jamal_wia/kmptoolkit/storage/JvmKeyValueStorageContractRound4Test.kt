@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
 import io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax
 import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
 import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
@@ -125,7 +126,7 @@ class JvmKeyValueStorageContractRound4Test {
                     makeWritable()
                 }
                 assertEquals("old", storage.get("kept").getOrNull())
-                assertEquals(listOf("r4.kmptoolkit.storage.properties"), directory.list()!!.sorted())
+                assertEquals(listOf("r4.kmptoolkit.storage.properties", CrossProcessLock.lockNameOf("r4.kmptoolkit.storage.properties")), directory.list()!!.sorted())
             }
         }
     }

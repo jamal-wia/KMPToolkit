@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A stand-in for a photo, drawn by Compose on the systembars device check's photo screen: bright sky
+     under the status bar, a dark landscape under the navigation bar. No network, no bundled bitmap. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="360dp"
+    android:height="640dp"
+    android:viewportWidth="360"
+    android:viewportHeight="640">
+    <path
+        android:fillColor="#F2E6C9"
+        android:pathData="M0,0h360v420h-360z" />
+    <path
+        android:fillColor="#FFD54F"
+        android:pathData="M210,120a40,40 0 1,0 80,0a40,40 0 1,0 -80,0z" />
+    <path
+        android:fillColor="#1F3A2E"
+        android:pathData="M0,420L90,340L170,400L260,320L360,390L360,640L0,640z" />
+</vector>

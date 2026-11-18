@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -78,9 +79,9 @@ class JvmKeyValueStorageAdversarialTest {
 
         val leftovers: List<String> = directory.list()?.toList().orEmpty().sorted()
         assertEquals(
-            listOf("churn.kmptoolkit.storage.properties"),
+            listOf("churn.kmptoolkit.storage.properties", CrossProcessLock.lockNameOf("churn.kmptoolkit.storage.properties")),
             leftovers,
-            "only the store's own file may remain, found $leftovers",
+            "only the store's own file and its lock file may remain, found $leftovers",
         )
         assertEquals("999", runBlocking { createKeyValueStorage(directory, config).get("round").getOrNull() })
     }
@@ -102,7 +103,10 @@ class JvmKeyValueStorageAdversarialTest {
             }
             assertEquals(Unit, storage.put("after", "ok").getOrNull())
         }
-        assertEquals(listOf("cancel.kmptoolkit.storage.properties"), directory.list()!!.toList().sorted())
+        assertEquals(
+            listOf("cancel.kmptoolkit.storage.properties", CrossProcessLock.lockNameOf("cancel.kmptoolkit.storage.properties")),
+            directory.list()!!.toList().sorted(),
+        )
     }
 
     @Test

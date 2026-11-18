@@ -3,77 +3,76 @@ package io.github.jamal_wia.kmptoolkit.location
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Platform-agnostic access to the device's geographic position.
+ * Device location: one-shot reads, a stream and the service state.
  *
- * Obtain one from the platform factory — `createLocationProvider(context, config, logger)` on
- * Android, `createLocationProvider(config, logger)` on iOS — and pass it into shared code as this
- * interface, which is what keeps a `Context` out of `commonMain` without an `expect` declaration
- * that would have to lie about its parameters.
+ * Obtain one from the platform factory (`createLocationProvider(context, logger)` on Android,
+ * `createLocationProvider(logger)` on iOS, `createLocationProvider()` on desktop JVM) and pass it into
+ * shared code as this interface, which keeps a `Context` out of `commonMain`.
  *
- * Raw coordinates only: no caching, no permission UI, no business logic. Implementations assume
- * the location permission is already granted and never throw or block waiting for it — if the
- * permission is missing, [observeLocation] emits `null` and [getCurrentLocation] returns `null`.
- * Requesting the permission itself is `kmptoolkit-permission`'s job (or your own platform code);
- * this module is permission-agnostic on purpose, see
- * `docs/kmptoolkit-location/05-platform-notes.md`.
+ * Requests no permission: assume it is granted, or read the typed answer. Requesting it is
+ * `kmptoolkit-permission`'s job (or your own platform code); this module is permission-agnostic on
+ * purpose, see `docs/kmptoolkit-location/05-platform-notes.md`.
+ *
+ * An invalid platform fix (NaN or out-of-range coordinates, on iOS also a negative horizontal
+ * accuracy) is dropped, never thrown and never emitted: implementations build coordinates through
+ * [GeoCoordinates.orNull]. App decorators implement this interface like any other.
  */
 public interface LocationProvider {
 
     /**
-     * Returns a single location fix, or `null` if none could be obtained.
+     * One reading: a cached fix within [CurrentLocationOptions.maxAge], else a fresh fix (the
+     * available sources raced) within [CurrentLocationOptions.timeout], else a typed reason.
      *
-     * On Android, prefers the freshest cached fix the platform already has (across the GPS and network
-     * providers that are switched on) and falls back to requesting a fresh one; on iOS it always
-     * requests a fresh one and never reads a cached fix. The request is capped
-     * by [LocationProviderConfig.singleFixTimeoutMillis] so a device with no signal cannot hang
-     * this call forever. Never throws for a missing permission or a disabled location service —
-     * both come back as `null`.
+     * Never throws for a missing permission, a disabled service, a platform error or a timeout;
+     * each comes back as [LocationReading.Unavailable]. Cancellable.
      */
-    public suspend fun getCurrentLocation(): GeoCoordinates?
+    public suspend fun getCurrentLocation(options: CurrentLocationOptions = CurrentLocationOptions()): LocationReading
 
     /**
-     * Hot stream of location updates. Emits `null` when no fix is available (permission revoked,
-     * location service disabled, no signal) so a collector never sits without an answer.
-     * The stream is conflated: a collector that is busy skips intermediate positions and always
-     * ends on the newest one (including a newer `null`), never on a stale fix.
-     * Implementations stop the underlying location request when the flow is cancelled.
+     * Cold, conflated stream of readings until cancelled.
+     *
+     * Seeds at once: a cached fix within [LocationUpdatesOptions.maxSeedAge], else a reason. It
+     * completes after [LocationUnavailability.PERMISSION_MISSING] or
+     * [LocationUnavailability.UNSUPPORTED] and stays open through
+     * [LocationUnavailability.SERVICE_DISABLED] and [LocationUnavailability.NO_FIX], identically on
+     * every platform. A collector that is busy skips intermediate readings and ends on the newest.
+     * Implementations stop the underlying request when the flow is cancelled.
      */
-    public fun observeLocation(): Flow<GeoCoordinates?>
+    public fun observeLocation(options: LocationUpdatesOptions = LocationUpdatesOptions()): Flow<LocationReading>
 
     /**
-     * Whether the device-wide location service (the quick-settings "Location" toggle) is currently
-     * on. Independent of the app's location *permission*: the permission can be granted while the
+     * Whether the device-wide location service (the quick-settings "Location" toggle) is on now.
+     * Independent of the app's location permission: the permission can be granted while the
      * service is off.
      *
-     * `suspend` so implementations can run the check off the main thread — on iOS
-     * `CLLocationManager.locationServicesEnabled()` warns when called on the main thread while
-     * authorization is still being determined.
+     * `suspend` so implementations can run the check off the main thread; on iOS
+     * `CLLocationManager.locationServicesEnabled()` warns when called on the main thread.
      */
     public suspend fun isLocationEnabled(): Boolean
 
     /**
-     * Sends the user to the system screen where they can turn the location service back on.
-     *
-     * On Android that is the dedicated location-source settings screen; on iOS the platform
-     * exposes no deep link to the Location Services toggle, so this falls back to the app's own
-     * settings page.
+     * The device-wide service state, emitted at once and on every change (distinct), without
+     * starting location updates.
+     */
+    public fun observeLocationEnabled(): Flow<Boolean>
+
+    /**
+     * Opens the system location settings (iOS: the app's own settings page, because iOS exposes no
+     * deep link to the Location Services toggle; desktop JVM: does nothing). Never throws.
      */
     public fun openLocationSettings()
 
     /**
-     * Asks the system to turn the location service back on without leaving the app, if the
-     * platform offers a way to do that. See [LocationServicePrompt] for what came of it.
+     * Asks for an in-place "turn location on" prompt where one exists. See [LocationServicePrompt]
+     * for what came of it.
      *
-     * Neither this module's Android nor its iOS factory raises an in-place dialog by default —
-     * Android's version would need Google Play Services' `SettingsClient`, which this module
-     * deliberately does not depend on (see `docs/kmptoolkit-location/05-platform-notes.md`, which also
-     * shows how to write a Play Services decorator), and on iOS the closest thing, the system's own
-     * "Turn On Location Services" alert, is opt-in through `withSystemServicesPrompt()`. The default implementation reflects that honestly: [LocationServicePrompt.ALREADY_ON]
-     * when [isLocationEnabled] is already `true`, [LocationServicePrompt.UNSUPPORTED] otherwise — so
-     * a caller can write one `when` over all four cases that already does the right thing today, and
-     * would keep doing the right thing if your own [LocationProvider] (or a future revision of this
-     * one) ever adds a real resolution dialog behind [LocationServicePrompt.PROMPTED] /
-     * [LocationServicePrompt.NOT_NOW] instead of just overriding [openLocationSettings]'s fallback.
+     * Neither the Android nor the iOS factory raises an in-place dialog by default: Android's
+     * would need Google Play Services' `SettingsClient`, which this module deliberately does not
+     * depend on, and on iOS the system's own "Turn On Location Services" alert is opt-in through
+     * `withSystemServicesPrompt()`. The default body reflects that honestly:
+     * [LocationServicePrompt.ALREADY_ON] when [isLocationEnabled] is `true`, else
+     * [LocationServicePrompt.UNSUPPORTED]. A caller can write one `when` over all four cases that
+     * does the right thing today and keeps doing it if an implementation adds a real dialog.
      */
     public suspend fun promptToEnableService(): LocationServicePrompt =
         if (isLocationEnabled()) LocationServicePrompt.ALREADY_ON else LocationServicePrompt.UNSUPPORTED

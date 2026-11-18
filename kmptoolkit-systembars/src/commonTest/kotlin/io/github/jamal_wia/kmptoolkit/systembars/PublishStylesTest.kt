@@ -83,4 +83,23 @@ class PublishStylesTest {
 
         assertEquals(1, controller.applied.size)
     }
+
+    @Test
+    fun `publishing null on both axes after a decision withdraws it back to None exactly once`() {
+        val controller = RecordingSystemBarsController(SystemBarsConfig.ForLightBackground)
+        val handle = controller.applyOverride(SystemBarsOverride.None)
+        val decided = publishStyles(handle, SystemBarsOverride.None, status = SystemBarIconStyle.LightIcons, nav = SystemBarIconStyle.LightIcons)
+        assertEquals(1, controller.applied.size, "the decision is one write")
+
+        val withdrawn = publishStyles(handle, decided, status = null, nav = null)
+
+        assertEquals(SystemBarsOverride.None, withdrawn, "the withdrawal is exactly None")
+        assertEquals(2, controller.applied.size, "the withdrawal is one more write")
+        assertEquals(SystemBarsConfig.ForLightBackground, controller.currentConfig, "the bars follow the base again")
+
+        val again = publishStyles(handle, withdrawn, status = null, nav = null)
+
+        assertEquals(SystemBarsOverride.None, again)
+        assertEquals(2, controller.applied.size, "withdrawing an already withdrawn claim writes nothing")
+    }
 }

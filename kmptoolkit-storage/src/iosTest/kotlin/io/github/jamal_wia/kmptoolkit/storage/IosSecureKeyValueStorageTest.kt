@@ -41,10 +41,20 @@ class IosSecureKeyValueStorageTest {
         for ((key: String, value: String) in listOf("k" to "a\uD800b", "\uDC00" to "v")) {
             val error: StorageError? = storage.put(key, value).errorOrNull()
             assertTrue(
-                error is StorageError.OperationFailed && error.operation == StorageOperation.PUT,
+                error is StorageError.InvalidValue && error.key == key,
                 "put answered $error",
             )
         }
+    }
+
+    @Test
+    fun `the store reports the app-isolated OS key store protection without touching the Keychain`() {
+        assertEquals(SecureStorageProtection.OS_KEY_STORE_APP_ISOLATED, storage.protection)
+    }
+
+    @Test
+    fun `ensureKey without a Keychain is a typed failure rather than a crash`() = runTest {
+        assertEquals(StorageError.Unavailable(), storage.ensureKey().errorOrNull())
     }
 
     @Test
@@ -105,20 +115,16 @@ class IosSecureKeyValueStorageTest {
     }
 
     @Test
-    fun `errSecDecode without a key keeps its raw status instead of naming a key it does not have`() {
+    fun `errSecDecode without a key is a store-wide Undecryptable rather than a named entry`() {
         assertEquals(
-            StorageError.OperationFailed(
-                StorageOperation.CLEAR,
-                key = null,
-                platformCode = ERR_SEC_DECODE,
-            ),
+            StorageError.Undecryptable(key = null),
             ERR_SEC_DECODE.toStorageError(StorageOperation.CLEAR, key = null),
         )
     }
 
     @Test
     fun `an unrecognized status keeps its raw code for the caller to report`() {
-        val unknown = -34018 // errSecMissingEntitlement
+        val unknown = -25244 // an OSStatus the table does not translate
 
         assertEquals(
             StorageError.OperationFailed(
@@ -127,6 +133,14 @@ class IosSecureKeyValueStorageTest {
                 platformCode = unknown,
             ),
             unknown.toStorageError(StorageOperation.PUT, "k"),
+        )
+    }
+
+    @Test
+    fun `errSecMissingEntitlement is unsupported rather than a generic failure`() {
+        assertEquals(
+            StorageError.Unsupported(UnsupportedReason.MISSING_ENTITLEMENT),
+            ERR_SEC_MISSING_ENTITLEMENT.toStorageError(StorageOperation.GET, "k"),
         )
     }
 

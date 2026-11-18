@@ -1,0 +1,260 @@
+public final class io/github/jamal_wia/kmptoolkit/location/CurrentLocationOptions {
+	public fun <init> ()V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;JJLio/github/jamal_wia/kmptoolkit/location/PlatformCurrentLocationOptions;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;JJLio/github/jamal_wia/kmptoolkit/location/PlatformCurrentLocationOptions;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;
+	public final fun component2-UwyO8pc ()J
+	public final fun component3-UwyO8pc ()J
+	public final fun component4 ()Lio/github/jamal_wia/kmptoolkit/location/PlatformCurrentLocationOptions;
+	public final fun copy-vLdBGDU (Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;JJLio/github/jamal_wia/kmptoolkit/location/PlatformCurrentLocationOptions;)Lio/github/jamal_wia/kmptoolkit/location/CurrentLocationOptions;
+	public static synthetic fun copy-vLdBGDU$default (Lio/github/jamal_wia/kmptoolkit/location/CurrentLocationOptions;Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;JJLio/github/jamal_wia/kmptoolkit/location/PlatformCurrentLocationOptions;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/CurrentLocationOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAccuracy ()Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;
+	public final fun getMaxAge-UwyO8pc ()J
+	public final fun getPlatform ()Lio/github/jamal_wia/kmptoolkit/location/PlatformCurrentLocationOptions;
+	public final fun getTimeout-UwyO8pc ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/GeoBounds {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/location/GeoBounds$Companion;
+	public fun <init> (DDDD)V
+	public final fun component1 ()D
+	public final fun component2 ()D
+	public final fun component3 ()D
+	public final fun component4 ()D
+	public final fun contains (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;)Z
+	public final fun copy (DDDD)Lio/github/jamal_wia/kmptoolkit/location/GeoBounds;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/location/GeoBounds;DDDDILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/GeoBounds;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCrossesAntimeridian ()Z
+	public final fun getEast ()D
+	public final fun getLongitudeRanges ()Ljava/util/List;
+	public final fun getNorth ()D
+	public final fun getSouth ()D
+	public final fun getWest ()D
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/GeoBounds$Companion {
+	public final fun orNull (DDDD)Lio/github/jamal_wia/kmptoolkit/location/GeoBounds;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/GeoCoordinates {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates$Companion;
+	public fun <init> (DD)V
+	public final fun component1 ()D
+	public final fun component2 ()D
+	public final fun copy (DD)Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;DDILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLatitude ()D
+	public final fun getLongitude ()D
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/GeoCoordinates$Companion {
+	public final fun orNull (DD)Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/GeoMathKt {
+	public static final fun angleDifference (DD)D
+	public static final fun boundingBox (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;D)Lio/github/jamal_wia/kmptoolkit/location/GeoBounds;
+	public static final fun destinationPoint (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;DD)Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;
+	public static final fun distanceInMetersTo (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;)D
+	public static final fun initialBearingTo (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;)Ljava/lang/Double;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/Heading {
+	public fun <init> (DLjava/lang/Double;Ljava/lang/Double;Z)V
+	public final fun component1 ()D
+	public final fun component2 ()Ljava/lang/Double;
+	public final fun component3 ()Ljava/lang/Double;
+	public final fun component4 ()Z
+	public final fun copy (DLjava/lang/Double;Ljava/lang/Double;Z)Lio/github/jamal_wia/kmptoolkit/location/Heading;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/location/Heading;DLjava/lang/Double;Ljava/lang/Double;ZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/Heading;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAccuracyDegrees ()Ljava/lang/Double;
+	public final fun getMagneticDegrees ()D
+	public final fun getNeedsCalibration ()Z
+	public final fun getTrueDegrees ()Ljava/lang/Double;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/HeadingKt {
+	public static final fun checkMinChangeDegrees (D)V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/location/HeadingProvider {
+	public abstract fun isAvailable ()Z
+	public abstract fun observeHeading (DLio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;Lio/github/jamal_wia/kmptoolkit/location/ScreenRotation;)Lkotlinx/coroutines/flow/Flow;
+	public static synthetic fun observeHeading$default (Lio/github/jamal_wia/kmptoolkit/location/HeadingProvider;DLio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;Lio/github/jamal_wia/kmptoolkit/location/ScreenRotation;ILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/HeadingProvider$DefaultImpls {
+	public static synthetic fun observeHeading$default (Lio/github/jamal_wia/kmptoolkit/location/HeadingProvider;DLio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;Lio/github/jamal_wia/kmptoolkit/location/ScreenRotation;ILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/HeadingProvider_jvmKt {
+	public static final fun createHeadingProvider ()Lio/github/jamal_wia/kmptoolkit/location/HeadingProvider;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationAccuracy : java/lang/Enum {
+	public static final field BALANCED Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;
+	public static final field HIGH_ACCURACY Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;
+	public static final field LOW_POWER Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationFix {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;JLjava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Boolean;Ljava/lang/Boolean;Lio/github/jamal_wia/kmptoolkit/location/PlatformFixDetails;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;JLjava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Boolean;Ljava/lang/Boolean;Lio/github/jamal_wia/kmptoolkit/location/PlatformFixDetails;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;
+	public final fun component10 ()Ljava/lang/Double;
+	public final fun component11 ()Ljava/lang/Boolean;
+	public final fun component12 ()Ljava/lang/Boolean;
+	public final fun component13 ()Lio/github/jamal_wia/kmptoolkit/location/PlatformFixDetails;
+	public final fun component2 ()J
+	public final fun component3 ()Ljava/lang/Double;
+	public final fun component4 ()Ljava/lang/Double;
+	public final fun component5 ()Ljava/lang/Double;
+	public final fun component6 ()Ljava/lang/Double;
+	public final fun component7 ()Ljava/lang/Double;
+	public final fun component8 ()Ljava/lang/Double;
+	public final fun component9 ()Ljava/lang/Double;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;JLjava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Boolean;Ljava/lang/Boolean;Lio/github/jamal_wia/kmptoolkit/location/PlatformFixDetails;)Lio/github/jamal_wia/kmptoolkit/location/LocationFix;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/location/LocationFix;Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;JLjava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Double;Ljava/lang/Boolean;Ljava/lang/Boolean;Lio/github/jamal_wia/kmptoolkit/location/PlatformFixDetails;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/LocationFix;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCoordinates ()Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;
+	public final fun getCourseAccuracyDegrees ()Ljava/lang/Double;
+	public final fun getCourseDegrees ()Ljava/lang/Double;
+	public final fun getEllipsoidalAltitudeMeters ()Ljava/lang/Double;
+	public final fun getHorizontalAccuracyMeters ()Ljava/lang/Double;
+	public final fun getMslAltitudeMeters ()Ljava/lang/Double;
+	public final fun getPlatformDetails ()Lio/github/jamal_wia/kmptoolkit/location/PlatformFixDetails;
+	public final fun getSpeedAccuracyMetersPerSecond ()Ljava/lang/Double;
+	public final fun getSpeedMetersPerSecond ()Ljava/lang/Double;
+	public final fun getTimestampEpochMillis ()J
+	public final fun getVerticalAccuracyMeters ()Ljava/lang/Double;
+	public fun hashCode ()I
+	public final fun isApproximate ()Ljava/lang/Boolean;
+	public final fun isSimulated ()Ljava/lang/Boolean;
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/location/LocationProvider {
+	public abstract fun getCurrentLocation (Lio/github/jamal_wia/kmptoolkit/location/CurrentLocationOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun getCurrentLocation$default (Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;Lio/github/jamal_wia/kmptoolkit/location/CurrentLocationOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public abstract fun isLocationEnabled (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun observeLocation (Lio/github/jamal_wia/kmptoolkit/location/LocationUpdatesOptions;)Lkotlinx/coroutines/flow/Flow;
+	public static synthetic fun observeLocation$default (Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;Lio/github/jamal_wia/kmptoolkit/location/LocationUpdatesOptions;ILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
+	public abstract fun observeLocationEnabled ()Lkotlinx/coroutines/flow/Flow;
+	public abstract fun openLocationSettings ()V
+	public fun promptToEnableService (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationProvider$DefaultImpls {
+	public static synthetic fun getCurrentLocation$default (Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;Lio/github/jamal_wia/kmptoolkit/location/CurrentLocationOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun observeLocation$default (Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;Lio/github/jamal_wia/kmptoolkit/location/LocationUpdatesOptions;ILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
+	public static fun promptToEnableService (Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationProvider_jvmKt {
+	public static final fun createLocationProvider ()Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/location/LocationReading {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationReading$Available : io/github/jamal_wia/kmptoolkit/location/LocationReading {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/location/LocationFix;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/location/LocationFix;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/location/LocationFix;)Lio/github/jamal_wia/kmptoolkit/location/LocationReading$Available;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/location/LocationReading$Available;Lio/github/jamal_wia/kmptoolkit/location/LocationFix;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/LocationReading$Available;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFix ()Lio/github/jamal_wia/kmptoolkit/location/LocationFix;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationReading$Unavailable : io/github/jamal_wia/kmptoolkit/location/LocationReading {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/location/LocationUnavailability;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/location/LocationUnavailability;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/location/LocationUnavailability;)Lio/github/jamal_wia/kmptoolkit/location/LocationReading$Unavailable;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/location/LocationReading$Unavailable;Lio/github/jamal_wia/kmptoolkit/location/LocationUnavailability;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/LocationReading$Unavailable;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Lio/github/jamal_wia/kmptoolkit/location/LocationUnavailability;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationReadingKt {
+	public static final fun fixOrNull (Lio/github/jamal_wia/kmptoolkit/location/LocationReading;)Lio/github/jamal_wia/kmptoolkit/location/LocationFix;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationServicePrompt : java/lang/Enum {
+	public static final field ALREADY_ON Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+	public static final field NOT_NOW Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+	public static final field PROMPTED Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+	public static final field UNSUPPORTED Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationUnavailability : java/lang/Enum {
+	public static final field NO_FIX Lio/github/jamal_wia/kmptoolkit/location/LocationUnavailability;
+	public static final field PERMISSION_MISSING Lio/github/jamal_wia/kmptoolkit/location/LocationUnavailability;
+	public static final field SERVICE_DISABLED Lio/github/jamal_wia/kmptoolkit/location/LocationUnavailability;
+	public static final field UNSUPPORTED Lio/github/jamal_wia/kmptoolkit/location/LocationUnavailability;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/location/LocationUnavailability;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/location/LocationUnavailability;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationUpdatesOptions {
+	public fun <init> ()V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;DJJLio/github/jamal_wia/kmptoolkit/location/PlatformLocationUpdatesOptions;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;DJJLio/github/jamal_wia/kmptoolkit/location/PlatformLocationUpdatesOptions;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;
+	public final fun component2 ()D
+	public final fun component3-UwyO8pc ()J
+	public final fun component4-UwyO8pc ()J
+	public final fun component5 ()Lio/github/jamal_wia/kmptoolkit/location/PlatformLocationUpdatesOptions;
+	public final fun copy-ck1zr5g (Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;DJJLio/github/jamal_wia/kmptoolkit/location/PlatformLocationUpdatesOptions;)Lio/github/jamal_wia/kmptoolkit/location/LocationUpdatesOptions;
+	public static synthetic fun copy-ck1zr5g$default (Lio/github/jamal_wia/kmptoolkit/location/LocationUpdatesOptions;Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;DJJLio/github/jamal_wia/kmptoolkit/location/PlatformLocationUpdatesOptions;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/LocationUpdatesOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAccuracy ()Lio/github/jamal_wia/kmptoolkit/location/LocationAccuracy;
+	public final fun getMaxSeedAge-UwyO8pc ()J
+	public final fun getMinUpdateDistanceMeters ()D
+	public final fun getMinUpdateInterval-UwyO8pc ()J
+	public final fun getPlatform ()Lio/github/jamal_wia/kmptoolkit/location/PlatformLocationUpdatesOptions;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/location/PlatformCurrentLocationOptions {
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/location/PlatformFixDetails {
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/location/PlatformLocationUpdatesOptions {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/ScreenRotation : java/lang/Enum {
+	public static final field NATURAL Lio/github/jamal_wia/kmptoolkit/location/ScreenRotation;
+	public static final field ROTATION_180 Lio/github/jamal_wia/kmptoolkit/location/ScreenRotation;
+	public static final field ROTATION_270 Lio/github/jamal_wia/kmptoolkit/location/ScreenRotation;
+	public static final field ROTATION_90 Lio/github/jamal_wia/kmptoolkit/location/ScreenRotation;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/location/ScreenRotation;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/location/ScreenRotation;
+}
+

@@ -1,9 +1,16 @@
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.process.CommandLineArgumentProvider
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
+
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
     // Robolectric for androidHostTest: both Android stores need a real Context, a real
     // SharedPreferences file, and — for the encrypted one — a real AndroidKeyStore provider.
     id("kmptoolkit.androidtest")
+    // The `ffm` compilation of the jvm target: the desktop key-store binding that calls the OS through java.lang.foreign.
+    id("kmptoolkit.ffm")
 }
 
 kmptoolkitPublish {
@@ -11,14 +18,29 @@ kmptoolkitPublish {
     pomDescription.set(
         "Key-value storage for Kotlin Multiplatform: one KeyValueStorage interface over " +
             "SharedPreferences, NSUserDefaults and, on desktop, a properties file, typed Int/Long/Boolean " +
-            "accessors, a SecureKeyValueStorage backed by the Android " +
-            "Keystore and the iOS Keychain, and a DeviceIdProvider for a stable per-install id. " +
-            "Every store name, keystore alias and Keychain service is derived from your own " +
-            "application id, so two apps — or two features of one app — never share a store. " +
+            "accessors, a SecureKeyValueStorage backed by the Android Keystore and the iOS Keychain, " +
+            "desktop secure storage whose key is held by the macOS Keychain, Windows DPAPI or the Linux " +
+            "Secret Service (called through the JDK's Foreign Function and Memory API on JDK 22+, no " +
+            "third-party dependency), an app-key encrypted store for desktop, and a DeviceIdProvider " +
+            "for a stable per-install id. Every store is named by the StorageConfig the app passes, " +
+            "which is also what the keystore alias, Keychain service or OS key item derives from, so " +
+            "two features of one app never share a store. " +
             "Pick this module if shared code needs a handful of small values to survive a " +
             "process restart, with failures arriving as typed StorageError values rather than " +
             "platform exceptions."
     )
+}
+
+// @MustUseReturnValues (on KeyValueStorage and the helper files) cannot be declared at all while the compiler's
+// return-value checker is disabled: "Ignorability-related annotations are experimental and cannot be used with
+// -Xreturn-value-checker in disabled state". `check` reports only the declarations that carry the annotation, so the
+// module's own sources are warned about an ignored StorageResult. Tests are left out on purpose: they drop results
+// deliberately (a failing put whose effect is the thing under test), and the annotation reaches consumers through the
+// published metadata, so no consumer needs the flag.
+tasks.withType<KotlinCompilationTask<*>>().configureEach {
+    if (!name.contains("Test")) {
+        compilerOptions.freeCompilerArgs.add("-Xreturn-value-checker=check")
+    }
 }
 
 kotlin {
@@ -33,8 +55,10 @@ kotlin {
     // KeyValueStorage is the type a consumer's shared settings and repository code takes as a
     // parameter; an app that shares that code with desktop cannot compile it for desktop at all if
     // the interface exists on only two of its three targets. Unlike the Compose no-op targets, the
-    // jvm half is real: a properties-file store the app points at its own directory. There is no
-    // secure store on desktop — see `docs/kmptoolkit-storage/05-platform-notes.md`.
+    // jvm half is real: a properties-file store the app points at its own directory, plus encrypted
+    // stores (the OS key store through the FFM binding of the `ffm` compilation, or the optional
+    // kmptoolkit-storage-jna artifact on JDK 21, and an app-key store) — see
+    // `docs/kmptoolkit-storage/05-platform-notes.md`.
     jvm()
 
     sourceSets {
@@ -49,6 +73,27 @@ kotlin {
             // The desktop store's atomic write and its per-file lock are kmptoolkit-files' writeAtomically and
             // KeyedMutex; Android and iOS keep their own stores. implementation: no files type is public here.
             implementation(project(":kmptoolkit-files"))
+            // @ToolkitInternalApi marks the internal seam of the desktop secure store (internal/desktop), which
+            // kmptoolkit-storage-jna implements across a module boundary. api: the public jvm seam carries the marker
+            // (@ToolkitInternalApi, @SubclassOptInRequired), so the marker class must be resolvable from a consumer's
+            // compile classpath for the opt-in requirement to be visible (as in kmptoolkit-files and kmptoolkit-location).
+            api(project(":kmptoolkit-core"))
+        }
+        // The seam is public + @ToolkitInternalApi so another artifact can implement it; this module uses it freely.
+        jvmMain { languageSettings { optIn("io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi") } }
+        jvmTest { languageSettings { optIn("io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi") } }
+        // The documentation samples of docs/kmptoolkit-storage, compiled a second time here (the first time is `:docs-samples`, as a consumer),
+        // so that DocsSamplesDesktopRunTest runs them above the internal fake binding of the desktop key store (plan 6.7 (b)).
+        jvmTest { kotlin.srcDir("../docs-samples/src/jvmMain/kotlin") }
+        // The tests that call java.lang.foreign themselves (src/jvmFfmTest, run by jvmTestFfm on a JDK 25 launcher).
+        getByName("jvmFfmTest").dependencies {
+            // This is not a KGP test compilation, so kotlin-test is not mapped to its JUnit variant on its own.
+            implementation(kotlin("test-junit"))
+            implementation(libs.junit)
+            implementation(libs.kotlinx.coroutines.core)
+            implementation(project(":kmptoolkit-core"))
+            implementation(project(":kmptoolkit-files"))
+            implementation(project(":test-support"))
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
@@ -56,4 +101,35 @@ kotlin {
             implementation(project(":test-support"))
         }
     }
+}
+
+// The JCA bytecode scan (JcaBytecodeScanTest, decisions D-P12) reads the jar this module SHIPS, not the directories it is built from:
+// the jvm jar is by definition every class that ships, wherever its inputs live (class directories, processed resources, any
+// `from(...)` a later change adds). The test task builds the jar first and is told where it is through a system property whose name
+// is the scan's own (it must not collide with the `kmptoolkit.test.targetJar` that the ffm build logic sets on the same task). The jar
+// is a task input (content only), so a changed jar reruns the scan; the machine-specific path is not.
+tasks.withType<Test>().matching { it.name == "jvmTest" }.configureEach {
+    val jvmJar: TaskProvider<Jar> = tasks.named<Jar>("jvmJar")
+    dependsOn(jvmJar)
+    val jarFile: Provider<RegularFile> = jvmJar.flatMap { it.archiveFile }
+    inputs.file(jarFile).withPropertyName("shippedJvmJar").withPathSensitivity(PathSensitivity.NONE)
+    jvmArgumentProviders.add(ShippedJvmJarProperty(jarFile.map { it.asFile.path }))
+}
+
+// DocsSamplesDriftTest reads the storage docs and the `sample:begin` blocks of five source roots as plain files at test time. A
+// File read is not a task input, so without these declarations a doc-only edit (or a comment-only edit of a block, which leaves the
+// compiled classes unchanged) left jvmTest UP-TO-DATE or FROM-CACHE and the drift check never ran. Content only, relative paths:
+// the result must not depend on where the checkout lives.
+tasks.named<Test>("jvmTest") {
+    val repo: Directory = rootProject.layout.projectDirectory
+    inputs.dir(repo.dir("docs/kmptoolkit-storage")).withPropertyName("storageDocs").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(repo.dir("docs-samples/src/jvmMain/kotlin")).withPropertyName("consumerSampleBlocks").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(layout.projectDirectory.dir("src/androidHostTest")).withPropertyName("androidSampleBlocks").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(layout.projectDirectory.dir("src/iosTest")).withPropertyName("iosSampleBlocks").withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(repo.dir("kmptoolkit-storage-testing/src/jvmTest")).withPropertyName("fixtureSampleBlocks").withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+/** `-Dkmptoolkit.test.jvmJar=<path of the built jvm jar>`, computed when the test JVM starts; the path is machine-specific, so it is no task input. */
+private class ShippedJvmJarProperty(@get:Internal val jar: Provider<String>) : CommandLineArgumentProvider {
+    override fun asArguments(): Iterable<String> = listOf("-Dkmptoolkit.test.jvmJar=${jar.get()}")
 }

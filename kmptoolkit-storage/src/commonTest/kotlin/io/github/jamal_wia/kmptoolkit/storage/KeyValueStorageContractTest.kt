@@ -172,8 +172,8 @@ abstract class KeyValueStorageContractTest {
     private fun assertPutRejected(result: StorageResult<Unit>, key: String) {
         val error: StorageError? = result.errorOrNull()
         assertTrue(
-            error is StorageError.OperationFailed && error.operation == StorageOperation.PUT && error.key == key,
-            "expected OperationFailed(PUT, $key), was $result",
+            error is StorageError.InvalidValue && error.key == key,
+            "expected InvalidValue($key), was $result",
         )
     }
 
@@ -202,12 +202,70 @@ abstract class KeyValueStorageContractTest {
     }
 
     @Test
+    fun `a typed read of a stored value of another type is InvalidValue naming the key and leaves the value alone`() = runTest {
+        val storage: KeyValueStorage = create()
+        storage.write("k", "forty-two")
+
+        val results: List<StorageResult<Any?>> = listOf(storage.getInt("k"), storage.getLong("k"), storage.getBoolean("k"))
+
+        for (result: StorageResult<Any?> in results) {
+            val error: StorageError? = result.errorOrNull()
+            assertTrue(error is StorageError.InvalidValue && error.key == "k", "expected InvalidValue(k), was $result")
+        }
+        assertEquals(StorageResult.Success("forty-two"), storage.get("k"))
+    }
+
+    @Test
+    fun `a typed read of an absent key is Success null rather than InvalidValue`() = runTest {
+        val storage: KeyValueStorage = create()
+
+        assertEquals(StorageResult.Success(null), storage.getInt("missing"))
+        assertEquals(StorageResult.Success(null), storage.getLong("missing"))
+        assertEquals(StorageResult.Success(null), storage.getBoolean("missing"))
+    }
+
+    @Test
     fun `a well-formed surrogate pair is stored and read back`() = runTest {
         val storage: KeyValueStorage = create()
 
         storage.write("k", "😀a😀")
 
         assertEquals(StorageResult.Success("😀a😀"), create().get("k"))
+    }
+
+    // Breaker round 1 of group sto-api (ticket release-5-1-0): adversarial cases every store must pass.
+
+    @Test
+    fun `keys that differ only in case spacing or an invisible character are separate entries`() = runTest {
+        val storage: KeyValueStorage = create()
+        val keys: List<String> = listOf("token", "Token", "TOKEN", "token ", " token", "to ken", "token​", "ｔoken")
+        keys.forEachIndexed { index: Int, key: String -> storage.write(key, "v$index") }
+
+        keys.forEachIndexed { index: Int, key: String ->
+            assertEquals(StorageResult.Success("v$index"), create().get(key), "key #$index read back wrong")
+        }
+        assertTrue(storage.remove("Token").isSuccess)
+        assertEquals(StorageResult.Success("v0"), create().get("token"))
+        assertEquals(StorageResult.Success(null), create().get("Token"))
+    }
+
+    @Test
+    fun `a typed read of near-numeric text is InvalidValue and the text reads back byte for byte`() = runTest {
+        val storage: KeyValueStorage = create()
+        val texts: List<String> = listOf(" 42", "42 ", "\t42", "+42", "4 2", "٤٢", "４２", "2147483648", " true", "True")
+        texts.forEachIndexed { index: Int, text: String -> storage.write("t$index", text) }
+
+        texts.forEachIndexed { index: Int, text: String ->
+            val reopened: KeyValueStorage = create()
+            val error: StorageError? = reopened.getInt("t$index").errorOrNull()
+            assertTrue(error is StorageError.InvalidValue && error.key == "t$index", "getInt of text #$index answered $error")
+            if (index >= texts.size - 2) {
+                val bool: StorageError? = reopened.getBoolean("t$index").errorOrNull()
+                assertTrue(bool is StorageError.InvalidValue, "getBoolean of text #$index answered $bool")
+            }
+            assertEquals(StorageResult.Success(text), reopened.get("t$index"), "text #$index changed in the store")
+        }
+        assertEquals(StorageResult.Success(2_147_483_648L), create().getLong("t7"))
     }
 
     /**

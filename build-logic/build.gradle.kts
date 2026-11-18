@@ -43,6 +43,10 @@ gradlePlugin {
             id = "kmptoolkit.publish"
             implementationClass = "io.github.jamal_wia.kmptoolkit.buildlogic.PublishConventionPlugin"
         }
+        register("ffm") {
+            id = "kmptoolkit.ffm"
+            implementationClass = "io.github.jamal_wia.kmptoolkit.buildlogic.FfmConventionPlugin"
+        }
         register("androidtest") {
             id = "kmptoolkit.androidtest"
             implementationClass = "io.github.jamal_wia.kmptoolkit.buildlogic.AndroidTestConventionPlugin"

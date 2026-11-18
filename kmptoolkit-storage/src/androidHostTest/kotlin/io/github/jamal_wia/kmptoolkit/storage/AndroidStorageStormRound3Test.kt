@@ -123,6 +123,8 @@ class AndroidStorageStormRound3Test {
 
     private class SwitchableKeyStore(@Volatile var current: SecretKey) : AliasedKeyStore {
         override fun existingKey(alias: String, mayDelete: Boolean): SecretKey = current
+        override fun deleteKey(alias: String): Unit = error("only a permanent rejection deletes a key")
+
         override fun generateKey(alias: String): SecretKey = error("an existing key is always answered")
     }
 

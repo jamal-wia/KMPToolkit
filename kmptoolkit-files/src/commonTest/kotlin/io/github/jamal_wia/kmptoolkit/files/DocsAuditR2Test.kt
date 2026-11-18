@@ -35,8 +35,8 @@ class DocsAuditR2Test {
         override fun nowMillis(): Long = 0L
         override fun metadata(path: String, followLinks: Boolean): FileMetadata? = onMetadata(path, followLinks)
         override fun list(directory: String): List<String>? = throw AssertionError("unexpected list")
-        override fun createDirectory(path: String): Unit = throw AssertionError("unexpected createDirectory")
-        override fun createNew(path: String, protection: FileProtection): WritableFile = throw AssertionError("unexpected createNew")
+        override fun createDirectory(path: String, ownerOnly: Boolean): Unit = throw AssertionError("unexpected createDirectory")
+        override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile = throw AssertionError("unexpected createNew")
         override fun openForRead(path: String): ReadableFile = throw AssertionError("unexpected openForRead")
         override fun rename(from: String, to: String): Unit = throw AssertionError("unexpected rename")
         override fun link(existing: String, newPath: String): Unit = throw AssertionError("unexpected link")
@@ -201,8 +201,8 @@ class DocsAuditR2Test {
             val real: FileSystemOps = TestEnv.realOps()
             val syncs: MutableList<Boolean> = mutableListOf()
             val ops: FileSystemOps = object : FileSystemOps by real {
-                override fun createNew(path: String, protection: FileProtection): WritableFile {
-                    val inner: WritableFile = real.createNew(path, protection)
+                override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile {
+                    val inner: WritableFile = real.createNew(path, protection, ownerOnly)
                     return object : WritableFile by inner {
                         override fun sync(full: Boolean) {
                             syncs += full

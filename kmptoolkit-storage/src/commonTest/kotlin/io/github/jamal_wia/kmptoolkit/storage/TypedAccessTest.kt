@@ -2,12 +2,14 @@ package io.github.jamal_wia.kmptoolkit.storage
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlinx.coroutines.test.runTest
 
 /**
  * The typed extensions' encoding and failure rules, from the KDoc in `TypedAccess.kt`: one encoding
- * per type, a value that does not parse is a GET failure rather than an absent key, and the `...Or`
+ * per type, a value that does not parse is an InvalidValue failure rather than an absent key, and the `...Or`
  * variants fall back to the default on absent, unreadable and unparseable alike.
  */
 class TypedAccessTest {
@@ -44,7 +46,7 @@ class TypedAccessTest {
     }
 
     @Test
-    fun `a value that does not parse is a get failure naming the key`() = runTest {
+    fun `a value that does not parse is InvalidValue naming the key never OperationFailed`() = runTest {
         storage.entries["i"] = "forty-two"
         storage.entries["l"] = "12.5"
         storage.entries["b"] = "TRUE"
@@ -54,18 +56,17 @@ class TypedAccessTest {
         listOf(storage.getInt("i"), storage.getLong("l"), storage.getBoolean("b"), storage.getInt("plus"), storage.getLong("space"))
             .zip(listOf("i", "l", "b", "plus", "space"))
             .forEach { (result, key) ->
-                val error = assertIs<StorageError.OperationFailed>(result.errorOrNull())
-                assertEquals(StorageOperation.GET, error.operation)
+                val error = assertIs<StorageError.InvalidValue>(result.errorOrNull())
                 assertEquals(key, error.key)
                 assertIs<IllegalArgumentException>(error.cause)
             }
     }
 
     @Test
-    fun `an int read of a value beyond the int range is a failure`() = runTest {
+    fun `an int read of a value beyond the int range is InvalidValue`() = runTest {
         storage.putLong("big", Int.MAX_VALUE.toLong() + 1)
 
-        assertIs<StorageResult.Failure>(storage.getInt("big"))
+        assertEquals("big", assertIs<StorageError.InvalidValue>(storage.getInt("big").errorOrNull()).key)
     }
 
     @Test
@@ -95,5 +96,30 @@ class TypedAccessTest {
 
         assertEquals("", storage.getStringOr("s", "fallback"))
         assertEquals(3, storage.getIntOr("i", 7))
+    }
+
+    @Test
+    fun `the InvalidValue cause names the requested type and carries neither the value nor another exception`() = runTest {
+        // One value per rejection path: not a decimal, not a boolean, a decimal the platform parse rejects.
+        val notDecimal = "hunter2-secret"
+        val overflowing = "99999999999999999999"
+        storage.entries["word"] = notDecimal
+        storage.entries["digits"] = overflowing
+
+        val cases: List<Triple<StorageResult<*>, String, String>> = listOf(
+            Triple(storage.getInt("word"), notDecimal, "Int"),
+            Triple(storage.getLong("word"), notDecimal, "Long"),
+            Triple(storage.getBoolean("word"), notDecimal, "Boolean"),
+            Triple(storage.getInt("digits"), overflowing, "Int"),
+            Triple(storage.getLong("digits"), overflowing, "Long"),
+        )
+        for ((result: StorageResult<*>, value: String, type: String) in cases) {
+            val error: StorageError.InvalidValue = assertIs(result.errorOrNull(), "$type of a rejected value")
+            val cause: Throwable = assertIs<IllegalArgumentException>(error.cause)
+            assertNull(cause.cause, "$type: the platform parse exception is not chained")
+            assertEquals(true, cause.message?.contains(type), "$type: the cause names the requested type: ${cause.message}")
+            assertFalse(error.toString().contains(value), "$type: toString of the error holds the value: $error")
+            assertFalse(cause.toString().contains(value), "$type: toString of the cause holds the value: $cause")
+        }
     }
 }

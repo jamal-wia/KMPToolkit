@@ -169,10 +169,10 @@ internal class HaltingOpsR5(
 
     override fun metadata(path: String, followLinks: Boolean) = run { step("metadata"); real.metadata(path, followLinks) }
     override fun list(directory: String) = run { step("list"); real.list(directory) }
-    override fun createDirectory(path: String) = run { step("createDirectory"); real.createDirectory(path) }
-    override fun createNew(path: String, protection: FileProtection): WritableFile {
+    override fun createDirectory(path: String, ownerOnly: Boolean) = run { step("createDirectory"); real.createDirectory(path, ownerOnly) }
+    override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile {
         step("createNew")
-        val inner: WritableFile = real.createNew(path, protection)
+        val inner: WritableFile = real.createNew(path, protection, ownerOnly)
         return object : WritableFile {
             override fun write(bytes: ByteArray, offset: Int, length: Int) {
                 log += "write"

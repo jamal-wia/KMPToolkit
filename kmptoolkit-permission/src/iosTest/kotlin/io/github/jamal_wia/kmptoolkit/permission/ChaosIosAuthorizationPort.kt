@@ -295,6 +295,13 @@ class ChaosIosAuthorizationPort : IosAuthorizationPort {
         return location.value
     }
 
+    // The chaos port never reports reduced accuracy, so there is no temporary upgrade to storm.
+    override suspend fun requestTemporaryFullAccuracy(purposeKey: String) {
+        suspendingRequest("requestTemporaryFullAccuracy")
+    }
+
+    override fun temporaryUsagePurposeKeys(): Set<String> = emptySet()
+
     override fun mediaLibraryAuthorization(): MPMediaLibraryAuthorizationStatus {
         record("mediaLibraryAuthorization")
         return media.value

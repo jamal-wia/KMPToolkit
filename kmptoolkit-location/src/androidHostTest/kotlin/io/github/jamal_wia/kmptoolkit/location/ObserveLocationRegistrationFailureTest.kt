@@ -1,149 +1,134 @@
 package io.github.jamal_wia.kmptoolkit.location
 
-import android.app.Application
-import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
-import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
-import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
-import kotlinx.coroutines.Dispatchers
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 
 /**
- * A listener the platform holds must not outlive a collection that failed to finish registering:
- * `observeLocation()` registers the GPS and network providers one after the other, so the second
- * can fail after the first has succeeded.
+ * F3 and the registration-failure leak (bug class 1): a listener the platform holds must not outlive a
+ * collection that failed to finish registering. A refusal of every source is not a crash: the stream
+ * emits `Unavailable(PERMISSION_MISSING)` and completes, the same on every platform. A refusal of one
+ * source is skipped. Any other failure removes what was registered and reaches the collector, and a
+ * failing undo never replaces the failure that made it necessary. Counters, not timing.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
 class ObserveLocationRegistrationFailureTest {
 
-    private val application: Application = ApplicationProvider.getApplicationContext()
+    private val backend = FakeLocationBackend()
+    private val provider: LocationProvider = newProvider(backend)
+    private val gps: String = LocationManager.GPS_PROVIDER
+    private val network: String = LocationManager.NETWORK_PROVIDER
 
-    /**
-     * Throws [failure] on the network registration (and on the GPS one too when [firstFailsToo]); tracks which
-     * listeners are registered.
-     */
-    private class FailingSecondSource(
-        private val failure: Throwable,
-        private val removalFailure: Throwable? = null,
-        private val firstFailsToo: Boolean = false,
-    ) : LocationUpdatesSource {
-        override val allProviders: List<String> = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        val registered: MutableSet<LocationListener> = java.util.concurrent.CopyOnWriteArraySet()
-        override fun isProviderEnabled(provider: String): Boolean = true
-        override fun lastKnownLocation(provider: String): Location? = null
-        override fun requestUpdates(
-            provider: String,
-            minTimeMillis: Long,
-            minDistanceMeters: Float,
-            listener: LocationListener,
-        ) {
-            if (provider == LocationManager.NETWORK_PROVIDER || firstFailsToo) throw failure
-            registered += listener
-        }
-
-        override fun removeUpdates(listener: LocationListener) {
-            registered -= listener
-            if (removalFailure != null) throw removalFailure
-        }
-    }
-
-    /** Spins (bounded) until [condition] holds, so a hang fails fast instead of blocking the Gradle run. */
-    private suspend fun until(what: String, condition: () -> Boolean) {
-        var spins = 0
-        while (!condition()) {
-            check(spins++ < 2_000) { "timed out waiting for $what" }
-            delay(2)
-        }
-    }
-
-    private fun provider(source: LocationUpdatesSource): LocationProvider =
-        AndroidLocationProvider(application, LocationProviderConfig(), NoopLogger, SystemScreenLauncher.SeparateTask, source)
+    /** Registers both gps and network. */
+    private val both = LocationUpdatesOptions(accuracy = LocationAccuracy.HIGH_ACCURACY)
 
     @Test
-    fun `a provider that refuses its permission is skipped and the flow stays live on the other`() = runBlocking {
-        withTimeout(10_000) {
-            val source = FailingSecondSource(SecurityException("network denied"))
-            val seen = java.util.concurrent.CopyOnWriteArrayList<GeoCoordinates?>()
+    fun `a source that refuses its permission is skipped and the stream stays live on the other`() = runTest(timeout = 60.seconds) {
+        backend.refuse(network)
+        val seen: MutableList<LocationReading> = mutableListOf()
 
-            val job = launch(Dispatchers.Default) { provider(source).observeLocation().collect { seen += it } }
-            until("the seed and the gps registration") { seen.isNotEmpty() && source.registered.isNotEmpty() }
-            assertEquals(listOf<GeoCoordinates?>(null), seen.toList(), "the first value is the null seed")
+        val job: Job = backgroundScope.launch { provider.observeLocation(both).collect { reading: LocationReading -> seen += reading } }
+        runCurrent()
 
-            val fix = Location(LocationManager.GPS_PROVIDER).apply { latitude = 5.0; longitude = 6.0 }
-            source.registered.first().onLocationChanged(fix)
-            until("the delivered fix") { seen.lastOrNull() != null }
-            assertEquals(GeoCoordinates(5.0, 6.0), seen.last())
+        assertEquals(listOf<LocationReading>(LocationReading.Unavailable(LocationUnavailability.NO_FIX)), seen, "the seed comes first")
+        assertEquals(1, backend.registeredCount, "control: the gps registration is live although the network one was refused")
+        backend.deliver(gps, backend.locationAt(gps, 5.0, longitude = 6.0))
+        runCurrent()
+        assertEquals(GeoCoordinates(5.0, 6.0), seen.last().fixOrNull()?.coordinates)
+        assertTrue(job.isActive, "a partial refusal must not end the stream")
 
-            job.cancelAndJoin()
-            assertTrue(source.registered.isEmpty(), "listener still registered after the cancel: ${source.registered.size}")
-        }
+        job.cancelAndJoin()
+        assertEquals(0, backend.registeredCount, "listener still registered after the cancel")
+        assertEquals(0, backend.subscriberCount, "service receiver still registered after the cancel")
     }
 
     @Test
-    fun `when every provider refuses its permission the flow ends on null and nothing stays registered`() = runBlocking {
-        withTimeout(5_000) {
-            val source = FailingSecondSource(SecurityException("denied"), firstFailsToo = true)
+    fun `when every source refuses the stream emits PERMISSION_MISSING and completes with nothing registered`() = runTest(timeout = 60.seconds) {
+        backend.refuse(gps)
+        backend.refuse(network)
 
-            val values: List<GeoCoordinates?> = provider(source).observeLocation().toList()
+        val values: List<LocationReading> = provider.observeLocation(both).toList()
 
-            assertEquals(listOf(null, null), values)
-            assertTrue(source.registered.isEmpty(), "listener still registered: ${source.registered.size}")
-        }
+        assertEquals(
+            listOf<LocationReading>(
+                LocationReading.Unavailable(LocationUnavailability.NO_FIX),
+                LocationReading.Unavailable(LocationUnavailability.PERMISSION_MISSING),
+            ),
+            values,
+            "the seed, then the terminal reason, then completion (toList returned)",
+        )
+        assertEquals(2, backend.registrationAttemptCount, "control: both registrations were attempted")
+        assertEquals(0, backend.registeredCount, "a refused collection left a listener")
+        assertEquals(0, backend.subscriberCount, "a refused collection left a receiver")
     }
 
     @Test
-    fun `any other failure on the second provider removes the listener and reaches the collector`() = runBlocking {
-        withTimeout(5_000) {
-        val source = FailingSecondSource(IllegalStateException("dead system server"))
+    fun `a failing removal on the permission path still ends with PERMISSION_MISSING instead of throwing`() = runTest(timeout = 60.seconds) {
+        backend.refuse(gps)
+        backend.refuse(network)
+        backend.removalFailure = IllegalStateException("dead system server")
 
-        assertFailsWith<IllegalStateException> { provider(source).observeLocation().first { false } }
+        val values: List<LocationReading> = provider.observeLocation(both).toList()
 
-        assertTrue(source.registered.isEmpty(), "listener still registered: ${source.registered.size}")
-        }
+        assertEquals(LocationReading.Unavailable(LocationUnavailability.PERMISSION_MISSING), values.last())
+        assertTrue(backend.removalCount > 0, "control: the undo was attempted")
     }
 
     @Test
-    fun `a failing removal on the permission path still emits null instead of throwing`() = runBlocking {
-        withTimeout(5_000) {
-            val source = FailingSecondSource(
-                SecurityException("denied"),
-                removalFailure = IllegalStateException("dead"),
-                firstFailsToo = true,
-            )
+    fun `any other failure on the second source removes the first listener and reaches the collector`() = runTest(timeout = 60.seconds) {
+        backend.failRegistration(network, IllegalStateException("dead system server"))
 
-            val values: List<GeoCoordinates?> = provider(source).observeLocation().toList()
+        assertFailsWith<IllegalStateException> { provider.observeLocation(both).first { false } }
 
-            assertEquals(listOf(null, null), values)
-        }
+        assertEquals(1, backend.registrationAttemptCount - 1, "control: the gps registration happened before the network one failed")
+        assertEquals(0, backend.registeredCount, "the first source's listener must not survive the failure")
+        assertEquals(0, backend.subscriberCount)
     }
 
     @Test
-    fun `a failing removal on the other path keeps the original failure and suppresses the removal's`() = runBlocking {
-        withTimeout(5_000) {
-            val removal = IllegalArgumentException("dead listener")
-            val original = IllegalStateException("original")
-            val source = FailingSecondSource(original, removalFailure = removal)
+    fun `a failing removal on the other path keeps the original failure and suppresses the removal's`() = runTest(timeout = 60.seconds) {
+        val original = IllegalStateException("original")
+        val removal = IllegalArgumentException("dead listener")
+        backend.failRegistration(network, original)
+        backend.removalFailure = removal
 
-            val thrown: IllegalStateException =
-                assertFailsWith<IllegalStateException> { provider(source).observeLocation().first { false } }
+        val thrown: IllegalStateException = assertFailsWith<IllegalStateException> { provider.observeLocation(both).first { false } }
 
-            assertEquals("original", thrown.message)
-            // Coroutines may rethrow a stack-trace-recovered copy, so look at the original itself.
-            assertTrue(original.suppressed.any { suppressed -> suppressed === removal })
-        }
+        assertEquals("original", thrown.message)
+        // Coroutines may rethrow a stack-trace-recovered copy, so look at the original itself.
+        assertTrue(original.suppressed.any { suppressed: Throwable -> suppressed === removal }, "the removal failure must be suppressed, not lost")
+    }
+
+    @Test
+    fun `a collection after a failed one starts clean (re-initialisation)`() = runTest(timeout = 60.seconds) {
+        backend.refuse(gps)
+        backend.refuse(network)
+        provider.observeLocation(both).toList()
+        assertEquals(0, backend.registeredCount, "control: the failed collection left nothing")
+        // The user grants the permission: the same provider instance serves the next collection.
+        backend.allow(gps)
+        backend.allow(network)
+
+        val job: Job = backgroundScope.launch { provider.observeLocation(both).collect { } }
+        runCurrent()
+
+        assertEquals(2, backend.registeredCount, "the next collection must register normally")
+        job.cancelAndJoin()
+        assertEquals(0, backend.registeredCount)
+        assertEquals(0, backend.subscriberCount)
     }
 }

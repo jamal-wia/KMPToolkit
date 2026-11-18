@@ -11,19 +11,27 @@ import io.github.jamal_wia.kmptoolkit.files.KeyedMutex
 import io.github.jamal_wia.kmptoolkit.files.PathKey
 import io.github.jamal_wia.kmptoolkit.files.WriteOptions
 import io.github.jamal_wia.kmptoolkit.files.createFileAccess
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.Jca
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.JcaFailure
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.LockAcquisition
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.refuseUnlessRegularOrAbsent
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.withStoreContext
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
-import java.security.MessageDigest
+import java.nio.file.NoSuchFileException
 import java.util.Properties
+import java.util.concurrent.TimeoutException
+import kotlin.time.ComparableTimeMark
+import kotlin.time.Duration
+import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.withContext
 
 /**
  * [KeyValueStorage] over a single properties file.
@@ -41,12 +49,53 @@ import kotlinx.coroutines.withContext
  * replaced: its other values may still be recoverable by hand. [KeyValueStorage.clear] is the way out.
  *
  * The file I/O runs on [dispatcher], never on the caller's thread.
+ *
+ * The file, its temporary siblings and the lock file are readable and writable by their owner only (POSIX 0600; on
+ * Windows an ACL for the owner and SYSTEM), from the moment they exist; a directory this store creates is 0700 and an
+ * existing directory is never changed. A volume without permissions (FAT, exFAT) ignores the request. On macOS the mode is
+ * the whole guarantee: an extended ACL entry that the parent directory marks inheritable is still inherited by every new
+ * file and directory (the JDK cannot clear it), so keep the directory under a parent without such entries.
+ *
+ * Writes are serialized across processes too: after the in-process lock, a write takes `FileChannel.tryLock` on the
+ * separate `<file>.lock` ([CrossProcessLock]), so two app instances or two parallel tools never lose each other's
+ * updates. One 10 second budget covers both waits of a write: a write that cannot get both locks in that time fails
+ * with [StorageError.Unavailable] and changes nothing, however many writes queue in front of it. On a file system that
+ * refuses file locks the write is coordinated within this process only, as before 6.0.0. Reads take no lock at all:
+ * a write publishes only by atomic rename and `clear()` by one unlink, so a read always sees a whole old or a whole new
+ * file, and a read never waits behind a write that waits for another process.
  */
 internal class JvmKeyValueStorage(
     private val file: File,
     private val dispatcher: CoroutineDispatcher,
     private val files: FileAccess = createFileAccess(),
+    private val crossProcessLock: CrossProcessLock = CrossProcessLock(),
+    private val timeSource: TimeSource.WithComparableMarks = TimeSource.Monotonic,
 ) : KeyValueStorage {
+
+    /**
+     * The lock file and the temporary-file prefix of this store. Both are derived from the file name and need SHA-256 only for a
+     * very long name (251 and 233 bytes or more). They are computed once here, but a SHA-256 provider that fails (a PKCS#11 token
+     * under a FIPS-configured JDK) is an environment problem, so the failure is NOT thrown out of the constructor, and so not out of
+     * the factory (every failure of this module is a value): the names stay unknown and every WRITE tries again, answering
+     * `OperationFailed` with the provider failure as its cause until the provider works, and then works. Reads need neither name.
+     * The value is a pure function of the file name, so a race between two first writes only computes it twice.
+     */
+    private class Names(val lockFile: File, val tempPrefix: String)
+
+    @Volatile private var names: Names? =
+        try {
+            Names(CrossProcessLock.lockFileOf(file), temporaryPrefixOf(file.name))
+        } catch (_: JcaFailure) {
+            null
+        }
+
+    private fun names(): Names =
+        names ?: Names(CrossProcessLock.lockFileOf(file), temporaryPrefixOf(file.name)).also { computed: Names -> names = computed }
+
+    private val lockFile: File get() = names().lockFile
+
+    /** The prefix of every temporary sibling of this store. */
+    private val tempPrefix: String get() = names().tempPrefix
 
     /**
      * Shared by every instance whose path is the same file on a volume that folds case or Unicode
@@ -61,46 +110,93 @@ internal class JvmKeyValueStorage(
 
     override suspend fun put(key: String, value: String): StorageResult<Unit> {
         unpairedSurrogateFailure(key, value)?.let { return it }
-        return guarded(StorageOperation.PUT, key) {
+        return guardedWrite(StorageOperation.PUT, key) {
             val properties: Properties = load()
             properties.setProperty(key, value)
             write(properties)
         }
     }
 
-    override suspend fun remove(key: String): StorageResult<Unit> = guarded(StorageOperation.REMOVE, key) {
+    override suspend fun remove(key: String): StorageResult<Unit> = guardedWrite(StorageOperation.REMOVE, key) {
         val properties: Properties = load()
         properties.remove(key)
         write(properties)
     }
 
-    override suspend fun clear(): StorageResult<Unit> = guarded(StorageOperation.CLEAR, key = null) {
-        Files.deleteIfExists(file.toPath())
-        // A process killed between creating a temporary file and renaming it leaves that file behind.
-        val prefix: String = temporaryPrefixOf(file.name)
-        file.absoluteFile.parentFile
-            ?.listFiles { sibling -> isLegacyTemporary(sibling.name) || FileNames.isTempName(sibling.name, prefix) }
-            ?.forEach { leftover -> Files.deleteIfExists(leftover.toPath()) }
+    override suspend fun clear(): StorageResult<Unit> {
+        // A store whose directory does not exist holds nothing: clearing it must not create the directory and a lock file.
+        val nothingThere: Boolean = withStoreContext(dispatcher) { file.absoluteFile.parentFile?.isDirectory == false }
+        if (nothingThere) return StorageResult.Success(Unit)
+        return guardedWrite(StorageOperation.CLEAR, key = null) {
+            Files.deleteIfExists(file.toPath())
+            // A process killed between creating a temporary file and renaming it leaves that file behind.
+            val prefix: String = tempPrefix
+            file.absoluteFile.parentFile
+                ?.listFiles { sibling -> isLegacyTemporary(sibling.name) || FileNames.isTempName(sibling.name, prefix) }
+                ?.forEach { leftover -> Files.deleteIfExists(leftover.toPath()) }
+        }
     }
 
+    /**
+     * A read: no lock at all. Safe because every writer publishes by atomic rename and `clear()` by one unlink, and
+     * [load] opens the file once, so one handle always shows a whole old or a whole new file. A read concurrent with a
+     * `clear()` sees the file or no file, both correct; a read issued after a completed write sees that write.
+     */
     private suspend inline fun <T> guarded(
         operation: StorageOperation,
         key: String?,
         crossinline block: () -> T,
-    ): StorageResult<T> = withContext(dispatcher) {
-        LOCKS.withLock(lockKey) {
-            try {
-                StorageResult.Success(block())
-            } catch (error: IOException) {
-                StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = error))
-            } catch (error: IllegalArgumentException) {
-                // A malformed \uXXXX escape in a hand-edited file, or a name the file system rejects.
-                StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = error))
-            } catch (error: SecurityException) {
-                StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = error))
+    ): StorageResult<T> = withStoreContext(dispatcher) { outcome(operation, key, block) }
+
+    /**
+     * A write: the in-process lock first, then the cross-process lock on `<file>.lock`, always in that order and
+     * released in the opposite one, under ONE budget of [CrossProcessLock.deadline] for both waits (the file lock gets
+     * what the in-process wait left). Only the waits are timed, never the block, so a timeout cannot report failure for a
+     * write that happened. The only suspension while the in-process lock is held is the bounded, cancellable poll for the
+     * file lock; the block itself never suspends. A caller cancelled while waiting holds neither lock afterwards. The file
+     * lock is never held by a caller that waits for anything else, so no cycle can form.
+     */
+    private suspend inline fun <T> guardedWrite(
+        operation: StorageOperation,
+        key: String?,
+        crossinline block: () -> T,
+    ): StorageResult<T> = withStoreContext(dispatcher) {
+        // The names a write needs (see Names): a provider failure here is this write's OperationFailed, before any lock is taken.
+        try {
+            names()
+        } catch (failure: JcaFailure) {
+            return@withStoreContext StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = failure))
+        }
+        val budget: Duration = crossProcessLock.deadline
+        val started: ComparableTimeMark = timeSource.markNow()
+        LOCKS.withLock(lockKey, budget, onTimeout = { unavailable<T>() }) {
+            when (val acquisition: LockAcquisition = crossProcessLock.acquire(lockFile, tempPrefix, budget - started.elapsedNow())) {
+                LockAcquisition.TimedOut -> unavailable()
+                is LockAcquisition.Failed -> StorageResult.Failure(
+                    StorageError.OperationFailed(operation, key = key, cause = acquisition.cause),
+                )
+                // The file system refuses file locks: coordinate within this process only (the in-process lock is held), as before 6.0.0.
+                is LockAcquisition.NotSupported -> outcome(operation, key, block)
+                is LockAcquisition.Held -> acquisition.use { outcome(operation, key, block) }
             }
         }
     }
+
+    private fun <T> unavailable(): StorageResult<T> = StorageResult.Failure(
+        StorageError.Unavailable(TimeoutException("Another writer held ${lockFile.name} past the wait limit")),
+    )
+
+    private inline fun <T> outcome(operation: StorageOperation, key: String?, block: () -> T): StorageResult<T> =
+        try {
+            StorageResult.Success(block())
+        } catch (error: IOException) {
+            StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = error))
+        } catch (error: IllegalArgumentException) {
+            // A malformed \uXXXX escape in a hand-edited file, or a name the file system rejects.
+            StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = error))
+        } catch (error: SecurityException) {
+            StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = error))
+        }
 
     /**
      * The shape 4.x gave this store's temporary sibling (`File.createTempFile`): the file name, 1..20 digits (an
@@ -115,14 +211,22 @@ internal class JvmKeyValueStorage(
 
     private fun load(): Properties {
         val properties = Properties()
-        if (file.isFile) {
-            // Strict: a byte that is not UTF-8 is an error (a MalformedInputException, an IOException),
-            // never a replacement character that the next write would store for good.
-            val decoder = StandardCharsets.UTF_8.newDecoder()
-                .onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT)
-            InputStreamReader(FileInputStream(file), decoder).use(properties::load)
+        // Opened directly, never "isFile, then open": a delete in between (another process's clear()) is simply "no file".
+        // Files.newInputStream, not FileInputStream: NIO opens with share-delete, so on Windows an open reader cannot make
+        // another process's atomic rename fail.
+        val input: java.io.InputStream = try {
+            // A named pipe would block this open forever (a lost I/O thread, a held in-process lock): the file must be a regular one.
+            refuseUnlessRegularOrAbsent(file.toPath(), "The storage file")
+            Files.newInputStream(file.toPath())
+        } catch (_: NoSuchFileException) {
+            return properties
         }
+        // Strict: a byte that is not UTF-8 is an error (a MalformedInputException, an IOException),
+        // never a replacement character that the next write would store for good.
+        val decoder = StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+        InputStreamReader(input, decoder).use(properties::load)
         return properties
     }
 
@@ -135,7 +239,7 @@ internal class JvmKeyValueStorage(
         val result: FileResult<Unit> = files.writeAtomically(
             file.absolutePath,
             buffer.toByteArray(),
-            WriteOptions(Durability.Synced, createParentDirectories = true, tempPrefix = temporaryPrefixOf(file.name)),
+            WriteOptions(Durability.Synced, createParentDirectories = true, tempPrefix = tempPrefix, ownerOnly = true),
         )
         if (result is FileResult.Failure) {
             val error: FileError = result.error
@@ -162,7 +266,7 @@ internal class JvmKeyValueStorage(
  * full case-folding table of the Unicode version of the JDK it was written on: no group of code points that
  * fold to one string is split by it (over-folding, joining names a volume keeps apart, only costs parallelism). Folded always, never probed: a case-sensitive volume
  * only loses some parallelism between `Settings` and `settings` (two files behind one lock; the
- * guarded block never suspends and never nests another lock, so nothing can deadlock), while a
+ * guarded block never suspends, and a write nests only the cross-process file lock, always second, so nothing can deadlock), while a
  * volume that folds case would otherwise lose keys, because the canonical path of a file that does
  * not exist yet keeps the spelling it was given. Probing the volume would need file I/O in a
  * constructor. A volume with a folding table of its own could still treat two names whose capitals
@@ -205,7 +309,7 @@ internal fun temporaryPrefixOf(fileName: String): String {
         bytes += width
         end += Character.charCount(codePoint)
     }
-    val digest: ByteArray = MessageDigest.getInstance("SHA-256").digest(fileName.toByteArray(StandardCharsets.UTF_8))
+    val digest: ByteArray = Jca.sha256(fileName.toByteArray(StandardCharsets.UTF_8))
     val hash: String = digest.take(8).joinToString("") { "%02x".format(it) }
     return fileName.substring(0, end) + "~" + hash
 }

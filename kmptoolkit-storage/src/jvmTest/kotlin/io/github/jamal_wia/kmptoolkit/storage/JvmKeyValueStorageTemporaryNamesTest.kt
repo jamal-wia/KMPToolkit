@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import io.github.jamal_wia.kmptoolkit.storage.internal.desktop.CrossProcessLock
 import io.github.jamal_wia.kmptoolkit.files.FileAccessConfig
 import io.github.jamal_wia.kmptoolkit.files.FileNames
 import java.io.File
@@ -65,9 +66,10 @@ class JvmKeyValueStorageTemporaryNamesTest {
                 assertTrue(storage.put("k", "v") is StorageResult.Success, "put for a ${bytes(fileNameOf(name))}-byte file name")
                 assertEquals("v", storage.get("k").getOrNull())
                 assertEquals("v", store(name).get("k").getOrNull(), "a second instance reads the same bytes")
-                assertEquals(1, directory.listFiles()!!.size, "only the value file remains: ${directory.list()!!.toList()}")
+                assertEquals(2, directory.listFiles()!!.size, "only the value file and its lock file remain: ${directory.list()!!.toList()}")
                 assertTrue(storage.clear() is StorageResult.Success)
-                assertEquals(0, directory.listFiles()!!.size)
+                assertEquals(listOf(CrossProcessLock.lockNameOf(fileNameOf(name))), directory.list()!!.toList(), "clear keeps only the lock file")
+                directory.listFiles()!!.forEach { it.delete() }
             }
         }
     }

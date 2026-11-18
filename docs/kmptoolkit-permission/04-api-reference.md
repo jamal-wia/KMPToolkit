@@ -198,7 +198,12 @@ public interface PermissionController {
   running API level (a Bluetooth scan below API 31 is location) are one request with one answer, so
   the user is never asked the same thing twice in a call. A batch waits for an activity at most once
   (when the app is in the background after a refusal), not once per permission. Everything else is
-  requested in order, one at a time.
+  requested in order, one at a time. On iOS every status in the returned map is read after the last
+  prompt of the batch, so an entry that a later prompt changed is answered with its final status (with
+  `temporaryFullAccuracyPurposeKey` set, `request(listOf(LocationBackground, Location))` from "always"
+  with approximate location answers both `Granted` once the user accepts the accuracy prompt). With the key set, such a batch from
+  `NotDetermined` can show the accuracy prompt right after the location prompt when that one ends under an approximate grant,
+  because `Location`, listed second, is `Limited` by then; a single `request(Location)` from `NotDetermined` stops at `Limited`.
 - **Requests are serialized.** A request made while another is in flight — through the same
   controller — waits for it, so two prompts never overlap. On Android that includes a request
   cancelled while its system dialog is still up: the dialog cannot be taken back, so the next request
@@ -422,12 +427,16 @@ public fun createPermissionController(
 No context, no activity, no storage. Answers for every `CommonPermission` and `IosPermission`; any
 other type is `Unavailable`. A permission whose `Info.plist` purpose string is missing is
 `Unavailable`, a request shows nothing, and the missing key is logged once.
+Throws `IllegalStateException` naming the key when `options.temporaryFullAccuracyPurposeKey` is set
+and is not in `NSLocationTemporaryUsageDescriptionDictionary`, so the error shows up when the
+controller is created and `request` keeps its promise that nothing throws.
 
 ### `IosPermissionOptions` and `IosNotificationOption` (iOS only)
 
 ```kotlin
 public data class IosPermissionOptions(
     public val notificationOptions: Set<IosNotificationOption> = setOf(Alert, Badge, Sound),
+    public val temporaryFullAccuracyPurposeKey: String? = null,
 )
 
 public enum class IosNotificationOption { Alert, Badge, Sound, Provisional, CriticalAlert }
@@ -437,6 +446,44 @@ What a `Notifications` request asks iOS for, as `UNAuthorizationOptions`. With `
 grants quiet delivery without a prompt and the status is `Limited`; a request from `Limited` leaves
 `Provisional` out, so it shows the full prompt. `CriticalAlert` needs an entitlement from Apple. An
 empty set throws `IllegalArgumentException`.
+
+`temporaryFullAccuracyPurposeKey` is a key of the `Info.plist` entry
+`NSLocationTemporaryUsageDescriptionDictionary`. When it is set, `request(CommonPermission.Location)`
+from `Limited` (the user chose approximate location) asks iOS for temporary full accuracy under that
+key, as Android offers the precise upgrade, and returns the new status. When it is `null` (the
+default) such a request returns `Limited` at once, as in 4.x. A blank key throws
+`IllegalArgumentException`; a key absent from `Info.plist` makes `createPermissionController` throw
+`IllegalStateException` naming it. The parameter is the last one, so existing Kotlin calls compile
+unchanged, but the constructor and `copy` signatures changed: code compiled against 5.0.0 must be
+recompiled, and Swift code that calls the initializer must pass the new argument (Kotlin default
+arguments are not exported to Swift).
+
+### `requestTemporaryFullAccuracy` (iOS only)
+
+```kotlin
+public suspend fun requestTemporaryFullAccuracy(purposeKey: String): PermissionStatus
+```
+
+Asks iOS for full location accuracy until the app's session ends, under `purposeKey`, a key of
+`NSLocationTemporaryUsageDescriptionDictionary`.
+
+| Situation | Result |
+|---|---|
+| `purposeKey` is not a key of the dictionary in `Info.plist` | throws `IllegalStateException` naming the key, **in every status**: the key is validated before the status is read |
+| the `Location` status is not `Limited` (`Granted`, `NotDetermined`, `PermanentlyDenied`, `Restricted`) | that status, with no prompt |
+| `Limited`, the user accepts | `Granted` (while full accuracy lasts) |
+| `Limited`, the user declines | `Limited` |
+
+The status read is the system's own: unlike `PermissionController.check`, which reports `Unavailable`
+when `NSLocationWhenInUseUsageDescription` is missing, this function does not look at it and reads
+`NotDetermined`, because nothing can be granted without it. Suspends while the
+prompt is on screen; a caller that is cancelled meanwhile stops waiting and the library lets go of
+the request (whether iOS keeps the prompt on screen is up to the system). Not part of `PermissionController`, because only iOS has the asymmetry; shared code sets
+`IosPermissionOptions.temporaryFullAccuracyPurposeKey` and keeps calling `request`. It is **not
+serialized** with a `PermissionController`'s requests (those never overlap each other): two concurrent
+calls, or one racing `controller.request(CommonPermission.Location)`, each ask iOS, and how iOS treats
+overlapping requests is not observed. When the app has a controller, prefer
+`temporaryFullAccuracyPurposeKey` and `request`.
 
 ### `presentLimitedPhotoLibraryPicker` (iOS only)
 

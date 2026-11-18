@@ -51,6 +51,11 @@ media3 = "1.11.1"
 vlcj = "4.12.1"
 openjfx = "27.0.1"
 
+# JNA core (jna-jpms), for kmptoolkit-storage-jna only: the JDK 21 binding of the desktop secure store. It MUST equal
+# the JNA version vlcj 4.12.1 resolves (through vlcj-natives 4.12.0, which pins 5.16.0), so an app that also uses
+# kmptoolkit-video-player-vlcj gets one JNA, not two. Move it only together with vlcj.
+jna = "5.16.0"
+
 [libraries]
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 androidx-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "media3" }
@@ -59,6 +64,8 @@ androidx-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exop
 androidx-media3-test-utils = { group = "androidx.media3", name = "media3-test-utils", version.ref = "media3" }
 androidx-media3-test-utils-robolectric = { group = "androidx.media3", name = "media3-test-utils-robolectric", version.ref = "media3" }
 vlcj = { group = "uk.co.caprica", name = "vlcj", version.ref = "vlcj" }
+# Core only: jna-platform is deliberately not used (kmptoolkit-storage-jna writes its own minimal interfaces).
+jna-jpms = { group = "net.java.dev.jna", name = "jna-jpms", version.ref = "jna" }
 openjfx-base = { group = "org.openjfx", name = "javafx-base", version.ref = "openjfx" }
 openjfx-graphics = { group = "org.openjfx", name = "javafx-graphics", version.ref = "openjfx" }
 openjfx-media = { group = "org.openjfx", name = "javafx-media", version.ref = "openjfx" }

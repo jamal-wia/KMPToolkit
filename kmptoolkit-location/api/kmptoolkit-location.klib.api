@@ -6,6 +6,48 @@
 // - Show declarations: true
 
 // Library unique name: <io.github.jamal-wia:kmptoolkit-location>
+final enum class io.github.jamal_wia.kmptoolkit.location/IosActivityType : kotlin/Enum<io.github.jamal_wia.kmptoolkit.location/IosActivityType> { // io.github.jamal_wia.kmptoolkit.location/IosActivityType|null[0]
+    enum entry AIRBORNE // io.github.jamal_wia.kmptoolkit.location/IosActivityType.AIRBORNE|null[0]
+    enum entry AUTOMOTIVE_NAVIGATION // io.github.jamal_wia.kmptoolkit.location/IosActivityType.AUTOMOTIVE_NAVIGATION|null[0]
+    enum entry FITNESS // io.github.jamal_wia.kmptoolkit.location/IosActivityType.FITNESS|null[0]
+    enum entry OTHER // io.github.jamal_wia.kmptoolkit.location/IosActivityType.OTHER|null[0]
+    enum entry OTHER_NAVIGATION // io.github.jamal_wia.kmptoolkit.location/IosActivityType.OTHER_NAVIGATION|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.location/IosActivityType.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.location/IosActivityType> // io.github.jamal_wia.kmptoolkit.location/IosActivityType.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.location/IosActivityType // io.github.jamal_wia.kmptoolkit.location/IosActivityType.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.location/IosActivityType> // io.github.jamal_wia.kmptoolkit.location/IosActivityType.values|values#static(){}[0]
+}
+
+final enum class io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy : kotlin/Enum<io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy> { // io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy|null[0]
+    enum entry BEST // io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy.BEST|null[0]
+    enum entry BEST_FOR_NAVIGATION // io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy.BEST_FOR_NAVIGATION|null[0]
+    enum entry HUNDRED_METERS // io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy.HUNDRED_METERS|null[0]
+    enum entry KILOMETER // io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy.KILOMETER|null[0]
+    enum entry NEAREST_TEN_METERS // io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy.NEAREST_TEN_METERS|null[0]
+    enum entry REDUCED // io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy.REDUCED|null[0]
+    enum entry THREE_KILOMETERS // io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy.THREE_KILOMETERS|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy> // io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy // io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy> // io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy.values|values#static(){}[0]
+}
+
+final enum class io.github.jamal_wia.kmptoolkit.location/LocationAccuracy : kotlin/Enum<io.github.jamal_wia.kmptoolkit.location/LocationAccuracy> { // io.github.jamal_wia.kmptoolkit.location/LocationAccuracy|null[0]
+    enum entry BALANCED // io.github.jamal_wia.kmptoolkit.location/LocationAccuracy.BALANCED|null[0]
+    enum entry HIGH_ACCURACY // io.github.jamal_wia.kmptoolkit.location/LocationAccuracy.HIGH_ACCURACY|null[0]
+    enum entry LOW_POWER // io.github.jamal_wia.kmptoolkit.location/LocationAccuracy.LOW_POWER|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.location/LocationAccuracy.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.location/LocationAccuracy> // io.github.jamal_wia.kmptoolkit.location/LocationAccuracy.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.location/LocationAccuracy // io.github.jamal_wia.kmptoolkit.location/LocationAccuracy.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.location/LocationAccuracy> // io.github.jamal_wia.kmptoolkit.location/LocationAccuracy.values|values#static(){}[0]
+}
+
 final enum class io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt : kotlin/Enum<io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt> { // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt|null[0]
     enum entry ALREADY_ON // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt.ALREADY_ON|null[0]
     enum entry NOT_NOW // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt.NOT_NOW|null[0]
@@ -19,12 +61,133 @@ final enum class io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt :
     final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt> // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt.values|values#static(){}[0]
 }
 
+final enum class io.github.jamal_wia.kmptoolkit.location/LocationUnavailability : kotlin/Enum<io.github.jamal_wia.kmptoolkit.location/LocationUnavailability> { // io.github.jamal_wia.kmptoolkit.location/LocationUnavailability|null[0]
+    enum entry NO_FIX // io.github.jamal_wia.kmptoolkit.location/LocationUnavailability.NO_FIX|null[0]
+    enum entry PERMISSION_MISSING // io.github.jamal_wia.kmptoolkit.location/LocationUnavailability.PERMISSION_MISSING|null[0]
+    enum entry SERVICE_DISABLED // io.github.jamal_wia.kmptoolkit.location/LocationUnavailability.SERVICE_DISABLED|null[0]
+    enum entry UNSUPPORTED // io.github.jamal_wia.kmptoolkit.location/LocationUnavailability.UNSUPPORTED|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.location/LocationUnavailability.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.location/LocationUnavailability> // io.github.jamal_wia.kmptoolkit.location/LocationUnavailability.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.location/LocationUnavailability // io.github.jamal_wia.kmptoolkit.location/LocationUnavailability.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.location/LocationUnavailability> // io.github.jamal_wia.kmptoolkit.location/LocationUnavailability.values|values#static(){}[0]
+}
+
+final enum class io.github.jamal_wia.kmptoolkit.location/ScreenRotation : kotlin/Enum<io.github.jamal_wia.kmptoolkit.location/ScreenRotation> { // io.github.jamal_wia.kmptoolkit.location/ScreenRotation|null[0]
+    enum entry NATURAL // io.github.jamal_wia.kmptoolkit.location/ScreenRotation.NATURAL|null[0]
+    enum entry ROTATION_180 // io.github.jamal_wia.kmptoolkit.location/ScreenRotation.ROTATION_180|null[0]
+    enum entry ROTATION_270 // io.github.jamal_wia.kmptoolkit.location/ScreenRotation.ROTATION_270|null[0]
+    enum entry ROTATION_90 // io.github.jamal_wia.kmptoolkit.location/ScreenRotation.ROTATION_90|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.location/ScreenRotation.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.location/ScreenRotation> // io.github.jamal_wia.kmptoolkit.location/ScreenRotation.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.location/ScreenRotation // io.github.jamal_wia.kmptoolkit.location/ScreenRotation.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.location/ScreenRotation> // io.github.jamal_wia.kmptoolkit.location/ScreenRotation.values|values#static(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.location/HeadingProvider { // io.github.jamal_wia.kmptoolkit.location/HeadingProvider|null[0]
+    abstract val isAvailable // io.github.jamal_wia.kmptoolkit.location/HeadingProvider.isAvailable|{}isAvailable[0]
+        abstract fun <get-isAvailable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/HeadingProvider.isAvailable.<get-isAvailable>|<get-isAvailable>(){}[0]
+
+    abstract fun observeHeading(kotlin/Double = ..., io.github.jamal_wia.kmptoolkit.location/GeoCoordinates? = ..., io.github.jamal_wia.kmptoolkit.location/ScreenRotation = ...): kotlinx.coroutines.flow/Flow<io.github.jamal_wia.kmptoolkit.location/Heading> // io.github.jamal_wia.kmptoolkit.location/HeadingProvider.observeHeading|observeHeading(kotlin.Double;io.github.jamal_wia.kmptoolkit.location.GeoCoordinates?;io.github.jamal_wia.kmptoolkit.location.ScreenRotation){}[0]
+}
+
 abstract interface io.github.jamal_wia.kmptoolkit.location/LocationProvider { // io.github.jamal_wia.kmptoolkit.location/LocationProvider|null[0]
-    abstract fun observeLocation(): kotlinx.coroutines.flow/Flow<io.github.jamal_wia.kmptoolkit.location/GeoCoordinates?> // io.github.jamal_wia.kmptoolkit.location/LocationProvider.observeLocation|observeLocation(){}[0]
+    abstract fun observeLocation(io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions = ...): kotlinx.coroutines.flow/Flow<io.github.jamal_wia.kmptoolkit.location/LocationReading> // io.github.jamal_wia.kmptoolkit.location/LocationProvider.observeLocation|observeLocation(io.github.jamal_wia.kmptoolkit.location.LocationUpdatesOptions){}[0]
+    abstract fun observeLocationEnabled(): kotlinx.coroutines.flow/Flow<kotlin/Boolean> // io.github.jamal_wia.kmptoolkit.location/LocationProvider.observeLocationEnabled|observeLocationEnabled(){}[0]
     abstract fun openLocationSettings() // io.github.jamal_wia.kmptoolkit.location/LocationProvider.openLocationSettings|openLocationSettings(){}[0]
-    abstract suspend fun getCurrentLocation(): io.github.jamal_wia.kmptoolkit.location/GeoCoordinates? // io.github.jamal_wia.kmptoolkit.location/LocationProvider.getCurrentLocation|getCurrentLocation(){}[0]
+    abstract suspend fun getCurrentLocation(io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions = ...): io.github.jamal_wia.kmptoolkit.location/LocationReading // io.github.jamal_wia.kmptoolkit.location/LocationProvider.getCurrentLocation|getCurrentLocation(io.github.jamal_wia.kmptoolkit.location.CurrentLocationOptions){}[0]
     abstract suspend fun isLocationEnabled(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/LocationProvider.isLocationEnabled|isLocationEnabled(){}[0]
     open suspend fun promptToEnableService(): io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt // io.github.jamal_wia.kmptoolkit.location/LocationProvider.promptToEnableService|promptToEnableService(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.location/PlatformCurrentLocationOptions // io.github.jamal_wia.kmptoolkit.location/PlatformCurrentLocationOptions|null[0]
+
+abstract interface io.github.jamal_wia.kmptoolkit.location/PlatformFixDetails // io.github.jamal_wia.kmptoolkit.location/PlatformFixDetails|null[0]
+
+abstract interface io.github.jamal_wia.kmptoolkit.location/PlatformLocationUpdatesOptions // io.github.jamal_wia.kmptoolkit.location/PlatformLocationUpdatesOptions|null[0]
+
+sealed interface io.github.jamal_wia.kmptoolkit.location/LocationReading { // io.github.jamal_wia.kmptoolkit.location/LocationReading|null[0]
+    final class Available : io.github.jamal_wia.kmptoolkit.location/LocationReading { // io.github.jamal_wia.kmptoolkit.location/LocationReading.Available|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.location/LocationFix) // io.github.jamal_wia.kmptoolkit.location/LocationReading.Available.<init>|<init>(io.github.jamal_wia.kmptoolkit.location.LocationFix){}[0]
+
+        final val fix // io.github.jamal_wia.kmptoolkit.location/LocationReading.Available.fix|{}fix[0]
+            final fun <get-fix>(): io.github.jamal_wia.kmptoolkit.location/LocationFix // io.github.jamal_wia.kmptoolkit.location/LocationReading.Available.fix.<get-fix>|<get-fix>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.location/LocationFix // io.github.jamal_wia.kmptoolkit.location/LocationReading.Available.component1|component1(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.location/LocationFix = ...): io.github.jamal_wia.kmptoolkit.location/LocationReading.Available // io.github.jamal_wia.kmptoolkit.location/LocationReading.Available.copy|copy(io.github.jamal_wia.kmptoolkit.location.LocationFix){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/LocationReading.Available.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/LocationReading.Available.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/LocationReading.Available.toString|toString(){}[0]
+    }
+
+    final class Unavailable : io.github.jamal_wia.kmptoolkit.location/LocationReading { // io.github.jamal_wia.kmptoolkit.location/LocationReading.Unavailable|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.location/LocationUnavailability) // io.github.jamal_wia.kmptoolkit.location/LocationReading.Unavailable.<init>|<init>(io.github.jamal_wia.kmptoolkit.location.LocationUnavailability){}[0]
+
+        final val reason // io.github.jamal_wia.kmptoolkit.location/LocationReading.Unavailable.reason|{}reason[0]
+            final fun <get-reason>(): io.github.jamal_wia.kmptoolkit.location/LocationUnavailability // io.github.jamal_wia.kmptoolkit.location/LocationReading.Unavailable.reason.<get-reason>|<get-reason>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.location/LocationUnavailability // io.github.jamal_wia.kmptoolkit.location/LocationReading.Unavailable.component1|component1(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.location/LocationUnavailability = ...): io.github.jamal_wia.kmptoolkit.location/LocationReading.Unavailable // io.github.jamal_wia.kmptoolkit.location/LocationReading.Unavailable.copy|copy(io.github.jamal_wia.kmptoolkit.location.LocationUnavailability){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/LocationReading.Unavailable.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/LocationReading.Unavailable.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/LocationReading.Unavailable.toString|toString(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions { // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.location/LocationAccuracy = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., io.github.jamal_wia.kmptoolkit.location/PlatformCurrentLocationOptions? = ...) // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.<init>|<init>(io.github.jamal_wia.kmptoolkit.location.LocationAccuracy;kotlin.time.Duration;kotlin.time.Duration;io.github.jamal_wia.kmptoolkit.location.PlatformCurrentLocationOptions?){}[0]
+
+    final val accuracy // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.accuracy|{}accuracy[0]
+        final fun <get-accuracy>(): io.github.jamal_wia.kmptoolkit.location/LocationAccuracy // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.accuracy.<get-accuracy>|<get-accuracy>(){}[0]
+    final val maxAge // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.maxAge|{}maxAge[0]
+        final fun <get-maxAge>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.maxAge.<get-maxAge>|<get-maxAge>(){}[0]
+    final val platform // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.platform|{}platform[0]
+        final fun <get-platform>(): io.github.jamal_wia.kmptoolkit.location/PlatformCurrentLocationOptions? // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.platform.<get-platform>|<get-platform>(){}[0]
+    final val timeout // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.timeout|{}timeout[0]
+        final fun <get-timeout>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.timeout.<get-timeout>|<get-timeout>(){}[0]
+
+    final fun component1(): io.github.jamal_wia.kmptoolkit.location/LocationAccuracy // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.component1|component1(){}[0]
+    final fun component2(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.component2|component2(){}[0]
+    final fun component3(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.component3|component3(){}[0]
+    final fun component4(): io.github.jamal_wia.kmptoolkit.location/PlatformCurrentLocationOptions? // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.component4|component4(){}[0]
+    final fun copy(io.github.jamal_wia.kmptoolkit.location/LocationAccuracy = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., io.github.jamal_wia.kmptoolkit.location/PlatformCurrentLocationOptions? = ...): io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.copy|copy(io.github.jamal_wia.kmptoolkit.location.LocationAccuracy;kotlin.time.Duration;kotlin.time.Duration;io.github.jamal_wia.kmptoolkit.location.PlatformCurrentLocationOptions?){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/CurrentLocationOptions.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.location/GeoBounds { // io.github.jamal_wia.kmptoolkit.location/GeoBounds|null[0]
+    constructor <init>(kotlin/Double, kotlin/Double, kotlin/Double, kotlin/Double) // io.github.jamal_wia.kmptoolkit.location/GeoBounds.<init>|<init>(kotlin.Double;kotlin.Double;kotlin.Double;kotlin.Double){}[0]
+
+    final val crossesAntimeridian // io.github.jamal_wia.kmptoolkit.location/GeoBounds.crossesAntimeridian|{}crossesAntimeridian[0]
+        final fun <get-crossesAntimeridian>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/GeoBounds.crossesAntimeridian.<get-crossesAntimeridian>|<get-crossesAntimeridian>(){}[0]
+    final val east // io.github.jamal_wia.kmptoolkit.location/GeoBounds.east|{}east[0]
+        final fun <get-east>(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/GeoBounds.east.<get-east>|<get-east>(){}[0]
+    final val longitudeRanges // io.github.jamal_wia.kmptoolkit.location/GeoBounds.longitudeRanges|{}longitudeRanges[0]
+        final fun <get-longitudeRanges>(): kotlin.collections/List<kotlin.ranges/ClosedFloatingPointRange<kotlin/Double>> // io.github.jamal_wia.kmptoolkit.location/GeoBounds.longitudeRanges.<get-longitudeRanges>|<get-longitudeRanges>(){}[0]
+    final val north // io.github.jamal_wia.kmptoolkit.location/GeoBounds.north|{}north[0]
+        final fun <get-north>(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/GeoBounds.north.<get-north>|<get-north>(){}[0]
+    final val south // io.github.jamal_wia.kmptoolkit.location/GeoBounds.south|{}south[0]
+        final fun <get-south>(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/GeoBounds.south.<get-south>|<get-south>(){}[0]
+    final val west // io.github.jamal_wia.kmptoolkit.location/GeoBounds.west|{}west[0]
+        final fun <get-west>(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/GeoBounds.west.<get-west>|<get-west>(){}[0]
+
+    final fun component1(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/GeoBounds.component1|component1(){}[0]
+    final fun component2(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/GeoBounds.component2|component2(){}[0]
+    final fun component3(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/GeoBounds.component3|component3(){}[0]
+    final fun component4(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/GeoBounds.component4|component4(){}[0]
+    final fun contains(io.github.jamal_wia.kmptoolkit.location/GeoCoordinates): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/GeoBounds.contains|contains(io.github.jamal_wia.kmptoolkit.location.GeoCoordinates){}[0]
+    final fun copy(kotlin/Double = ..., kotlin/Double = ..., kotlin/Double = ..., kotlin/Double = ...): io.github.jamal_wia.kmptoolkit.location/GeoBounds // io.github.jamal_wia.kmptoolkit.location/GeoBounds.copy|copy(kotlin.Double;kotlin.Double;kotlin.Double;kotlin.Double){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/GeoBounds.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/GeoBounds.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/GeoBounds.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.location/GeoBounds.Companion|null[0]
+        final fun orNull(kotlin/Double, kotlin/Double, kotlin/Double, kotlin/Double): io.github.jamal_wia.kmptoolkit.location/GeoBounds? // io.github.jamal_wia.kmptoolkit.location/GeoBounds.Companion.orNull|orNull(kotlin.Double;kotlin.Double;kotlin.Double;kotlin.Double){}[0]
+    }
 }
 
 final class io.github.jamal_wia.kmptoolkit.location/GeoCoordinates { // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates|null[0]
@@ -41,35 +204,172 @@ final class io.github.jamal_wia.kmptoolkit.location/GeoCoordinates { // io.githu
     final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.hashCode|hashCode(){}[0]
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.toString|toString(){}[0]
-}
 
-final class io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig { // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig|null[0]
-    constructor <init>(kotlin/Float = ..., kotlin/Long = ..., kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.<init>|<init>(kotlin.Float;kotlin.Long;kotlin.Long){}[0]
-
-    final val minUpdateDistanceMeters // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.minUpdateDistanceMeters|{}minUpdateDistanceMeters[0]
-        final fun <get-minUpdateDistanceMeters>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.minUpdateDistanceMeters.<get-minUpdateDistanceMeters>|<get-minUpdateDistanceMeters>(){}[0]
-    final val minUpdateIntervalMillis // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.minUpdateIntervalMillis|{}minUpdateIntervalMillis[0]
-        final fun <get-minUpdateIntervalMillis>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.minUpdateIntervalMillis.<get-minUpdateIntervalMillis>|<get-minUpdateIntervalMillis>(){}[0]
-    final val singleFixTimeoutMillis // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.singleFixTimeoutMillis|{}singleFixTimeoutMillis[0]
-        final fun <get-singleFixTimeoutMillis>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.singleFixTimeoutMillis.<get-singleFixTimeoutMillis>|<get-singleFixTimeoutMillis>(){}[0]
-
-    final fun component1(): kotlin/Float // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.component1|component1(){}[0]
-    final fun component2(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.component2|component2(){}[0]
-    final fun component3(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.component3|component3(){}[0]
-    final fun copy(kotlin/Float = ..., kotlin/Long = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.copy|copy(kotlin.Float;kotlin.Long;kotlin.Long){}[0]
-    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.equals|equals(kotlin.Any?){}[0]
-    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.hashCode|hashCode(){}[0]
-    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.toString|toString(){}[0]
-
-    final object Companion { // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion|null[0]
-        final const val DEFAULT_MIN_UPDATE_DISTANCE_METERS // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion.DEFAULT_MIN_UPDATE_DISTANCE_METERS|{}DEFAULT_MIN_UPDATE_DISTANCE_METERS[0]
-            final fun <get-DEFAULT_MIN_UPDATE_DISTANCE_METERS>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion.DEFAULT_MIN_UPDATE_DISTANCE_METERS.<get-DEFAULT_MIN_UPDATE_DISTANCE_METERS>|<get-DEFAULT_MIN_UPDATE_DISTANCE_METERS>(){}[0]
-        final const val DEFAULT_MIN_UPDATE_INTERVAL_MILLIS // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion.DEFAULT_MIN_UPDATE_INTERVAL_MILLIS|{}DEFAULT_MIN_UPDATE_INTERVAL_MILLIS[0]
-            final fun <get-DEFAULT_MIN_UPDATE_INTERVAL_MILLIS>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion.DEFAULT_MIN_UPDATE_INTERVAL_MILLIS.<get-DEFAULT_MIN_UPDATE_INTERVAL_MILLIS>|<get-DEFAULT_MIN_UPDATE_INTERVAL_MILLIS>(){}[0]
-        final const val DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion.DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS|{}DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS[0]
-            final fun <get-DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion.DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS.<get-DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS>|<get-DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS>(){}[0]
+    final object Companion { // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.Companion|null[0]
+        final fun orNull(kotlin/Double, kotlin/Double): io.github.jamal_wia.kmptoolkit.location/GeoCoordinates? // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.Companion.orNull|orNull(kotlin.Double;kotlin.Double){}[0]
     }
 }
 
+final class io.github.jamal_wia.kmptoolkit.location/Heading { // io.github.jamal_wia.kmptoolkit.location/Heading|null[0]
+    constructor <init>(kotlin/Double, kotlin/Double?, kotlin/Double?, kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.location/Heading.<init>|<init>(kotlin.Double;kotlin.Double?;kotlin.Double?;kotlin.Boolean){}[0]
+
+    final val accuracyDegrees // io.github.jamal_wia.kmptoolkit.location/Heading.accuracyDegrees|{}accuracyDegrees[0]
+        final fun <get-accuracyDegrees>(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/Heading.accuracyDegrees.<get-accuracyDegrees>|<get-accuracyDegrees>(){}[0]
+    final val magneticDegrees // io.github.jamal_wia.kmptoolkit.location/Heading.magneticDegrees|{}magneticDegrees[0]
+        final fun <get-magneticDegrees>(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/Heading.magneticDegrees.<get-magneticDegrees>|<get-magneticDegrees>(){}[0]
+    final val needsCalibration // io.github.jamal_wia.kmptoolkit.location/Heading.needsCalibration|{}needsCalibration[0]
+        final fun <get-needsCalibration>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/Heading.needsCalibration.<get-needsCalibration>|<get-needsCalibration>(){}[0]
+    final val trueDegrees // io.github.jamal_wia.kmptoolkit.location/Heading.trueDegrees|{}trueDegrees[0]
+        final fun <get-trueDegrees>(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/Heading.trueDegrees.<get-trueDegrees>|<get-trueDegrees>(){}[0]
+
+    final fun component1(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/Heading.component1|component1(){}[0]
+    final fun component2(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/Heading.component2|component2(){}[0]
+    final fun component3(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/Heading.component3|component3(){}[0]
+    final fun component4(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/Heading.component4|component4(){}[0]
+    final fun copy(kotlin/Double = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Boolean = ...): io.github.jamal_wia.kmptoolkit.location/Heading // io.github.jamal_wia.kmptoolkit.location/Heading.copy|copy(kotlin.Double;kotlin.Double?;kotlin.Double?;kotlin.Boolean){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/Heading.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/Heading.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/Heading.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.location/IosCurrentLocationOptions : io.github.jamal_wia.kmptoolkit.location/PlatformCurrentLocationOptions { // io.github.jamal_wia.kmptoolkit.location/IosCurrentLocationOptions|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy? = ...) // io.github.jamal_wia.kmptoolkit.location/IosCurrentLocationOptions.<init>|<init>(io.github.jamal_wia.kmptoolkit.location.IosDesiredAccuracy?){}[0]
+
+    final val desiredAccuracyOverride // io.github.jamal_wia.kmptoolkit.location/IosCurrentLocationOptions.desiredAccuracyOverride|{}desiredAccuracyOverride[0]
+        final fun <get-desiredAccuracyOverride>(): io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy? // io.github.jamal_wia.kmptoolkit.location/IosCurrentLocationOptions.desiredAccuracyOverride.<get-desiredAccuracyOverride>|<get-desiredAccuracyOverride>(){}[0]
+
+    final fun component1(): io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy? // io.github.jamal_wia.kmptoolkit.location/IosCurrentLocationOptions.component1|component1(){}[0]
+    final fun copy(io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy? = ...): io.github.jamal_wia.kmptoolkit.location/IosCurrentLocationOptions // io.github.jamal_wia.kmptoolkit.location/IosCurrentLocationOptions.copy|copy(io.github.jamal_wia.kmptoolkit.location.IosDesiredAccuracy?){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/IosCurrentLocationOptions.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/IosCurrentLocationOptions.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/IosCurrentLocationOptions.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.location/IosFixDetails : io.github.jamal_wia.kmptoolkit.location/PlatformFixDetails { // io.github.jamal_wia.kmptoolkit.location/IosFixDetails|null[0]
+    constructor <init>(kotlin/Int?, kotlin/Boolean?) // io.github.jamal_wia.kmptoolkit.location/IosFixDetails.<init>|<init>(kotlin.Int?;kotlin.Boolean?){}[0]
+
+    final val floorLevel // io.github.jamal_wia.kmptoolkit.location/IosFixDetails.floorLevel|{}floorLevel[0]
+        final fun <get-floorLevel>(): kotlin/Int? // io.github.jamal_wia.kmptoolkit.location/IosFixDetails.floorLevel.<get-floorLevel>|<get-floorLevel>(){}[0]
+    final val isProducedByAccessory // io.github.jamal_wia.kmptoolkit.location/IosFixDetails.isProducedByAccessory|{}isProducedByAccessory[0]
+        final fun <get-isProducedByAccessory>(): kotlin/Boolean? // io.github.jamal_wia.kmptoolkit.location/IosFixDetails.isProducedByAccessory.<get-isProducedByAccessory>|<get-isProducedByAccessory>(){}[0]
+
+    final fun component1(): kotlin/Int? // io.github.jamal_wia.kmptoolkit.location/IosFixDetails.component1|component1(){}[0]
+    final fun component2(): kotlin/Boolean? // io.github.jamal_wia.kmptoolkit.location/IosFixDetails.component2|component2(){}[0]
+    final fun copy(kotlin/Int? = ..., kotlin/Boolean? = ...): io.github.jamal_wia.kmptoolkit.location/IosFixDetails // io.github.jamal_wia.kmptoolkit.location/IosFixDetails.copy|copy(kotlin.Int?;kotlin.Boolean?){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/IosFixDetails.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/IosFixDetails.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/IosFixDetails.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions : io.github.jamal_wia.kmptoolkit.location/PlatformLocationUpdatesOptions { // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions|null[0]
+    constructor <init>(kotlin/Boolean = ..., kotlin/Boolean = ..., kotlin/Boolean = ..., io.github.jamal_wia.kmptoolkit.location/IosActivityType = ..., io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy? = ...) // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.<init>|<init>(kotlin.Boolean;kotlin.Boolean;kotlin.Boolean;io.github.jamal_wia.kmptoolkit.location.IosActivityType;io.github.jamal_wia.kmptoolkit.location.IosDesiredAccuracy?){}[0]
+
+    final val activityType // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.activityType|{}activityType[0]
+        final fun <get-activityType>(): io.github.jamal_wia.kmptoolkit.location/IosActivityType // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.activityType.<get-activityType>|<get-activityType>(){}[0]
+    final val allowsBackgroundLocationUpdates // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.allowsBackgroundLocationUpdates|{}allowsBackgroundLocationUpdates[0]
+        final fun <get-allowsBackgroundLocationUpdates>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.allowsBackgroundLocationUpdates.<get-allowsBackgroundLocationUpdates>|<get-allowsBackgroundLocationUpdates>(){}[0]
+    final val desiredAccuracyOverride // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.desiredAccuracyOverride|{}desiredAccuracyOverride[0]
+        final fun <get-desiredAccuracyOverride>(): io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy? // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.desiredAccuracyOverride.<get-desiredAccuracyOverride>|<get-desiredAccuracyOverride>(){}[0]
+    final val pausesLocationUpdatesAutomatically // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.pausesLocationUpdatesAutomatically|{}pausesLocationUpdatesAutomatically[0]
+        final fun <get-pausesLocationUpdatesAutomatically>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.pausesLocationUpdatesAutomatically.<get-pausesLocationUpdatesAutomatically>|<get-pausesLocationUpdatesAutomatically>(){}[0]
+    final val showsBackgroundLocationIndicator // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.showsBackgroundLocationIndicator|{}showsBackgroundLocationIndicator[0]
+        final fun <get-showsBackgroundLocationIndicator>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.showsBackgroundLocationIndicator.<get-showsBackgroundLocationIndicator>|<get-showsBackgroundLocationIndicator>(){}[0]
+
+    final fun component1(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.component1|component1(){}[0]
+    final fun component2(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.component2|component2(){}[0]
+    final fun component3(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.component3|component3(){}[0]
+    final fun component4(): io.github.jamal_wia.kmptoolkit.location/IosActivityType // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.component4|component4(){}[0]
+    final fun component5(): io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy? // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.component5|component5(){}[0]
+    final fun copy(kotlin/Boolean = ..., kotlin/Boolean = ..., kotlin/Boolean = ..., io.github.jamal_wia.kmptoolkit.location/IosActivityType = ..., io.github.jamal_wia.kmptoolkit.location/IosDesiredAccuracy? = ...): io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.copy|copy(kotlin.Boolean;kotlin.Boolean;kotlin.Boolean;io.github.jamal_wia.kmptoolkit.location.IosActivityType;io.github.jamal_wia.kmptoolkit.location.IosDesiredAccuracy?){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/IosLocationUpdatesOptions.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.location/LocationFix { // io.github.jamal_wia.kmptoolkit.location/LocationFix|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.location/GeoCoordinates, kotlin/Long, kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Boolean? = ..., kotlin/Boolean? = ..., io.github.jamal_wia.kmptoolkit.location/PlatformFixDetails? = ...) // io.github.jamal_wia.kmptoolkit.location/LocationFix.<init>|<init>(io.github.jamal_wia.kmptoolkit.location.GeoCoordinates;kotlin.Long;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Boolean?;kotlin.Boolean?;io.github.jamal_wia.kmptoolkit.location.PlatformFixDetails?){}[0]
+
+    final val coordinates // io.github.jamal_wia.kmptoolkit.location/LocationFix.coordinates|{}coordinates[0]
+        final fun <get-coordinates>(): io.github.jamal_wia.kmptoolkit.location/GeoCoordinates // io.github.jamal_wia.kmptoolkit.location/LocationFix.coordinates.<get-coordinates>|<get-coordinates>(){}[0]
+    final val courseAccuracyDegrees // io.github.jamal_wia.kmptoolkit.location/LocationFix.courseAccuracyDegrees|{}courseAccuracyDegrees[0]
+        final fun <get-courseAccuracyDegrees>(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.courseAccuracyDegrees.<get-courseAccuracyDegrees>|<get-courseAccuracyDegrees>(){}[0]
+    final val courseDegrees // io.github.jamal_wia.kmptoolkit.location/LocationFix.courseDegrees|{}courseDegrees[0]
+        final fun <get-courseDegrees>(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.courseDegrees.<get-courseDegrees>|<get-courseDegrees>(){}[0]
+    final val ellipsoidalAltitudeMeters // io.github.jamal_wia.kmptoolkit.location/LocationFix.ellipsoidalAltitudeMeters|{}ellipsoidalAltitudeMeters[0]
+        final fun <get-ellipsoidalAltitudeMeters>(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.ellipsoidalAltitudeMeters.<get-ellipsoidalAltitudeMeters>|<get-ellipsoidalAltitudeMeters>(){}[0]
+    final val horizontalAccuracyMeters // io.github.jamal_wia.kmptoolkit.location/LocationFix.horizontalAccuracyMeters|{}horizontalAccuracyMeters[0]
+        final fun <get-horizontalAccuracyMeters>(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.horizontalAccuracyMeters.<get-horizontalAccuracyMeters>|<get-horizontalAccuracyMeters>(){}[0]
+    final val isApproximate // io.github.jamal_wia.kmptoolkit.location/LocationFix.isApproximate|{}isApproximate[0]
+        final fun <get-isApproximate>(): kotlin/Boolean? // io.github.jamal_wia.kmptoolkit.location/LocationFix.isApproximate.<get-isApproximate>|<get-isApproximate>(){}[0]
+    final val isSimulated // io.github.jamal_wia.kmptoolkit.location/LocationFix.isSimulated|{}isSimulated[0]
+        final fun <get-isSimulated>(): kotlin/Boolean? // io.github.jamal_wia.kmptoolkit.location/LocationFix.isSimulated.<get-isSimulated>|<get-isSimulated>(){}[0]
+    final val mslAltitudeMeters // io.github.jamal_wia.kmptoolkit.location/LocationFix.mslAltitudeMeters|{}mslAltitudeMeters[0]
+        final fun <get-mslAltitudeMeters>(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.mslAltitudeMeters.<get-mslAltitudeMeters>|<get-mslAltitudeMeters>(){}[0]
+    final val platformDetails // io.github.jamal_wia.kmptoolkit.location/LocationFix.platformDetails|{}platformDetails[0]
+        final fun <get-platformDetails>(): io.github.jamal_wia.kmptoolkit.location/PlatformFixDetails? // io.github.jamal_wia.kmptoolkit.location/LocationFix.platformDetails.<get-platformDetails>|<get-platformDetails>(){}[0]
+    final val speedAccuracyMetersPerSecond // io.github.jamal_wia.kmptoolkit.location/LocationFix.speedAccuracyMetersPerSecond|{}speedAccuracyMetersPerSecond[0]
+        final fun <get-speedAccuracyMetersPerSecond>(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.speedAccuracyMetersPerSecond.<get-speedAccuracyMetersPerSecond>|<get-speedAccuracyMetersPerSecond>(){}[0]
+    final val speedMetersPerSecond // io.github.jamal_wia.kmptoolkit.location/LocationFix.speedMetersPerSecond|{}speedMetersPerSecond[0]
+        final fun <get-speedMetersPerSecond>(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.speedMetersPerSecond.<get-speedMetersPerSecond>|<get-speedMetersPerSecond>(){}[0]
+    final val timestampEpochMillis // io.github.jamal_wia.kmptoolkit.location/LocationFix.timestampEpochMillis|{}timestampEpochMillis[0]
+        final fun <get-timestampEpochMillis>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationFix.timestampEpochMillis.<get-timestampEpochMillis>|<get-timestampEpochMillis>(){}[0]
+    final val verticalAccuracyMeters // io.github.jamal_wia.kmptoolkit.location/LocationFix.verticalAccuracyMeters|{}verticalAccuracyMeters[0]
+        final fun <get-verticalAccuracyMeters>(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.verticalAccuracyMeters.<get-verticalAccuracyMeters>|<get-verticalAccuracyMeters>(){}[0]
+
+    final fun component1(): io.github.jamal_wia.kmptoolkit.location/GeoCoordinates // io.github.jamal_wia.kmptoolkit.location/LocationFix.component1|component1(){}[0]
+    final fun component10(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.component10|component10(){}[0]
+    final fun component11(): kotlin/Boolean? // io.github.jamal_wia.kmptoolkit.location/LocationFix.component11|component11(){}[0]
+    final fun component12(): kotlin/Boolean? // io.github.jamal_wia.kmptoolkit.location/LocationFix.component12|component12(){}[0]
+    final fun component13(): io.github.jamal_wia.kmptoolkit.location/PlatformFixDetails? // io.github.jamal_wia.kmptoolkit.location/LocationFix.component13|component13(){}[0]
+    final fun component2(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationFix.component2|component2(){}[0]
+    final fun component3(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.component3|component3(){}[0]
+    final fun component4(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.component4|component4(){}[0]
+    final fun component5(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.component5|component5(){}[0]
+    final fun component6(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.component6|component6(){}[0]
+    final fun component7(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.component7|component7(){}[0]
+    final fun component8(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.component8|component8(){}[0]
+    final fun component9(): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/LocationFix.component9|component9(){}[0]
+    final fun copy(io.github.jamal_wia.kmptoolkit.location/GeoCoordinates = ..., kotlin/Long = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Double? = ..., kotlin/Boolean? = ..., kotlin/Boolean? = ..., io.github.jamal_wia.kmptoolkit.location/PlatformFixDetails? = ...): io.github.jamal_wia.kmptoolkit.location/LocationFix // io.github.jamal_wia.kmptoolkit.location/LocationFix.copy|copy(io.github.jamal_wia.kmptoolkit.location.GeoCoordinates;kotlin.Long;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Double?;kotlin.Boolean?;kotlin.Boolean?;io.github.jamal_wia.kmptoolkit.location.PlatformFixDetails?){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/LocationFix.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/LocationFix.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/LocationFix.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions { // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.location/LocationAccuracy = ..., kotlin/Double = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., io.github.jamal_wia.kmptoolkit.location/PlatformLocationUpdatesOptions? = ...) // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.<init>|<init>(io.github.jamal_wia.kmptoolkit.location.LocationAccuracy;kotlin.Double;kotlin.time.Duration;kotlin.time.Duration;io.github.jamal_wia.kmptoolkit.location.PlatformLocationUpdatesOptions?){}[0]
+
+    final val accuracy // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.accuracy|{}accuracy[0]
+        final fun <get-accuracy>(): io.github.jamal_wia.kmptoolkit.location/LocationAccuracy // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.accuracy.<get-accuracy>|<get-accuracy>(){}[0]
+    final val maxSeedAge // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.maxSeedAge|{}maxSeedAge[0]
+        final fun <get-maxSeedAge>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.maxSeedAge.<get-maxSeedAge>|<get-maxSeedAge>(){}[0]
+    final val minUpdateDistanceMeters // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.minUpdateDistanceMeters|{}minUpdateDistanceMeters[0]
+        final fun <get-minUpdateDistanceMeters>(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.minUpdateDistanceMeters.<get-minUpdateDistanceMeters>|<get-minUpdateDistanceMeters>(){}[0]
+    final val minUpdateInterval // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.minUpdateInterval|{}minUpdateInterval[0]
+        final fun <get-minUpdateInterval>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.minUpdateInterval.<get-minUpdateInterval>|<get-minUpdateInterval>(){}[0]
+    final val platform // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.platform|{}platform[0]
+        final fun <get-platform>(): io.github.jamal_wia.kmptoolkit.location/PlatformLocationUpdatesOptions? // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.platform.<get-platform>|<get-platform>(){}[0]
+
+    final fun component1(): io.github.jamal_wia.kmptoolkit.location/LocationAccuracy // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.component1|component1(){}[0]
+    final fun component2(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.component2|component2(){}[0]
+    final fun component3(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.component3|component3(){}[0]
+    final fun component4(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.component4|component4(){}[0]
+    final fun component5(): io.github.jamal_wia.kmptoolkit.location/PlatformLocationUpdatesOptions? // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.component5|component5(){}[0]
+    final fun copy(io.github.jamal_wia.kmptoolkit.location/LocationAccuracy = ..., kotlin/Double = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., io.github.jamal_wia.kmptoolkit.location/PlatformLocationUpdatesOptions? = ...): io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.copy|copy(io.github.jamal_wia.kmptoolkit.location.LocationAccuracy;kotlin.Double;kotlin.time.Duration;kotlin.time.Duration;io.github.jamal_wia.kmptoolkit.location.PlatformLocationUpdatesOptions?){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/LocationUpdatesOptions.toString|toString(){}[0]
+}
+
+final val io.github.jamal_wia.kmptoolkit.location/iosDetails // io.github.jamal_wia.kmptoolkit.location/iosDetails|@io.github.jamal_wia.kmptoolkit.location.LocationFix{}iosDetails[0]
+    final fun (io.github.jamal_wia.kmptoolkit.location/LocationFix).<get-iosDetails>(): io.github.jamal_wia.kmptoolkit.location/IosFixDetails? // io.github.jamal_wia.kmptoolkit.location/iosDetails.<get-iosDetails>|<get-iosDetails>@io.github.jamal_wia.kmptoolkit.location.LocationFix(){}[0]
+
+final fun (io.github.jamal_wia.kmptoolkit.location/GeoCoordinates).io.github.jamal_wia.kmptoolkit.location/boundingBox(kotlin/Double): io.github.jamal_wia.kmptoolkit.location/GeoBounds // io.github.jamal_wia.kmptoolkit.location/boundingBox|boundingBox@io.github.jamal_wia.kmptoolkit.location.GeoCoordinates(kotlin.Double){}[0]
+final fun (io.github.jamal_wia.kmptoolkit.location/GeoCoordinates).io.github.jamal_wia.kmptoolkit.location/destinationPoint(kotlin/Double, kotlin/Double): io.github.jamal_wia.kmptoolkit.location/GeoCoordinates // io.github.jamal_wia.kmptoolkit.location/destinationPoint|destinationPoint@io.github.jamal_wia.kmptoolkit.location.GeoCoordinates(kotlin.Double;kotlin.Double){}[0]
+final fun (io.github.jamal_wia.kmptoolkit.location/GeoCoordinates).io.github.jamal_wia.kmptoolkit.location/distanceInMetersTo(io.github.jamal_wia.kmptoolkit.location/GeoCoordinates): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/distanceInMetersTo|distanceInMetersTo@io.github.jamal_wia.kmptoolkit.location.GeoCoordinates(io.github.jamal_wia.kmptoolkit.location.GeoCoordinates){}[0]
+final fun (io.github.jamal_wia.kmptoolkit.location/GeoCoordinates).io.github.jamal_wia.kmptoolkit.location/initialBearingTo(io.github.jamal_wia.kmptoolkit.location/GeoCoordinates): kotlin/Double? // io.github.jamal_wia.kmptoolkit.location/initialBearingTo|initialBearingTo@io.github.jamal_wia.kmptoolkit.location.GeoCoordinates(io.github.jamal_wia.kmptoolkit.location.GeoCoordinates){}[0]
 final fun (io.github.jamal_wia.kmptoolkit.location/LocationProvider).io.github.jamal_wia.kmptoolkit.location/withSystemServicesPrompt(): io.github.jamal_wia.kmptoolkit.location/LocationProvider // io.github.jamal_wia.kmptoolkit.location/withSystemServicesPrompt|withSystemServicesPrompt@io.github.jamal_wia.kmptoolkit.location.LocationProvider(){}[0]
-final fun io.github.jamal_wia.kmptoolkit.location/createLocationProvider(io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig = ..., io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.location/LocationProvider // io.github.jamal_wia.kmptoolkit.location/createLocationProvider|createLocationProvider(io.github.jamal_wia.kmptoolkit.location.LocationProviderConfig;io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]
+final fun (io.github.jamal_wia.kmptoolkit.location/LocationReading).io.github.jamal_wia.kmptoolkit.location/fixOrNull(): io.github.jamal_wia.kmptoolkit.location/LocationFix? // io.github.jamal_wia.kmptoolkit.location/fixOrNull|fixOrNull@io.github.jamal_wia.kmptoolkit.location.LocationReading(){}[0]
+final fun io.github.jamal_wia.kmptoolkit.location/angleDifference(kotlin/Double, kotlin/Double): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/angleDifference|angleDifference(kotlin.Double;kotlin.Double){}[0]
+final fun io.github.jamal_wia.kmptoolkit.location/checkMinChangeDegrees(kotlin/Double) // io.github.jamal_wia.kmptoolkit.location/checkMinChangeDegrees|checkMinChangeDegrees(kotlin.Double){}[0]
+final fun io.github.jamal_wia.kmptoolkit.location/createHeadingProvider(kotlin/Boolean = ..., io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.location/HeadingProvider // io.github.jamal_wia.kmptoolkit.location/createHeadingProvider|createHeadingProvider(kotlin.Boolean;io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]
+final fun io.github.jamal_wia.kmptoolkit.location/createLocationProvider(io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.location/LocationProvider // io.github.jamal_wia.kmptoolkit.location/createLocationProvider|createLocationProvider(io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]

@@ -70,6 +70,265 @@ The build machine needs:
    `unzip -p sample/build/outputs/apk/debug/sample-debug.apk 'classes*.dex' | grep -a -c sample/MainActivity`
    must print a number above zero.
 
+## Storage checks (a release that touches `kmptoolkit-storage`, `kmptoolkit-storage-jna` or `kmptoolkit-files`)
+
+The secure stores call the operating system, and no unit test can see what a real keychain, a real Keystore or a real
+Secret Service answers. These checks are manual, each is run on the release branch, and the result (what ran, on which
+OS and JDK or Xcode version, and what was observed) goes into the release notes. A skipped check is not a passed
+check: read the skip count of every run.
+
+1. **Fast gates that always run.** `./gradlew :kmptoolkit-storage:checkKotlinAbi :kmptoolkit-storage-testing:checkKotlinAbi
+   :kmptoolkit-storage-jna:checkKotlinAbi :kmptoolkit-files:checkKotlinAbi`, then the docs-sample checks of
+   `docs/kmptoolkit-storage/06-testing.md` ("Docs samples"): `:docs-samples:compileKotlinJvm`, and the classes
+   `DocsSamplesDesktopRunTest`, `DocsSamplesDriftTest` (`:kmptoolkit-storage:jvmTest`), `DocsSamplesTestingTest`
+   (`:kmptoolkit-storage-testing:jvmTest`) and `AndroidDocsSamplesRound11Test` (`:kmptoolkit-storage:testAndroidHostTest`).
+   The fake-library tests of `src/jvmFfmTest` (task `:kmptoolkit-storage:jvmTestFfm`) now run under `check` too; their real-store classes skip unless `-Pkmptoolkit.secretstore` selects them, so the skips in that
+   task are expected, and step 2 is what closes them.
+2. **Real key stores of the desktop FFM binding, one run per operating system the release supports.** The suites do
+   nothing unless asked, and with `required=true` a skip is a failure, so a broken key store cannot pass as green. Preparation
+   per OS (an unlocked login keychain on macOS, the logged-on user's interactive session on Windows, a session bus and an
+   unlocked default collection on Linux) is in `docs/kmptoolkit-storage/06-testing.md` ("Real-store suites"):
+
+   ```bash
+   ./gradlew :kmptoolkit-storage:jvmTestFfm --tests '*FfmMacKeychainRealStoreTest' -Pkmptoolkit.secretstore=macos -Pkmptoolkit.secretstore.required=true
+   ./gradlew :kmptoolkit-storage:jvmTestFfm --tests '*FfmDpapiRealStoreTest' -Pkmptoolkit.secretstore=windows -Pkmptoolkit.secretstore.required=true
+   ./gradlew :kmptoolkit-storage:jvmTestFfm --tests '*FfmSecretServiceRealStoreTest' -Pkmptoolkit.secretstore=linux -Pkmptoolkit.secretstore.required=true
+   ```
+
+   On a Linux machine whose libsecret is older than 0.19, also run `--tests '*FfmSecretServiceOldLibsecretRealStoreTest'`
+   with `-Pkmptoolkit.secretstore=linux -Pkmptoolkit.secretstore.required=true -Pkmptoolkit.secretstore.oldLibsecret=true`:
+   every call must answer the missing-symbol status, which the store reports as `Unsupported(NO_KEY_STORE)`.
+3. **The same on JDK 21 through the JNA bridge.** `./gradlew :kmptoolkit-storage-jna:jvmTest --tests '*RealKeychainSuiteTest'`
+   (macOS), `'*RealDpapiSuiteTest'` (Windows) or `'*RealSecretServiceSuiteTest'` (Linux), each with the matching
+   `-Pkmptoolkit.secretstore=` and `-Pkmptoolkit.secretstore.required=true`. On Linux run the three environments with
+   `-Pkmptoolkit.secretstore.scenario=unlocked`, `nobus` and `noservice`.
+4. **Windows lock file and DACL.** The one test class that needs a Windows host and a real NTFS or ReFS volume:
+
+   ```bash
+   ./gradlew :kmptoolkit-storage:jvmTest --tests '*CrossProcessLockWindowsAclRound5Test' --tests '*CrossProcessLockRound5Test' --tests '*CrossProcessLockTest' --tests '*CrossProcessLockBreakerR3Test'
+   ```
+
+   Expected: `CrossProcessLockWindowsAclRound5Test` runs 2 tests and skips 0 (a skip means the default file system had no
+   `acl` view or had a `posix` one, that is, the host was not Windows) and both pass; `CrossProcessLockRound5Test` runs 5
+   of its 6 tests (the POSIX one is skipped on Windows). If the first Windows test fails, read the DACL line of the
+   log: the expected entries are the token user (`DOMAIN\name`) and SYSTEM, both allow, nothing else. Also run the
+   Windows classes of `kmptoolkit-files` (`./gradlew :kmptoolkit-files:jvmTest --tests '*OwnerOnlyWindows*'`) and read their skip reasons.
+5. **Packaging smoke, once per binding, on a Mac, from the release branch.** `smoke-storage-desktop` is a non-published
+   host app (not in the BOM) that packages a Compose Desktop release distribution with ProGuard (obfuscation on) and runs
+   one plain and one secure storage round trip from the packaged app:
+
+   ```bash
+   ./gradlew :smoke-storage-desktop:smokeFfm    # JDK 25 packaging, the FFM binding, --enable-native-access=ALL-UNNAMED
+   ./gradlew :smoke-storage-desktop:smokeJna    # JDK 21 packaging plus kmptoolkit-storage-jna
+   ```
+
+   Each task first runs the module's own checks (the verdict rules, the key-item cleanup and the shutdown cleanup against a
+   fake key store, a child JVM that is sent real signals, and a comparison with the library's own identity derivation; Gradle
+   may serve this task from its build cache), then runs the packaged app. On success the task prints a
+   `---- smoke <variant> ----` block that ends in the verdict:
+
+   - `SMOKE-RESULT: PASS`: both round trips passed through the real native binding, and the app removed the key item it
+     created.
+   - `SMOKE-RESULT: PASS-WITH-SKIP (...)`: the secure round trip did **not** run, which is not a pass of the secure path. It
+     was skipped (`SKIPPED (no key store)`) because the probe found no key store that can serve this session, for example a
+     locked keychain or collection while dialogs are off, or a session without one; or it was `NOT RUN` because of
+     `-Psmoke.probeOnly=true`, or because the probe found a key store whose item the smoke cannot remove afterwards (today a
+     Linux Secret Service). Run again in a logged-in session on a supported system, or pass
+     `-Pkmptoolkit.secretstore.required=true` to make a skip and a `NOT RUN` a failure. `required` together with
+     `-Psmoke.probeOnly=true` is refused: a probe-only run never runs the secure round trip.
+
+   On failure the task fails and prints no block: the verdict (`SMOKE-RESULT: FAIL ...`) and any `ALSO FAILED` lines are in
+   the output of `:smoke-storage-desktop:<variant>:runReleaseDistributable`, just above the failure. The class name inside a
+   FAIL verdict is obfuscated (for example `...smoke.storage.J`): read the message, not the class. A failure is a missing keep
+   rule (the message names the binding class that could not be loaded), a missing native-access flag, a native call that hangs
+   or errors, a packaging error, a run that was stopped from outside, or a cleanup that did not finish. A probe that answers
+   `Unavailable` **with** a cause (such as the native-call time limit) is a failure, never a skip; `Unavailable` without a
+   cause (a locked key store) and `Unsupported` with the reason no key store or no user session are the skips. Lines that
+   contain `ALSO FAILED while cleaning up` report a cleanup that failed. After a failed run they come with the run's own
+   reason, which they never replace. After a run that otherwise passed, only the temporary directory can fail this way, and
+   the verdict itself then becomes `SMOKE-RESULT: FAIL the temporary directory ... could not be deleted`. Either way the run
+   may have left something behind. A stopped run's shutdown hook reports
+   its own failures as lines that start with `shutdown cleanup: ALSO FAILED`; they mean the same (a key item or the temporary
+   directory may be left). Fix a keep rule in the library's `META-INF/proguard/*.pro`, never in the smoke build. The library
+   rules the smoke feeds ProGuard are exactly the `META-INF/proguard/*.pro` files of the runtime jars, because ProGuard
+   (unlike R8) does not read them itself; a desktop app that shrinks with ProGuard must feed them the same way or copy them.
+   The Compose plugin's own default rules are added by the plugin and are not the smoke's.
+
+   **What a secure run leaves behind.** The app uses a store name that is new on every run (label "KMPToolkit packaging
+   smoke (safe to delete)"), and the library's `clear()` keeps the key by contract, so the app removes its own key item
+   through the binding seam and confirms it is gone; if it cannot, the run fails and says so. After every macOS run that is
+   not probe-only, passed or failed, the task `verifySmokeLeftNoKeychainItem` asks the login keychain for an item with that
+   label (`security find-generic-password -l "<label>"`) and fails the build if one is left; remove it with
+   `security delete-generic-password -l "<label>"` (each call deletes ONE item: repeat until it says the item could not be
+   found). With both tasks in one invocation the check runs once, after both runs. It does not run after a cancelled build or
+   with `-x ...:runReleaseDistributable` (the smoke tasks then refuse a verdict file older than the build). Never exclude a task of the smoke with `-x`: excluding a
+   packaging task (`-x ...:createReleaseDistributable`, `-x ...:proguardReleaseJars`) runs the previous image, and its verdict
+   then looks fresh.
+
+   **A run stopped from outside** (a Gradle cancel, `timeout` or `kill`: the app receives SIGTERM) stops before its next
+   store call and cleans up in a JVM shutdown hook. The hook waits at most 10 s for the run to finish (its own cleanup, the
+   verdict and the result file) and removes the key item itself only if the run does not come back (it deletes the temporary
+   directory in every case). The run then ends with exit code 143, so the task fails whatever verdict line it printed. The
+   line is usually `SMOKE-RESULT: FAIL ... stopped from outside`, but a signal that arrives after the run's last step leaves
+   the verdict the run had already reached (even PASS or PASS-WITH-SKIP). This is best effort: a store call that stays wedged longer than the
+   wait can still leave the item or the directory, and so can a signal in the instant between the creation of the temporary
+   directory and the installation of the hook. A run that is hard-killed (SIGKILL, `kill -9`, an out-of-memory kill, a crash of
+   the JVM) cannot clean up: it may leave ONE key item with the label above and one `kmptoolkit-smoke-*` directory under the
+   app's temporary directory (not reported; it holds no key). A cancelled build runs no check afterwards, so the NEXT macOS run
+   that is not probe-only reports a leftover item, and that run then fails although its own app run was fine: remove the item
+   as above and run again.
+
+   **Optional negative controls of the smoke itself** (`smoke-storage-desktop/breaker-r1` to `breaker-r4`; macOS, none is part of
+   the release check, each needs the image or the Gradle run named in its own header). They are the reviewers' attacks on the
+   smoke and its keep rules, kept so a change to the smoke can be re-checked (the `.init.gradle.kts` files are passed to Gradle
+   with `-I`):
+   - `breaker-r1/drop-jna-rules.init.gradle.kts`: feeds ProGuard every consumer rule file except `kmptoolkit-storage-jna.pro`;
+     proves the JNA smoke fails (exit not 0, no PASS line) when the artifact ships no rules.
+   - `breaker-r1/drop-jna-library-keep.init.gradle.kts`: drops only the rule that keeps the JNA `Library` interfaces; proves
+     that one missing rule fails the JNA smoke.
+   - `breaker-r1/jna-native-unloadable.sh`: runs the built JNA image with JNA's native library made unloadable; proves a
+     broken binding exits 1 with `NATIVE_ACCESS_UNAVAILABLE` and never reads as a skip.
+   - `breaker-r2/finalize-on-run-failure.init.gradle.kts`: attaches `verifySmokeLeftNoKeychainItem` to the packaged run itself;
+     the build now wires it that way, so it proves the keychain check also runs when the app fails before any key-store call
+     (use it with `-Psmoke.control.noNativeAccessFlag=true`).
+   - `breaker-r3/finalizer-order.init.gradle.kts`: prints when each packaged run and the keychain check start and end; shows
+     that with both smoke tasks in one invocation the check starts after both runs.
+   - `breaker-r3/sigterm-packaged-app.sh`: sends SIGTERM to the real packaged launcher in a probe-only run; proves a stopped
+     run (exit 143) leaves no `kmptoolkit-smoke-*` directory.
+   - `breaker-r4/sigterm-verdicts.sh`: the same attack with an optional second signal; records the verdict line, the exit code, the
+     shutdown-hook lines and the leftovers of every trial.
+
+   **Options.** `-Psmoke.probeOnly=true` (probe only, touches no key), `-Psmoke.javaHome25=<dir>` (used by `smokeFfm`) and
+   `-Psmoke.javaHome21=<dir>` (used by `smokeJna`): a full JDK with jmods and jpackage whose `release` file says that
+   version; any other JDK is refused. A Homebrew JDK needs no extra step: the smoke switches off the Compose plugin's Homebrew
+   refusal for itself. Two negative controls must fail: `-Psmoke.control.noLibraryRules=true` (either variant) and
+   `-Psmoke.control.noNativeAccessFlag=true` (`smokeFfm` only; the JNA variant never passes the flag).
+
+   **The oldest FFM runtime.** The FFM sources are compiled against the JDK 22 API on every build; the packaging smoke
+   packages with JDK 25 only (`verifyPackagingJdk` refuses another JDK for `smokeFfm`), so a run on JDK 22 itself is not part
+   of this check.
+
+   **What the Mac smoke proves and what it does not.** It exercises only the macOS path. It shows that the library's shipped
+   rules are sufficient for loading the binding and for the macOS key-store calls in a shrunk, renamed image. Two rules have
+   no proof here, and the Mac smoke would stay green without either: the `FfmSecretService$BackendWait` keep (Linux, found by
+   name through `MethodHandles`) and `-keepattributes Exceptions` (Windows, the `GetLastError` capture). The smoke has not
+   been run on a Linux or Windows host; do that before relying on those two.
+
+   Signing and notarisation are not covered. With an Apple Developer ID, additionally build a signed and notarised
+   app of a plain-store-only host and record the result in the release notes; a notarised app that adds
+   `kmptoolkit-storage-jna` must sign the nested `libjnidispatch` as well (not observed).
+6. **macOS key-store behaviour that only a real keychain can show.** The three points listed at the end of the
+   desktop section of `docs/kmptoolkit-storage/05-platform-notes.md` ("Not observed on a real keychain"): whether
+   `kSecUseAuthenticationUIFail` applies to `SecItemAdd` and `SecItemDelete` on the file keychain, whether a locked keychain
+   and an item of another code identity both answer -25308 (never -25300), and whether deleting the previous unsigned build's
+   item prompts. Observe them with `allowUserInteraction = false` and then `true` on a locked and an unlocked login
+   keychain, and write the observed result into that paragraph in place of the "Not observed" list.
+7. **iOS Keychain harness (before releasing a change to the iOS secure store).** Enrol Face ID in the simulator first
+   (Features > Face ID > Enrolled), so that `ensure-key-user-presence` is counted as a pass. Build and run
+   `storage-ios-harness/ios-host` on an iPhone simulator
+   (`xcodebuild -project storage-ios-harness/ios-host/StorageHarness.xcodeproj -scheme StorageHarness -sdk iphonesimulator build`,
+   then install and run the app, or run the `StorageHarness` scheme in Xcode), and launch it once with the launch argument
+   `--run-automatic`:
+
+   ```bash
+   xcrun simctl launch --console booted io.github.jamal-wia.kmptoolkit.storageharness --run-automatic
+   ```
+
+   Keep the log. Every case line must end `PASS`, and the last line must read `notPassed=0` and `skipped=0`
+   (`HARNESS DONE cases=<n> passed=<p> skipped=<s> notPassed=<k>`). A `SKIPPED` line names the missing precondition, and
+   `FAIL (timed out)` means a case hung for 120 s and counts as not passed. The automatic cases are `duplicate-retry`,
+   `put-remove-race`, `clear-across-group`, `null-group-clear`, `synchronizable-clear`, `accessibility-on-update`,
+   `missing-entitlement`, `ensure-key-changes-nothing` and `ensure-key-user-presence`; a `FAIL` of the last shows the real status
+   of `ensureKey` on a user-presence store. Then run the manual rows. For `up-user-presence`, `up-biometry-any` and
+   `up-biometry-current-set`, run once with Matching Face, once with Non-matching Face and once cancelling the sheet: the `get`
+   must show the sheet every time, a cancel must read `AccessDenied(-128)`, a failed authentication `AccessDenied(-25293)`, and
+   `ensureKey` and `clear` must never show a sheet. For `bcs-store` / `bcs-read`, switch Enrolled off and on between the two steps
+   and copy the observed status into `docs/kmptoolkit-storage/05-platform-notes.md`; the same for `passcode-store` /
+   `passcode-read`. If `null-group-clear` reports that the wide delete does not reach the shared group, the default-group probe
+   of `clear()` rests on a wrong assumption on that iOS version: record it and raise it before releasing. The host app's own
+   `README` documents the verdicts and the cases table.
+8. **Android emulator checklist (the paths no host test can force).** Use an emulator or device per API level named in
+   each row, with `AndroidSecureStorageOptions` as stated, and record the exact exception class, message and cause chain
+   where a row says so; a difference from the expectation means a recognition constant in the library is wrong on that API
+   level.
+   - Lock-screen change with a DEFAULT store (no `userAuthentication`, no `unlockedDeviceRequired`; API 28, 30 and 34 or
+     newer): `put` a value, then add a lock screen, change it and remove it, cold-starting between the steps and reading the
+     value each time. Record whether any step makes it `Undecryptable`. If none does, no document may name a lock-screen
+     change as the cause of a lost value for a default store; if one does, the sites that today name only a store opened with
+     `userAuthentication` (`02-getting-started.md`, `03-guide.md`, `05-platform-notes.md`, the `StorageError` and
+     `AndroidSecureStorageOptions` KDoc) need the cause added.
+   - Lock-screen removal, with a store opened with `AndroidUserAuthentication(...)` (API 30 and API 34 or newer): `ensureKey()`
+     and one `put`, remove the lock screen (Settings, Security: None), force-stop, cold start, call `ensureKey()`. Expected
+     `Success`, the old value `Undecryptable`, a new `put` and `get` work. Record what `KeyStore.getKey` throws at that
+     lookup: expected `UnrecoverableKeyException("User changed or deleted their auth credentials")` with no cause, or `null` on
+     API 31 or newer if the keystore already deleted the key.
+   - The same without the force-stop: in the same process the store must answer `Unavailable`; after the next cold start it recovers
+     as above. Record the exception at first use (`Cipher.init`): expected `KeyPermanentlyInvalidatedException`.
+   - Locked device with `unlockedDeviceRequired = true`, on API 28 to 30, on API 31 or 32, and on API 33 or newer: store a value, lock the
+     device, then in the live process (key cached) and after a cold start while locked call `get`, `put` and `ensureKey()`.
+     Expected `Unavailable` each time, one key lookup, the old value readable after unlock. Record the class, message and cause
+     chain of the `Cipher.init` failure (API 31 or newer: `InvalidKeyException("Keystore operation failed")` around a
+     `KeyStoreException` with code -72; API 28 to 30: `UserNotAuthenticatedException`); on API 33 or newer also
+     `requiresUserAuthentication()` of the cause.
+   - Biometric enrolment with the default key (`allowDeviceCredential = true`): enrol or delete a fingerprint, cold start,
+     `ensureKey()`: no invalidation, old values readable. With a biometric-only key (`allowDeviceCredential = false`, API 30 or newer): on a device
+     with no enrolled biometric `ensureKey()` must answer `Unavailable` and generate nothing, and succeed after an enrolment;
+     enrolling another fingerprint then takes the invalidation path of the lock-screen removal row (the
+     `AndroidUserAuthentication` row above).
+   - `getKey` through the real `AndroidKeyStore` provider answers the key for an alias that exists and `null`, without an
+     exception, for one that does not (API 31 or newer); and an alias `<name>.kmptoolkit.securestorage.key` holding an EC key that
+     is not a secret key must make the store answer `Unavailable` and leave the entry alone.
+   - An API 24 to 30 device on which the keystore daemon can be killed at the lookup: record whether a new key is
+     generated (a documented residual, not forceable on an emulator).
+
+## Systembars device check (a release that touches `kmptoolkit-systembars`'s `AutoSystemBarsIconStyle`)
+
+**Status: NOT RUN.** This section was written without a device or an emulator. Nothing below has been observed, and the
+documentation says so: `docs/kmptoolkit-systembars/05-platform-notes.md` lists each of these facts as inferred until a row
+has run. A skipped row is not a passed row.
+
+The host tests prove the plumbing through Robolectric's `ShadowPixelCopy` and fakes. They cannot show what a real `WebView`
+does when it is, or is not, replayed offscreen, so these rows are manual. Run them on the release branch with `:sample`
+installed (`./gradlew :sample:installDebug`), and record the device, the API level and the observations of every row in the
+release notes.
+
+1. **Emulators: API 24, an API 26-28 image and an API 34 or newer image.** Open "WebView probe screen" from the sample's main
+   screen. The screen is a full-screen `WebView` under `AutoSystemBarsIconStyle`; three buttons sit over it: "Theme"
+   (flips the light and dark sections and calls `triggerRecalculation()`), "Secure" (`FLAG_SECURE` on the window) and
+   "Photo" (replaces the `WebView` with a bundled picture drawn by Compose).
+2. **No blank frames, header drawn.** Run `for i in $(seq 1 120); do adb exec-out screencap -p > shot_$i.png; done`. Every
+   shot shows the page (text and the sticky header band, which carries a `backdrop-filter`), none is an empty white frame,
+   and the header band is blurred. Expected: 120/120 on API 26 and newer. On API 24 the probe skips sampling on this screen
+   while the `WebView` is attached, so the page is intact too.
+3. **Idle.** Run `adb shell dumpsys gfxinfo io.github.jamal_wia.kmptoolkit.sample reset`, leave the screen untouched for 5 s,
+   then run `adb shell dumpsys gfxinfo io.github.jamal_wia.kmptoolkit.sample`. Expected: "Total frames rendered" is 0
+   (plus or minus 1). Before the fix it was about 16.
+4. **Icons follow content.** Scroll a light section under both bars (dark icons on both), then a dark section (light icons),
+   then press "Theme", which flips the sections and calls `triggerRecalculation()`. Both bars flip within about 2 frames;
+   record the observed latency. If it is consistently more than 2 frames, add one more `withFrameMillis` on the trigger path
+   only (the trigger collector in `AutoSystemBarsIconStyle.kt`) before release. On API 24 the probe does not sample this screen: expect the
+   status-bar icons to stay dark (the base configuration) and not to follow. API 24 cannot draw dark navigation-bar
+   icons, so read the navigation style from `ProbeCheck` (it stays `DarkIcons`), and check that row 7 shows the same API 24
+   emulator sampling once the `WebView` is gone.
+5. **`FLAG_SECURE`.** Press "Secure" (the window now carries `FLAG_SECURE`; screenshots of it come out black, so skip row 2
+   here) and repeat row 4 by eye. Record whether the icons still follow. If sampling stops, note it in
+   `docs/kmptoolkit-systembars/05-platform-notes.md` under "When reads fail".
+6. **Transient failures and cost.** Run `adb logcat -s ProbeCheck` while rows 2 to 5 run. The screen logs every
+   `onSampled` attempt as `attempt=<n> durationNanos=<n> status=<style> navigation=<style>`: its attempt number, its
+   duration and the controller's current icon styles (the public API does not say whether a read succeeded, and the screen
+   shows no per-sample state of its own, so that it cannot disturb the idle row). A release after three consecutive skipped
+   samples shows as the logged styles falling back to the base configuration (dark icons on both bars) while the content under
+   the bars did not change. If that is seen on a healthy device, revisit `FAILED_READS_BEFORE_RELEASE` before release. Record
+   the typical and the worst sample duration per API level; this is where the unmeasured cost of the window copy gets measured.
+7. **Luma agreement.** Compare with the layer path inside the same build: press "Photo" (the `WebView` leaves the composition
+   and a picture with a bright sky under the status bar and a dark landscape under the navigation bar is drawn by Compose) on
+   the API 24 emulator, where the layer reader runs, and on the API 26 or newer image. Expected: the same decision for both
+   bars on both (dark icons on the status bar, light icons on the navigation bar; API 24 cannot draw the navigation bar's
+   icon style, so read that bar's decision from `ProbeCheck` there). Thin mixed content may differ, because the
+   rows are picked differently. On API 24, confirm in `ProbeCheck` that samples are read here (the navigation style changes to
+   light within a few ticks of pressing "Photo"), which also shows that the guard stops skipping once the `WebView` is
+   detached.
+
 ## Manual publish (fallback)
 
 If the CI workflow is unavailable, publish locally from a machine with the one-time setup above:

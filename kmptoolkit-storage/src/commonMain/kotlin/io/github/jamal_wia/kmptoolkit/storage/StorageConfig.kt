@@ -3,10 +3,11 @@ package io.github.jamal_wia.kmptoolkit.storage
 /**
  * Which store a factory opens.
  *
- * One field, because one logical name is all four platform identifiers this module needs: a
- * `SharedPreferences` file name, an `NSUserDefaults` suite name, an AndroidKeyStore alias, and a
- * Keychain service. Each is derived from [name] deterministically, so two stores with different
- * names share nothing on either platform, and the same name opens the same store on both.
+ * One field, because one logical name is every platform identifier this module needs: a
+ * `SharedPreferences` file name, an `NSUserDefaults` suite name, an AndroidKeyStore alias, a Keychain
+ * service, a desktop store file name and the identity of a desktop key-store item. Each is derived from
+ * [name] deterministically, so two stores with different names share nothing on any platform, and the
+ * same name opens the same store on each.
  *
  * Nothing in this module hardcodes an identifier of its own. A library that did would collide the
  * moment two libraries built on it — or two versions of one — ended up in the same process, and it
@@ -24,7 +25,9 @@ package io.github.jamal_wia.kmptoolkit.storage
  * @param name the logical store name. `null` — the default — resolves at runtime to the consuming
  *   app's own identifier: `Context.getPackageName()` on Android, `CFBundleIdentifier` on iOS. That
  *   default is what keeps two apps that both use this library from ever seeing each other's data,
- *   without either of them naming anything. Must not be blank when supplied.
+ *   without either of them naming anything. **On desktop there is no application identifier to
+ *   default to, so the name is required there:** every desktop factory throws
+ *   [IllegalArgumentException] for a config without one. Must not be blank when supplied.
  *
  *   The name is an identifier, not a path: it is used verbatim as part of a file name, a Keychain
  *   service, and a Keystore alias, so keep it to the reverse-DNS-ish characters those all accept.

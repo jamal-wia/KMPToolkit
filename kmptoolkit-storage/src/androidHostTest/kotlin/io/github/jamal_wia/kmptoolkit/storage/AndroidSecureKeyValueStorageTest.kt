@@ -4,7 +4,12 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import android.content.SharedPreferences
 import android.util.Base64
+import javax.crypto.SecretKey
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
@@ -12,6 +17,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 
@@ -128,8 +134,9 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
 
     @Test
     fun `a value written under a key that no longer exists is undecryptable not absent`() = runTest {
-        // What a device-lock change does on a real device: the ciphertext survives, the key does
-        // not. Reproduced by dropping the cached key and letting a new one be generated.
+        // What a lost key does on a real device (a backup restored to a new phone, a permanently
+        // invalidated key): the ciphertext survives, the key does not. Reproduced by dropping the
+        // cached key and letting a new one be generated.
         secure().put("k", "value")
         TestKeys.reset()
 
@@ -175,6 +182,116 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
 
         assertEquals(StorageError.Unavailable::class, error!!::class)
         assertNull(rawValue("k"))
+    }
+
+    @Test
+    fun `the store is an encrypted store whose key the Android Keystore holds`() {
+        val storage: EncryptedKeyValueStorage = secure()
+
+        assertEquals(SecureStorageProtection.OS_KEY_STORE_APP_ISOLATED, storage.protection)
+    }
+
+    @Test
+    fun `ensureKey resolves the key once and writes no entry`() = runTest {
+        var resolutions = 0
+        val counting: SecretKeySource = object : SecretKeySource {
+            override suspend fun key(): SecretKey {
+                resolutions += 1
+                return TestKeys.generate()
+            }
+        }
+        val storage = AndroidSecureKeyValueStorage(
+            preferences = preferences(NAME),
+            cipher = KeystoreValueCipher(counting),
+            dispatcher = dispatcher,
+        )
+
+        assertEquals(StorageResult.Success(Unit), storage.ensureKey())
+
+        assertEquals(1, resolutions, "ensureKey must resolve the key, exactly once")
+        assertEquals(emptySet(), preferences(NAME).all.keys)
+        // Control: a read of an absent key never asks for the key, so the count above is ensureKey's own.
+        assertEquals(StorageResult.Success(null), storage.get("k"))
+        assertEquals(1, resolutions)
+    }
+
+    @Test
+    fun `ensureKey with a key store that will not open is unavailable and stores nothing`() = runTest {
+        val storage = AndroidSecureKeyValueStorage(
+            preferences = preferences(NAME),
+            cipher = KeystoreValueCipher(TestKeys.unavailableSource()),
+            dispatcher = dispatcher,
+        )
+
+        assertEquals(StorageError.Unavailable::class, storage.ensureKey().errorOrNull()!!::class)
+        assertEquals(emptySet(), preferences(NAME).all.keys)
+    }
+
+    @Test
+    fun `ensureKey meeting an unexpected cipher failure is OperationFailed for ENSURE_KEY without a key and stores nothing`() = runTest {
+        val failure = IllegalStateException("cipher init failed")
+        val storage = AndroidSecureKeyValueStorage(
+            preferences = preferences(NAME),
+            cipher = object : ValueCipher {
+                override suspend fun encrypt(plaintext: String): String = throw failure
+                override suspend fun decrypt(encoded: String): String = throw failure
+            },
+            dispatcher = dispatcher,
+        )
+
+        assertEquals(
+            StorageError.OperationFailed(StorageOperation.ENSURE_KEY, key = null, cause = failure),
+            storage.ensureKey().errorOrNull(),
+        )
+        assertEquals(emptySet(), preferences(NAME).all.keys)
+    }
+
+    @Test
+    fun `ensureKey whose key source throws a CancellationException while the caller is not cancelled rethrows it`() = runTest {
+        // A swallowed CancellationException would come back as a Failure here, which a cancelling
+        // caller cannot tell apart from a real one; the caller below is NOT cancelled, so only an
+        // ensureKey that rethrows passes.
+        val storage = AndroidSecureKeyValueStorage(
+            preferences = preferences(NAME),
+            cipher = KeystoreValueCipher(
+                object : SecretKeySource {
+                    override suspend fun key(): SecretKey = throw CancellationException("key wait cancelled")
+                },
+            ),
+            dispatcher = dispatcher,
+        )
+
+        assertFailsWith<CancellationException> { storage.ensureKey() }
+        assertEquals(emptySet(), preferences(NAME).all.keys)
+    }
+
+    @Test
+    fun `ensureKey cancelled while the key is being resolved propagates the cancellation and stores nothing`() = runTest {
+        val gate: CompletableDeferred<Unit> = CompletableDeferred()
+        val storage = AndroidSecureKeyValueStorage(
+            preferences = preferences(NAME),
+            cipher = KeystoreValueCipher(
+                object : SecretKeySource {
+                    override suspend fun key(): SecretKey {
+                        gate.await()
+                        return TestKeys.generate()
+                    }
+                },
+            ),
+            dispatcher = dispatcher,
+        )
+        var outcome: StorageResult<Unit>? = null
+        val job: Job = launch(UnconfinedTestDispatcher(testScheduler)) { outcome = storage.ensureKey() }
+
+        job.cancel()
+        job.join()
+
+        assertEquals(true, job.isCancelled)
+        assertNull(outcome, "a cancelled ensureKey must not report a result")
+        assertEquals(emptySet(), preferences(NAME).all.keys)
+        // The store is usable afterwards: nothing was left half-done.
+        gate.complete(Unit)
+        assertEquals(StorageResult.Success(Unit), storage.ensureKey())
     }
 
     @Test

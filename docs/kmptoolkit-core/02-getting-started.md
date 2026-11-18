@@ -6,7 +6,8 @@ a compile error.
 
 ## It arrives by itself
 
-Adding `kmptoolkit-video-player`, `kmptoolkit-audio-player` or `kmptoolkit-audio-recorder` resolves
+Adding `kmptoolkit-video-player`, `kmptoolkit-audio-player`, `kmptoolkit-audio-recorder`,
+`kmptoolkit-location`, `kmptoolkit-files`, `kmptoolkit-permission`, `kmptoolkit-storage` (on `jvm`) or `kmptoolkit-storage-jna` resolves
 `io.github.jamal-wia:kmptoolkit-core` at the same version, transitively. If you use the BOM
 (see [`00-getting-started.md`](../00-getting-started.md)), the BOM pins it too:
 

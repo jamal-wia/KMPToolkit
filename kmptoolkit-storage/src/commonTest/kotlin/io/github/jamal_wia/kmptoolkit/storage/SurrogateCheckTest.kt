@@ -1,7 +1,10 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SurrogateCheckTest {
@@ -36,5 +39,38 @@ class SurrogateCheckTest {
     @Test
     fun `two high surrogates in a row are unpaired`() {
         assertTrue("\uD83D\uD83D\uDE00".hasUnpairedSurrogate())
+    }
+
+    @Test
+    fun `a put with an unpaired surrogate in the value fails with InvalidValue naming the key`() {
+        val failure: StorageResult.Failure? = unpairedSurrogateFailure("k", "a\uD800b")
+
+        val error: StorageError.InvalidValue = assertIs<StorageError.InvalidValue>(failure?.error)
+        assertEquals("k", error.key)
+        assertIs<IllegalArgumentException>(error.cause)
+    }
+
+    @Test
+    fun `a put with an unpaired surrogate in the key fails with InvalidValue naming that key`() {
+        val failure: StorageResult.Failure? = unpairedSurrogateFailure("\uDC00", "v")
+
+        assertEquals("\uDC00", assertIs<StorageError.InvalidValue>(failure?.error).key)
+    }
+
+    @Test
+    fun `well-formed text produces no failure`() {
+        assertNull(unpairedSurrogateFailure("k", "😀"))
+        assertNull(unpairedSurrogateFailure("", ""))
+    }
+
+    @Test
+    fun `the failure of a put never carries the value`() {
+        val value = "secret-token\uD800"
+
+        val error: StorageError.InvalidValue = assertIs(unpairedSurrogateFailure("k", value)?.error)
+
+        assertFalse(error.toString().contains("secret-token"), "error: $error")
+        assertFalse(error.cause.toString().contains("secret-token"), "cause: ${error.cause}")
+        assertNull(error.cause?.cause)
     }
 }

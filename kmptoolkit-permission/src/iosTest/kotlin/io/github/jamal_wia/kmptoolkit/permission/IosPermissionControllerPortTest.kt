@@ -106,7 +106,11 @@ class IosPermissionControllerPortTest {
 
     @Test
     fun `a batch asks each distinct permission once and answers in order`() = runTest {
-        val port = FakeIosAuthorizationPort()
+        // A batch answers from the status read after its last prompt, so the fake must behave like the platform:
+        // a granted camera prompt leaves the camera authorized.
+        val port = FakeIosAuthorizationPort().apply {
+            hooks["requestCameraAccess"] = { camera = AVAuthorizationStatusAuthorized }
+        }
         val controller: PermissionController = controller(port)
 
         val result: Map<Permission, PermissionStatus> = controller.request(

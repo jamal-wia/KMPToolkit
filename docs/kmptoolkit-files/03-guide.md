@@ -65,6 +65,47 @@ files.withIo {
   volume is `CrossDevice`). Use it to keep a watched directory free of temporary names.
 - `tempPrefix` — the temporary file's name prefix for this call (default
   `FileAccessConfig.tempPrefix`).
+- `ownerOnly = true` — the written file is readable and writable by its owner only (since 6.0.0): see
+  [Owner-only files and directories](#owner-only-files-and-directories).
+
+### Owner-only files and directories
+
+Files that hold secrets (an encrypted store, a key blob, a lock file next to them) should not be
+readable by other users of the machine. Pass `ownerOnly = true` to `writeAtomically`, and
+`ownerOnly = true` to `createDirectories`:
+
+```kotlin
+files.withIo {
+    createDirectories(storeDirectory, durable = true, ownerOnly = true)
+    writeAtomically(storeFile, ciphertext, WriteOptions(ownerOnly = true))
+}
+```
+
+- The temporary file is created owner-only (POSIX mode 0600; Windows an explicit DACL that grants only
+  the current user and SYSTEM, with no inherited entry), so the final name never exists with a wider POSIX
+  mode or Windows DACL. Nothing is changed after creation: a later `chmod` of the file is undone by the next
+  `ownerOnly` write, which replaces the file.
+- A directory is made owner-only (POSIX 0700; Windows the same DACL, inheritable by what is created
+  inside) only when this call creates it. An existing directory is never changed, so a subdirectory
+  of the home directory that was 0755 stays 0755.
+- `createParentDirectories = true` together with `ownerOnly = true` creates the missing parents (and
+  `tempDirectory`) owner-only too.
+- On a file system that stores no permissions (FAT, exFAT, some network shares), on Android and on iOS
+  the request is accepted and ignored, never an error. See
+  [platform notes](05-platform-notes.md#owner-only-files-and-directories).
+- On macOS an extended ACL entry that the parent directory marks inheritable is still inherited by an `ownerOnly` file or directory (the mode stays 0600/0700);
+  see the [platform notes](05-platform-notes.md#owner-only-files-and-directories).
+- `ownerOnly` protects the content from being read, not the path from being replaced: when an existing
+  parent directory is writable by others, another user can still rename or delete the file in it. The
+  levels that already exist are never tightened (and a symbolic link among them is followed), so keep
+  the directory itself owner-only, as above.
+- `move` and `copy` are not part of the request: a cross-volume `move` of an owner-only file writes a new
+  temporary file with the default access, so the copy on the other volume has what its directory gives it.
+  A same-volume `move` is a rename and keeps the access.
+
+Implementations of `FileAccess` written against 5.0.0 add the `ownerOnly` parameter to
+`createDirectories`, and a library compiled against 5.0.0 that calls `createDirectories` or the
+`WriteOptions` constructor, `copy` or `component7` must be recompiled (see the API reference).
 
 On every failure the temporary file is removed and the target is untouched, with one documented
 exception: when one of the final directory syncs of `SyncedWithDirectory` fails the call reports

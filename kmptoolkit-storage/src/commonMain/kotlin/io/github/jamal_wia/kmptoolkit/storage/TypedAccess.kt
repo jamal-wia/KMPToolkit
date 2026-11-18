@@ -1,3 +1,5 @@
+@file:MustUseReturnValues
+
 package io.github.jamal_wia.kmptoolkit.storage
 
 /*
@@ -12,26 +14,28 @@ package io.github.jamal_wia.kmptoolkit.storage
  * - `Boolean` as `"true"` or `"false"`, exactly.
  *
  * A stored value that does not parse as the requested type is reported as
- * [StorageError.OperationFailed] for [StorageOperation.GET], with the parse exception as its cause,
- * rather than silently read as absent: it means two callers disagree about a key's type, which is a
- * bug worth seeing. The `...Or` variants collapse that, like an absent key or an unreadable store,
- * into the default you pass — use them where a sensible default exists and a wrong value is not worth
- * handling separately.
+ * [StorageError.InvalidValue] naming the key, rather than silently read as absent: it means two callers
+ * disagree about a key's type, which is a bug worth seeing. The error's cause names the requested type
+ * and never the stored value (nor its length), because on an encrypted store the value is a secret and an
+ * error is what apps log; the platform's parse exception, which quotes its input, is not chained. It is not [StorageError.OperationFailed], which is the case for retryable I/O, so a caller
+ * that retries I/O failures never retries an unparsable value forever. The `...Or` variants collapse
+ * that, like an absent key or an unreadable store, into the default you pass — use them where a
+ * sensible default exists and a wrong value is not worth handling separately.
  */
 
-/** The `Int` stored under [key], `Success(null)` when absent. A non-integer value is a failure. */
-public suspend fun KeyValueStorage.getInt(key: String): StorageResult<Int?> = getParsed(key) { requireDecimal(it).toInt() }
+/** The `Int` stored under [key], `Success(null)` when absent. A non-integer value is [StorageError.InvalidValue]. */
+public suspend fun KeyValueStorage.getInt(key: String): StorageResult<Int?> = getParsed(key, "Int") { requireDecimal(it).toInt() }
 
-/** The `Long` stored under [key], `Success(null)` when absent. A non-integer value is a failure. */
-public suspend fun KeyValueStorage.getLong(key: String): StorageResult<Long?> = getParsed(key) { requireDecimal(it).toLong() }
+/** The `Long` stored under [key], `Success(null)` when absent. A non-integer value is [StorageError.InvalidValue]. */
+public suspend fun KeyValueStorage.getLong(key: String): StorageResult<Long?> = getParsed(key, "Long") { requireDecimal(it).toLong() }
 
 /**
  * The `Boolean` stored under [key], `Success(null)` when absent. Anything other than exactly `"true"`
- * or `"false"` is a failure.
+ * or `"false"` is [StorageError.InvalidValue].
  */
 public suspend fun KeyValueStorage.getBoolean(key: String): StorageResult<Boolean?> =
-    getParsed(key) { value ->
-        value.toBooleanStrictOrNull() ?: throw IllegalArgumentException("Not a boolean: '$value'")
+    getParsed(key, "Boolean") { value ->
+        value.toBooleanStrictOrNull() ?: throw IllegalArgumentException("Not a boolean")
     }
 
 /** Stores [value] under [key] as its decimal string. */
@@ -58,18 +62,68 @@ public suspend fun KeyValueStorage.getBooleanOr(key: String, default: Boolean): 
     getBoolean(key).getOrNull() ?: default
 
 /**
+ * Deprecated on encrypted stores, as [getStringOrNull]: [default] replaces an unreadable store as well
+ * as an absent key. Use [KeyValueStorage.get] and handle [StorageResult.Failure].
+ */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getStringOr(key: String, default: String): String {
+    val plain: KeyValueStorage = this
+    return plain.getStringOr(key, default)
+}
+
+/** Deprecated on encrypted stores, as [getStringOrNull]. Use [getInt] and handle [StorageResult.Failure]. */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getIntOr(key: String, default: Int): Int {
+    val plain: KeyValueStorage = this
+    return plain.getIntOr(key, default)
+}
+
+/** Deprecated on encrypted stores, as [getStringOrNull]. Use [getLong] and handle [StorageResult.Failure]. */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getLongOr(key: String, default: Long): Long {
+    val plain: KeyValueStorage = this
+    return plain.getLongOr(key, default)
+}
+
+/** Deprecated on encrypted stores, as [getStringOrNull]. Use [getBoolean] and handle [StorageResult.Failure]. */
+@Deprecated(
+    "A default turns an unreadable encrypted store into 'absent'. Use get() and handle StorageResult.Failure.",
+    level = DeprecationLevel.WARNING,
+)
+public suspend fun EncryptedKeyValueStorage.getBooleanOr(key: String, default: Boolean): Boolean {
+    val plain: KeyValueStorage = this
+    return plain.getBooleanOr(key, default)
+}
+
+/**
  * Exactly the form the `put` side writes — an optional minus and ASCII digits. `String.toInt` alone would
  * also take a leading `+` and, on the JVM, non-ASCII digits.
  */
 private fun requireDecimal(value: String): String {
-    require(DECIMAL.matches(value)) { "Not a decimal integer: '$value'" }
+    require(DECIMAL.matches(value)) { "Not a decimal integer" }
     return value
 }
 
 private val DECIMAL: Regex = Regex("-?[0-9]+")
 
+/**
+ * Reads [key] and parses it with [parse]. A value [parse] rejects is [StorageError.InvalidValue] whose
+ * cause is built here from [typeName] alone: the exception [parse] threw is dropped, never chained,
+ * because the platform's `NumberFormatException` quotes the text it could not parse, and the stored value
+ * of an encrypted store is a secret that must not reach a message, a cause chain or a log line.
+ */
 private suspend inline fun <T : Any> KeyValueStorage.getParsed(
     key: String,
+    typeName: String,
     parse: (String) -> T,
 ): StorageResult<T?> = when (val stored: StorageResult<String?> = get(key)) {
     is StorageResult.Failure -> stored
@@ -80,9 +134,12 @@ private suspend inline fun <T : Any> KeyValueStorage.getParsed(
         } else {
             try {
                 StorageResult.Success(parse(raw))
-            } catch (error: IllegalArgumentException) {
-                // NumberFormatException is an IllegalArgumentException on every Kotlin target.
-                StorageResult.Failure(StorageError.OperationFailed(StorageOperation.GET, key = key, cause = error))
+            } catch (_: IllegalArgumentException) {
+                // NumberFormatException is an IllegalArgumentException on every Kotlin target. The caught
+                // exception is dropped on purpose: it can quote the stored value.
+                StorageResult.Failure(
+                    StorageError.InvalidValue(key, IllegalArgumentException("The stored value is not a valid $typeName")),
+                )
             }
         }
     }

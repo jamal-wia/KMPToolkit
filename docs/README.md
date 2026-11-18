@@ -53,7 +53,7 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-video-player-javafx` | Desktop video engine (JavaFX) | [`kmptoolkit-video-player-javafx/`](kmptoolkit-video-player-javafx/01-overview.md) |
 | `kmptoolkit-audio-recorder` | Audio recording | [`kmptoolkit-audio-recorder/`](kmptoolkit-audio-recorder/01-overview.md) |
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | [`kmptoolkit-scheduler/`](kmptoolkit-scheduler/01-overview.md) |
-| `kmptoolkit-storage` | Key-value storage, plain and encrypted | [`kmptoolkit-storage/`](kmptoolkit-storage/01-overview.md) |
+| `kmptoolkit-storage` | Key-value storage, plain and encrypted, on Android, iOS and desktop (OS key store or app-supplied key); [migrating to 6.0](kmptoolkit-storage/07-migrating-to-6.md) | [`kmptoolkit-storage/`](kmptoolkit-storage/01-overview.md) |
 | `kmptoolkit-files` | File-system primitives for shared code | [`kmptoolkit-files/`](kmptoolkit-files/01-overview.md) |
 | `kmptoolkit-logging-overlay` | On-screen log overlay for debug builds | [`kmptoolkit-logging-overlay/`](kmptoolkit-logging-overlay/01-overview.md) |
 | `kmptoolkit-permission` | Runtime permissions, special access and roles behind one controller, plus a headless request flow ([migrating to 3.0](kmptoolkit-permission/07-migrating-to-3.md)) | [`kmptoolkit-permission/`](kmptoolkit-permission/01-overview.md) |
@@ -65,7 +65,7 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-uploader` | Transactional uploader / offline effect queue | [`kmptoolkit-uploader/`](kmptoolkit-uploader/01-overview.md) |
 | `kmptoolkit-uploader-sqldelight` | SQLDelight-backed store for the uploader | [`kmptoolkit-uploader-sqldelight/`](kmptoolkit-uploader-sqldelight/01-overview.md) |
 | `kmptoolkit-accelerometer` | Raw accelerometer readings as a cold `Flow` | [`kmptoolkit-accelerometer/`](kmptoolkit-accelerometer/01-overview.md) |
-| `kmptoolkit-location` | Device geographic position: one-shot fix, continuous updates | [`kmptoolkit-location/`](kmptoolkit-location/01-overview.md) |
+| `kmptoolkit-location` | Device geographic position as typed readings: one-shot fix, continuous updates, geo math, compass heading; [migrating to 6.0](kmptoolkit-location/07-migrating-to-6.md) | [`kmptoolkit-location/`](kmptoolkit-location/01-overview.md) |
 | `kmptoolkit-proximity` | Proximity sensor (near/far, event-driven) | [`kmptoolkit-proximity/`](kmptoolkit-proximity/01-overview.md) |
 | `kmptoolkit-downloader` | Resumable background-download engine | [`kmptoolkit-downloader/`](kmptoolkit-downloader/01-overview.md) |
 | `kmptoolkit-language` | App language selection, a supported-language catalog, and the platform-locale side effect | [`kmptoolkit-language/`](kmptoolkit-language/01-overview.md) |
@@ -84,6 +84,10 @@ test and assert the date. `kmptoolkit-systembars` publishes doubles for both of 
 see its `06-testing.md`. `kmptoolkit-files-testing` ships `FakeFileAccess` (in memory, with fault and crash
 injection) and `FileAccessContract` for decorators — see
 [`kmptoolkit-files/06-testing.md`](kmptoolkit-files/06-testing.md).
+
+`kmptoolkit-storage-jna` is not in the table above either, and has no folder of its own: it is a backend-only artifact with no public API (adding the dependency is the
+whole opt-in), so it is documented as a section of [`kmptoolkit-storage/02-getting-started.md`](kmptoolkit-storage/02-getting-started.md#7-desktop-a-secure-store) and of
+[`kmptoolkit-storage/05-platform-notes.md`](kmptoolkit-storage/05-platform-notes.md#desktop). The desktop video engines have folders of their own because they carry public API; this artifact has none.
 
 `kmptoolkit-core` is not in the table above on purpose: it is an internal support artifact that other
 modules pull in, not something you add to a build. Its [`docs/kmptoolkit-core/`](kmptoolkit-core/01-overview.md)

@@ -43,6 +43,12 @@ private class Node(val kind: NodeKind) {
     /** What a power loss leaves of the directory: the entries at the last syncDirectory or seeding. */
     var durableEntries: Map<String, Entry> = emptyMap()
     var links: Int = 0
+
+    /**
+     * Whether the entry was created with `ownerOnly = true`. Recorded, never enforced: the fake has no users. It lives on
+     * the inode, so a rename carries it, a hard link shares it, and a replace takes the bit of the file moved over.
+     */
+    var ownerOnly: Boolean = false
 }
 
 /** Where a path lands: the directory that holds the last name, the name, and the inode there (null when absent). */
@@ -284,7 +290,7 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
             inode.entries.values.map { it.name }
         }
 
-    override fun createDirectory(path: String) {
+    override fun createDirectory(path: String, ownerOnly: Boolean) {
         exec(FakeOperation.CreateDirectory, path) {
             val located: Located = locate(path, false)
             val name: String = located.name ?: fail(FileError.AlreadyExists(path))
@@ -292,11 +298,12 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
             checkNameLength(name, path)
             val (id: Long, _) = newNode(NodeKind.Directory)
             node(id).links = 1
+            node(id).ownerOnly = ownerOnly
             addEntry(located.directory, name, id)
         }
     }
 
-    override fun createNew(path: String, protection: FileProtection): WritableFile {
+    override fun createNew(path: String, protection: FileProtection, ownerOnly: Boolean): WritableFile {
         val handleNode: Node = exec(FakeOperation.CreateNew, path) {
             val located: Located = locate(path, false)
             val name: String = located.name ?: fail(FileError.AlreadyExists(path))
@@ -304,6 +311,7 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
             checkNameLength(name, path)
             val (created: Long, createdNode: Node) = newNode(NodeKind.File)
             createdNode.links = 1
+            createdNode.ownerOnly = ownerOnly
             addEntry(located.directory, name, created)
             createdNode
         }
@@ -570,6 +578,18 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
         }
     }
 
+    /** Whether the entry at [path] (a final link itself, not its target) was created owner-only; `null` when absent. */
+    fun ownerOnlyOf(path: String): Boolean? = monitor.withLock {
+        requireAbsolute(path)
+        val located: Located = try {
+            locate(path, false)
+        } catch (e: FileOpException) {
+            return@withLock null
+        }
+        val id: Long = located.inode ?: return@withLock null
+        node(id).ownerOnly
+    }
+
     fun snapshotEntries(): Map<String, FakeEntry> = monitor.withLock {
         val result: LinkedHashMap<String, FakeEntry> = LinkedHashMap()
         fun walk(directory: Long, prefix: String) {
@@ -608,6 +628,7 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
             copy.mtime = inode.mtime
             copy.target = inode.target
             copy.links = inode.links
+            copy.ownerOnly = inode.ownerOnly
             copy.durableBytes = inode.durableBytes
             copy.durableEntries = HashMap(inode.durableEntries)
             copy.bytes = if (powerLoss) inode.durableBytes else inode.bytes

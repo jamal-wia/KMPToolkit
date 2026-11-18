@@ -36,19 +36,26 @@ artifacts by coordinate.
   `gradle.properties` (the single source of truth every module and the BOM read).
 - Targets: Android + iOS. No JS/wasm. No JVM/desktop either, with one narrow exception —
   `kmptoolkit-systembars` (+ `-testing`), `kmptoolkit-language` (+ `-compose`),
-  `kmptoolkit-storage` (+ `-testing`), `kmptoolkit-hardware-keys`, `kmptoolkit-hijri` and
+  `kmptoolkit-storage` (+ `-testing`), `kmptoolkit-files` (+ `-testing`), `kmptoolkit-hardware-keys`,
+  `kmptoolkit-hijri`, `kmptoolkit-logging`, `kmptoolkit-location` (+ `-testing`) and
   `kmptoolkit-video-player` (+ `-testing`, `-compose`) also publish `jvm`, because their types belong
   in code a consumer shares with desktop and omitting the target would stop that shared code
   compiling at all. So does the internal support artifact `kmptoolkit-core`, for a plainer reason:
-  `kmptoolkit-video-player` depends on it and a module cannot depend on one missing its target.
+  `kmptoolkit-video-player`, `kmptoolkit-location`, `kmptoolkit-files`, the `jvm` source set of `kmptoolkit-storage`
+  and `kmptoolkit-storage-jna` depend on it and a module cannot depend on one missing its target.
   The desktop video engines `kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx` are
   JVM-only artifacts, kept out of the video-player core so their licences (GPL-3 / GPL-2 + Classpath
-  Exception) reach only an app that opts in. The reasoning, and the bar any further exception has to
+  Exception) reach only an app that opts in. So is `kmptoolkit-storage-jna`, the optional JDK 21 bridge
+  of the desktop secure store (JNA), kept out of `kmptoolkit-storage` so a consumer inherits no native
+  library it did not ask for; on JDK 22 and newer `kmptoolkit-storage` calls the OS key stores itself
+  through the Foreign Function and Memory API, a runtime-gated `ffm` compilation of its own `jvm` target.
+  The reasoning, and the bar any further exception has to
   clear, are in `docs/01-architecture.md` § "Desktop targets". Do not add a desktop target to another
   module without meeting that bar and discussing it first. `kmptoolkit-activity` is the opposite
   case: Android only, see § "One module is Android-only".
 - Build wiring: convention plugins in `build-logic/` (`kmptoolkit.library`, `kmptoolkit.library.jvm`
-  for a JVM-only module, `kmptoolkit.compose`, `kmptoolkit.publish`, `kmptoolkit.androidtest`) — see that module's own KDoc for what each does
+  for a JVM-only module, `kmptoolkit.compose`, `kmptoolkit.publish`, `kmptoolkit.androidtest`, `kmptoolkit.ffm`
+  for a runtime-gated FFM compilation inside a JDK 21 module) — see that module's own KDoc for what each does
   and why it's a `Plugin<Project>` class rather than a precompiled script plugin.
 - Full module list, dependency graph, and what's planned vs. published: root `README.md`.
 - Design principles: `docs/01-architecture.md`.

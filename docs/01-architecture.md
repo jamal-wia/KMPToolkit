@@ -239,14 +239,14 @@ The rules for a module that does this:
 
 ## Desktop targets
 
-Fourteen artifacts also publish `jvm`: `kmptoolkit-systembars`, `kmptoolkit-storage` and
-`kmptoolkit-files`, each with its `-testing` fixtures, `kmptoolkit-language` with
-`kmptoolkit-language-compose`, `kmptoolkit-hardware-keys`, `kmptoolkit-hijri`,
+Seventeen artifacts also publish `jvm`: `kmptoolkit-systembars`, `kmptoolkit-storage`,
+`kmptoolkit-files` and `kmptoolkit-location`, each with its `-testing` fixtures, `kmptoolkit-language`
+with `kmptoolkit-language-compose`, `kmptoolkit-hardware-keys`, `kmptoolkit-hijri`, `kmptoolkit-logging`,
 `kmptoolkit-video-player` with its `-testing` and `-compose` companions, and the internal support
-artifact `kmptoolkit-core`. Two more are **JVM-only** — the desktop video engines
-`kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx`, built with the
-`kmptoolkit.library.jvm` convention. Every other module stays Android + iOS, and the exception is
-narrow and deliberate.
+artifact `kmptoolkit-core`. Three more are **JVM-only** — the desktop video engines
+`kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx`, and the optional JDK 21 key-store bridge
+`kmptoolkit-storage-jna`, built with the `kmptoolkit.library.jvm` convention. Every other module stays Android + iOS,
+and the exception is narrow and deliberate.
 
 All of them are compiled to one bytecode level, Java 21, so a desktop consumer needs JDK 21 or
 newer (the OpenJFX engine needs JDK 25 at runtime for OpenJFX's own sake). That level is fixed in
@@ -269,10 +269,38 @@ in **shared** code:
   modules — a settings repository, a language picker, a screen's state — and `AppLocale` wraps the
   root of a shared UI tree. Here the JVM half is real rather than a no-op: a desktop JVM has a
   process-wide default locale, and an operating-system language to return to.
-- **Storage.** `KeyValueStorage` is the type a consumer's shared settings and repository code takes
-  as a parameter. The JVM half is real, like language's: a properties-file store the app points at
-  its own directory. The secure store is deliberately absent on desktop — there is no platform key
-  store to hold its key — so only the plain factory exists there.
+- **Storage.** `KeyValueStorage`, `EncryptedKeyValueStorage` and `StorageResult` are the types a consumer's shared settings,
+  session and repository code takes as parameters. The JVM half is real, like language's: a properties-file store the app
+  points at its own directory, and two encrypted stores. The OS-key store keeps one data key in the macOS keychain, Windows
+  DPAPI or the Linux Secret Service and the data in an encrypted owner-only file; the app-key store takes a passphrase or a
+  raw key from the app and calls no operating-system API at all. Both answer the same typed `StorageResult` and
+  `StorageError` as on Android and iOS, so shared code handles one set of failures everywhere. A desktop machine without a
+  usable key store (a headless Linux, a JDK 21 without the bridge) answers `Unsupported(reason)` and never silently falls
+  back to plaintext. The design notes follow.
+  - **The native binding is runtime-gated, not a second artifact by default.** The OS calls go through a small internal seam
+    (`NativeKeyStoreBinding`, public only for the opt-in marker `@ToolkitInternalApi`). On JDK 22 and newer the binding is
+    inside `kmptoolkit-storage` itself and calls the OS through the Foreign Function and Memory API (`java.lang.foreign`), so
+    the consumer adds no dependency. FFM is final only from JDK 22 while the suite's bytecode level stays Java 21, so those
+    classes are a separate compilation of the `jvm` target (the `kmptoolkit.ffm` convention plugin in build-logic): compiled
+    with a JDK 25 toolchain at bytecode level 21, checked by a second compilation against the JDK 22 API so that nothing newer
+    slips in, packed into the same `jvm` jar, and loaded by one fixed class name behind a `Runtime.version().feature() >= 22`
+    gate. A plain-store user never loads any of it, and there is no `ServiceLoader` and no scan of the classpath.
+  - **`kmptoolkit-storage-jna` is the second opt-in artifact, with the video engines as precedent.** On JDK 21, where FFM does
+    not exist, the same seam is implemented with JNA (`jna-jpms`, core only) in a separate JVM-only artifact. Adding the
+    dependency is the whole opt-in; it has no public API. It stays out of the core for the reason the video engines do: a
+    consumer that does not need a native library must not inherit one (here a third-party dependency and a native-access
+    warning on JDK 24 and newer), and it is deliberately a **bridge**, deprecated when the suite's desktop baseline reaches
+    JDK 22. A JDK 21 app without the artifact still has the plain and the app-key stores; the OS-key store answers
+    `Unsupported(UNSUPPORTED_RUNTIME)`.
+  - **The bar is met by the types, not by the native code.** The desktop target exists because the secure store's *types* sit in
+    shared code. A native binding on desktop is the implementation of a capability that type already promises, so it
+    ships with the module that owns the type or, where it needs a dependency the core must not carry, as an opt-in artifact
+    like the video engines and the JNA bridge. It is not a reason to add a desktop target to any other module.
+  - **Safe defaults of the files.** Store, temporary and lock files are created owner-only (POSIX 0600; on Windows an
+    explicit ACL for the current user and SYSTEM), directories the library creates are 0700 and an existing directory is
+    never changed (on macOS the mode is the whole guarantee: an inheritable ACL entry of the parent is still inherited); writes across processes are serialised through a `<file>.lock` sibling. The platform notes
+    (`docs/kmptoolkit-storage/05-platform-notes.md`) hold the threat model and the packaging requirements
+    (`--enable-native-access=ALL-UNNAMED`, `jdk.security.auth` under `jlink`, ProGuard rules).
 - **Files.** `FileAccess` and `KeyedMutex` are types a consumer threads through **shared** code —
   a repository that writes its records, a cleaner that deletes a cache tree — and a consumer's own
   shared file helpers compile for `jvm` as well. The bar is met twice: `kmptoolkit-storage`'s JVM
@@ -280,6 +308,16 @@ in **shared** code:
   `FileAccess` from compiling for desktop. The JVM half is real, not a no-op: the same engine runs
   over `java.nio`, including the Windows rules (reserved names, the rename retry, the in-process
   gate).
+- **Logging.** `Logger` is the seam a consumer's shared code logs through: a repository, a controller or a
+  provider takes one as a parameter. The JVM sink is real: `platformLogSink()` writes `<L>/<tag>: <message>`
+  and the stack trace to standard error, each event in one step so that concurrent events never interleave
+  (the logging module's `05-platform-notes.md` has the locking details).
+- **Location.** The geo math and `GeoCoordinates` / `LocationReading` are threaded through shared code: a
+  catalogue of places, a distance filter, a repository that stores positions, a presenter that takes a
+  `LocationProvider`. The geo half is real, like hijri's: the same pure Kotlin answers on the phone and in a
+  desktop unit test. The providers answer the typed `UNSUPPORTED` state, because no desktop location source
+  exists here and the library will not invent one (no IP lookup); a consumer, or a future engine artifact,
+  implements `LocationProvider` for the engine it chooses. The JVM factories take no logger.
 - **Hardware keys.** `DialogWindowHardwareKeyEffect` is called from inside dialog content, and
   dialog content is typical shared UI. Desktop has no Android-style per-window key routing, so the
   `jvm` actual is a no-op — the target exists only so that the shared dialog compiles.
@@ -294,8 +332,9 @@ in **shared** code:
   consumer inherit a GPL dependency it did not ask for.
 - **Core.** `kmptoolkit-core` is not a capability at all: it holds the cross-module internal API
   (`@ToolkitInternalApi`, `StateMachineLock`). It publishes `jvm` only because
-  `kmptoolkit-video-player` does and depends on it — a Gradle module cannot depend on a module that
-  lacks one of its own targets. Nothing in it is meant for a consumer to use on desktop or anywhere
+  `kmptoolkit-video-player`, `kmptoolkit-location`, `kmptoolkit-files`, the `jvm` source set of `kmptoolkit-storage` and
+  `kmptoolkit-storage-jna` do and depend on it — a Gradle module cannot depend on a
+  module that lacks one of its own targets. Nothing in it is meant for a consumer to use on desktop or anywhere
   else.
 - **Hijri.** `toHijriDate` is a pure date conversion a consumer calls from shared code; the JDK's
   `HijrahDate` is Umm al-Qura, so the JVM half is real.

@@ -1,166 +1,119 @@
 package io.github.jamal_wia.kmptoolkit.location
 
-import android.app.Application
-import android.content.Context
-import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
-import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
-import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
-import kotlinx.coroutines.Dispatchers
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.flow.take
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
-import org.robolectric.Shadows.shadowOf
 
 /**
- * Docs (05-platform-notes, "Relationship to kmptoolkit-permission"): "An approximate-only grant ... this module
- * still delivers fixes with it, at reduced accuracy", and 02-getting-started offers ACCESS_COARSE_LOCATION alone
- * as the manifest choice. The platform rule: GPS_PROVIDER needs ACCESS_FINE_LOCATION (a SecurityException for a
- * coarse-only app), NETWORK_PROVIDER accepts either. The fixes the network provider holds must still be served.
+ * The approximate-only grant (docs 05-platform-notes: an approximate-only grant still delivers fixes at
+ * reduced accuracy; PLAN section 4.1 `isApproximate`): GPS refuses a coarse-only app with a
+ * `SecurityException`, the network provider accepts either permission. Fixes served under it read
+ * `isApproximate == true`, fixes under a fine grant read `false`. The fixes the network provider holds
+ * are served, a refused GPS does not end the stream, and a refusal of everything ends it as
+ * `PERMISSION_MISSING`.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
 class ApproximateOnlyGrantTest {
 
-    private val application: Application = ApplicationProvider.getApplicationContext()
-    private val manager: LocationManager = application.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    private val gps: String = LocationManager.GPS_PROVIDER
+    private val network: String = LocationManager.NETWORK_PROVIDER
+    private val both = LocationUpdatesOptions(accuracy = LocationAccuracy.HIGH_ACCURACY)
 
-    /** A manager as a coarse-only app sees it: every GPS call is a SecurityException, the network works. */
-    private class CoarseOnlySource(val networkFix: Location?) : LocationUpdatesSource {
-        override val allProviders: List<String> = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        val registered: MutableSet<LocationListener> = java.util.concurrent.CopyOnWriteArraySet()
-        val disabled: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
-        override fun isProviderEnabled(provider: String): Boolean = provider !in disabled
-        override fun lastKnownLocation(provider: String): Location? {
-            if (provider == LocationManager.GPS_PROVIDER) throw SecurityException("gps provider requires ACCESS_FINE_LOCATION permission")
-            return networkFix
-        }
-
-        override fun requestUpdates(provider: String, minTimeMillis: Long, minDistanceMeters: Float, listener: LocationListener) {
-            if (provider == LocationManager.GPS_PROVIDER) throw SecurityException("gps provider requires ACCESS_FINE_LOCATION permission")
-            registered += listener
-        }
-
-        override fun removeUpdates(listener: LocationListener) {
-            registered -= listener
-        }
-    }
-
-    private fun networkFix(): Location = Location(LocationManager.NETWORK_PROVIDER).apply {
-        latitude = 41.0; longitude = 2.0; time = System.currentTimeMillis(); elapsedRealtimeNanos = System.nanoTime(); accuracy = 2000f
+    /** A device as a coarse-only app sees it: every GPS call is a SecurityException, the network works. */
+    private fun coarseOnly(): FakeLocationBackend = FakeLocationBackend().apply {
+        fine = false
+        coarse = true
+        refuse(gps)
     }
 
     @Test
-    fun `observeLocation on a coarse-only grant is seeded from the network provider`() = runBlocking {
-        withTimeout(10_000) {
-            val source = CoarseOnlySource(networkFix())
-            val provider: LocationProvider =
-                AndroidLocationProvider(application, LocationProviderConfig(), NoopLogger, SystemScreenLauncher.SeparateTask, source)
+    fun `observeLocation on a coarse-only grant is seeded from the network cache and the fix reads approximate`() = runTest(timeout = 60.seconds) {
+        val backend: FakeLocationBackend = coarseOnly()
+        backend.setCached(network, backend.locationAt(network, 41.0, ageMillis = 2_000).apply { accuracy = 2000f })
 
-            val values: List<GeoCoordinates?> = provider.observeLocation().take(1).toList()
+        val first: LocationReading = newProvider(backend).observeLocation(both).first()
 
-            assertEquals(listOf<GeoCoordinates?>(GeoCoordinates(41.0, 2.0)), values, "an approximate-only grant still delivers fixes")
-        }
+        assertEquals(GeoCoordinates(41.0, 2.0), first.fixOrNull()?.coordinates, "an approximate-only grant still delivers fixes")
+        assertEquals(true, first.fixOrNull()?.isApproximate)
     }
 
     @Test
-    fun `getCurrentLocation on a coarse-only grant answers the cached network fix`() = runBlocking {
-        // The real (Robolectric) manager names GPS as the best enabled provider; the cache source answers as a
-        // coarse-only app would see it.
-        shadowOf(manager).setProviderEnabled(LocationManager.GPS_PROVIDER, true)
-        shadowOf(manager).setProviderEnabled(LocationManager.NETWORK_PROVIDER, true)
-        val provider: LocationProvider = AndroidLocationProvider(
-            application, LocationProviderConfig(singleFixTimeoutMillis = 400), NoopLogger, SystemScreenLauncher.SeparateTask,
-            CoarseOnlySource(networkFix()),
-        )
+    fun `getCurrentLocation on a coarse-only grant answers the cached network fix as approximate`() = runTest(timeout = 60.seconds) {
+        val backend: FakeLocationBackend = coarseOnly()
+        backend.setCached(network, backend.locationAt(network, 41.0, ageMillis = 2_000))
 
-        assertEquals(GeoCoordinates(41.0, 2.0), withTimeout(10_000) { provider.getCurrentLocation() }, "coarse-only still gets the network fix")
-    }
+        val reading: LocationReading = newProvider(backend).getCurrentLocation()
 
-    /** Spins (bounded) until [condition] holds, so a hang fails fast instead of blocking the Gradle run. */
-    private suspend fun until(what: String, step: () -> Unit = {}, condition: () -> Boolean) {
-        var spins = 0
-        while (!condition()) {
-            check(spins++ < 2_000) { "timed out waiting for $what" }
-            step()
-            delay(2)
-        }
+        assertEquals(GeoCoordinates(41.0, 2.0), reading.fixOrNull()?.coordinates)
+        assertEquals(true, reading.fixOrNull()?.isApproximate)
     }
 
     @Test
-    fun `getCurrentLocation with no cached fix registers on the network provider after the gps provider refuses`() = runBlocking {
-        shadowOf(manager).setProviderEnabled(LocationManager.GPS_PROVIDER, true)
-        shadowOf(manager).setProviderEnabled(LocationManager.NETWORK_PROVIDER, true)
-        val source = CoarseOnlySource(networkFix = null)
-        val provider: LocationProvider = AndroidLocationProvider(
-            application, LocationProviderConfig(singleFixTimeoutMillis = 8_000), NoopLogger, SystemScreenLauncher.SeparateTask, source,
-        )
+    fun `a fine grant reads precise`() = runTest(timeout = 60.seconds) {
+        val backend = FakeLocationBackend()
+        backend.setCached(network, backend.locationAt(network, 41.0, ageMillis = 2_000))
 
-        withTimeout(10_000) {
-            val answer = async(Dispatchers.Default) { provider.getCurrentLocation() }
-            until("the single-shot registration") { source.registered.isNotEmpty() }
-            source.registered.first().onLocationChanged(networkFix())
-
-            assertEquals(GeoCoordinates(41.0, 2.0), answer.await(), "the network provider delivered the single fix")
-        }
-        assertTrue(source.registered.isEmpty(), "the single-shot listener was left registered")
-    }
-
-    /** Every provider refuses, in the cache and in the registration. */
-    private class RefusingSource : LocationUpdatesSource {
-        override val allProviders: List<String> = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        override fun isProviderEnabled(provider: String): Boolean = true
-        override fun lastKnownLocation(provider: String): Location? = throw SecurityException("$provider refused")
-        override fun requestUpdates(provider: String, minTimeMillis: Long, minDistanceMeters: Float, listener: LocationListener) =
-            throw SecurityException("$provider refused")
-
-        override fun removeUpdates(listener: LocationListener) = Unit
+        assertEquals(false, newProvider(backend).getCurrentLocation().fixOrNull()?.isApproximate)
     }
 
     @Test
-    fun `when every provider refuses the documented no-permission answers stay`() = runBlocking {
-        shadowOf(manager).setProviderEnabled(LocationManager.GPS_PROVIDER, true)
-        shadowOf(manager).setProviderEnabled(LocationManager.NETWORK_PROVIDER, true)
-        val provider: LocationProvider = AndroidLocationProvider(
-            application, LocationProviderConfig(singleFixTimeoutMillis = 400), NoopLogger, SystemScreenLauncher.SeparateTask, RefusingSource(),
-        )
+    fun `with no cache the one-shot call registers on the network after gps refuses and returns its fix`() = runTest(timeout = 60.seconds) {
+        val backend: FakeLocationBackend = coarseOnly()
+        val call = async { newProvider(backend).getCurrentLocation(CurrentLocationOptions(maxAge = Duration.ZERO)) }
+        runCurrent()
+        assertEquals(1, backend.registeredCount, "control: only the network registration is live")
+        backend.nowNanos += 1_000_000L
+        backend.deliver(network, backend.locationAt(network, 41.0))
 
-        withTimeout(10_000) {
-            assertEquals(listOf<GeoCoordinates?>(null, null), provider.observeLocation().toList())
-            assertEquals(null, provider.getCurrentLocation())
-        }
+        val reading: LocationReading = call.await()
+
+        assertEquals(GeoCoordinates(41.0, 2.0), reading.fixOrNull()?.coordinates)
+        assertEquals(true, reading.fixOrNull()?.isApproximate)
+        assertEquals(0, backend.registeredCount, "the single-shot listener was left registered")
     }
 
     @Test
-    fun `a collection reports null when the only provider that accepted is switched off`() = runBlocking {
-        val source = CoarseOnlySource(networkFix())
-        val provider: LocationProvider =
-            AndroidLocationProvider(application, LocationProviderConfig(), NoopLogger, SystemScreenLauncher.SeparateTask, source)
-        val seen = java.util.concurrent.CopyOnWriteArrayList<GeoCoordinates?>()
+    fun `when every provider refuses both calls answer PERMISSION_MISSING and the stream completes`() = runTest(timeout = 60.seconds) {
+        val backend = FakeLocationBackend()
+        backend.refuse(gps)
+        backend.refuse(network)
+        val provider: LocationProvider = newProvider(backend)
+        val missing: LocationReading = LocationReading.Unavailable(LocationUnavailability.PERMISSION_MISSING)
 
-        withTimeout(10_000) {
-            val job = launch(Dispatchers.Default) { provider.observeLocation().collect { seen += it } }
-            until("the registration") { source.registered.isNotEmpty() }
-            // The gps provider stays "on" but refused; the network provider, the only one that can deliver, goes off.
-            source.disabled += LocationManager.NETWORK_PROVIDER
-            until(
-                "the null after the network provider went off",
-                step = { source.registered.firstOrNull()?.onProviderDisabled(LocationManager.NETWORK_PROVIDER) },
-            ) { seen.lastOrNull() == null && seen.isNotEmpty() }
+        assertEquals(missing, provider.getCurrentLocation(CurrentLocationOptions(maxAge = Duration.ZERO)))
+        assertEquals(missing, provider.observeLocation(both).toList().last(), "the stream ends on the terminal reason")
+        assertEquals(0, backend.registeredCount)
+    }
 
-            assertEquals(null, seen.last(), "no fix can ever come: the flow must say so")
-            job.cancelAndJoin()
-        }
+    @Test
+    fun `a collection reports SERVICE_DISABLED when the only provider that accepted is switched off`() = runTest(timeout = 60.seconds) {
+        val backend: FakeLocationBackend = coarseOnly()
+        val seen: MutableList<LocationReading> = mutableListOf()
+        val job: Job = backgroundScope.launch { newProvider(backend).observeLocation(both).collect { seen += it } }
+        runCurrent()
+        assertEquals(1, backend.registeredCount, "control: only the network provider accepted")
+
+        backend.setProviderEnabled(network, false)
+        runCurrent()
+
+        // gps is still "on" but refused: it can never deliver, so only the accepted network flag counts.
+        assertEquals("none:SERVICE_DISABLED", seen.last().let { reading: LocationReading -> (reading as? LocationReading.Unavailable)?.reason?.let { "none:$it" } })
+        assertEquals(true, job.isActive, "SERVICE_DISABLED does not end the stream")
+        job.cancelAndJoin()
+        assertEquals(0, backend.registeredCount)
     }
 }
