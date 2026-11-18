@@ -54,7 +54,9 @@ import kotlin.test.assertEquals
  * This class never exercised the shipped readback either: on Robolectric it took the software
  * layer snapshot, and the empty-layer early return booked every sample as a success. The loop's
  * handling of skipped, failed and cancelled reads is pinned with a scriptable fake in
- * `AutoSystemBarsIconStyleReaderContractTest`.
+ * `AutoSystemBarsIconStyleReaderContractTest`; the real window reader runs once end to end through
+ * the shadow in `PixelCopyBarStripReaderTest`, and `BarStripReaderSelectionTest` pins which reader
+ * each API level gets.
  */
 @RunWith(RobolectricTestRunner::class)
 class AutoSystemBarsIconStyleLifecycleTest {
