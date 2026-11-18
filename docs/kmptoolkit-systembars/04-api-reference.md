@@ -207,18 +207,24 @@ Wraps `content` with an automatic icon-style probe for both bars: samples the pi
 each on a timer (and on demand via `probe`), derives a contrasting `SystemBarIconStyle` per bar, and
 publishes both as a single [`SystemBarsOverride`](#systembarsoverride) it pushes once and updates in
 place — a layer like any other, so a screen's own `SystemBarsEffect` composed later still wins any
-axis it claims. See [`03-guide.md`](03-guide.md#automatic-icon-styling).
+axis it claims. On Android 8.0+ the pixels are copied from the window, on API 24-25 and iOS replayed
+from the wrapped content, and on desktop nothing is sampled; see
+[`05-platform-notes.md`](05-platform-notes.md#autosystembarsiconstyle). See
+[`03-guide.md`](03-guide.md#automatic-icon-styling).
 
 | Parameter | Contract |
 |---|---|
 | `controller` | Receives the derived styles |
 | `probe` | The on-demand trigger source — see [`createStatusBarLuminanceProbe`](#statusbarluminanceprobe) |
-| `enabled` | `false` disables sampling and pushes no override; `content` still composes and is still recorded into the internal layer every frame |
+| `enabled` | `false` disables sampling and pushes no override; `content` still composes. On API 24-25 and iOS the reader still records `content` into its layer every frame; on Android 8.0+ nothing extra is done |
 | `intervalMs` | Periodic sample cadence in milliseconds — [`DEFAULT_SAMPLE_INTERVAL_MS`] (300 ms) by default; must be positive, otherwise the call throws `IllegalArgumentException` |
-| `onSampled` | Diagnostics hook called after every sample with how long it took, in nanoseconds. `null` (the default) costs nothing. Not a restart key: a new lambda each recomposition does not restart sampling. Samples never overlap (one readback at a time) |
+| `onSampled` | Diagnostics hook called after every sample attempt, skipped ones included, with its wall time in nanoseconds. It includes the window copy on Android 8.0+ (a blocking copy on API 26-33, an asynchronous one on 34+), so it can be longer than before. Called on the composition's thread. `null` (the default) costs nothing. Not a restart key: a new lambda each recomposition does not restart sampling. Samples never overlap (one readback at a time) |
 
-Sampling runs only while the host's `Lifecycle` is at least `STARTED`. Place this once, near the
-root, and not under a layer-introducing modifier or composable — see the guide's placement section.
+Sampling runs only while the host's `Lifecycle` is at least `STARTED`. After three consecutive
+sample attempts that read nothing, the probe withdraws its claim (publishes an empty override) until
+a read succeeds; see [`05-platform-notes.md`](05-platform-notes.md#when-reads-fail). Place this once,
+near the root, and not under a layer-introducing modifier or composable — see the guide's placement
+section.
 
 ### `StatusBarLuminanceProbe`
 
@@ -446,9 +452,11 @@ class FakeStatusBarLuminanceProbe : StatusBarLuminanceProbe {
 }
 ```
 
-`AutoSystemBarsIconStyle` itself is not something to fake — it is a composable that exercises real
-`GraphicsLayer` pixel sampling, and testing it means testing that Compose is drawing what you think
-it is. Test the *decision* it makes by testing your own code against `FakeSystemBarsController` /
-`FakeStatusBarLuminanceProbe`, and trust this module's own test suite (`LuminanceToStyleTest`,
-`ScratchRowSourcesTest`, `PeriodicSampleGateTest`, `IdleTickTest`, `SampleRowsTest`,
-`PublishStylesTest`) for the sampling logic itself.
+`AutoSystemBarsIconStyle` itself is not something to fake — it reads real pixels (the window on
+Android 8.0+, its own recorded content elsewhere), and testing it means testing that the platform is
+drawing what you think it is. Test the *decision* it makes by testing your own code against
+`FakeSystemBarsController` / `FakeStatusBarLuminanceProbe`, and trust this module's own test suite
+(`LuminanceToStyleTest`, `BarStripRowsTest`, `ScratchRowSourcesTest`, `PeriodicSampleGateTest`,
+`IdleTickTest`, `SampleRowsTest`, `PublishStylesTest`,
+`AutoSystemBarsIconStyleReaderContractTest`) for the sampling logic; what only a device can show is
+listed in [`06-testing.md`](06-testing.md#how-this-module-tests-autosystembarsiconstyle).

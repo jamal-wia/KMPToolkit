@@ -281,6 +281,54 @@ check: read the skip count of every run.
    - An API 24 to 30 device on which the keystore daemon can be killed at the lookup: record whether a new key is
      generated (a documented residual, not forceable on an emulator).
 
+## Systembars device check (a release that touches `kmptoolkit-systembars`'s `AutoSystemBarsIconStyle`)
+
+**Status: NOT RUN.** This section was written without a device or an emulator. Nothing below has been observed, and the
+documentation says so: `docs/kmptoolkit-systembars/05-platform-notes.md` lists each of these facts as inferred until a row
+has run. A skipped row is not a passed row.
+
+The host tests prove the plumbing through Robolectric's `ShadowPixelCopy` and fakes. They cannot show what a real `WebView`
+does when it is, or is not, replayed offscreen, so these rows are manual. Run them on the release branch with `:sample`
+installed (`./gradlew :sample:installDebug`), and record the device, the API level and the observations of every row in the
+release notes.
+
+1. **Emulators: API 24, an API 26-28 image and an API 34 or newer image.** Open "WebView probe screen" from the sample's main
+   screen. The screen is a full-screen `WebView` under `AutoSystemBarsIconStyle`; three buttons sit over it: "Theme"
+   (flips the light and dark sections and calls `triggerRecalculation()`), "Secure" (`FLAG_SECURE` on the window) and
+   "Photo" (replaces the `WebView` with a bundled picture drawn by Compose).
+2. **No blank frames, header drawn.** Run `for i in $(seq 1 120); do adb exec-out screencap -p > shot_$i.png; done`. Every
+   shot shows the page (text and the sticky header band, which carries a `backdrop-filter`), none is an empty white frame,
+   and the header band is blurred. Expected: 120/120 on API 26 and newer. On API 24 the probe skips sampling on this screen
+   while the `WebView` is attached, so the page is intact too.
+3. **Idle.** Run `adb shell dumpsys gfxinfo io.github.jamal_wia.kmptoolkit.sample reset`, leave the screen untouched for 5 s,
+   then run `adb shell dumpsys gfxinfo io.github.jamal_wia.kmptoolkit.sample`. Expected: "Total frames rendered" is 0
+   (plus or minus 1). Before the fix it was about 16.
+4. **Icons follow content.** Scroll a light section under both bars (dark icons on both), then a dark section (light icons),
+   then press "Theme", which flips the sections and calls `triggerRecalculation()`. Both bars flip within about 2 frames;
+   record the observed latency. If it is consistently more than 2 frames, add one more `withFrameMillis` on the trigger path
+   only (the trigger collector in `AutoSystemBarsIconStyle.kt`) before release. On API 24 the probe does not sample this screen: expect the
+   status-bar icons to stay dark (the base configuration) and not to follow. API 24 cannot draw dark navigation-bar
+   icons, so read the navigation style from `ProbeCheck` (it stays `DarkIcons`), and check that row 7 shows the same API 24
+   emulator sampling once the `WebView` is gone.
+5. **`FLAG_SECURE`.** Press "Secure" (the window now carries `FLAG_SECURE`; screenshots of it come out black, so skip row 2
+   here) and repeat row 4 by eye. Record whether the icons still follow. If sampling stops, note it in
+   `docs/kmptoolkit-systembars/05-platform-notes.md` under "When reads fail".
+6. **Transient failures and cost.** Run `adb logcat -s ProbeCheck` while rows 2 to 5 run. The screen logs every
+   `onSampled` attempt as `attempt=<n> durationNanos=<n> status=<style> navigation=<style>`: its attempt number, its
+   duration and the controller's current icon styles (the public API does not say whether a read succeeded, and the screen
+   shows no per-sample state of its own, so that it cannot disturb the idle row). A release after three consecutive skipped
+   samples shows as the logged styles falling back to the base configuration (dark icons on both bars) while the content under
+   the bars did not change. If that is seen on a healthy device, revisit `FAILED_READS_BEFORE_RELEASE` before release. Record
+   the typical and the worst sample duration per API level; this is where the unmeasured cost of the window copy gets measured.
+7. **Luma agreement.** Compare with the layer path inside the same build: press "Photo" (the `WebView` leaves the composition
+   and a picture with a bright sky under the status bar and a dark landscape under the navigation bar is drawn by Compose) on
+   the API 24 emulator, where the layer reader runs, and on the API 26 or newer image. Expected: the same decision for both
+   bars on both (dark icons on the status bar, light icons on the navigation bar; API 24 cannot draw the navigation bar's
+   icon style, so read that bar's decision from `ProbeCheck` there). Thin mixed content may differ, because the
+   rows are picked differently. On API 24, confirm in `ProbeCheck` that samples are read here (the navigation style changes to
+   light within a few ticks of pressing "Photo"), which also shows that the guard stops skipping once the `WebView` is
+   detached.
+
 ## Manual publish (fallback)
 
 If the CI workflow is unavailable, publish locally from a machine with the one-time setup above:

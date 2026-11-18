@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.sample
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -55,6 +56,8 @@ import kotlinx.coroutines.launch
  * It is deliberately not a showcase: every call here is one a consumer would actually make, so a
  * publication that is broken in a way the unit tests cannot see (a missing Android variant, a POM
  * that omits a transitive dependency) fails to compile or run here.
+ *
+ * Plus one manual-check screen used by RELEASING.md's systembars device check ([WebViewProbeActivity]).
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -159,6 +162,13 @@ private fun SampleScreen(modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Perform haptic")
+        }
+
+        Button(
+            onClick = { context.startActivity(Intent(context, WebViewProbeActivity::class.java)) },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("WebView probe screen")
         }
 
         HorizontalDivider()

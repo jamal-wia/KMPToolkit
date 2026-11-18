@@ -61,11 +61,13 @@ dependencies {
         implementation("io.github.jamal-wia:kmptoolkit-logging")
         implementation("io.github.jamal-wia:kmptoolkit-storage")
         implementation("io.github.jamal-wia:kmptoolkit-haptics")
+        implementation("io.github.jamal-wia:kmptoolkit-systembars")
     } else {
         implementation(project(":kmptoolkit-files"))
         implementation(project(":kmptoolkit-logging"))
         implementation(project(":kmptoolkit-storage"))
         implementation(project(":kmptoolkit-haptics"))
+        implementation(project(":kmptoolkit-systembars"))
     }
 
     implementation(platform(libs.androidx.compose.bom))
