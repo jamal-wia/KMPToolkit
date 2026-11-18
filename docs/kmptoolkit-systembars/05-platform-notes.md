@@ -389,8 +389,8 @@ the pixels come from.
   `8 × R` bitmap. `R` is chosen so that at least two destination rows fall inside the thinnest bar
   (`R = ceil(2 × window height / thinnest bar)`, at most 256 rows), so the destination is at most
   `8 × 256 × 4 B` = 8 KB. The cap binds only for a bar thinner than `2H / 256` (18.75 px on a
-  2400 px window); that bar then reads its nearest edge row. Each bar's rows are then handed to the
-  same sparse grid as everywhere else: 8 columns, up to 2 rows spread over the bar.
+  2400 px window); that bar then gets fewer than two rows, and a bar with no row centre inside it at
+  all reads its nearest edge row. Each bar's rows are then handed to the same sparse grid as everywhere else: 8 columns, up to 2 rows spread over the bar.
 - No content is drawn for a sample and no frame is scheduled by it: the probe's draw hook is a plain
   `drawContent()`, so on this path nothing is recorded into an offscreen layer. Both the request and
   the destination are fresh for every sample; a request still running when the sampler is cancelled
@@ -430,9 +430,9 @@ before 6.0.0 it was booked as a success.
 **Desktop (`jvm`):** the probe never samples: a desktop window has no system bars, so the insets are
 zero, and there is no reader at all.
 
-The replay on the layer paths (API 24-25, iOS) does run foreign draw code (a `WebView`'s draw
-functor), and the cost of a sample was never measured on a device, so this page makes no
-"imperceptible" claim for any platform.
+The replay on API 24-25 does run foreign draw code (a `WebView`'s draw functor), and the cost of a
+sample was never measured on a device on any platform, so this page makes no "imperceptible" claim
+for any platform.
 
 ### What the probe cannot see
 

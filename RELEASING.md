@@ -307,7 +307,8 @@ release notes.
    then press "Theme", which flips the sections and calls `triggerRecalculation()`. Both bars flip within about 2 frames;
    record the observed latency. If it is consistently more than 2 frames, add one more `withFrameMillis` on the trigger path
    only (the trigger collector in `AutoSystemBarsIconStyle.kt`) before release. On API 24 the probe does not sample this screen: expect the
-   icons to stay at the base configuration (dark icons) and not to follow, and check that row 7 shows the same API 24
+   status-bar icons to stay dark (the base configuration) and not to follow. API 24 cannot draw dark navigation-bar
+   icons, so read the navigation style from `ProbeCheck` (it stays `DarkIcons`), and check that row 7 shows the same API 24
    emulator sampling once the `WebView` is gone.
 5. **`FLAG_SECURE`.** Press "Secure" (the window now carries `FLAG_SECURE`; screenshots of it come out black, so skip row 2
    here) and repeat row 4 by eye. Record whether the icons still follow. If sampling stops, note it in
@@ -322,7 +323,8 @@ release notes.
 7. **Luma agreement.** Compare with the layer path inside the same build: press "Photo" (the `WebView` leaves the composition
    and a picture with a bright sky under the status bar and a dark landscape under the navigation bar is drawn by Compose) on
    the API 24 emulator, where the layer reader runs, and on the API 26 or newer image. Expected: the same decision for both
-   bars on both (dark icons on the status bar, light icons on the navigation bar). Thin mixed content may differ, because the
+   bars on both (dark icons on the status bar, light icons on the navigation bar; API 24 cannot draw the navigation bar's
+   icon style, so read that bar's decision from `ProbeCheck` there). Thin mixed content may differ, because the
    rows are picked differently. On API 24, confirm in `ProbeCheck` that samples are read here (the navigation style changes to
    light within a few ticks of pressing "Photo"), which also shows that the guard stops skipping once the `WebView` is
    detached.
