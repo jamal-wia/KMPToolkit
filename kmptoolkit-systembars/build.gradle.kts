@@ -89,6 +89,15 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
         }
 
+        jvmTest.dependencies {
+            // DesktopNoOpsTest composes AutoSystemBarsIconStyle through runComposeUiTest to prove the
+            // desktop reader is null. Test scope only, and for the machine running the tests: the
+            // Skia runtime runComposeUiTest renders through on desktop. Nothing here reaches a
+            // published artifact.
+            implementation(libs.compose.ui.test)
+            implementation(compose.desktop.currentOs)
+        }
+
         androidHostTest.dependencies {
             implementation(libs.compose.ui.test)
             // AutoSystemBarsIconStyleLifecycleTest drives the test clock frame by frame and needs a

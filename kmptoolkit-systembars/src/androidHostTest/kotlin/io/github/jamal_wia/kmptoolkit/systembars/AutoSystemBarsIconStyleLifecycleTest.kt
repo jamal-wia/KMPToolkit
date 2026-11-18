@@ -37,6 +37,26 @@ import kotlin.test.assertEquals
  * both strips are zero, so a status-bar inset is dispatched to Compose's host view — the same trick
  * as `FormScreenContainerInsetsTest`. The lifecycle is a [LifecycleRegistry] provided through
  * [LocalLifecycleOwner], so the states are driven directly instead of through the Activity.
+ *
+ * **The pixel source is a fake ([AlwaysSucceedsReader]), installed through the composable's internal
+ * overload; only that setup changed, every test body and every assertion is as it was.** The
+ * class's contract is loop scheduling counted through `onSampled`, and its idle assertions rest on
+ * "Robolectric never runs the root draw pass" (below). A real reader breaks that premise or the
+ * old booking in two ways under Robolectric:
+ *
+ * - the layer reader's layer is never recorded here, so its read is a skipped sample that books
+ *   nothing, where the sampler used to book such an empty read as a success; [AlwaysSucceedsReader]
+ *   restores exactly that booking (and publishes nothing, as the empty read did);
+ * - the Android window reader's `ShadowPixelCopy` draws the decor view to take its screenshot,
+ *   which re-runs the Compose root draw on every sample: the feedback loop (a sample causing the
+ *   draw that makes the next tick non-redundant) recreated by the test double, not by the product.
+ *
+ * This class never exercised the shipped readback either: on Robolectric it took the software
+ * layer snapshot, and the empty-layer early return booked every sample as a success. The loop's
+ * handling of skipped, failed and cancelled reads is pinned with a scriptable fake in
+ * `AutoSystemBarsIconStyleReaderContractTest`; the real window reader runs once end to end through
+ * the shadow in `PixelCopyBarStripReaderTest`, and `BarStripReaderSelectionTest` pins which reader
+ * each API level gets.
  */
 @RunWith(RobolectricTestRunner::class)
 class AutoSystemBarsIconStyleLifecycleTest {
@@ -59,6 +79,9 @@ class AutoSystemBarsIconStyleLifecycleTest {
 
     private val host = Host()
     private val probe = TestProbe()
+
+    // Created once per test, outside setContent, so every recomposition sees the same reader.
+    private val reader: BarStripReader = AlwaysSucceedsReader()
     private val samples: MutableList<Long> = mutableListOf()
 
     private fun setProbe(
@@ -69,10 +92,12 @@ class AutoSystemBarsIconStyleLifecycleTest {
         composeTestRule.setContent {
             CompositionLocalProvider(LocalLifecycleOwner provides host) {
                 AutoSystemBarsIconStyle(
-                    intervalMs = INTERVAL_MS,
                     controller = controller,
                     probe = probe,
+                    enabled = true,
+                    intervalMs = INTERVAL_MS,
                     onSampled = sampledHook(),
+                    reader = reader,
                 ) {
                     Box(Modifier.fillMaxSize())
                 }
