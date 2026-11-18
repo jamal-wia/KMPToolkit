@@ -1,9 +1,14 @@
 package io.github.jamal_wia.kmptoolkit.systembars
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.v2.runComposeUiTest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -62,5 +67,37 @@ class DesktopNoOpsTest {
             lock.setKeepScreenOn(n % 2 == 0)
         }
         lock.setKeepScreenOn(false)
+    }
+
+    /**
+     * `AutoSystemBarsIconStyle` on the desktop (plan issue-13 section 6.8): there is no reader, so the
+     * probe composes its content, never samples and never claims the controller. A desktop window has
+     * no bar insets either; the null reader says so explicitly.
+     */
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `the desktop probe has no reader, composes its content and makes no claim`() = runComposeUiTest {
+        val claims: AtomicInteger = AtomicInteger()
+        val inner: SystemBarsController = createSystemBarsController(SystemBarsConfig.ForLightBackground)
+        val controller: SystemBarsController = object : SystemBarsController by inner {
+            override fun applyOverride(override: SystemBarsOverride): SystemBarsOverrideHandle {
+                claims.incrementAndGet()
+                return inner.applyOverride(override)
+            }
+        }
+        var reader: BarStripReader? = null
+        var composed = 0
+        setContent {
+            reader = rememberBarStripReader()
+            AutoSystemBarsIconStyle(controller, createStatusBarLuminanceProbe()) {
+                Box { composed++ }
+            }
+        }
+        waitForIdle()
+
+        assertNull(reader, "the desktop has no pixel source")
+        assertTrue(composed > 0, "the content composed")
+        assertEquals(0, claims.get(), "no claim was pushed")
+        assertEquals(SystemBarsConfig.ForLightBackground, inner.currentConfig)
     }
 }

@@ -14,19 +14,9 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.PixelMap
-import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.layer.GraphicsLayer
-import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.graphics.rememberGraphicsLayer
-import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -45,16 +35,16 @@ import kotlin.time.TimeSource
  * Wraps [content] with an automatic system-bar icon-style probe for **both** the status bar and the
  * navigation bar.
  *
- * The probe is the [Box] this composable installs at the root of the subtree — it is **transparent**
- * (records its child's drawing into an offscreen [GraphicsLayer] and draws that layer back), so the
- * visible UI is identical with or without the wrapper. It auto-picks [SystemBarIconStyle.DarkIcons] /
- * [SystemBarIconStyle.LightIcons] for each bar from whatever is actually drawn under it. Two
- * coroutines drive the sampling:
+ * The probe is the [Box] this composable installs at the root of the subtree; the visible UI is
+ * identical with or without the wrapper on Android 8.0+ and for everything except platform views on
+ * API 24-25; see "Where the pixels come from". It auto-picks [SystemBarIconStyle.DarkIcons] /
+ * [SystemBarIconStyle.LightIcons] for each bar from the pixels under it. Two coroutines drive the
+ * sampling:
  *
- * 1. **Periodic** — every [intervalMs] (300 ms by default), the top status-bar-height strip and the
- *    bottom navigation-bar-height strip of the captured layer are each sampled on a sparse 8 × 2
- *    grid and averaged to a rec.709 perceptual luminance, thresholded at the midpoint. Each bar's
- *    style is decided independently from its own strip.
+ * 1. **Periodic** — every [intervalMs] (300 ms by default), the strip under the status bar and the
+ *    strip under the navigation bar are each sampled on a sparse grid (8 columns, 2 rows per bar)
+ *    and averaged to a Rec. 709 luma, thresholded at the midpoint. Each bar's style is decided
+ *    independently from its own strip.
  * 2. **On demand** — [StatusBarLuminanceProbe.triggerRecalculation] flushes a re-sample on the next
  *    composed frame. A screen that changes its background under either bar should call this instead
  *    of pushing its own icon-style override.
@@ -75,6 +65,22 @@ import kotlin.time.TimeSource
  * > strip reads *its* brightness, not the page's, and the nav-bar icons can pick the wrong colour.
  * > Keep that area as page background where it matters, or accept the occasional mismatch.
  *
+ * **Where the pixels come from.**
+ * - On Android 8.0 (API 26) and later the probe copies the window's last composited frame with
+ *   `PixelCopy`; it never draws your content a second time. It therefore sees everything this window
+ *   draws under each bar, including views outside [content], the window background and the bar
+ *   background colours the window's own `DecorView` draws, but not a `SurfaceView` (composited
+ *   outside the window), not other windows (dialogs, popups) and nothing the system composites
+ *   above the window.
+ * - On API 24 and 25, which have no window copy, it replays its own recorded content offscreen, and
+ *   skips the sample while a `WebView` (this includes most ad banners) is attached inside [content]:
+ *   replaying a `WebView` offscreen blanks it.
+ * - On iOS it replays its own recorded content; a non-overlay `UIKitView` (a `WKWebView`, a map) is
+ *   not part of it and reads as dark.
+ * - On desktop it never samples.
+ * - A sample that cannot read anything is skipped; after three consecutive skipped samples the
+ *   probe withdraws its claim and the bars follow the base configuration until a read succeeds.
+ *
  * Sampling runs only while the host's lifecycle is at least `STARTED` — a backgrounded screen is
  * neither read nor written to — and every return to the foreground starts a fresh cycle whose first
  * tick follows the first frame.
@@ -86,13 +92,15 @@ import kotlin.time.TimeSource
  * @param controller receives the derived styles, as a [SystemBarsOverride] this composable pushes
  *   and owns for as long as it is composed.
  * @param probe the on-demand trigger source — see [createStatusBarLuminanceProbe].
- * @param enabled when `false`, no sampling happens and no override is ever pushed onto [controller];
- *   the wrapper still composes [content] and still records it into its layer every frame.
+ * @param enabled when `false`, nothing is sampled and no override is ever pushed onto [controller];
+ *   [content] still composes.
  * @param intervalMs periodic sample cadence in milliseconds; must be positive, otherwise the call throws
  *   [IllegalArgumentException].
- * @param onSampled diagnostics hook — called after every sample with how long the whole sample took
- *   (layer readback + both strips + any controller write), in nanoseconds, on the composition's
- *   thread. `null` (the default) costs nothing.
+ * @param onSampled diagnostics hook, called after every sample attempt, skipped ones included, with
+ *   its wall time in nanoseconds (from the start of the readback to the end of any controller
+ *   write). It includes the window copy on Android 8.0+ (a blocking copy on API 26-33, an
+ *   asynchronous one on 34+), so it can be longer than before. Called on the composition's thread.
+ *   `null` (the default) costs nothing.
  */
 @Composable
 public fun AutoSystemBarsIconStyle(
@@ -103,14 +111,35 @@ public fun AutoSystemBarsIconStyle(
     onSampled: ((durationNanos: Long) -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
+    AutoSystemBarsIconStyle(
+        controller = controller,
+        probe = probe,
+        enabled = enabled,
+        intervalMs = intervalMs,
+        onSampled = onSampled,
+        reader = rememberBarStripReader(),
+        content = content,
+    )
+}
+
+/**
+ * Same contract as the public overload, with the pixel source injected; tests pass a fake [reader].
+ * A `null` [reader] is a platform with no pixel source: [content] composes and nothing is sampled.
+ */
+@Composable
+internal fun AutoSystemBarsIconStyle(
+    controller: SystemBarsController,
+    probe: StatusBarLuminanceProbe,
+    enabled: Boolean,
+    intervalMs: Long,
+    onSampled: ((durationNanos: Long) -> Unit)?,
+    reader: BarStripReader?,
+    content: @Composable () -> Unit,
+) {
     // First, before any early return: the validity of a parameter must not depend on the device's
     // insets. Not coerced: a clamp would turn a hang into a 1 ms CPU hog and hide the bug.
     require(intervalMs > 0L) { "intervalMs must be positive, was $intervalMs" }
-    val layer: GraphicsLayer = rememberGraphicsLayer()
-    // Strip-sized scratch layer the sampler renders into — see `sampleOnce`.
-    val stripLayer: GraphicsLayer = rememberGraphicsLayer()
     val density: Density = LocalDensity.current
-    val layoutDirection: LayoutDirection = LocalLayoutDirection.current
     val statusBarHeightPx: Int = WindowInsets.statusBars.getTop(density)
     val navBarHeightPx: Int = WindowInsets.navigationBars.getBottom(density)
     val frameActivity: FrameActivity = remember { FrameActivity() }
@@ -121,27 +150,25 @@ public fun AutoSystemBarsIconStyle(
         modifier = Modifier
             .fillMaxSize()
             .drawWithContent {
-                // Record the just-drawn frame into the offscreen layer, then present the layer to
-                // the screen. Near-zero-cost pass-through: visible output is identical, but `layer`
-                // now holds a sampleable copy of the current frame.
-                layer.record { this@drawWithContent.drawContent() }
-                drawLayer(layer)
+                // The reader decides what a frame leaves behind: the layer reader records the
+                // content into a sampleable layer, the window reader draws it as it is.
+                if (reader != null) with(reader) { drawContentAndCapture() } else drawContent()
                 frameActivity.onDraw()
             },
     ) {
         content()
     }
 
-    // Sample as long as at least one bar has a strip to read. A bar with zero inset (hidden,
-    // immersive, or gesture nav with no inset) is simply skipped inside `sampleOnce`.
-    if (!enabled || (statusBarHeightPx <= 0 && navBarHeightPx <= 0)) return
+    // Sample as long as a reader exists and at least one bar has a strip to read. A bar with zero
+    // inset (hidden or immersive) is simply skipped inside the reader.
+    if (!enabled || reader == null || (statusBarHeightPx <= 0 && navBarHeightPx <= 0)) return
 
     // Not an effect key: a new lambda instance (one capturing a changing value) would otherwise
     // restart the sampler and release the override on every recomposition.
     val currentOnSampled: State<((durationNanos: Long) -> Unit)?> = rememberUpdatedState(onSampled)
 
     LaunchedEffect(
-        layer, density, layoutDirection, statusBarHeightPx, navBarHeightPx,
+        reader, statusBarHeightPx, navBarHeightPx,
         intervalMs, controller, probe, isAnimating, lifecycleOwner,
     ) {
         val statusPx: Int = statusBarHeightPx.coerceAtLeast(0)
@@ -154,71 +181,49 @@ public fun AutoSystemBarsIconStyle(
         val handle: SystemBarsOverrideHandle = controller.applyOverride(SystemBarsOverride.None)
         var lastPublished: SystemBarsOverride = SystemBarsOverride.None
 
-        // Reusable buffer for the strip bitmap — sized once per layout configuration, expanded in
-        // place if the strips grow (rotation etc.).
-        var pixelBuffer = IntArray(0)
-
         // What the last sample read: the root draw count at that moment and when it was. A periodic
-        // tick with nothing drawn since is skipped — the layer still holds the very pixels already
+        // tick with nothing drawn since is skipped — the frame still holds the very pixels already
         // read — see [idleTickIsRedundant]. Reset at every cycle start so a return from the
         // background always re-reads (a trigger fired while stopped was dropped, and the window may
         // have been re-themed meanwhile).
         var drawsAtLastSample: Int = NEVER_SAMPLED
         var ticksSinceLastSample = 0
 
-        // Read the sampled rows back through a scratch layer a few rows tall instead of the
-        // full-screen one. `toImageBitmap()` rasterises the *whole* layer and `toPixelMap()` then
-        // copies the *whole* bitmap back to the CPU — on a 1080 × 2400 screen that is ~10 MB per
-        // copy, twice per sample, all on the main thread. The 8 × 2 grid only ever looks at two rows
-        // per bar, so the scratch layer holds exactly those rows: each is the display layer redrawn
-        // with a one-row clip and shifted so the wanted source row lands there. The display list is
-        // replayed, not re-recorded, so the composables' draw lambdas do not run again.
-        // One readback at a time: on API 24-27 the readback suspends, so the trigger collector and
-        // the periodic tick could otherwise both be inside a sample, re-recording the strip layer
-        // under the first one's pending read.
+        // Consecutive attempts that read nothing (null, thrown, guard-skipped), reset by any success
+        // and at every cycle start — see [FAILED_READS_BEFORE_RELEASE].
+        var failedAttempts = 0
+
+        // One read at a time: a read may suspend (the Android window copy always does, the API
+        // 24-27 layer readback does), so the trigger collector and the periodic tick could
+        // otherwise both be inside a sample, and a reader that records into scratch state would be
+        // re-recorded under the first one's pending read.
         val sampling = SerialSampler()
 
         suspend fun sampleOnce(): Unit = sampling.run {
             val started: TimeSource.Monotonic.ValueTimeMark = TimeSource.Monotonic.markNow()
-            // Captured before the readback (on API 24-27 toImageBitmap suspends, and a root draw
-            // landing meanwhile must count as unread) and booked only once the readback succeeded —
-            // a failed one is retried on the next tick, not after several redundant ones.
+            // Captured before the read (it may suspend, and a root draw landing meanwhile must
+            // count as unread) and booked only once the read succeeded — a failed one is retried
+            // on the next tick, not after several redundant ones.
             val drawsBeforeReadback: Int = frameActivity.draws
-            // A readback that fails (mid-resize, trimmed display list) is one missed sample, not a
+            // A read that fails (mid-resize, trimmed display list) is one missed sample, not a
             // dead probe — but a cancellation must still stop the loop.
-            runCatching {
-                val source: IntSize = layer.size
-                if (source.width <= 0 || source.height <= 0) return@runCatching
-                val rowSources: IntArray = scratchRowSources(statusPx, navPx, source.height)
-                if (rowSources.isEmpty()) return@runCatching
-                val scratchWidth: Float = source.width.toFloat()
-
-                stripLayer.record(density, layoutDirection, IntSize(source.width, rowSources.size)) {
-                    rowSources.forEachIndexed { row, sourceY ->
-                        clipRect(0f, row.toFloat(), scratchWidth, (row + 1).toFloat()) {
-                            translate(top = (row - sourceY).toFloat()) { drawLayer(layer) }
-                        }
-                    }
+            val styles: BarStripStyles? = runCatching { reader.read(statusPx, navPx) }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrNull()
+            if (styles != null) {
+                lastPublished = publishStyles(handle, lastPublished, status = styles.status, nav = styles.nav)
+                failedAttempts = 0
+                drawsAtLastSample = drawsBeforeReadback
+                ticksSinceLastSample = 0
+            } else {
+                failedAttempts++
+                if (failedAttempts >= FAILED_READS_BEFORE_RELEASE) {
+                    // The held override was derived from content that is no longer being read: hand
+                    // the bars back to the base configuration (a no-op if already published) and
+                    // keep attempting at the normal cadence.
+                    lastPublished = publishStyles(handle, lastPublished, status = null, nav = null)
                 }
-
-                val bitmap: ImageBitmap = stripLayer.toImageBitmap()
-                val needed: Int = bitmap.width * bitmap.height
-                if (pixelBuffer.size < needed) pixelBuffer = IntArray(needed)
-                val pixelMap: PixelMap = bitmap.toPixelMap(buffer = pixelBuffer, stride = bitmap.width)
-                val statusRows: Int = scratchRowCount(statusPx)
-
-                // Status bar rows come first, the navigation bar's after them.
-                lastPublished = publishStyles(
-                    handle,
-                    lastPublished,
-                    status = sampleRows(pixelMap, startY = 0, rows = statusRows),
-                    nav = sampleRows(pixelMap, startY = statusRows, rows = rowSources.size - statusRows),
-                )
-            }.onFailure { if (it is CancellationException) throw it }
-                .onSuccess {
-                    drawsAtLastSample = drawsBeforeReadback
-                    ticksSinceLastSample = 0
-                }
+            }
             currentOnSampled.value?.invoke(started.elapsedNow().inWholeNanoseconds)
         }
 
@@ -229,10 +234,11 @@ public fun AutoSystemBarsIconStyle(
             // foreground starts a fresh cycle, first tick included.
             lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 drawsAtLastSample = NEVER_SAMPLED
+                failedAttempts = 0
                 coroutineScope {
                     // Trigger-driven samples — fired immediately by screens that change their
                     // backdrop. Two withFrameMillis passes wait until the *next* composed frame's
-                    // draw has completed and the layer has been re-recorded with the new state, so
+                    // draw has completed and the frame has been re-recorded with the new state, so
                     // this samples post-state-change content rather than the stale frame.
                     // Subscribed before anything else in the cycle so no trigger fired from here on
                     // is lost; one fired earlier is dropped by the replay-0 flow and covered by the
@@ -246,11 +252,11 @@ public fun AutoSystemBarsIconStyle(
                     }
 
                     // Two frames before the first tick: the frame clock fires ahead of that vsync's
-                    // draw, so after one frame the layer is still empty (a new composition) or
-                    // stale (a return from the background); after two it holds this cycle's own
+                    // draw, so after one frame the captured frame is still empty (a new composition)
+                    // or stale (a return from the background); after two it holds this cycle's own
                     // first frame.
                     withFrameMillis { /* wait — first frame of this cycle */ }
-                    withFrameMillis { /* wait — its draw has landed in the layer */ }
+                    withFrameMillis { /* wait — its draw has landed in the captured frame */ }
 
                     // Periodic samples — steady-state safety net for content that changes without
                     // an explicit trigger. Deferred while the UI is animating, up to a jittered
@@ -286,11 +292,12 @@ public fun AutoSystemBarsIconStyle(
 }
 
 /**
- * Runs samples one at a time, in the order they ask. On API 24-27 the readback suspends, so the
- * trigger collector and the periodic tick can both be inside a sample; the second would re-record
- * the scratch layer under the first one's pending read. A [Mutex], not a flag: a waiting sample must
- * run afterwards (it is the one that reads the post-trigger frame) and a cancelled waiter must just
- * leave. Kept as a class of its own so a test can drive it with a readback that never finishes.
+ * Runs samples one at a time, in the order they ask. A read may suspend (the Android window copy
+ * always does, the API 24-27 layer readback does), so the trigger collector and the periodic tick
+ * can both be inside a sample; the second would re-record a layer reader's scratch layer under the
+ * first one's pending read. A [Mutex], not a flag: a waiting sample must run afterwards (it is the
+ * one that reads the post-trigger frame) and a cancelled waiter must just leave. Kept as a class of
+ * its own so a test can drive it with a readback that never finishes.
  */
 internal class SerialSampler {
 
@@ -425,7 +432,7 @@ internal fun periodicSampleIsDue(
 
 /**
  * Whether a due periodic tick can be skipped: nothing has drawn into the root since the last sample
- * and nothing is [animating], so the layer holds exactly the pixels already read — unless the ticks
+ * and nothing is [animating], so the captured frame holds exactly the pixels already read — unless the ticks
  * since that sample already span [IDLE_RESAMPLE_MS], the bound that still catches a one-shot
  * layer-property change (it alters pixels without a root draw and without frame awaiters). Counted
  * in ticks rather than wall time so the loop behaves the same under a test clock. Triggered samples
@@ -484,11 +491,15 @@ internal fun luminanceToStyle(avgLuminance: Double): SystemBarIconStyle =
 /** Default periodic-sample cadence — see [AutoSystemBarsIconStyle]. */
 public const val DEFAULT_SAMPLE_INTERVAL_MS: Long = 300L
 
-private const val SAMPLE_COLS = 8
+/** Columns of the sparse sampling grid; also the width of the Android window-copy destination. */
+internal const val SAMPLE_COLS: Int = 8
 private const val SAMPLE_ROWS = 2
 private const val LUMINANCE_THRESHOLD = 0.5
 
-/** Rec. 709 luma coefficients — perceptual brightness of linear RGB. */
+/**
+ * Rec. 709 luma coefficients, applied to the gamma-encoded sRGB values the readback returns (luma
+ * Y′); the threshold was tuned on these values.
+ */
 private const val LUMA_RED = 0.2126
 private const val LUMA_GREEN = 0.7152
 private const val LUMA_BLUE = 0.0722
@@ -504,6 +515,13 @@ internal const val PERIODIC_DEFERRAL_JITTER_MS: Long = 900L
 
 /** On a settled screen with no root draw since the last sample, how long before one is taken anyway. */
 internal const val IDLE_RESAMPLE_MS: Long = 2_000L
+
+/**
+ * How many consecutive sample attempts may read nothing (a `null` read, a thrown one, a guard skip)
+ * before the probe withdraws its claim by publishing [SystemBarsOverride.None]. Idle-skipped ticks
+ * are not attempts; any successful read resets the count.
+ */
+internal const val FAILED_READS_BEFORE_RELEASE: Int = 3
 
 /** [FrameActivity.draws] value that marks "no sample yet in this cycle". */
 private const val NEVER_SAMPLED: Int = -1
