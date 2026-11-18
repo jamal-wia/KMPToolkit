@@ -68,6 +68,22 @@ of a screen that toggles `AutoSystemBarsIconStyle` stays stale after the toggle,
 `WindowInsets` reader (for example `Modifier.statusBarsPadding()` above it) keeps the listener
 installed and is the first thing to try.
 
+### A `WebView` under `AutoSystemBarsIconStyle` before 6.0.0
+
+Versions up to 5.0.0 (the sampler is identical on 4.0.0 and 5.0.0) replay the wrapped content
+offscreen on every sample, in a second hardware renderer, on every Android level. A `WebView` inside
+that content was reported (issue 13, found on 4.0.0) to flash blank for a few frames in every sixty,
+never to draw its CSS `backdrop-filter` layers, and to keep an idle screen rendering about 16 frames
+in 5 s; with `enabled = false` all three stopped. That the replay is the cause follows from the
+platform source; the WebView-internal effects are the reporter's measurements, not something this
+project has observed on a device. 6.0.0 reads the window with `PixelCopy` on Android 8.0+ and skips
+the sample while a `WebView` is attached on API 24-25.
+
+On 4.x and 5.x the workaround is to pause the probe while such a screen is shown: set
+`enabled = false` through a pause counter, as in the guide's
+[WebView, video and other platform views](03-guide.md#webview-video-and-other-platform-views).
+While it is paused the bars follow the base configuration.
+
 ### Edge-to-edge is your call, not this module's
 
 This module sets icon appearance and bar visibility. It does **not** call `enableEdgeToEdge()`.
@@ -359,16 +375,116 @@ own code still conflicts with both, as the interface KDoc warns.
 
 ## `AutoSystemBarsIconStyle`
 
-### What a sample costs, and why the shape matters
+### Where the pixels come from, and what a sample costs
 
-A full-screen `GraphicsLayer.toImageBitmap()` followed by `toPixelMap()` copies the *entire* rendered
-frame back to the CPU — on a 1080 × 2400 screen that is roughly 10 MB per copy, on the main thread.
-`AutoSystemBarsIconStyle` never does this: it re-records the display list into a scratch layer only a
-few rows tall (two per bar, by default), clipped and translated so each scratch row shows the source
-row it wants, and reads *that* back instead. The display list is replayed, not re-executed, so no
-composable's draw lambda runs again for a sample. Reading a strip a few rows tall instead of the
-whole screen is most of the difference between an imperceptible per-sample cost and a dropped frame
-every cycle — do not "simplify" this back to a full-screen readback.
+A sample never reads the whole frame: a full-screen `GraphicsLayer.toImageBitmap()` followed by
+`toPixelMap()` copies the *entire* rendered frame back to the CPU, which on a 1080 × 2400 screen is
+roughly 10 MB per copy, on the main thread. Every reader below reads a destination a few KB (or a
+few rows) in size; do not "simplify" any of them into a full-screen readback. What differs is where
+the pixels come from.
+
+**Android 8.0 (API 26) and later: the window, through `PixelCopy`.**
+
+- One `PixelCopy.request(window, decorRect, bitmap)` per sample copies the whole window into an
+  `8 × R` bitmap. `R` is chosen so that at least two destination rows fall inside the thinnest bar
+  (`R = ceil(2 × window height / thinnest bar)`, at most 256 rows), so the destination is at most
+  `8 × 256 × 4 B` = 8 KB. The cap binds only for a bar thinner than `2H / 256` (18.75 px on a
+  2400 px window); that bar then reads its nearest edge row. Each bar's rows are then handed to the
+  same sparse grid as everywhere else: 8 columns, up to 2 rows spread over the bar.
+- No content is drawn for a sample and no frame is scheduled by it: the probe's draw hook is a plain
+  `drawContent()`, so on this path nothing is recorded into an offscreen layer. Both the request and
+  the destination are fresh for every sample; a request still running when the sampler is cancelled
+  (the host drops below `STARTED`, the composable leaves the composition) is ignored when it answers.
+- According to the platform source this module was checked against, the copy runs synchronously on
+  the main thread on API 26-33 and completes asynchronously on 34 and later, and the answer reaches
+  the probe on the main looper either way. The cost on a real device has **not been measured**
+  (RELEASING.md's device check records it). The worst case is a 500 ms fence wait inside the
+  platform, which then answers with an error and is a skipped sample.
+- It reads the last buffer this window queued, which can be a frame ahead of what the display shows.
+  System bars, other windows and dim layers that the system composites above the window are not in
+  it.
+- A sample is skipped (nothing published, the previous claim kept) when there is no window (the view
+  has neither a Compose dialog window nor an `Activity` behind it), when the probe's view is not the
+  root of that window's decor (a `Popup`, an overlay), before the window has a size or a surface,
+  when the request throws `IllegalArgumentException`, and on every `PixelCopy` result other than
+  `SUCCESS`, an `ERROR_TIMEOUT` (the fence above) included. All of them are the same skip; see
+  [When reads fail](#when-reads-fail).
+
+**API 24 and 25: the probe's own content, behind a `WebView` guard.**
+
+- No window copy exists. The probe records its content into a layer, replays the rows it wants
+  into a scratch layer a few rows tall (two per bar) and reads that back, which is today's design
+  and keeps the full-screen readback out. The replay is a second hardware renderer. A `WebView` is
+  the one hosted view known to run foreign draw code (a draw functor) during that replay, so the
+  probe skips the sample while one is attached anywhere in the same Compose view, also outside the wrapped content
+  (the walk starts at the composition's own view: a deliberate over-approximation that never
+  under-skips). Subclasses count; visibility does not, because the replay uses the display list
+  recorded at the last frame, which still holds a `WebView` made invisible since.
+- The walk and the offscreen draw run in the same main-thread turn. The skip is a failed attempt in
+  the sense of [When reads fail](#when-reads-fail), and so is an empty layer (nothing recorded yet).
+
+**iOS: the probe's own content.** The same scratch-layer replay, rasterised on the CPU; no native
+view is touched. An empty layer (nothing recorded yet) is a skipped sample, not a successful one:
+before 6.0.0 it was booked as a success.
+
+**Desktop (`jvm`):** the probe never samples: a desktop window has no system bars, so the insets are
+zero, and there is no reader at all.
+
+The replay on the layer paths (API 24-25, iOS) does run foreign draw code (a `WebView`'s draw
+functor), and the cost of a sample was never measured on a device, so this page makes no
+"imperceptible" claim for any platform.
+
+### What the probe cannot see
+
+- **Android:** `SurfaceView` content (video, camera, some map SDKs), which is composited outside the
+  window's own buffer, and other windows (dialogs, popups).
+- **iOS:** non-overlay `UIKitView` content reads as a transparent hole, that is dark, so a white
+  `WKWebView` under the bar gets light icons.
+- **The side navigation bar** of a landscape phone with three-button navigation is not sampled: only
+  the bottom inset is read.
+- **Where Compose reports the bars.** The bars are read where Compose's `WindowInsets` reports them,
+  and a View parent that consumes the insets makes Compose read zero, which turns the probe off.
+- **API 24-25:** any screen while a `WebView` is attached anywhere in the same Compose view, even a
+  hidden one or one outside the wrapped content (this includes most ad banners).
+
+The workaround for each of them is the same: a screen-level `SystemBarsEffect` that claims the icon
+axes, which wins over the probe (see the guide's
+[WebView, video and other platform views](03-guide.md#webview-video-and-other-platform-views)).
+
+### When reads fail
+
+A sample that cannot read anything is skipped: nothing is published, nothing is booked, and the
+previous claim stays in place. Three consecutive attempts that read nothing (a `null` read, a thrown
+one, the API 24-25 `WebView` skip) make the probe publish an empty override once: the bars follow
+the base configuration until a read succeeds again. The probe keeps attempting at the normal
+cadence, any success resets the count and publishes normally, and the count also starts again at
+every return to `STARTED`. A tick skipped as idle is not an attempt. `onSampled` fires for every
+attempt, skipped ones included.
+
+`FLAG_SECURE` is expected to work (the platform's readback rejects only protected buffers), but that
+is unverified on a device: if it does not, every sample on such a window is a skip and the probe
+withdraws its claim after the third.
+
+### What has not been observed on a device
+
+Everything above about a real `PixelCopy` or a real `WebView` is read from platform source and
+from the reporter's measurements; this project has not run it on a device or an emulator. The
+Robolectric tests prove the plumbing through a shadow `PixelCopy` and fakes, nothing about Chromium
+or the platform's copy. RELEASING.md's "Systembars device check" is the row that closes these, and
+until it is run each is **inferred**:
+
+- that the offscreen replay is what makes a `WebView` flash blank and lose its `backdrop-filter`
+  layers, and keeps an idle screen drawing, and that none of it happens with the window copy (0 idle
+  frames after the change);
+- the main-thread cost of the synchronous copy on API 26-33, and the cost on 34 and later;
+- `FLAG_SECURE` behaviour;
+- the latency of a triggered sample (the design aims at about two frames; when the renderer skips a
+  frame itself the icons can lag the screen by up to two seconds, the idle re-sample bound);
+- that the decisions agree with 5.0.0's on real content (rows are picked differently now, so thin
+  mixed content can differ);
+- whether the API 24-25 replay also harms a `TextureView` (only a `WebView` is guarded);
+- whether three consecutive transient failures occur on healthy devices (the count of three was
+  chosen without a device).
 
 ### Sampling only while visible (both platforms)
 
@@ -385,13 +501,13 @@ endless animation is still sampled occasionally. Android answers this from `Reco
 — true while anything awaits a frame, including a child animating only its own layer transform, which
 never redraws the probe's root. iOS exposes no equivalent public signal, so `rememberIsAnimating()`
 returns `null` there and the periodic gate falls back to its draw clock alone (`sinceLastDrawMs`,
-written from the same `drawWithContent` that records the sampling layer). In practice this means a
+written from the probe's root `drawWithContent`). In practice this means a
 purely layer-driven animation (translation, alpha, scale with no recomposition) can defer a sample
 longer on iOS than on Android before the jittered cap forces one anyway — bounded, never unbounded.
 
 ### Both bars are read from the same captured frame
 
-The scratch layer holds the status bar's rows followed by the navigation bar's, both replayed from
-the *same* recorded frame in one `stripLayer.record` call, so the two bars' decisions are always
-about a single consistent moment — never one bar's decision from one frame and the other's from a
-frame recorded a tick later.
+On Android 8.0 and later both strips come from one `PixelCopy` of one buffer. Elsewhere both are
+replayed from the same recorded frame in one `stripLayer.record` call. Either way the two bars'
+decisions are always about a single consistent moment — never one bar's decision from one frame and
+the other's from a frame recorded a tick later.

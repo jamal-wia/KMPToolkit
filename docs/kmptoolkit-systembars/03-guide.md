@@ -242,6 +242,38 @@ fun PhotoViewerScreen(probe: StatusBarLuminanceProbe, page: Int) {
 Bursts are conflated to at most one extra sample, so calling this on every recomposition of a
 fast-changing value is safe.
 
+### WebView, video and other platform views
+
+- On Android 8.0+ the probe reads the window, so a `WebView` or a `TextureView` under the bars is
+  sampled like anything else and is not disturbed (this rests on the platform source, not on a run
+  on a device; see the platform notes' list of what has not been observed).
+- A `SurfaceView` (video, camera, some map SDKs) and iOS `UIKitView` content are not seen: claim the
+  icon axes with a screen-level `SystemBarsEffect` on such screens.
+- On API 24-25 a screen with a `WebView` anywhere in the same Compose view (this includes most ad
+  banners) is not sampled; its icons follow the base configuration after three skipped samples.
+- **Before 6.0.0 (4.x and 5.x):** pause `AutoSystemBarsIconStyle` (`enabled = false`) while a
+  `WebView` screen is shown. Use a pause counter rather than an on/off flag: navigation composes the
+  incoming destination before it disposes the outgoing one, so with a flag, WebView screen A to
+  WebView screen B would turn the probe back on while B is showing. While paused, the bars follow the
+  base configuration (your theme's icon styles). Example code:
+
+```kotlin
+// App root (4.x / 5.x workaround)
+val LocalProbePauses = staticCompositionLocalOf<MutableIntState> { error("no probe pause holder") }
+
+val probePauses = remember { mutableIntStateOf(0) }
+CompositionLocalProvider(LocalProbePauses provides probePauses) {
+    AutoSystemBarsIconStyle(controller, probe, enabled = probePauses.intValue == 0) { NavHost(/* ... */) }
+}
+
+// Any WebView screen
+val pauses = LocalProbePauses.current
+DisposableEffect(Unit) { pauses.intValue++; onDispose { pauses.intValue-- } }
+```
+
+On 6.0.0 and later this pause is not needed on Android 8.0+, and keeping it is harmless. The
+platform notes say [why 4.x and 5.x need it](05-platform-notes.md#a-webview-under-autosystembarsiconstyle-before-600).
+
 ### Placement
 
 Place `AutoSystemBarsIconStyle` once, near the root, and **not** under a layer-introducing modifier
@@ -289,3 +321,4 @@ this interface has no layering to protect it the way the bars do.
 | Hiding the bars with `Hidden` for a video player | `Immersive` — the user needs a way back |
 | A screen computing its own contrasting icon style by hand | `AutoSystemBarsIconStyle` near the root, `triggerRecalculation()` on background change |
 | `AutoSystemBarsIconStyle` under a `graphicsLayer`/`clip`/`shadow`/`AnimatedContent` | Place it once, near the root, above every layer-introducing modifier |
+| Pausing `AutoSystemBarsIconStyle` on `WebView` screens on 6.0.0+ | Not needed on Android 8.0+; on 4.x/5.x it is the documented workaround |
